@@ -1,0 +1,38 @@
+{
+  "schema": "brailix.music.print_repeats.v1",
+  "name": "bana_2015_music_print_repeats",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 17. Print Repeats (Pars. 17.1-17.3)",
+  "print_repeats": {
+    "double_bar_dots_after": {
+      "cells": [
+        "c_126",
+        "c_2356"
+      ]
+    },
+    "double_bar_dots_before": {
+      "cells": [
+        "c_126",
+        "c_23"
+      ]
+    },
+    "prima_volta": {
+      "cells": [
+        "c_3456",
+        "c_2"
+      ]
+    },
+    "seconda_volta": {
+      "cells": [
+        "c_3456",
+        "c_23"
+      ]
+    },
+    "aperiodic_repetition_line": {
+      "cells": [
+        "c_26",
+        "c_2356"
+      ]
+    }
+  }
+}

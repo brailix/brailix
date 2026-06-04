@@ -1,0 +1,339 @@
+"""Container handlers: ``<score-partwise>`` / ``<part>`` / ``<measure>``.
+
+These don't emit cells themselves — they walk children through the
+dispatch table, managing per-level state (octave reset between parts,
+``measure_accidentals`` reset at every bar line, multi-voice fan-out
+for BANA Par. 11.1 in-accord).
+"""
+
+from __future__ import annotations
+
+import xml.etree.ElementTree as ET
+
+from brailix.backend.music.context import MusicBrailleContext
+from brailix.backend.music.dispatch import _emit_element
+from brailix.backend.music.utils import emit_cells_for_entity, first_child_text
+from brailix.ir.braille import BrailleCell
+
+
+def _emit_score_partwise(
+    cells: list[BrailleCell], mctx: MusicBrailleContext, elem: ET.Element
+) -> None:
+    """Walk every ``<part>`` in declaration order.
+
+    Consecutive parts are separated by a zero-width ``music_part_sep``
+    boundary cell — the part-level sibling of ``music_measure_sep``.
+    Bar-over-bar layout (BANA §28) splits on it to stack parts into
+    measure-aligned parallels; single-line layout treats it as a
+    break point.  Emitted only *between* parts (not before the first),
+    so single-part scores are unaffected.
+    """
+    part_seen = False
+    for child in elem:
+        if child.tag == "part":
+            if part_seen:
+                cells.append(
+                    BrailleCell(
+                        dots=(),
+                        role="music_part_sep",
+                        source_span=mctx.span,
+                    )
+                )
+            part_seen = True
+        _emit_element(cells, mctx, child)
+
+
+def _staff_of_note(note: ET.Element) -> str:
+    """The note's ``<staff>`` text — default ``"1"`` when absent."""
+    return first_child_text(note, "staff") or "1"
+
+
+def _part_staves(part: ET.Element) -> list[str]:
+    """Distinct staff numbers used by the part's notes, sorted.
+
+    Returns ``[]`` for a single-staff part (every note on the default
+    staff) so single-staff scores keep the original, un-split path."""
+    seen: set[str] = set()
+    for measure in part:
+        if measure.tag != "measure":
+            continue
+        for note in measure:
+            if note.tag == "note":
+                seen.add(_staff_of_note(note))
+    return sorted(seen) if len(seen) > 1 else []
+
+
+def _attributes_for_staff(attrs: ET.Element, staff: str) -> ET.Element:
+    """Copy ``<attributes>`` keeping only ``staff``'s clef (matched by
+    ``number``; an unnumbered clef belongs to staff 1) plus the shared
+    context (divisions / key / time / …).  The ``<staves>`` hint is
+    dropped from the per-staff view."""
+    out = ET.Element(attrs.tag, attrs.attrib)
+    for child in attrs:
+        if child.tag == "clef":
+            num = child.attrib.get("number")
+            if num == staff or (num is None and staff == "1"):
+                out.append(child)
+        elif child.tag == "staves":
+            continue
+        else:
+            out.append(child)
+    return out
+
+
+def _measure_for_staff(measure: ET.Element, staff: str) -> ET.Element:
+    """A per-staff view of ``measure``: only that staff's notes and clef,
+    with the shared key / time / barline / direction copied through so the
+    staff's stream keeps full accidental + metre context."""
+    out = ET.Element(measure.tag, measure.attrib)
+    for child in measure:
+        if child.tag == "note":
+            if _staff_of_note(child) == staff:
+                out.append(child)
+        elif child.tag == "attributes":
+            out.append(_attributes_for_staff(child, staff))
+        else:
+            out.append(child)
+    return out
+
+
+def _emit_measures(
+    cells: list[BrailleCell],
+    mctx: MusicBrailleContext,
+    children: list[ET.Element],
+    separator: str,
+) -> None:
+    """Walk a measure sequence, spacing consecutive measures with a
+    ``music_measure_sep`` (gated by ``music.measure_separator``)."""
+    measure_seen = False
+    for child in children:
+        if child.tag == "measure":
+            if measure_seen and separator == "space":
+                cells.append(
+                    BrailleCell(
+                        dots=(),
+                        role="music_measure_sep",
+                        source_span=mctx.span,
+                    )
+                )
+            measure_seen = True
+        _emit_element(cells, mctx, child)
+
+
+def _emit_part(
+    cells: list[BrailleCell], mctx: MusicBrailleContext, elem: ET.Element
+) -> None:
+    """Walk a part's measures.
+
+    A single-staff part emits straight through, each part starting a
+    fresh octave context (BANA Par. 3.2.1).  A multi-staff part (e.g. a
+    piano with ``<staff>1`` right hand / ``<staff>2`` left hand) is split
+    into one stream per staff, separated by ``music_part_sep`` so
+    bar-over-bar layout aligns the hands as parallel parts (§29).  Each
+    staff stream restarts octave inference and carries the shared key /
+    time (accidental context stays correct); clefs split by ``number``;
+    in-accord (multi-voice) runs within each staff.
+
+    Consecutive measures are spaced by a ``music_measure_sep``
+    (``music.measure_separator``, default ``"space"``).  M8 provenance:
+    ``current_part_id`` is recorded so child cells carry it, restored on
+    exit so siblings see the original value.
+    """
+    saved = mctx.current_part_id
+    mctx.current_part_id = elem.attrib.get("id") or saved
+    separator = mctx.profile.feature("music.measure_separator", "space")
+    try:
+        staves = _part_staves(elem)
+        if not staves:
+            mctx.prev_pitch = None
+            _emit_measures(cells, mctx, list(elem), separator)
+            return
+        for i, staff in enumerate(staves):
+            if i > 0:
+                cells.append(
+                    BrailleCell(
+                        dots=(),
+                        role="music_part_sep",
+                        source_span=mctx.span,
+                    )
+                )
+            mctx.prev_pitch = None  # octave inference restarts per staff
+            children = [
+                _measure_for_staff(c, staff) if c.tag == "measure" else c
+                for c in elem
+            ]
+            _emit_measures(cells, mctx, children, separator)
+    finally:
+        mctx.current_part_id = saved
+
+
+def _emit_measure(
+    cells: list[BrailleCell], mctx: MusicBrailleContext, elem: ET.Element
+) -> None:
+    """Walk a measure's children.
+
+    Resets per-measure state:
+    * ``octave_rule="every_measure"`` resets ``prev_pitch`` so every
+      measure's first note re-marks octave (default ``interval16``
+      carries pitch state across bar lines).
+    * **Always** resets ``measure_accidentals`` so the BANA Par. 6.2
+      "accidental holds within the measure" rule starts fresh at
+      every bar line.
+
+    M4 (BANA Par. 11.1): if the measure carries notes from more than
+    one ``<voice>``, route through :func:`_emit_multi_voice` which
+    emits each voice's notes grouped, separated by the
+    full-measure in-accord marker (``<>``). Single-voice measures
+    keep the original sequential walk so per-element ordering
+    (notes / barlines / directions) is unchanged.
+    """
+    if mctx.octave_rule == "every_measure":
+        mctx.prev_pitch = None
+    mctx.measure_accidentals = set()
+    # M8 provenance: record current measure number so child cells'
+    # source_text carries it. Restored on exit.
+    saved_measure = mctx.current_measure_number
+    mctx.current_measure_number = (
+        elem.attrib.get("number") or saved_measure
+    )
+    try:
+        voices = _scan_voices(elem)
+        if len(voices) <= 1:
+            for child in elem:
+                _emit_element(cells, mctx, child)
+        else:
+            _emit_multi_voice(cells, mctx, elem, voices)
+    finally:
+        mctx.current_measure_number = saved_measure
+
+
+def _scan_voices(measure: ET.Element) -> list[str]:
+    """Return the distinct ``<voice>`` strings present on ``<note>``
+    children, preserved in first-encountered order.
+
+    Notes without a ``<voice>`` child still count as one implicit
+    voice — most simple scores omit ``<voice>`` and rely on the
+    default 1. If every note lacks a voice (or all share the same
+    voice), the result has length ≤ 1 and the caller stays on the
+    single-voice fast path.
+    """
+    seen: list[str] = []
+    seen_set: set[str] = set()
+    for child in measure:
+        if child.tag != "note":
+            continue
+        v = first_child_text(child, "voice") or "1"
+        if v not in seen_set:
+            seen.append(v)
+            seen_set.add(v)
+    return seen
+
+
+def _emit_multi_voice(
+    cells: list[BrailleCell],
+    mctx: MusicBrailleContext,
+    measure: ET.Element,
+    voices: list[str],
+) -> None:
+    """BANA Par. 11.1: full-measure in-accord emission.
+
+    Layout:
+
+    1. **Pre-globals** — children that appear *before* the first
+       ``<note>`` / ``<backup>`` / ``<forward>``. These are typically
+       ``<attributes>``, ``<barline location="left">``, opening
+       ``<direction>``, ``<print>`` — they belong at the head of the
+       measure regardless of voice.
+    2. **Voice notes** — grouped by ``<voice>`` tag in source order;
+       ``<backup>`` and ``<forward>`` (cursor controls) are skipped
+       in M4 since timing reconstruction isn't required for full-
+       measure in-accord. Between voices, insert
+       ``general.in_accord.full_measure_in_accord`` (``<>``). At each
+       voice boundary, ``prev_pitch`` resets so the new voice's first
+       note re-marks octave (BANA Par. 3.2.1); ``measure_accidentals``
+       stays shared so Par. 6.2 reads across voices.
+    3. **Post-globals** — children that appear *after* the last
+       ``<note>`` / ``<backup>`` / ``<forward>``. Typically
+       ``<barline location="right">`` (the closing bar) and any
+       trailing direction. These must land after all voice content
+       so the final bar / dynamic marks the right place.
+
+    The ``music.in_accord_marker`` feature gates the marker emission;
+    when off, voices simply concatenate (lossy — proofread debug
+    only, not BANA-valid). The ``music.in_accord_form`` feature is
+    reserved for the part-measure variant (Par. 11.2); anything
+    other than ``"full_measure"`` warns and falls back here.
+    """
+    form = mctx.profile.feature("music.in_accord_form", "full_measure")
+    if form != "full_measure":
+        mctx.backend.warnings.warn(
+            code="MUSIC_UNSUPPORTED_NOTATION",
+            message=(
+                f"music.in_accord_form={form!r} not implemented "
+                f"(M4 covers 'full_measure' only); falling back"
+            ),
+            source="backend.music",
+        )
+
+    children = list(measure)
+    cursor_tags = {"note", "backup", "forward"}
+    cursor_indices = [
+        i for i, c in enumerate(children) if c.tag in cursor_tags
+    ]
+    # Defensive: no cursor elements means there are no voices to
+    # group, but we only reach this branch when ``_scan_voices``
+    # returned ≥2 voices — so we trust that and split anyway.
+    first_cursor_idx = cursor_indices[0] if cursor_indices else len(children)
+    last_cursor_idx = cursor_indices[-1] if cursor_indices else -1
+
+    voice_notes: dict[str, list[ET.Element]] = {v: [] for v in voices}
+    pre_globals: list[ET.Element] = []
+    post_globals: list[ET.Element] = []
+    for i, child in enumerate(children):
+        if child.tag == "note":
+            v = first_child_text(child, "voice") or voices[0]
+            voice_notes.setdefault(v, []).append(child)
+        elif child.tag in ("backup", "forward"):
+            continue
+        elif i < first_cursor_idx:
+            pre_globals.append(child)
+        elif i > last_cursor_idx:
+            post_globals.append(child)
+        else:
+            # In the middle of the cursor zone — rare; assume the
+            # author meant it as a measure-level marker and post-place
+            # it so it doesn't interleave between voices.
+            post_globals.append(child)
+
+    for el in pre_globals:
+        _emit_element(cells, mctx, el)
+
+    show_marker = mctx.profile.feature("music.in_accord_marker", True)
+    for i, voice in enumerate(voices):
+        if i > 0:
+            if show_marker:
+                emit_cells_for_entity(
+                    cells, mctx,
+                    topic="in_accord", entity="full_measure_in_accord",
+                    role="music_in_accord",
+                    source_text="in-accord",
+                )
+            # Reset prev_pitch so the new voice's first note re-marks
+            # the octave (BANA Par. 3.2.1 treats each voice's start
+            # like the start of a line). measure_accidentals stays
+            # shared — Par. 6.2 reads across voices within the bar.
+            mctx.prev_pitch = None
+        for note in voice_notes[voice]:
+            _emit_element(cells, mctx, note)
+
+    for el in post_globals:
+        _emit_element(cells, mctx, el)
+
+
+_DISPATCH_PARTIAL = {
+    "score-partwise": _emit_score_partwise,
+    # Score-timewise: not supported in M2.3 (would need a transform).
+    # M3+ will add normaliser-side conversion.
+    "part": _emit_part,
+    "measure": _emit_measure,
+}

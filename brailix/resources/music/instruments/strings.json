@@ -1,0 +1,170 @@
+{
+  "schema": "brailix.music.instruments.strings.v1",
+  "name": "bana_2015_music_strings",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 24. String Instruments (Pars. Pars. 25, 26)",
+  "strings": {
+    "down_bow": {
+      "cells": [
+        "c_126",
+        "c_12"
+      ]
+    },
+    "up_bow": {
+      "cells": [
+        "c_126",
+        "c_3"
+      ]
+    },
+    "left_hand_pizzicato": {
+      "cells": [
+        "c_456",
+        "c_345"
+      ]
+    },
+    "arco": {
+      "cells": [
+        "c_345",
+        "c_1",
+        "c_1235",
+        "c_14",
+        "c_135"
+      ]
+    },
+    "left_hand_thumb": {
+      "cells": [
+        "c_16",
+        "c_13"
+      ]
+    },
+    "open_string": {
+      "cells": [
+        "c_13"
+      ]
+    },
+    "natural_harmonic": {
+      "cells": [
+        "c_13"
+      ]
+    },
+    "artificial_harmonic": {
+      "cells": [
+        "c_16",
+        "c_123"
+      ]
+    },
+    "shift_or_glide": {
+      "cells": [
+        "c_4",
+        "c_1"
+      ]
+    },
+    "lh_index_finger": {
+      "cells": [
+        "c_1"
+      ]
+    },
+    "lh_second_finger": {
+      "cells": [
+        "c_12"
+      ]
+    },
+    "lh_third_finger": {
+      "cells": [
+        "c_123"
+      ]
+    },
+    "lh_fourth_finger": {
+      "cells": [
+        "c_2"
+      ]
+    },
+    "plectrum_up_stroke": {
+      "cells": [
+        "c_126",
+        "c_3"
+      ]
+    },
+    "plectrum_down_stroke": {
+      "cells": [
+        "c_126",
+        "c_12"
+      ]
+    },
+    "rh_thumb": {
+      "cells": [
+        "c_1234"
+      ]
+    },
+    "rh_first_finger": {
+      "cells": [
+        "c_24"
+      ]
+    },
+    "rh_second_finger": {
+      "cells": [
+        "c_134"
+      ]
+    },
+    "rh_third_finger": {
+      "cells": [
+        "c_1"
+      ]
+    },
+    "rh_fourth_finger": {
+      "cells": [
+        "c_14"
+      ]
+    },
+    "rh_fourth_finger_ch": {
+      "cells": [
+        "c_1346"
+      ]
+    },
+    "single_shift_or_glide": {
+      "cells": [
+        "c_4",
+        "c_1"
+      ]
+    },
+    "start_extended_shift": {
+      "cells": [
+        "c_4",
+        "c_1",
+        "c_3"
+      ]
+    },
+    "end_extended_shift": {
+      "cells": [
+        "c_6",
+        "c_4",
+        "c_1"
+      ]
+    },
+    "grand_or_full_barre": {
+      "cells": [
+        "c_456"
+      ]
+    },
+    "half_or_partial_barre": {
+      "cells": [
+        "c_45"
+      ]
+    },
+    "bracket_barre": {
+      "cells": [
+        "c_4"
+      ]
+    },
+    "rhythmic_strumming": {
+      "cells": [
+        "c_34"
+      ]
+    },
+    "mute_or_damp": {
+      "cells": [
+        "c_3"
+      ]
+    }
+  }
+}

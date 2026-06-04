@@ -1,0 +1,81 @@
+{
+  "description": "Pure-Chinese paragraphs, single characters, and words — pinyin-to-cell correspondence.",
+  "regen_hint": "python -c \"from brailix import Pipeline; print(repr(Pipeline().translate_text(SRC).render()))\"",
+  "groups": {
+    "single_hanzi": {
+      "description": "Single hanzi (with pinyin / tone marker)",
+      "cases": [
+        {
+          "src": "我",
+          "expected": "⠕⠄",
+          "note": "wo3"
+        },
+        {
+          "src": "你",
+          "expected": "⠝⠊⠄",
+          "note": "ni3"
+        },
+        {
+          "src": "好",
+          "expected": "⠓⠖⠄",
+          "note": "hao3"
+        },
+        {
+          "src": "是",
+          "expected": "⠱⠆",
+          "note": "shi4 (no tone marker if 4th tone uses 2-cell only)"
+        },
+        {
+          "src": "的",
+          "expected": "⠙⠢",
+          "note": "de (neutral tone)"
+        }
+      ]
+    },
+    "multi_words": {
+      "description": "Multi-character words (after jieba segmentation, one blank cell between words, none within a word)",
+      "cases": [
+        {
+          "src": "你好",
+          "expected": "⠝⠊⠄⠓⠖⠄",
+          "note": "jieba: 你好 is one Word — no internal blank"
+        },
+        {
+          "src": "重庆",
+          "expected": "⠟⠲⠂⠅⠡⠆",
+          "note": "polyphone 重庆: chong2 qing4"
+        },
+        {
+          "src": "银行",
+          "expected": "⠣⠂⠓⠦⠂",
+          "note": "polyphone 银行: yin2 hang2"
+        },
+        {
+          "src": "朝阳",
+          "expected": "⠌⠖⠁⠭⠂",
+          "note": "polyphone 朝阳: zhao1 yang2"
+        },
+        {
+          "src": "长安",
+          "expected": "⠟⠦⠂⠧⠁",
+          "note": "polyphone 长安: chang2 an1"
+        },
+        {
+          "src": "我在重庆",
+          "expected": "⠕⠄⠀⠵⠪⠆⠀⠟⠲⠂⠅⠡⠆",
+          "note": "jieba: 我/在/重庆 — blanks between three tokens"
+        },
+        {
+          "src": "我喜欢学习",
+          "expected": "⠕⠄⠀⠓⠊⠄⠓⠻⠁⠀⠓⠾⠂⠓⠊⠂",
+          "note": "jieba: 我/喜欢/学习 — blanks only between words"
+        },
+        {
+          "src": "今天天气真好",
+          "expected": "⠛⠣⠁⠞⠩⠁⠞⠩⠁⠅⠊⠆⠀⠌⠴⠁⠀⠓⠖⠄",
+          "note": "jieba: 今天天气/真/好 — first chunk has no internal blanks"
+        }
+      ]
+    }
+  }
+}

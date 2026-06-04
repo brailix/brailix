@@ -1,0 +1,24 @@
+{
+  "schema": "brailix.table.letters.v1",
+  "name": "greek_basic",
+  "cell": "six_dot",
+  "_note": "Neutral Greek letter table (demonstrative coverage) — each letter references a named cell from cells.json; the math-context 46/456 prefix is composed at config-load time from structures.json.",
+  "letters": {
+    "_aliases_note": "latex2mathml maps some commands to character variants: \\phi → ϕ U+03D5 (not φ U+03C6); \\epsilon → ϵ U+03F5 (not ε U+03B5); \\theta → ϑ U+03D1 (not θ U+03B8). The 'lower' map below gives both the φ / ϕ codepoints the same cells, so LaTeX output is covered.",
+    "lower": {
+      "α": "c_1",     "β": "c_12",    "γ": "c_1245",  "δ": "c_145",   "ε": "c_15",
+      "ζ": "c_1356",  "η": "c_156",   "θ": "c_1456",  "ι": "c_24",    "κ": "c_13",
+      "λ": "c_123",   "μ": "c_134",   "ν": "c_1345",  "ξ": "c_1346",  "π": "c_1234",
+      "ρ": "c_1235",  "σ": "c_234",   "τ": "c_2345",  "υ": "c_136",   "φ": "c_124",
+      "χ": "c_12345", "ψ": "c_13456", "ω": "c_2456",
+      "ϕ": "φ",       "ϵ": "ε",       "ϑ": "θ",       "ϱ": "ρ",       "ς": "σ"
+    },
+    "upper": {
+      "Α": "c_1",     "Β": "c_12",    "Γ": "c_1245",  "Δ": "c_145",   "Ε": "c_15",
+      "Ζ": "c_1356",  "Η": "c_156",   "Θ": "c_1456",  "Ι": "c_24",    "Κ": "c_13",
+      "Λ": "c_123",   "Μ": "c_134",   "Ν": "c_1345",  "Ξ": "c_1346",  "Π": "c_1234",
+      "Ρ": "c_1235",  "Σ": "c_234",   "Τ": "c_2345",  "Υ": "c_136",   "Φ": "c_124",
+      "Χ": "c_12345", "Ψ": "c_13456", "Ω": "c_2456"
+    }
+  }
+}

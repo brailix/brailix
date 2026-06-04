@@ -1,0 +1,26 @@
+{
+  "schema": "brailix.music.tie.v1",
+  "name": "bana_2015_music_tie",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 10. The Tie (Pars. 10.1-10.3)",
+  "tie": {
+    "tie_between_single_notes": {
+      "cells": [
+        "c_4",
+        "c_14"
+      ]
+    },
+    "tie_between_chords": {
+      "cells": [
+        "c_46",
+        "c_14"
+      ]
+    },
+    "accumulating_arpeggio": {
+      "cells": [
+        "c_45",
+        "c_14"
+      ]
+    }
+  }
+}

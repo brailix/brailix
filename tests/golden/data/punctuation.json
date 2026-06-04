@@ -1,0 +1,91 @@
+{
+  "description": "Chinese / math punctuation — spacing rules, two-cell symbols, sentence-final punctuation.",
+  "regen_hint": "python -c \"from brailix import Pipeline; print(repr(Pipeline().translate_text(SRC).render()))\"",
+  "groups": {
+    "zh_punct": {
+      "description": "Chinese punctuation (jieba segmentation, one blank cell between words)",
+      "cases": [
+        {
+          "src": "你好，世界。",
+          "expected": "⠝⠊⠄⠓⠖⠄⠐⠀⠱⠆⠛⠑⠆⠐⠆",
+          "note": "comma + period: comma 1-cell + space, period 2-cell"
+        },
+        {
+          "src": "你好吗？",
+          "expected": "⠝⠊⠄⠓⠖⠄⠀⠍⠔⠐⠄",
+          "note": "Chinese ？ is two cells ⠐⠄ with no trailing blank (two-cell sentence-final mark, like 。 ！)"
+        },
+        {
+          "src": "你好！",
+          "expected": "⠝⠊⠄⠓⠖⠄⠰⠂",
+          "note": "exclamation mark"
+        },
+        {
+          "src": "苹果、香蕉、橘子",
+          "expected": "⠏⠡⠂⠛⠕⠄⠈⠀⠓⠭⠁⠛⠜⠁⠈⠀⠛⠬⠂⠵",
+          "note": "dunhao 、 separator between items (蕉=jiao1: iao final is ⠜)"
+        },
+        {
+          "src": "他说：好。",
+          "expected": "⠞⠔⠁⠀⠱⠕⠁⠒⠀⠓⠖⠄⠐⠆",
+          "note": "colon followed by clause"
+        },
+        {
+          "src": "等等。",
+          "expected": "⠙⠼⠄⠙⠼⠄⠐⠆",
+          "note": "repeated chars + period"
+        },
+        {
+          "src": "你；我",
+          "expected": "⠝⠊⠄⠆⠀⠕⠄",
+          "note": "semicolon between Chinese chars"
+        },
+        {
+          "src": "你好。世界。",
+          "expected": "⠝⠊⠄⠓⠖⠄⠐⠆⠱⠆⠛⠑⠆⠐⠆",
+          "note": "double sentences"
+        },
+        {
+          "src": "好。",
+          "expected": "⠓⠖⠄⠐⠆",
+          "note": "single char + period"
+        },
+        {
+          "src": "好。坏。",
+          "expected": "⠓⠖⠄⠐⠆⠓⠽⠆⠐⠆",
+          "note": "two short sentences"
+        },
+        {
+          "src": "你，",
+          "expected": "⠝⠊⠄⠐⠀",
+          "note": "comma at end of input"
+        },
+        {
+          "src": "对吗？",
+          "expected": "⠙⠺⠆⠀⠍⠔⠐⠄",
+          "note": "two chars + Chinese ？ (⠐⠄, no trailing blank)"
+        },
+        {
+          "src": "你这个人怎么这样？",
+          "expected": "⠝⠊⠄⠀⠌⠢⠆⠛⠢⠀⠚⠴⠂⠀⠵⠴⠄⠍⠢⠀⠌⠢⠆⠭⠆⠐⠄",
+          "note": "regression for ？ bug (scratch_1.txt 2026-05-24): Chinese ？ must produce ⠐⠄, not the English ⠦"
+        }
+      ]
+    },
+    "math_punct": {
+      "description": "Punctuation inside math formulas (comma / dot)",
+      "cases": [
+        {
+          "src": "$a, b$",
+          "expected": "⠰⠁⠂⠀⠰⠃",
+          "note": "math comma: ⠂ + blank (space_after)"
+        },
+        {
+          "src": "$a \\cdot b$",
+          "expected": "⠰⠁⠄⠰⠃",
+          "note": "rules §2 \\dot ⠄ no spaces"
+        }
+      ]
+    }
+  }
+}

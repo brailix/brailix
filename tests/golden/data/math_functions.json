@@ -1,0 +1,47 @@
+{
+  "description": "Math function names — trig (sin/cos/tan + arc / hyperbolic) and the log/exp family.",
+  "regen_hint": "python -c \"from brailix import Pipeline; print(repr(Pipeline().translate_text(SRC).render()))\"",
+  "groups": {
+    "trig": {
+      "description": "Trigonometric functions and their arc / hyperbolic variants",
+      "cases": [
+        {"src": "$\\sin x$", "expected": "⠫⠎⠰⠭", "note": "rules: \\sin = function_prefix(⠫) + s(⠎)"},
+        {"src": "$\\cos x$", "expected": "⠫⠉⠰⠭", "note": "\\cos = ⠫ + c"},
+        {"src": "$\\tan x$", "expected": "⠫⠞⠰⠭", "note": "\\tan = ⠫ + t"},
+        {"src": "$\\cot x$", "expected": "⠫⠉⠞⠰⠭", "note": "\\cot = ⠫ + c + t"},
+        {"src": "$\\sec x$", "expected": "⠫⠎⠉⠰⠭", "note": "《盲文常用数学符号》secant \\sec = ⠫ + s + c"},
+        {"src": "$\\csc x$", "expected": "⠫⠉⠎⠰⠭", "note": "《盲文常用数学符号》cosecant \\csc = ⠫ + c + s"},
+        {"src": "$\\arcsin x$", "expected": "⠫⠁⠎⠰⠭", "note": "rules §53 \\arcsin = ⠫⠁⠎"},
+        {"src": "$\\arccos x$", "expected": "⠫⠁⠉⠰⠭", "note": "\\arccos = ⠫ + a + cos"},
+        {"src": "$\\arctan x$", "expected": "⠫⠁⠞⠰⠭", "note": "\\arctan = ⠫ + a + tan"},
+        {"src": "$\\sinh x$", "expected": "⠫⠎⠓⠰⠭", "note": "\\sinh = ⠫ + sin + h"},
+        {"src": "$\\cosh x$", "expected": "⠫⠉⠓⠰⠭", "note": "\\cosh = ⠫ + cos + h"},
+        {"src": "$\\tanh x$", "expected": "⠫⠞⠓⠰⠭", "note": "\\tanh = ⠫ + tan + h"},
+        {"src": "$\\coth x$", "expected": "⠫⠉⠞⠓⠰⠭", "note": "\\coth = ⠫ + cot + h"}
+      ]
+    },
+    "log": {
+      "description": "log / exp family",
+      "cases": [
+        {"src": "$\\ln x$", "expected": "⠫⠇⠝⠰⠭", "note": "rules: \\ln = ⠫ + l + n"},
+        {"src": "$\\lg x$", "expected": "⠫⠇⠛⠰⠭", "note": "rules: \\lg = ⠫ + l + g"},
+        {"src": "$\\log x$", "expected": "⠫⠇⠰⠭", "note": "rules.txt §21 + 《盲文常用数学符号》: \\log of any base = ⠫ + single letter l"},
+        {"src": "$\\log_2 x$", "expected": "⠫⠇⠡⠆⠰⠭", "note": "rules.txt §21 \\log_2{x}=⠫⠇⠡⠆…: log(single l) + subscript atom 2"},
+        {"src": "$\\exp x$", "expected": "⠫⠑⠰⠭", "note": "《盲文常用数学符号》exp exponential = ⠫ + single letter e"}
+      ]
+    },
+    "func_args": {
+      "description": "Functions applied to non-variable arguments",
+      "cases": [
+        {"src": "$\\sin \\pi$", "expected": "⠫⠎⠨⠏", "note": "\\sin applied to π"},
+        {"src": "$\\cos \\alpha$", "expected": "⠫⠉⠨⠁", "note": "\\cos applied to α"},
+        {"src": "$\\ln e$", "expected": "⠫⠇⠝⠰⠑", "note": "\\ln applied to e"},
+        {"src": "$\\sin 2x$", "expected": "⠫⠎⠼⠃⠰⠭", "note": "\\sin applied to 2x"},
+        {"src": "$\\sin(x)$", "expected": "⠫⠎⠣⠰⠭⠜", "note": "\\sin with parens"},
+        {"src": "$\\log(x)$", "expected": "⠫⠇⠣⠰⠭⠜", "note": "\\log(single l) with parens"},
+        {"src": "$\\ln e^2$", "expected": "⠫⠇⠝⠰⠑⠌⠆", "note": "\\ln e^2 — sup atomic 2"},
+        {"src": "$\\exp(x^2)$", "expected": "⠫⠑⠣⠰⠭⠌⠆⠜", "note": "\\exp(single e)(x^2)"}
+      ]
+    }
+  }
+}

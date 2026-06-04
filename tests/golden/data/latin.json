@@ -1,0 +1,49 @@
+{
+  "description": "English text (V3 current-braille convention: the first letter of each word carries a case prefix, subsequent letters are bare).",
+  "regen_hint": "python -c \"from brailix import Pipeline; print(repr(Pipeline().translate_text(SRC).render()))\"",
+  "groups": {
+    "single_letter": {
+      "description": "Single letter — prefix + letter (2 cells)",
+      "cases": [
+        {"src": "a", "expected": "⠰⠁", "note": "lowercase a: ⠰ + a"},
+        {"src": "z", "expected": "⠰⠵", "note": "lowercase z"},
+        {"src": "A", "expected": "⠠⠁", "note": "uppercase A: ⠠ + a"},
+        {"src": "Z", "expected": "⠠⠵", "note": "uppercase Z"}
+      ]
+    },
+    "lower_word": {
+      "description": "Lowercase word — one prefix + bare letters",
+      "cases": [
+        {"src": "hello", "expected": "⠰⠓⠑⠇⠇⠕", "note": "5-char word: 1 prefix + 5 bare letters"},
+        {"src": "world", "expected": "⠰⠺⠕⠗⠇⠙", "note": "5-char word"},
+        {"src": "ab", "expected": "⠰⠁⠃", "note": "2-char word: prefix + a + b"}
+      ]
+    },
+    "mixed_case": {
+      "description": "Mixed case — the first letter's case picks the prefix, subsequent letters are bare",
+      "cases": [
+        {"src": "Hello", "expected": "⠠⠓⠑⠇⠇⠕", "note": "first letter cap"},
+        {"src": "World", "expected": "⠠⠺⠕⠗⠇⠙", "note": "same shape"},
+        {"src": "Hello World", "expected": "⠠⠓⠑⠇⠇⠕⠀⠠⠺⠕⠗⠇⠙", "note": "two words, each takes own prefix"},
+        {"src": "McDonald", "expected": "⠠⠍⠉⠙⠕⠝⠁⠇⠙", "note": "mid-word D becomes bare cell"},
+        {"src": "iPhone", "expected": "⠰⠊⠏⠓⠕⠝⠑", "note": "first letter lowercase prevails"}
+      ]
+    },
+    "acronym": {
+      "description": "All-caps acronym — one upper prefix + bare letters",
+      "cases": [
+        {"src": "CPU", "expected": "⠠⠉⠏⠥", "note": "3-char acronym"},
+        {"src": "GPU", "expected": "⠠⠛⠏⠥", "note": "3-char acronym"},
+        {"src": "USB", "expected": "⠠⠥⠎⠃", "note": "3-char acronym"},
+        {"src": "HTTP", "expected": "⠠⠓⠞⠞⠏", "note": "4-char acronym"}
+      ]
+    },
+    "dotted_abbrev": {
+      "description": "Abbreviation with periods (the segmenter treats the period as a separator, each segment gets its own prefix; an English '.' is followed by one blank)",
+      "cases": [
+        {"src": "i.e.", "expected": "⠰⠊⠲⠀⠰⠑⠲⠀", "note": "i + period + blank + e + period + blank"},
+        {"src": "e.g.", "expected": "⠰⠑⠲⠀⠰⠛⠲⠀", "note": "two single-letter LatinWords, each followed by ⠲⠀"}
+      ]
+    }
+  }
+}

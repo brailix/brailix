@@ -1,0 +1,128 @@
+{
+  "schema": "brailix.music.numerals.v1",
+  "name": "bana_2015_music_numerals",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA): numeric prefix + upper/lower digit forms (Pars. 2.4 / 6.5 / 7.1 / 8.5); word sign + abbreviation period (Par. 22.3); tuplet prefix (Par. 8.5). Synthesised composites (>=5-sharp key signatures, arbitrary time signatures, irregular tuplets, word-form dynamics) splice these atoms onto the named-entity stream instead of writing dot literals in code.",
+  "numerals": {
+    "number_sign": {
+      "cells": [
+        "c_3456"
+      ]
+    },
+    "digit_upper_1": {
+      "cells": [
+        "c_1"
+      ]
+    },
+    "digit_upper_2": {
+      "cells": [
+        "c_12"
+      ]
+    },
+    "digit_upper_3": {
+      "cells": [
+        "c_14"
+      ]
+    },
+    "digit_upper_4": {
+      "cells": [
+        "c_145"
+      ]
+    },
+    "digit_upper_5": {
+      "cells": [
+        "c_15"
+      ]
+    },
+    "digit_upper_6": {
+      "cells": [
+        "c_124"
+      ]
+    },
+    "digit_upper_7": {
+      "cells": [
+        "c_1245"
+      ]
+    },
+    "digit_upper_8": {
+      "cells": [
+        "c_125"
+      ]
+    },
+    "digit_upper_9": {
+      "cells": [
+        "c_24"
+      ]
+    },
+    "digit_upper_0": {
+      "cells": [
+        "c_245"
+      ]
+    },
+    "digit_lower_1": {
+      "cells": [
+        "c_2"
+      ]
+    },
+    "digit_lower_2": {
+      "cells": [
+        "c_23"
+      ]
+    },
+    "digit_lower_3": {
+      "cells": [
+        "c_25"
+      ]
+    },
+    "digit_lower_4": {
+      "cells": [
+        "c_256"
+      ]
+    },
+    "digit_lower_5": {
+      "cells": [
+        "c_26"
+      ]
+    },
+    "digit_lower_6": {
+      "cells": [
+        "c_235"
+      ]
+    },
+    "digit_lower_7": {
+      "cells": [
+        "c_2356"
+      ]
+    },
+    "digit_lower_8": {
+      "cells": [
+        "c_236"
+      ]
+    },
+    "digit_lower_9": {
+      "cells": [
+        "c_35"
+      ]
+    },
+    "digit_lower_0": {
+      "cells": [
+        "c_356"
+      ]
+    },
+    "word_sign": {
+      "cells": [
+        "c_345"
+      ]
+    },
+    "abbreviation_period": {
+      "cells": [
+        "c_3"
+      ]
+    },
+    "tuplet_prefix": {
+      "cells": [
+        "c_456"
+      ]
+    }
+  }
+}

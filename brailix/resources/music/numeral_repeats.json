@@ -1,0 +1,36 @@
+{
+  "schema": "brailix.music.numeral_repeats.v1",
+  "name": "bana_2015_music_numeral_repeats",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 19. Braille Numeral Repeats (Pars. 19.1-19.7)",
+  "numeral_repeats": {
+    "conjunct_backward_numeral_repeat": {
+      "cells": [
+        "c_3456",
+        "c_12"
+      ]
+    },
+    "disjunct_backward_numeral_repeat": {
+      "cells": [
+        "c_3456",
+        "c_15",
+        "c_3456",
+        "c_145"
+      ]
+    },
+    "single_measure_number_repeat": {
+      "cells": [
+        "c_3456",
+        "c_23"
+      ]
+    },
+    "inclusive_measure_number_repeat": {
+      "cells": [
+        "c_3456",
+        "c_23",
+        "c_36",
+        "c_256"
+      ]
+    }
+  }
+}

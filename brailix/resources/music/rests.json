@@ -1,0 +1,55 @@
+{
+  "schema": "brailix.music.rests.v1",
+  "name": "bana_2015_music_rests",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 5. Rests (Pars. 5.1-5.4)",
+  "rests": {
+    "whole_or_16th_rest": {
+      "cells": [
+        "c_134"
+      ]
+    },
+    "half_or_32nd_rest": {
+      "cells": [
+        "c_136"
+      ]
+    },
+    "quarter_or_64th_rest": {
+      "cells": [
+        "c_1236"
+      ]
+    },
+    "eighth_or_128th_rest": {
+      "cells": [
+        "c_1346"
+      ]
+    },
+    "rest_256th": {
+      "cells": [
+        "c_56",
+        "c_126",
+        "c_2",
+        "c_134"
+      ]
+    },
+    "dot_added_value": {
+      "cells": [
+        "c_3"
+      ]
+    },
+    "breve_rest_a": {
+      "cells": [
+        "c_134",
+        "c_13"
+      ]
+    },
+    "breve_rest_b": {
+      "cells": [
+        "c_134",
+        "c_45",
+        "c_14",
+        "c_134"
+      ]
+    }
+  }
+}

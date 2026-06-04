@@ -1,0 +1,121 @@
+r"""Low-level XML helpers + OOXML namespace constants for the docx adapter.
+
+This is the leaf of the docx subpackage DAG — it imports nothing from
+its siblings (:mod:`._ole`, :mod:`._blocks`) and only depends on the
+shared :func:`brailix.frontend._xml.local_name` plus a lazy
+``math_source_registry`` import for the inline-math conversion.
+
+Provides:
+
+* OOXML namespace constants (``_W_NS`` / ``_M_NS`` / ``_R_NS`` / ``_O_NS``
+  / ``_MC_NS``) and their Clark-notation prefixes (``_W_PREFIX`` /
+  ``_M_PREFIX`` / ``_R_PREFIX``).
+* Tag helpers (:func:`_local`, :func:`_first`, :func:`_first_local`).
+* Serialisation helpers (:func:`_serialize`, :func:`_flatten_xml`).
+* Inline OMML→MathML conversion (:func:`_inline_math_as_text`).
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any
+
+from brailix.frontend._xml import local_name
+
+# python-docx exposes the underlying OOXML as :mod:`lxml.etree`
+# elements; we use lxml.tostring directly so OMML serialisation
+# round-trips byte-perfect, and keep a typing alias so the rest of
+# the module reads naturally. The import lives behind the
+# python-docx availability check in :func:`parse_docx`; this module
+# may be imported without python-docx as long as no one calls
+# :func:`parse_docx`. ``Element`` is therefore aliased to ``Any``.
+Element = Any
+
+# ---------------------------------------------------------------------------
+# Namespace constants
+# ---------------------------------------------------------------------------
+
+_W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_M_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+_R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_O_NS = "urn:schemas-microsoft-com:office:office"
+_MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+_W_PREFIX = "{" + _W_NS + "}"
+_M_PREFIX = "{" + _M_NS + "}"
+_R_PREFIX = "{" + _R_NS + "}"
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _local(tag: str) -> str:
+    """Strip XML namespace from a tag name — shared
+    :func:`brailix.frontend._xml.local_name`."""
+    return local_name(tag)
+
+
+def _serialize(elem: Element) -> str:
+    """Serialise ``elem`` to an XML string regardless of backing library.
+
+    python-docx hands us lxml elements; the math frontend's OMML
+    adapter parses with stdlib :mod:`xml.etree.ElementTree`. Both
+    libraries' ``tostring`` accept slightly different signatures, so
+    we centralise the dispatch — lxml when present, stdlib as fallback
+    (which won't be hit because python-docx pulls lxml in transitively
+    but is correct nonetheless).
+    """
+    try:
+        from lxml import etree as lxml_etree
+
+        if isinstance(elem, lxml_etree._Element):
+            return lxml_etree.tostring(elem, encoding="unicode")
+    except ImportError:
+        pass
+    import xml.etree.ElementTree as ET
+
+    return ET.tostring(elem, encoding="unicode")
+
+
+def _first(elem: Element, qname: str) -> Element | None:
+    """First direct child with the given Clark-notation tag, or None."""
+    for c in elem:
+        if c.tag == qname:
+            return c
+    return None
+
+
+def _first_local(elem: Element, local_name: str) -> Element | None:
+    """First direct child whose local tag (ignoring namespace) matches."""
+    for c in elem:
+        if _local(c.tag) == local_name:
+            return c
+    return None
+
+
+def _inline_math_as_text(omath: Element) -> str:
+    """Convert an inline ``<m:oMath>`` to ``$<math>...</math>$`` text.
+
+    The OMML→MathML conversion happens here (lazy import to avoid
+    cycle with the math frontend during package init). The resulting
+    MathML is normalised to a single line — the segmenter's inline-math
+    regex rejects newlines, and Word emits a lot of incidental
+    whitespace between OMML tags.
+    """
+    from brailix.frontend.math.registry import math_source_registry
+
+    omml_xml = _serialize(omath)
+    mathml = math_source_registry.get("omml").to_mathml(omml_xml)
+    return "$" + _flatten_xml(mathml) + "$"
+
+
+def _flatten_xml(xml: str) -> str:
+    """Strip newlines between tags so the inline-math regex matches.
+
+    The segmenter's ``_INLINE_MATH_RE`` rejects newlines inside
+    ``$...$``; replacing them with spaces lets longer formulas live
+    on a single text line without changing the underlying MathML
+    parse.
+    """
+    return re.sub(r"\s+", " ", xml).strip()

@@ -1,0 +1,78 @@
+{
+  "schema": "brailix.music.annotations.v1",
+  "name": "bana_2015_music_annotations",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 21. Annotations and Variants (Pars. 21.1-21.6.2)",
+  "annotations": {
+    "music_asterisk": {
+      "cells": [
+        "c_345",
+        "c_26",
+        "c_35"
+      ]
+    },
+    "footnote_separator": {
+      "cells": [
+        "c_25",
+        "c_25",
+        "c_25",
+        "c_25",
+        "c_25"
+      ]
+    },
+    "music_parens_open": {
+      "cells": [
+        "c_6",
+        "c_3"
+      ]
+    },
+    "music_parens_close": {
+      "cells": [
+        "c_6",
+        "c_3"
+      ]
+    },
+    "special_parens_open": {
+      "cells": [
+        "c_2356"
+      ]
+    },
+    "special_parens_close": {
+      "cells": [
+        "c_2356"
+      ]
+    },
+    "notes_large_type": {
+      "cells": [
+        "c_56",
+        "c_26"
+      ]
+    },
+    "notes_small_type": {
+      "cells": [
+        "c_6",
+        "c_26"
+      ]
+    },
+    "variant_indicator": {
+      "cells": [
+        "c_26"
+      ]
+    },
+    "variant_indicator_numeral": {
+      "cells": [
+        "c_26",
+        "c_3456",
+        "c_1",
+        "c_blank",
+        "c_26"
+      ]
+    },
+    "editorial_marking_prefix": {
+      "cells": [
+        "c_5",
+        "c_123"
+      ]
+    }
+  }
+}

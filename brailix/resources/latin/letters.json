@@ -1,0 +1,24 @@
+{
+  "schema": "brailix.table.letters.v1",
+  "name": "latin_basic",
+  "cell": "six_dot",
+  "_note": "Neutral letter table — each letter references only a named cell from cells.json. Context prefixes (math 56/6, capital sign, ...) are composed by the caller, not baked in here.",
+  "letters": {
+    "lower": {
+      "a": "c_1",     "b": "c_12",    "c": "c_14",    "d": "c_145",   "e": "c_15",
+      "f": "c_124",   "g": "c_1245",  "h": "c_125",   "i": "c_24",    "j": "c_245",
+      "k": "c_13",    "l": "c_123",   "m": "c_134",   "n": "c_1345",  "o": "c_135",
+      "p": "c_1234",  "q": "c_12345", "r": "c_1235",  "s": "c_234",   "t": "c_2345",
+      "u": "c_136",   "v": "c_1236",  "w": "c_2456",  "x": "c_1346",  "y": "c_13456",
+      "z": "c_1356"
+    },
+    "upper": {
+      "A": "c_1",     "B": "c_12",    "C": "c_14",    "D": "c_145",   "E": "c_15",
+      "F": "c_124",   "G": "c_1245",  "H": "c_125",   "I": "c_24",    "J": "c_245",
+      "K": "c_13",    "L": "c_123",   "M": "c_134",   "N": "c_1345",  "O": "c_135",
+      "P": "c_1234",  "Q": "c_12345", "R": "c_1235",  "S": "c_234",   "T": "c_2345",
+      "U": "c_136",   "V": "c_1236",  "W": "c_2456",  "X": "c_1346",  "Y": "c_13456",
+      "Z": "c_1356"
+    }
+  }
+}

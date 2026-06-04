@@ -1,0 +1,29 @@
+{
+  "description": "<munder> / <mover> / <munderover> — accents (accent='true', or a single-character role=accent over/under script) go through the accent handler and emit a position marker ⠘/⠰; otherwise they are handled as sub/sup (big-operator limits, etc.). For per-character accent encodings see math_accents.json.",
+  "regen_hint": "python -c \"from brailix import Pipeline; print(repr(Pipeline().translate_text(SRC).render()))\"",
+  "groups": {
+    "known_accents": {
+      "description": "Known accents (zero MATH_* warnings) — focus on over/under position and multi-character bases",
+      "cases": [
+        {"src": "$\\dot{x}$", "expected": "⠰⠭⠘⠂", "note": "dot directly above = base + above marker ⠘ + dot ⠂"},
+        {"src": "$f'$", "expected": "⠰⠋⠨⠔", "note": "prime ′ = ⠨⠔ (msup skips the superscript sign ⠌)"},
+        {"src": "$x\\prime$", "expected": "⠰⠭⠨⠔", "note": "explicit \\prime as an inline op"},
+        {"src": "$\\overline{xy}$", "expected": "⠰⠭⠰⠽⠘⠒⠒", "note": "multi-character base overline: xy(2 letters) + above marker ⠘ + bar, two letters ⠒⠒ (docx §十五项4)"},
+        {"src": "$\\underline{xy}$", "expected": "⠰⠭⠰⠽⠰⠒⠒", "note": "multi-character base underline: xy(2 letters) + below marker ⠰ + bar, two letters ⠒⠒"},
+        {"src": "$\\vec{x}$", "expected": "⠰⠭⠘⠒⠂", "note": "vector arrow mark, single letter: → remapped in the accent position to ⠘ + ⠒⠂ (≠ relation arrow ⠒⠕)"},
+        {"src": "$\\overrightarrow{xy}$", "expected": "⠰⠭⠰⠽⠘⠒⠆", "note": "vector arrow mark, two letters ⠘ + ⠒⠆ (base 2 letters)"}
+      ]
+    },
+    "unknown_accents": {
+      "description": "Unknown accents — trigger MATH_UNKNOWN_SYMBOL (the position marker is still emitted)",
+      "cases": [
+        {
+          "src": "$\\hat{x}$",
+          "expected": "⠰⠭⠘⠀",
+          "warnings_include": ["MATH_UNKNOWN_SYMBOL"],
+          "note": "hat ^ not yet recorded → above marker ⠘ + unknown cell (math-symbols-plan S5)"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "schema": "brailix.math.structures.v1",
+  "name": "cn_current_math_structures",
+  "cell": "six_dot",
+  "reference": "《中国盲文》",
+  "_note": "Structural markers, nested by topic: fraction.{open,bar,close} / script.{sup,sub,close,big_op_prefix} / sqrt.{...} / letter_prefix.{...} / function.{...}.",
+  "structures": {
+    "fraction": {
+      "open":  ["c_23"],
+      "bar":   ["c_1256"],
+      "close": ["c_56"]
+    },
+    "script": {
+      "sup":           ["c_34"],
+      "sub":           ["c_16"],
+      "close":         ["c_156"],
+      "big_op_prefix": ["c_46"]
+    },
+    "sqrt": {
+      "open":      ["c_146"],
+      "indicator": ["c_156"],
+      "close":     ["c_1456"]
+    },
+    "letter_prefix": {
+      "latin_lower": ["c_56"],
+      "latin_upper": ["c_6"],
+      "greek_lower": ["c_46"],
+      "greek_upper": ["c_456"]
+    },
+    "function": {
+      "prefix": ["c_1246"]
+    },
+    "accent": {
+      "over":  ["c_45"],
+      "under": ["c_56"],
+      "mark": {
+        "arrow": { "single": ["c_25", "c_2"], "double": ["c_25", "c_23"] },
+        "bar":   { "single": ["c_25"],         "double": ["c_25", "c_25"] }
+      }
+    },
+    "chem": {
+      "indicator": ["c_456"],
+      "heat": ["c_45", "c_456", "c_256"],
+      "charge": ["c_46"],
+      "charge_plus_guard": ["c_6"]
+    }
+  }
+}

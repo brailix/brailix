@@ -1,0 +1,235 @@
+{
+  "schema": "brailix.music.chord_symbols.v1",
+  "name": "bana_2015_music_chord_symbols",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 23. Chord Symbols (Pars. 23.1-23.2)",
+  "chord_symbols": {
+    "natural": {
+      "cells": [
+        "c_16"
+      ]
+    },
+    "flat": {
+      "cells": [
+        "c_126"
+      ]
+    },
+    "sharp": {
+      "cells": [
+        "c_146"
+      ]
+    },
+    "plus": {
+      "cells": [
+        "c_346"
+      ]
+    },
+    "minus": {
+      "cells": [
+        "c_36"
+      ]
+    },
+    "circle_diminished": {
+      "cells": [
+        "c_256"
+      ]
+    },
+    "half_diminished": {
+      "cells": [
+        "c_256",
+        "c_3"
+      ]
+    },
+    "triangle": {
+      "cells": [
+        "c_356"
+      ]
+    },
+    "triangle_bisected": {
+      "cells": [
+        "c_356",
+        "c_3"
+      ]
+    },
+    "italic_seven_chord": {
+      "cells": [
+        "c_46",
+        "c_3456",
+        "c_1245"
+      ]
+    },
+    "slash": {
+      "cells": [
+        "c_34"
+      ]
+    },
+    "special_parens_open": {
+      "cells": [
+        "c_2356"
+      ]
+    },
+    "special_parens_close": {
+      "cells": [
+        "c_2356"
+      ]
+    },
+    "no_chord": {
+      "cells": [
+        "c_6",
+        "c_6",
+        "c_1345",
+        "c_14"
+      ]
+    },
+    "tacet": {
+      "cells": [
+        "c_6",
+        "c_2345",
+        "c_1",
+        "c_14",
+        "c_15",
+        "c_2345"
+      ]
+    }
+  },
+  "_kind_spec": {
+    "major": [],
+    "minor": [
+      [
+        "letters",
+        "m"
+      ]
+    ],
+    "augmented": [
+      [
+        "entity",
+        "plus"
+      ]
+    ],
+    "diminished": [
+      [
+        "entity",
+        "circle_diminished"
+      ]
+    ],
+    "dominant": [
+      [
+        "letters",
+        "7"
+      ]
+    ],
+    "major-seventh": [
+      [
+        "letters",
+        "maj7"
+      ]
+    ],
+    "minor-seventh": [
+      [
+        "letters",
+        "m7"
+      ]
+    ],
+    "diminished-seventh": [
+      [
+        "entity",
+        "circle_diminished"
+      ],
+      [
+        "letters",
+        "7"
+      ]
+    ],
+    "augmented-seventh": [
+      [
+        "entity",
+        "plus"
+      ],
+      [
+        "letters",
+        "7"
+      ]
+    ],
+    "half-diminished": [
+      [
+        "entity",
+        "half_diminished"
+      ]
+    ],
+    "major-minor": [
+      [
+        "letters",
+        "m"
+      ],
+      [
+        "entity",
+        "triangle"
+      ],
+      [
+        "letters",
+        "7"
+      ]
+    ],
+    "suspended-second": [
+      [
+        "letters",
+        "sus2"
+      ]
+    ],
+    "suspended-fourth": [
+      [
+        "letters",
+        "sus4"
+      ]
+    ],
+    "major-sixth": [
+      [
+        "letters",
+        "6"
+      ]
+    ],
+    "minor-sixth": [
+      [
+        "letters",
+        "m6"
+      ]
+    ],
+    "dominant-ninth": [
+      [
+        "letters",
+        "9"
+      ]
+    ],
+    "major-ninth": [
+      [
+        "letters",
+        "maj9"
+      ]
+    ],
+    "minor-ninth": [
+      [
+        "letters",
+        "m9"
+      ]
+    ],
+    "dominant-11th": [
+      [
+        "letters",
+        "11"
+      ]
+    ],
+    "dominant-13th": [
+      [
+        "letters",
+        "13"
+      ]
+    ],
+    "power": [
+      [
+        "letters",
+        "5"
+      ]
+    ],
+    "none": []
+  }
+}

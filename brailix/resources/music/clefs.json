@@ -1,0 +1,85 @@
+{
+  "schema": "brailix.music.clefs.v1",
+  "name": "bana_2015_music_clefs",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 4. Clef Signs (Pars. 4.1-4.5)",
+  "clefs": {
+    "g_clef_treble": {
+      "cells": [
+        "c_345",
+        "c_34",
+        "c_123"
+      ]
+    },
+    "f_clef_bass": {
+      "cells": [
+        "c_345",
+        "c_3456",
+        "c_123"
+      ]
+    },
+    "c_clef_alto": {
+      "cells": [
+        "c_345",
+        "c_346",
+        "c_123"
+      ]
+    },
+    "g_clef_first_line": {
+      "cells": [
+        "c_345",
+        "c_34",
+        "c_4",
+        "c_123"
+      ]
+    },
+    "f_clef_third_line": {
+      "cells": [
+        "c_345",
+        "c_3456",
+        "c_456",
+        "c_123"
+      ]
+    },
+    "c_clef_fourth_line": {
+      "cells": [
+        "c_345",
+        "c_346",
+        "c_5",
+        "c_123"
+      ]
+    },
+    "g_clef_8_above": {
+      "cells": [
+        "c_345",
+        "c_34",
+        "c_123",
+        "c_3456",
+        "c_125"
+      ]
+    },
+    "g_clef_8_below": {
+      "cells": [
+        "c_345",
+        "c_34",
+        "c_123",
+        "c_3456",
+        "c_236"
+      ]
+    },
+    "modified_bass_in_rh": {
+      "cells": [
+        "c_345",
+        "c_3456",
+        "c_13"
+      ]
+    },
+    "modified_treble_in_lh": {
+      "cells": [
+        "c_345",
+        "c_34",
+        "c_13"
+      ]
+    }
+  }
+}

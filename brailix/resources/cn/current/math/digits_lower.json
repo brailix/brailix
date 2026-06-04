@@ -1,0 +1,18 @@
+{
+  "schema": "brailix.table.math_digits_lower.v1",
+  "name": "cn_current_math_digits_lower",
+  "cell": "six_dot",
+  "_note": "Antoine lower-digit forms (each digit's dots shifted down). Used only in simple atomic-numerator / atomic-denominator fractions, as a compact implicit-fraction-line notation.",
+  "digits_lower": {
+    "1": "c_2",
+    "2": "c_23",
+    "3": "c_25",
+    "4": "c_256",
+    "5": "c_26",
+    "6": "c_235",
+    "7": "c_2356",
+    "8": "c_236",
+    "9": "c_35",
+    "0": "c_356"
+  }
+}

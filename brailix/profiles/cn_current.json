@@ -1,0 +1,92 @@
+{
+  "name": "cn_current",
+  "language": "zh-CN",
+  "cell": "six_dot",
+  "features": {
+    "math": {
+      "simplify_fraction": true,
+      "simplify_script": true,
+      "op_spacing": true,
+      "atomic_script_lower_digit": true,
+      "number_sign": true
+    },
+    "zh": {
+      "tone": true,
+      "tone_omit_neutral": true,
+      "number_sign": true
+    },
+    "music": {
+      "standard": "bana_2015",
+      "octave_rule": "interval16",
+      "show_lyrics": true,
+      "show_fingering": true,
+      "in_accord_marker": true,
+      "key_signature_in_each_section": false,
+      "show_clef": true,
+      "show_key_signature": true,
+      "show_time_signature": true,
+      "dot_form": "separate",
+      "accidental_persist_in_measure": true,
+      "bar_line_print": "skip",
+      "measure_separator": "space",
+      "volta_style": "numeric",
+      "expand_repeats": false,
+      "show_dynamics": true,
+      "dynamics_form": "abbreviated",
+      "show_words": true,
+      "tuplet_form": "single_cell",
+      "show_ornaments": true,
+      "lyrics_form": "marker",
+      "show_chord_symbols": true,
+      "show_string_techniques": true
+    }
+  },
+  "tables": {
+    "cells":  "resources/cells.json",
+    "latin":  "resources/latin/letters.json",
+    "greek":  "resources/greek/letters.json",
+    "connector": "c_36",
+    "zh": {
+      "initials":    "resources/cn/current/initials.json",
+      "finals":      "resources/cn/current/finals.json",
+      "tones":       "resources/cn/current/tones.json",
+      "punctuation": "resources/cn/current/punct.json",
+      "numbers":     "resources/numbers.json",
+      "compounds":   "resources/cn/compounds.json"
+    },
+    "math": {
+      "symbols":      "resources/cn/current/math/symbols.json",
+      "functions":    "resources/cn/current/math/functions.json",
+      "structures":   "resources/cn/current/math/structures.json",
+      "digits_lower": "resources/cn/current/math/digits_lower.json"
+    },
+    "music": {
+      "general":          "resources/music/general.json",
+      "notes":            "resources/music/notes.json",
+      "octaves":          "resources/music/octaves.json",
+      "clefs":            "resources/music/clefs.json",
+      "rests":            "resources/music/rests.json",
+      "accidentals_key":  "resources/music/accidentals_key.json",
+      "meter":            "resources/music/meter.json",
+      "numerals":         "resources/music/numerals.json",
+      "grouping":         "resources/music/grouping.json",
+      "intervals":        "resources/music/intervals.json",
+      "tie":              "resources/music/tie.json",
+      "in_accord":        "resources/music/in_accord.json",
+      "stems":            "resources/music/stems.json",
+      "slur":             "resources/music/slur.json",
+      "tremolo":          "resources/music/tremolo.json",
+      "fingerings":       "resources/music/fingerings.json",
+      "ornaments":        "resources/music/ornaments.json",
+      "print_repeats":    "resources/music/print_repeats.json",
+      "braille_repeats":  "resources/music/braille_repeats.json",
+      "numeral_repeats":  "resources/music/numeral_repeats.json",
+      "dacapo":           "resources/music/dacapo.json",
+      "annotations":      "resources/music/annotations.json",
+      "nuances":          "resources/music/nuances.json",
+      "chord_symbols":    "resources/music/chord_symbols.json",
+      "instruments":      "resources/music/instruments/",
+      "vocal":            "resources/music/vocal/"
+    }
+  }
+}

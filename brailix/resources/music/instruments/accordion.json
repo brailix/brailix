@@ -1,0 +1,7 @@
+{
+  "schema": "brailix.music.instruments.accordion.v1",
+  "name": "bana_2015_music_accordion",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 28. Accordions (Pars. Par. 32)",
+  "accordion": {}
+}

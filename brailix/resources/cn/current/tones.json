@@ -1,0 +1,13 @@
+{
+  "schema": "brailix.table.tone.v1",
+  "name": "cn_current_tone",
+  "cell": "six_dot",
+  "_note": "Tone marks for Current Chinese Braille. The neutral tone ('5') is an empty cell; whether it is emitted is controlled by the tone_omit_neutral feature.",
+  "tones": {
+    "1": "c_1",
+    "2": "c_2",
+    "3": "c_3",
+    "4": "c_23",
+    "5": []
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "description": "MathML structures — fractions (Antoine / simple / compound), radicals, sub/superscripts.",
+  "regen_hint": "python -c \"from brailix import Pipeline; print(repr(Pipeline().translate_text(SRC).render()))\"",
+  "groups": {
+    "mfrac": {
+      "description": "<mfrac> fractions — three forms",
+      "cases": [
+        {"src": "$\\frac{1}{2}$", "expected": "⠼⠁⠆", "note": "Antoine: number_sign + 1(upper) + 2(lower)"},
+        {"src": "$\\frac{1}{3}$", "expected": "⠼⠁⠒", "note": "Antoine 1/3"},
+        {"src": "$\\frac{2}{3}$", "expected": "⠼⠃⠒", "note": "Antoine 2/3"},
+        {"src": "$\\frac{5}{8}$", "expected": "⠼⠑⠦", "note": "Antoine 5/8"},
+        {"src": "$\\frac{5}{6}$", "expected": "⠼⠑⠖", "note": "Antoine 5/6"},
+        {"src": "$\\frac{7}{8}$", "expected": "⠼⠛⠦", "note": "Antoine 7/8"},
+        {"src": "$\\frac{1}{x}$", "expected": "⠼⠁⠳⠰⠭", "note": "simple: digit / letter → slash bar"},
+        {"src": "$\\frac{a}{b}$", "expected": "⠰⠁⠳⠰⠃", "note": "simple: letter / letter"},
+        {"src": "$\\frac{x}{y}$", "expected": "⠰⠭⠳⠰⠽", "note": "simple: x / y"},
+        {"src": "$\\frac{\\pi}{2}$", "expected": "⠨⠏⠳⠼⠃", "note": "simple: greek / digit"},
+        {"src": "$\\frac{a}{\\pi}$", "expected": "⠰⠁⠳⠨⠏", "note": "simple: letter / greek"},
+        {"src": "$\\frac{a+1}{b}$", "expected": "⠆⠰⠁⠀⠖⠼⠁⠀⠳⠰⠃⠰", "note": "compound: open + numerator + blank + bar + denom + close"},
+        {"src": "$\\frac{1}{x+1}$", "expected": "⠆⠼⠁⠀⠳⠰⠭⠀⠖⠼⠁⠰", "note": "rules: compound with digit/poly denom"},
+        {"src": "$\\frac{n}{n+1}$", "expected": "⠆⠰⠝⠀⠳⠰⠝⠀⠖⠼⠁⠰", "note": "compound: letter / poly"},
+        {"src": "$1/2$", "expected": "⠼⠁⠆", "note": "typed slash routes through Antoine"},
+        {"src": "$1/x$", "expected": "⠼⠁⠳⠰⠭", "note": "typed slash with letter denom"},
+        {"src": "$\\frac{\\frac{1}{2}}{3}$", "expected": "⠼⠁⠆⠳⠼⠉", "note": "simple: nested fraction over digit (single structure / single structure)"},
+        {"src": "$\\frac{3}{\\frac{1}{2}}$", "expected": "⠼⠉⠳⠼⠁⠆", "note": "simple: digit over nested fraction"},
+        {"src": "$\\frac{\\frac{a}{b}}{\\frac{c}{d}}$", "expected": "⠰⠁⠳⠰⠃⠳⠰⠉⠳⠰⠙", "note": "simple: nested fraction / nested fraction"},
+        {"src": "$\\frac{\\sqrt{3}}{2}$", "expected": "⠩⠱⠼⠉⠹⠳⠼⠃", "note": "simple: sqrt over digit (sqrt.close self-fences numerator)"},
+        {"src": "$\\frac{2}{\\sqrt{3}}$", "expected": "⠼⠃⠳⠩⠱⠼⠉⠹", "note": "simple: digit over sqrt"},
+        {"src": "$\\frac{\\sqrt{3}}{\\sqrt{2}}$", "expected": "⠩⠱⠼⠉⠹⠳⠩⠱⠼⠃⠹", "note": "simple: sqrt over sqrt"},
+        {"src": "$\\frac{1}{\\sqrt{2}}$", "expected": "⠼⠁⠳⠩⠱⠼⠃⠹", "note": "simple: 1 over sqrt(2)"},
+        {"src": "$\\frac{x^2}{2}$", "expected": "⠰⠭⠌⠆⠳⠼⠃", "note": "simple: msup over digit (atomic-lower-digit closes script)"},
+        {"src": "$\\frac{2}{x^2}$", "expected": "⠼⠃⠳⠰⠭⠌⠆", "note": "simple: digit over msup"}
+      ]
+    },
+    "sqrt_root": {
+      "description": "<msqrt> / <mroot> radicals",
+      "cases": [
+        {"src": "$\\sqrt{x}$", "expected": "⠩⠱⠰⠭⠹", "note": "sqrt(x): open + indicator + x + close"},
+        {"src": "$\\sqrt{2}$", "expected": "⠩⠱⠼⠃⠹", "note": "sqrt(2): includes number_sign inside"},
+        {"src": "$\\sqrt{x+1}$", "expected": "⠩⠱⠰⠭⠀⠖⠼⠁⠹", "note": "sqrt over polynomial"},
+        {"src": "$\\sqrt{x^2}$", "expected": "⠩⠱⠰⠭⠌⠆⠹", "note": "sqrt with superscript inside"},
+        {"src": "$\\sqrt{a + b}$", "expected": "⠩⠱⠰⠁⠀⠖⠰⠃⠹", "note": "sqrt over a + b"},
+        {"src": "$\\sqrt{2x}$", "expected": "⠩⠱⠼⠃⠰⠭⠹", "note": "sqrt(2x): number_sign before 2"},
+        {"src": "$\\sqrt{\\pi}$", "expected": "⠩⠱⠨⠏⠹", "note": "sqrt of greek letter"},
+        {"src": "$\\sqrt[3]{x}$", "expected": "⠩⠼⠉⠱⠰⠭⠹", "note": "cube root: open + degree + indicator + x + close"},
+        {"src": "$\\sqrt[4]{x}$", "expected": "⠩⠼⠙⠱⠰⠭⠹", "note": "fourth root with degree 4"},
+        {"src": "$\\sqrt[n]{a}$", "expected": "⠩⠰⠝⠱⠰⠁⠹", "note": "nth root: degree is letter n"}
+      ]
+    },
+    "scripts": {
+      "description": "<msub> / <msup> / <msubsup>",
+      "cases": [
+        {"src": "$x^2$", "expected": "⠰⠭⠌⠆", "note": "msup atomic digit: sup_marker + lower-form 2 (no close)"},
+        {"src": "$x^3$", "expected": "⠰⠭⠌⠒", "note": "msup atomic 3"},
+        {"src": "$x^0$", "expected": "⠰⠭⠌⠴", "note": "msup atomic 0 (lower-form ⠴)"},
+        {"src": "$x^9$", "expected": "⠰⠭⠌⠔", "note": "msup atomic 9 (lower-form ⠔)"},
+        {"src": "$x^n$", "expected": "⠰⠭⠌⠰⠝", "note": "msup atomic letter n"},
+        {"src": "$x_0$", "expected": "⠰⠭⠡⠴", "note": "msub atomic digit 0"},
+        {"src": "$x_1$", "expected": "⠰⠭⠡⠂", "note": "msub atomic digit 1 (lower-form ⠂)"},
+        {"src": "$x_n$", "expected": "⠰⠭⠡⠰⠝", "note": "msub atomic letter n"},
+        {"src": "$x_i$", "expected": "⠰⠭⠡⠰⠊", "note": "msub atomic letter i"},
+        {"src": "$x_1^2$", "expected": "⠰⠭⠌⠆⠡⠂", "note": "msubsup atomic: sup first, then sub"},
+        {"src": "$a_i^j$", "expected": "⠰⠁⠌⠰⠚⠡⠰⠊", "note": "msubsup: letter sup, letter sub"},
+        {"src": "$a_n$", "expected": "⠰⠁⠡⠰⠝", "note": "a sub n"},
+        {"src": "$a_{n+1}$", "expected": "⠰⠁⠡⠰⠝⠀⠖⠼⠁⠱", "note": "complex sub: not atomic so close emitted"},
+        {"src": "$x^{a+1}$", "expected": "⠰⠭⠌⠰⠁⠀⠖⠼⠁⠱", "note": "complex sup: emits script_close after"},
+        {"src": "$x_{i+1}$", "expected": "⠰⠭⠡⠰⠊⠀⠖⠼⠁⠱", "note": "complex sub with polynomial"},
+        {"src": "$e^x$", "expected": "⠰⠑⠌⠰⠭", "note": "e to the x"},
+        {"src": "$e^{-x}$", "expected": "⠰⠑⠌⠀⠤⠰⠭⠱", "note": "e to minus x: not atomic, gets script_close"},
+        {"src": "$y^\\pi$", "expected": "⠰⠽⠌⠨⠏", "note": "y to pi: atomic sup is greek letter"},
+        {"src": "$x_{-1}$", "expected": "⠰⠭⠡⠀⠤⠼⠁⠱", "note": "x sub minus 1: minus + 1 wrapped with close"}
+      ]
+    }
+  }
+}

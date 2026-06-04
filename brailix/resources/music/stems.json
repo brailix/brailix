@@ -1,0 +1,44 @@
+{
+  "schema": "brailix.music.stems.v1",
+  "name": "bana_2015_music_stems",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 12. Stem Signs (Pars. 12.1-12.4)",
+  "stems": {
+    "whole_stem": {
+      "cells": [
+        "c_456",
+        "c_3"
+      ]
+    },
+    "half_stem": {
+      "cells": [
+        "c_456",
+        "c_13"
+      ]
+    },
+    "quarter_stem": {
+      "cells": [
+        "c_456",
+        "c_1"
+      ]
+    },
+    "eighth_stem": {
+      "cells": [
+        "c_456",
+        "c_12"
+      ]
+    },
+    "sixteenth_stem": {
+      "cells": [
+        "c_456",
+        "c_123"
+      ]
+    },
+    "thirty_second_stem": {
+      "cells": [
+        "c_456",
+        "c_2"
+      ]
+    }
+  }
+}

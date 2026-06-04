@@ -1,0 +1,23 @@
+{
+  "schema": "brailix.table.number.v1",
+  "name": "numbers_basic",
+  "cell": "six_dot",
+  "_note": "Number table: the number sign followed by letters a-j spells digits 1-0. decimal_point / thousands_sep live in the punctuation sub-section — number-internal, distinct from prose punctuation.",
+  "number_sign": "c_3456",
+  "digits": {
+    "1": "c_1",
+    "2": "c_12",
+    "3": "c_14",
+    "4": "c_145",
+    "5": "c_15",
+    "6": "c_124",
+    "7": "c_1245",
+    "8": "c_125",
+    "9": "c_24",
+    "0": "c_245"
+  },
+  "punctuation": {
+    "decimal_point": "c_2",
+    "thousands_sep": "c_3"
+  }
+}

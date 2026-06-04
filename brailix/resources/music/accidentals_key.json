@@ -1,0 +1,92 @@
+{
+  "schema": "brailix.music.accidentals_key.v1",
+  "name": "bana_2015_music_accidentals_key",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 6. Accidentals and Key Signatures (Pars. 6.1-6.5.1)",
+  "accidentals_key": {
+    "sharp": {
+      "cells": [
+        "c_146"
+      ]
+    },
+    "double_sharp": {
+      "cells": [
+        "c_146",
+        "c_146"
+      ]
+    },
+    "flat": {
+      "cells": [
+        "c_126"
+      ]
+    },
+    "double_flat": {
+      "cells": [
+        "c_126",
+        "c_126"
+      ]
+    },
+    "natural": {
+      "cells": [
+        "c_16"
+      ]
+    },
+    "quarter_step_sharp": {
+      "cells": [
+        "c_4",
+        "c_146"
+      ]
+    },
+    "quarter_step_flat": {
+      "cells": [
+        "c_4",
+        "c_126"
+      ]
+    },
+    "three_quarter_step_sharp": {
+      "cells": [
+        "c_456",
+        "c_146"
+      ]
+    },
+    "three_quarter_step_flat": {
+      "cells": [
+        "c_456",
+        "c_126"
+      ]
+    },
+    "accidental_above_or_below_prefix": {
+      "cells": [
+        "c_6"
+      ]
+    },
+    "three_sharp_signature": {
+      "cells": [
+        "c_146",
+        "c_146",
+        "c_146"
+      ]
+    },
+    "three_flat_signature": {
+      "cells": [
+        "c_126",
+        "c_126",
+        "c_126"
+      ]
+    },
+    "four_sharp_signature": {
+      "cells": [
+        "c_3456",
+        "c_145",
+        "c_146"
+      ]
+    },
+    "four_flat_signature": {
+      "cells": [
+        "c_3456",
+        "c_145",
+        "c_126"
+      ]
+    }
+  }
+}

@@ -1,0 +1,308 @@
+{
+  "schema": "brailix.music.notes.v1",
+  "name": "bana_2015_music_notes",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 2. Notes and Note Values (Pars. 2.1-2.6)",
+  "notes": {
+    "whole_or_16th_C": {
+      "cells": [
+        "c_13456"
+      ]
+    },
+    "whole_or_16th_D": {
+      "cells": [
+        "c_1356"
+      ]
+    },
+    "whole_or_16th_E": {
+      "cells": [
+        "c_12346"
+      ]
+    },
+    "whole_or_16th_F": {
+      "cells": [
+        "c_123456"
+      ]
+    },
+    "whole_or_16th_G": {
+      "cells": [
+        "c_12356"
+      ]
+    },
+    "whole_or_16th_A": {
+      "cells": [
+        "c_2346"
+      ]
+    },
+    "whole_or_16th_B": {
+      "cells": [
+        "c_23456"
+      ]
+    },
+    "half_or_32nd_C": {
+      "cells": [
+        "c_1345"
+      ]
+    },
+    "half_or_32nd_D": {
+      "cells": [
+        "c_135"
+      ]
+    },
+    "half_or_32nd_E": {
+      "cells": [
+        "c_1234"
+      ]
+    },
+    "half_or_32nd_F": {
+      "cells": [
+        "c_12345"
+      ]
+    },
+    "half_or_32nd_G": {
+      "cells": [
+        "c_1235"
+      ]
+    },
+    "half_or_32nd_A": {
+      "cells": [
+        "c_234"
+      ]
+    },
+    "half_or_32nd_B": {
+      "cells": [
+        "c_2345"
+      ]
+    },
+    "quarter_or_64th_C": {
+      "cells": [
+        "c_1456"
+      ]
+    },
+    "quarter_or_64th_D": {
+      "cells": [
+        "c_156"
+      ]
+    },
+    "quarter_or_64th_E": {
+      "cells": [
+        "c_1246"
+      ]
+    },
+    "quarter_or_64th_F": {
+      "cells": [
+        "c_12456"
+      ]
+    },
+    "quarter_or_64th_G": {
+      "cells": [
+        "c_1256"
+      ]
+    },
+    "quarter_or_64th_A": {
+      "cells": [
+        "c_246"
+      ]
+    },
+    "quarter_or_64th_B": {
+      "cells": [
+        "c_2456"
+      ]
+    },
+    "eighth_or_128th_C": {
+      "cells": [
+        "c_145"
+      ]
+    },
+    "eighth_or_128th_D": {
+      "cells": [
+        "c_15"
+      ]
+    },
+    "eighth_or_128th_E": {
+      "cells": [
+        "c_124"
+      ]
+    },
+    "eighth_or_128th_F": {
+      "cells": [
+        "c_1245"
+      ]
+    },
+    "eighth_or_128th_G": {
+      "cells": [
+        "c_125"
+      ]
+    },
+    "eighth_or_128th_A": {
+      "cells": [
+        "c_24"
+      ]
+    },
+    "eighth_or_128th_B": {
+      "cells": [
+        "c_245"
+      ]
+    },
+    "note_256th_C": {
+      "cells": [
+        "c_56",
+        "c_126",
+        "c_2",
+        "c_13456"
+      ]
+    },
+    "note_256th_D": {
+      "cells": [
+        "c_56",
+        "c_126",
+        "c_2",
+        "c_1356"
+      ]
+    },
+    "note_256th_E": {
+      "cells": [
+        "c_56",
+        "c_126",
+        "c_2",
+        "c_12346"
+      ]
+    },
+    "note_256th_F": {
+      "cells": [
+        "c_56",
+        "c_126",
+        "c_2",
+        "c_123456"
+      ]
+    },
+    "note_256th_G": {
+      "cells": [
+        "c_56",
+        "c_126",
+        "c_2",
+        "c_12356"
+      ]
+    },
+    "note_256th_A": {
+      "cells": [
+        "c_56",
+        "c_126",
+        "c_2",
+        "c_2346"
+      ]
+    },
+    "note_256th_B": {
+      "cells": [
+        "c_56",
+        "c_126",
+        "c_2",
+        "c_23456"
+      ]
+    },
+    "breve_a_C": {
+      "cells": [
+        "c_13456",
+        "c_13"
+      ]
+    },
+    "breve_a_D": {
+      "cells": [
+        "c_1356",
+        "c_13"
+      ]
+    },
+    "breve_a_E": {
+      "cells": [
+        "c_12346",
+        "c_13"
+      ]
+    },
+    "breve_a_F": {
+      "cells": [
+        "c_123456",
+        "c_13"
+      ]
+    },
+    "breve_a_G": {
+      "cells": [
+        "c_12356",
+        "c_13"
+      ]
+    },
+    "breve_a_A": {
+      "cells": [
+        "c_2346",
+        "c_13"
+      ]
+    },
+    "breve_a_B": {
+      "cells": [
+        "c_23456",
+        "c_13"
+      ]
+    },
+    "reciting_note_C": {
+      "cells": [
+        "c_13456",
+        "c_13"
+      ]
+    },
+    "dot_added_value": {
+      "cells": [
+        "c_3"
+      ]
+    },
+    "value_sign_8ths_and_larger": {
+      "cells": [
+        "c_45",
+        "c_126",
+        "c_2"
+      ]
+    },
+    "value_sign_16ths_and_smaller": {
+      "cells": [
+        "c_6",
+        "c_126",
+        "c_2"
+      ]
+    },
+    "value_sign_256th_notes": {
+      "cells": [
+        "c_56",
+        "c_126",
+        "c_2"
+      ]
+    },
+    "specially_solid_note_head": {
+      "cells": [
+        "c_26",
+        "c_1"
+      ]
+    },
+    "specially_x_shaped": {
+      "cells": [
+        "c_26",
+        "c_12"
+      ]
+    },
+    "specially_diamond_shaped": {
+      "cells": [
+        "c_26",
+        "c_123"
+      ]
+    },
+    "specially_indeterminate": {
+      "cells": [
+        "c_26",
+        "c_13"
+      ]
+    },
+    "specially_approximate_slanted_end": {
+      "cells": [
+        "c_26",
+        "c_3"
+      ]
+    }
+  }
+}

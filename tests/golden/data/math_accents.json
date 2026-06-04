@@ -1,0 +1,100 @@
+{
+  "description": "Math accents / vector marks (prime, dot, overline, tilde, double-dot, vector arrow). Per 《盲文常用数学符号》, the annotation section + §15: base + position marker (above ⠘ / below ⠰) + the mark symbol; vectors →/← use the arrow mark, overline uses the dash, and single/double form is chosen by the base letter count. Known accents emit no warning; an unknown accent (e.g. the ^ from \\hat) triggers MATH_UNKNOWN_SYMBOL.",
+  "regen_hint": "python -c \"from brailix import Pipeline; print(repr(Pipeline().translate_text(SRC).render()))\"",
+  "groups": {
+    "known_clean": {
+      "description": "Known accents — output must be clean, no MATH_* warnings allowed",
+      "cases": [
+        {
+          "src": "$f'$",
+          "expected": "⠰⠋⠨⠔",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "prime ′ = ⠨⠔ (46+35, self-contained upper-right marker); as an msup superscript it skips the superscript sign ⠌"
+        },
+        {
+          "src": "$x\\prime$",
+          "expected": "⠰⠭⠨⠔",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "explicit \\prime as an inline <mo>, also ⠨⠔"
+        },
+        {
+          "src": "$\\dot{x}$",
+          "expected": "⠰⠭⠘⠂",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "dot directly above = above marker ⠘ + dot ⠂ (distinct from the dot product ⋅=⠄)"
+        },
+        {
+          "src": "$\\ddot{x}$",
+          "expected": "⠰⠭⠘⠂⠂",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "double dot directly above ¨ = ⠘ + ⠂⠂"
+        },
+        {
+          "src": "$\\bar{x}$",
+          "expected": "⠰⠭⠘⠒",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "bar directly above (overline) ¯ = ⠘ + bar ⠒"
+        },
+        {
+          "src": "$\\overline{x}$",
+          "expected": "⠰⠭⠘⠒",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "\\overline produces ― U+2015, same as overline ⠘⠒"
+        },
+        {
+          "src": "$\\tilde{x}$",
+          "expected": "⠰⠭⠘⠢",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "tilde directly above ~ = ⠘ + tilde ⠢ (\\tilde produces U+007E)"
+        },
+        {
+          "src": "$\\underline{x}$",
+          "expected": "⠰⠭⠰⠒",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "bar directly below = below marker ⠰ + bar ⠒ (munder path)"
+        },
+        {
+          "src": "$\\vec{x}$",
+          "expected": "⠰⠭⠘⠒⠂",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "vector arrow mark, single letter: \\vec produces → U+2192, remapped in the accent position to ⠘ + arrow mark ⠒⠂ (≠ relation arrow ⠒⠕), docx §十五项1"
+        },
+        {
+          "src": "$\\vec{AB}$",
+          "expected": "⠠⠁⠠⠃⠘⠒⠆",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "vector arrow mark, two letters ⠘ + ⠒⠆ (base 2 letters), docx §十五项2"
+        },
+        {
+          "src": "$\\overrightarrow{AB}$",
+          "expected": "⠠⠁⠠⠃⠘⠒⠆",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "\\overrightarrow{AB} same as \\vec{AB} (→ over mrow(A,B))"
+        },
+        {
+          "src": "$\\overleftarrow{v}$",
+          "expected": "⠰⠧⠘⠒⠂",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "leftward arrow ← uses the same arrow mark (docx §十五 has no left variant)"
+        },
+        {
+          "src": "$\\overline{AB}$",
+          "expected": "⠠⠁⠠⠃⠘⠒⠒",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "bar, two letters ⠘ + ⠒⠒ (base 2 letters), docx §十五项4; compare \\overline{x} single letter ⠒"
+        }
+      ]
+    },
+    "unknown_warn": {
+      "description": "Unknown accents — trigger MATH_UNKNOWN_SYMBOL (the position marker is still emitted)",
+      "cases": [
+        {
+          "src": "$\\hat{x}$",
+          "expected": "⠰⠭⠘⠀",
+          "warnings_include": ["MATH_UNKNOWN_SYMBOL"],
+          "note": "hat ^ (U+005E) has no exact docx correspondence, not yet recorded → above marker ⠘ + unknown cell (see math-symbols-plan S5)"
+        }
+      ]
+    }
+  }
+}

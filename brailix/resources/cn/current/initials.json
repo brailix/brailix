@@ -1,0 +1,29 @@
+{
+  "schema": "brailix.table.initial.v1",
+  "name": "cn_current_initial",
+  "cell": "six_dot",
+  "_note": "Initial (sheng-mu) table for Current Chinese Braille. Some initials share a cell — j/g (c_1245), q/k (c_13), x/h (c_125) — disambiguated by the following final.",
+  "initials": {
+    "b":  "c_12",
+    "p":  "c_1234",
+    "m":  "c_134",
+    "f":  "c_124",
+    "d":  "c_145",
+    "t":  "c_2345",
+    "n":  "c_1345",
+    "l":  "c_123",
+    "g":  "c_1245",
+    "k":  "c_13",
+    "h":  "c_125",
+    "j":  "c_1245",
+    "q":  "c_13",
+    "x":  "c_125",
+    "zh": "c_34",
+    "ch": "c_12345",
+    "sh": "c_156",
+    "r":  "c_245",
+    "z":  "c_1356",
+    "c":  "c_14",
+    "s":  "c_234"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "brailix.table.compounds.v1",
+  "name": "cn_compounds",
+  "cell": "six_dot",
+  "_note": "Letter / Greek-letter + hanzi forming one word (a compound) take a hyphen ⠤ instead of a blank cell at the boundary. This lexicon is the signal for that decision (see brailix.frontend.zh.insert_cross_kind_boundary_spaces): an adjacent foreign-letter node and hanzi node whose concatenated surface is in this set get a hyphen; a miss falls back to a blank cell (independent words like '已知 α' / '使用 CPU' stay separated). Deliberately incomplete — extend as needed; a miss only reverts to the prior blank-cell behavior, never wrong.",
+  "compounds": [
+    "x轴", "y轴", "z轴", "X轴", "Y轴", "Z轴",
+    "T恤", "T台", "T型",
+    "X光", "X射线",
+    "B超",
+    "U盘", "U盾",
+    "pH值",
+    "卡拉OK",
+    "AA制",
+    "维生素A", "维生素B", "维生素C", "维生素D", "维生素E",
+    "α粒子", "β粒子", "γ射线", "γ刀"
+  ]
+}

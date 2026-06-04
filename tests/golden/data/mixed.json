@@ -1,0 +1,61 @@
+{
+  "description": "Mixed-language text — Chinese/English, Chinese/number, Chinese + formula. The segmenter auto-detects the region type, and the dispatcher routes by inline node.",
+  "regen_hint": "python -c \"from brailix import Pipeline; print(repr(Pipeline().translate_text(SRC).render()))\"",
+  "groups": {
+    "zh_math": {
+      "description": "Chinese + math formula",
+      "cases": [
+        {
+          "src": "公式 $x^2$ 等于",
+          "expected": "⠛⠲⠁⠱⠆⠀⠰⠭⠌⠆⠀⠙⠼⠄⠬⠂",
+          "note": "公式 (formula) + math + 等于 (equals): blanks around math region"
+        },
+        {
+          "src": "设 $x$ 为变量",
+          "expected": "⠱⠢⠆⠀⠰⠭⠀⠺⠆⠀⠃⠩⠆⠇⠭⠆",
+          "note": "设 (let) + math + 为 (be) + 变量 (variable)"
+        },
+        {
+          "src": "用 $x$ 表示",
+          "expected": "⠹⠆⠀⠰⠭⠀⠃⠜⠄⠱⠆",
+          "note": "用 (use) + math + 表示 (denote) (表=biao3: iao final is ⠜)"
+        },
+        {
+          "src": "我 $1+1=2$ 知道",
+          "expected": "⠕⠄⠀⠼⠁⠀⠖⠼⠁⠀⠶⠼⠃⠀⠌⠁⠙⠖⠆",
+          "note": "Chinese + arithmetic in math + Chinese"
+        }
+      ]
+    },
+    "zh_latin": {
+      "description": "Chinese + English acronym",
+      "cases": [
+        {
+          "src": "用 CPU 计算",
+          "expected": "⠹⠆⠀⠠⠉⠏⠥⠀⠛⠊⠆⠎⠻⠆",
+          "note": "Chinese + CPU acronym + Chinese"
+        }
+      ]
+    },
+    "zh_number": {
+      "description": "Chinese + number",
+      "cases": [
+        {
+          "src": "我有3个苹果",
+          "expected": "⠕⠄⠀⠳⠄⠼⠉⠤⠛⠢⠆⠀⠏⠡⠂⠛⠕⠄",
+          "note": "Chinese + digit + measure word + noun; hyphen/connector ⠤ between 3个 (个's leading cell ⠛=7), no separator between 有→3 (the number sign supplies it)"
+        }
+      ]
+    },
+    "trilingual": {
+      "description": "Three-way mix (Chinese + acronym + formula)",
+      "cases": [
+        {
+          "src": "我用 CPU 算 $x^2$",
+          "expected": "⠕⠄⠹⠆⠀⠠⠉⠏⠥⠀⠎⠻⠆⠀⠰⠭⠌⠆",
+          "note": "Chinese + acronym + Chinese + math"
+        }
+      ]
+    }
+  }
+}

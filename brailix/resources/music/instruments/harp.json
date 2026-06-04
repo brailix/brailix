@@ -1,0 +1,7 @@
+{
+  "schema": "brailix.music.instruments.harp.v1",
+  "name": "bana_2015_music_harp",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 27. Harps (Pars. Par. 31)",
+  "harp": {}
+}

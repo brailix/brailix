@@ -1,0 +1,48 @@
+{
+  "schema": "brailix.music.grouping.v1",
+  "name": "bana_2015_music_grouping",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 8. Irregular Note Grouping (Pars. 8.3-8.6)",
+  "grouping": {
+    "music_comma": {
+      "cells": [
+        "c_126",
+        "c_2"
+      ]
+    },
+    "terminal_music_comma": {
+      "cells": [
+        "c_126",
+        "c_2",
+        "c_3"
+      ]
+    },
+    "triplet_single_cell": {
+      "cells": [
+        "c_23"
+      ]
+    },
+    "triplet_three_cell": {
+      "cells": [
+        "c_456",
+        "c_25",
+        "c_3"
+      ]
+    },
+    "group_of_two_notes": {
+      "cells": [
+        "c_456",
+        "c_23",
+        "c_3"
+      ]
+    },
+    "group_of_ten_notes": {
+      "cells": [
+        "c_456",
+        "c_2",
+        "c_356",
+        "c_3"
+      ]
+    }
+  }
+}

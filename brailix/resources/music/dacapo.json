@@ -1,0 +1,63 @@
+{
+  "schema": "brailix.music.dacapo.v1",
+  "name": "bana_2015_music_dacapo",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 20. Da Capo and Dal Segno Repeats (Pars. 20.1-20.3)",
+  "dacapo": {
+    "print_da_capo": {
+      "cells": [
+        "c_345",
+        "c_145",
+        "c_3",
+        "c_14",
+        "c_3",
+        "c_345"
+      ]
+    },
+    "braille_only_da_capo": {
+      "cells": [
+        "c_345",
+        "c_145",
+        "c_14",
+        "c_3",
+        "c_345"
+      ]
+    },
+    "print_segno": {
+      "cells": [
+        "c_346"
+      ]
+    },
+    "braille_segno_with_letter": {
+      "cells": [
+        "c_346",
+        "c_1"
+      ]
+    },
+    "braille_dal_segno_letter_a": {
+      "cells": [
+        "c_5",
+        "c_346",
+        "c_1"
+      ]
+    },
+    "braille_dal_segno_letter_b": {
+      "cells": [
+        "c_5",
+        "c_346",
+        "c_12"
+      ]
+    },
+    "end_braille_segno_passage": {
+      "cells": [
+        "c_16"
+      ]
+    },
+    "print_encircled_cross_coda": {
+      "cells": [
+        "c_346",
+        "c_123"
+      ]
+    }
+  }
+}

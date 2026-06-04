@@ -1,0 +1,55 @@
+{
+  "schema": "brailix.music.octaves.v1",
+  "name": "bana_2015_music_octaves",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 3. Octave Marks (Pars. 3.1-3.3.2)",
+  "octaves": {
+    "first_octave": {
+      "cells": [
+        "c_4"
+      ]
+    },
+    "second_octave": {
+      "cells": [
+        "c_45"
+      ]
+    },
+    "third_octave": {
+      "cells": [
+        "c_456"
+      ]
+    },
+    "fourth_octave": {
+      "cells": [
+        "c_5"
+      ]
+    },
+    "fifth_octave": {
+      "cells": [
+        "c_46"
+      ]
+    },
+    "sixth_octave": {
+      "cells": [
+        "c_56"
+      ]
+    },
+    "seventh_octave": {
+      "cells": [
+        "c_6"
+      ]
+    },
+    "below_first_octave": {
+      "cells": [
+        "c_4",
+        "c_4"
+      ]
+    },
+    "above_seventh_octave": {
+      "cells": [
+        "c_6",
+        "c_6"
+      ]
+    }
+  }
+}

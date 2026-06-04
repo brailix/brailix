@@ -1,0 +1,103 @@
+{
+  "description": "Warning-code tests — malformed input must carry a specific code, clean input must emit no noise warnings.",
+  "regen_hint": "python -c \"from brailix import Pipeline; r = Pipeline().translate_text(SRC); print(repr(r.render())); print([w.code for w in r.warnings])\"",
+  "groups": {
+    "warning_emit": {
+      "description": "Malformed input: output is recoverable, and the specified warning code must be emitted",
+      "cases": [
+        {
+          "src": "$\\unknownfoo$",
+          "expected": "⠫⠰⠥⠰⠝⠰⠅⠰⠝⠰⠕⠰⠺⠰⠝⠰⠋⠰⠕⠰⠕",
+          "note": "unknown control sequence: backslash stripped + letter-by-letter spelling, no warning"
+        },
+        {
+          "src": "$\\circ$",
+          "expected": "⠀",
+          "warnings_include": ["MATH_UNKNOWN_SYMBOL"],
+          "note": "circ (∘) is not in symbols table"
+        },
+        {
+          "src": "$☃$",
+          "expected": "⠀",
+          "warnings_include": ["MATH_UNKNOWN_IDENTIFIER"],
+          "note": "snowman: unicode char with no math mapping"
+        },
+        {
+          "id": "hat-empty-warn",
+          "src": "$\\hat{x}$",
+          "expected": "⠰⠭⠘⠀",
+          "warnings_include": ["MATH_UNKNOWN_SYMBOL"],
+          "note": "hat accent ^ not yet recorded → above marker ⠘ + unknown cell + MATH_UNKNOWN_SYMBOL"
+        },
+        {
+          "id": "double-dollar-empty",
+          "src": "$$",
+          "expected": "⠀⠀",
+          "warnings_include": ["UNKNOWN_PUNCT"],
+          "note": "empty $$ — two unknown punct cells, only one unique code"
+        },
+        {
+          "src": "$\\heartsuit$",
+          "expected": "⠀",
+          "warnings_include": ["MATH_UNKNOWN_IDENTIFIER"],
+          "note": "\\heartsuit (♡ U+2661): decorative symbol, not a math notation → unknown identifier + blank-cell recovery. (was \\triangle, but △ is now recorded as a geometric shape, so switched to a still-unknown symbol)"
+        },
+        {
+          "id": "spadesuit-unknown",
+          "src": "$\\spadesuit$",
+          "expected": "⠀",
+          "warnings_include": ["MATH_UNKNOWN_IDENTIFIER"],
+          "note": "\\spadesuit (♠ U+2660): as above, another unknown decorative symbol (kept as a second case to maintain the warning case count)"
+        }
+      ]
+    },
+    "clean_inputs": {
+      "description": "well-formed input: must not trigger any recovery noise warnings",
+      "cases": [
+        {"src": "$x$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "clean math var x"},
+        {"src": "$y$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "clean math var y"},
+        {"src": "$\\pi$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "clean greek pi"},
+        {"src": "$\\alpha$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "clean greek alpha"},
+        {"src": "$\\Delta$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "clean greek upper Delta"},
+        {"src": "$5$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "clean math digit 5"},
+        {"src": "$1 + 2$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "clean arithmetic"},
+        {"src": "$x + y$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "x + y"},
+        {"src": "$x = y$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "x = y"},
+        {"src": "$x^2$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "msup atomic"},
+        {"src": "$x_3$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "msub atomic"},
+        {"src": "$x^2 + y^2 = z^2$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "Pythagorean"},
+        {"src": "$\\frac{1}{2}$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "Antoine fraction"},
+        {"src": "$\\frac{1}{x}$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "simple fraction"},
+        {"src": "$\\frac{a+b}{c}$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "compound fraction"},
+        {"src": "$\\sqrt{x}$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "sqrt(x)"},
+        {"src": "$\\sqrt[3]{x}$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "cube root"},
+        {"src": "$\\sum$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "bare sum"},
+        {"src": "$\\sum_{i=1}^{n} a_i$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "sum with limits"},
+        {"src": "$\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "matrix uses the mtable linear representation, no longer unsupported (note: latex2mathml merged the \\\\ line breaks; for correct handling of multi-row matrices see the OMML path + backend test_math TestMatrix)"},
+        {"src": "$\\int$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "bare int"},
+        {"src": "$\\int_0^1 f(x) dx$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "integral with limits"},
+        {"src": "$\\sin x$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "sin"},
+        {"src": "$\\arcsin x$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "arcsin"},
+        {"src": "$\\sinh x$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "sinh"},
+        {"src": "$\\ln x$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "ln"},
+        {"src": "$\\log_2 x$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "log base 2"},
+        {"src": "$\\dot{x}$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "dot accent"},
+        {"src": "$\\rightarrow$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "rightarrow"},
+        {"src": "$\\leftarrow$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "leftarrow"},
+        {"src": "$\\cong$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "congruent"},
+        {"src": "$\\because$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "because"},
+        {"src": "$\\therefore$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "therefore"},
+        {"src": "$\\Rightarrow$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "Rightarrow"},
+        {"src": "$\\Leftrightarrow$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "Leftrightarrow"},
+        {"src": "$\\infty$", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "infinity"},
+        {"src": "我", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "single hanzi"},
+        {"src": "你好", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "two-char hanzi"},
+        {"src": "hello", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "lowercase word"},
+        {"src": "Hello", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "capitalized word"},
+        {"src": "CPU", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "acronym"},
+        {"src": "100", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "plain int"},
+        {"src": "3.14", "warnings_exclude": ["MATH_UNKNOWN_IDENTIFIER", "MATH_UNKNOWN_SYMBOL", "MATH_UNKNOWN_DIGIT", "MATH_UNKNOWN_TEXT_CHAR", "MATH_MISSING_NUMBER_PART", "MATH_UNSUPPORTED_ELEMENT", "MATH_NO_IR", "MATH_ERROR", "UNKNOWN_PUNCT", "MISSING_FINAL", "UNHANDLED_SEGMENT_TYPE"], "note": "plain decimal"}
+      ]
+    }
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "description": "Pitfalls hit in the past — empty formulas, malformed input, mixed-script paragraphs. Locks down recovery behavior.",
+  "regen_hint": "python -c \"from brailix import Pipeline; print(repr(Pipeline().translate_text(SRC).render()))\"",
+  "groups": {
+    "edge_inputs": {
+      "description": "Boundary / malformed / mixed inputs: the pipeline must not crash",
+      "cases": [
+        {
+          "src": "$$",
+          "expected": "⠀⠀",
+          "note": "empty $$: both dollars treated as unknown punct (2 cells)"
+        },
+        {
+          "src": "$ $",
+          "expected": "⠀",
+          "note": "$ space $: empty math triggers MATH_ERROR with one fallback cell"
+        },
+        {
+          "src": "$1 + 2$",
+          "expected": "⠼⠁⠀⠖⠼⠃",
+          "note": "digit + plus + digit: each digit run re-emits number_sign"
+        },
+        {
+          "src": "$x^2 + y^2 = z^2$",
+          "expected": "⠰⠭⠌⠆⠀⠖⠰⠽⠌⠆⠀⠶⠰⠵⠌⠆",
+          "note": "Pythagorean: three simplifiable scripts, one plus, one equals"
+        },
+        {
+          "src": "$\\frac{1}{2}$",
+          "expected": "⠼⠁⠆",
+          "note": "simple Antoine fraction"
+        },
+        {
+          "src": "$\\frac{1}{x}$",
+          "expected": "⠼⠁⠳⠰⠭",
+          "note": "simple slashed fraction with letter denom"
+        },
+        {
+          "src": "$\\frac{a+b}{c}$",
+          "expected": "⠆⠰⠁⠀⠖⠰⠃⠀⠳⠰⠉⠰",
+          "note": "compound fraction with open/close"
+        },
+        {
+          "src": "$\\sqrt{x}$",
+          "expected": "⠩⠱⠰⠭⠹",
+          "note": "sqrt with single variable"
+        },
+        {
+          "src": "$\\sqrt[3]{x}$",
+          "expected": "⠩⠼⠉⠱⠰⠭⠹",
+          "note": "cube root"
+        },
+        {
+          "src": "hello world",
+          "expected": "⠰⠓⠑⠇⠇⠕⠀⠰⠺⠕⠗⠇⠙",
+          "note": "plain latin text, two words"
+        },
+        {
+          "src": "我",
+          "expected": "⠕⠄",
+          "note": "one Chinese char"
+        },
+        {
+          "src": "1024",
+          "expected": "⠼⠁⠚⠃⠙",
+          "note": "plain integer in text"
+        },
+        {
+          "src": "你好世界。",
+          "expected": "⠝⠊⠄⠓⠖⠄⠀⠱⠆⠛⠑⠆⠐⠆",
+          "note": "Chinese paragraph: jieba splits 你好/世界, blank only between words"
+        }
+      ]
+    }
+  }
+}

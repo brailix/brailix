@@ -1,0 +1,153 @@
+[project]
+name = "brailix"
+# Core-library version axis — read from brailix/__init__.py (see
+# [tool.hatch.version] below).
+dynamic = ["version"]
+description = "Pluggable Braille compiler with normalized intermediate representation."
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "Apache-2.0" }
+authors = [{ name = "brailix contributors" }]
+dependencies = []
+
+# Adapter-based architecture: core has zero third-party parser dependencies.
+# Optional adapters are grouped by language and by tool category; install
+# only what your inputs need, e.g.:
+#   pip install brailix[zh]            # Chinese (light, offline)
+#   pip install brailix[zh,latex]      # + LaTeX math
+#   pip install brailix[hanlp,g2pw]    # accurate Chinese engines
+[project.optional-dependencies]
+
+# Languages — Chinese: word segmentation + pinyin (polyphone
+# disambiguation). The ``zh`` pack is light, offline, and pure-Python (a
+# good default); add a heavier engine below for accuracy — ``auto``
+# selection prefers the best installed one.
+zh = ["jieba", "pypinyin"]
+# Chinese segmentation engines (alternatives):
+hanlp = ["hanlp"]          # transformer MTL, most accurate (downloads a model on first use)
+thulac = ["thulac"]
+jieba = ["jieba"]          # light, offline, pure-Python
+pkuseg = ["pkuseg"]
+# Chinese pinyin engines (alternatives):
+# g2pM ships its bi-LSTM weights as bundled .pkl files but runs them on
+# numpy at inference time, yet (as of 0.1.2.5) doesn't declare numpy as
+# a dependency — so we pin it here, or `import g2pM` ImportErrors at
+# adapter-load time and the registry mis-reports it as a missing extra.
+g2pm = ["g2pM", "numpy"]
+g2pw = ["g2pw"]            # deep polyphone model (downloads a model on first use)
+pypinyin = ["pypinyin"]    # light, offline, dictionary-based
+
+# Math sources:
+# MathML parsing uses stdlib xml.etree.ElementTree, so the math subsystem
+# itself has no third-party requirement; only the source adapters (e.g.
+# LaTeX → MathML) need an extra package.
+latex = ["latex2mathml"]
+asciimath = ["py-asciimath"]
+
+# Document input:
+markdown = ["markdown-it-py"]
+# python-docx already pulls lxml in transitively, but we name it
+# explicitly so the docx adapter's OMML extraction (which uses
+# lxml.etree.tostring) keeps working if a future python-docx release
+# replaces lxml. ``olefile`` cracks open the OLE compound documents
+# that MathType / Microsoft Equation 3.0 embed in .docx files.
+# ".doc" (legacy binary) support relies on an external LibreOffice
+# ``soffice`` install — see ``brailix.input.docx.parse_doc``;
+# we don't add it as a Python dep because it's a system binary.
+docx = ["python-docx", "lxml", "olefile"]
+
+# Music sources:
+# MusicXML / .mxl parsing uses stdlib xml.etree + zipfile, so the music
+# subsystem core has no third-party requirement. MIDI / ABC adapters need
+# optional packages:
+midi = ["mido", "partitura"]                        # mido reads MIDI bytes, partitura → MusicXML
+abc = ["abc-xml-converter"]                         # ABC notation text → MusicXML
+music = ["mido", "partitura", "abc-xml-converter"]  # all music sources
+
+# Everything (all languages + all tools):
+all = [
+    "hanlp", "thulac", "jieba", "pkuseg",
+    "g2pM", "numpy", "g2pw", "pypinyin",
+    "latex2mathml", "py-asciimath",
+    "markdown-it-py", "python-docx", "lxml", "olefile",
+    "mido", "partitura", "abc-xml-converter",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    # Adapters exercised by the core test suite (Chinese tokenization +
+    # pinyin, LaTeX math). Individual tests skip when their adapter is
+    # absent, so these only matter for running the whole suite locally.
+    "thulac",
+    "g2pM",
+    "numpy",  # g2pM inference dep, undeclared upstream — see [g2pm] extra
+    "jieba",
+    "pypinyin",
+    "latex2mathml",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "brailix/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["brailix"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = [".venv", "build", "dist", ".tmp"]
+
+[tool.ruff.lint]
+# Conservative selection — focus on real bugs and obvious smells, not
+# stylistic preferences.
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "B",   # flake8-bugbear (likely bugs)
+    "UP",  # pyupgrade (modern Python idioms)
+]
+ignore = [
+    "E501",   # line too long — handled by `line-length`, not always fixable
+    "E402",   # module-level import not at top — used intentionally for cycle breaks
+    "B008",   # function call in default arg — common idiom in our dataclasses
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["E501"]
+"brailix/backend/math/__init__.py" = ["F401"]
+"brailix/core/config/__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.13"
+strict_optional = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+ignore_missing_imports = true  # adapters' optional deps (hanlp, g2pw, ...) are extras
+
+[tool.coverage.run]
+branch = true
+source = ["brailix"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
+show_missing = true
+skip_covered = false

@@ -1,0 +1,222 @@
+{
+  "schema": "brailix.music.instruments.names_de.v1",
+  "name": "bana_2015_music_names_de",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 29 (D). Abbreviations for Instrument Names -- German (Pars. Par. 33)",
+  "names_de": {
+    "kleine_flote": {
+      "cells": [
+        "c_345",
+        "c_13",
+        "c_124",
+        "c_123",
+        "c_3"
+      ]
+    },
+    "grosse_flote": {
+      "cells": [
+        "c_345",
+        "c_124",
+        "c_123",
+        "c_3"
+      ]
+    },
+    "oboe": {
+      "cells": [
+        "c_345",
+        "c_135",
+        "c_3"
+      ]
+    },
+    "englisches_horn": {
+      "cells": [
+        "c_345",
+        "c_15",
+        "c_125",
+        "c_3"
+      ]
+    },
+    "klarinette": {
+      "cells": [
+        "c_345",
+        "c_13",
+        "c_123",
+        "c_3"
+      ]
+    },
+    "bassklarinette": {
+      "cells": [
+        "c_345",
+        "c_12",
+        "c_13",
+        "c_123",
+        "c_3"
+      ]
+    },
+    "fagott": {
+      "cells": [
+        "c_345",
+        "c_124",
+        "c_1245",
+        "c_3"
+      ]
+    },
+    "doppelfagott": {
+      "cells": [
+        "c_345",
+        "c_145",
+        "c_124",
+        "c_1245",
+        "c_3"
+      ]
+    },
+    "horn": {
+      "cells": [
+        "c_345",
+        "c_125",
+        "c_1345",
+        "c_3"
+      ]
+    },
+    "trompete": {
+      "cells": [
+        "c_345",
+        "c_2345",
+        "c_1234",
+        "c_3"
+      ]
+    },
+    "posaune": {
+      "cells": [
+        "c_345",
+        "c_1234",
+        "c_135",
+        "c_234",
+        "c_3"
+      ]
+    },
+    "basstuba": {
+      "cells": [
+        "c_345",
+        "c_2345",
+        "c_136",
+        "c_3"
+      ]
+    },
+    "pauken": {
+      "cells": [
+        "c_345",
+        "c_1234",
+        "c_13",
+        "c_3"
+      ]
+    },
+    "becken": {
+      "cells": [
+        "c_345",
+        "c_12",
+        "c_13",
+        "c_3"
+      ]
+    },
+    "triangel": {
+      "cells": [
+        "c_345",
+        "c_2345",
+        "c_1235",
+        "c_24",
+        "c_3"
+      ]
+    },
+    "kleine_trommel": {
+      "cells": [
+        "c_345",
+        "c_13",
+        "c_2345",
+        "c_3"
+      ]
+    },
+    "grosse_trommel": {
+      "cells": [
+        "c_345",
+        "c_1245",
+        "c_2345",
+        "c_3"
+      ]
+    },
+    "harfe_rechte_hand": {
+      "cells": [
+        "c_345",
+        "c_125",
+        "c_1235",
+        "c_3"
+      ]
+    },
+    "harfe_linke_hand": {
+      "cells": [
+        "c_345",
+        "c_125",
+        "c_123",
+        "c_3"
+      ]
+    },
+    "klavier_rechte_hand": {
+      "cells": [
+        "c_345",
+        "c_13",
+        "c_125",
+        "c_1235",
+        "c_3"
+      ]
+    },
+    "klavier_linke_hand": {
+      "cells": [
+        "c_345",
+        "c_13",
+        "c_125",
+        "c_123",
+        "c_3"
+      ]
+    },
+    "violine_1": {
+      "cells": [
+        "c_345",
+        "c_1236",
+        "c_2",
+        "c_3"
+      ]
+    },
+    "violine_2": {
+      "cells": [
+        "c_345",
+        "c_1236",
+        "c_23",
+        "c_3"
+      ]
+    },
+    "bratsche": {
+      "cells": [
+        "c_345",
+        "c_12",
+        "c_1235",
+        "c_3"
+      ]
+    },
+    "violoncello": {
+      "cells": [
+        "c_345",
+        "c_1236",
+        "c_14",
+        "c_3"
+      ]
+    },
+    "kontrabass": {
+      "cells": [
+        "c_345",
+        "c_13",
+        "c_12",
+        "c_3"
+      ]
+    }
+  }
+}

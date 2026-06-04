@@ -1,0 +1,68 @@
+{
+  "schema": "brailix.music.tremolo.v1",
+  "name": "bana_2015_music_tremolo",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 14. Tremolo (Pars. 14.1-14.3)",
+  "tremolo": {
+    "repetition_8ths": {
+      "cells": [
+        "c_45",
+        "c_12"
+      ]
+    },
+    "repetition_16ths": {
+      "cells": [
+        "c_45",
+        "c_123"
+      ]
+    },
+    "repetition_32nds": {
+      "cells": [
+        "c_45",
+        "c_2"
+      ]
+    },
+    "repetition_64ths": {
+      "cells": [
+        "c_45",
+        "c_13"
+      ]
+    },
+    "repetition_128ths": {
+      "cells": [
+        "c_45",
+        "c_3"
+      ]
+    },
+    "alternation_8ths": {
+      "cells": [
+        "c_46",
+        "c_12"
+      ]
+    },
+    "alternation_16ths": {
+      "cells": [
+        "c_46",
+        "c_123"
+      ]
+    },
+    "alternation_32nds": {
+      "cells": [
+        "c_46",
+        "c_2"
+      ]
+    },
+    "alternation_64ths": {
+      "cells": [
+        "c_46",
+        "c_1"
+      ]
+    },
+    "alternation_128ths": {
+      "cells": [
+        "c_46",
+        "c_3"
+      ]
+    }
+  }
+}

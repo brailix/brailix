@@ -1,0 +1,26 @@
+{
+  "schema": "brailix.music.in_accord.v1",
+  "name": "bana_2015_music_in_accord",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 11. In-Accord and Measure-Division Signs (Pars. 11.1-11.4)",
+  "in_accord": {
+    "full_measure_in_accord": {
+      "cells": [
+        "c_126",
+        "c_345"
+      ]
+    },
+    "part_measure_in_accord": {
+      "cells": [
+        "c_5",
+        "c_2"
+      ]
+    },
+    "measure_division": {
+      "cells": [
+        "c_46",
+        "c_13"
+      ]
+    }
+  }
+}

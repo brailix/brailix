@@ -1,0 +1,791 @@
+"""Tests for :mod:`brailix.input.docx` — Word document adapter.
+
+Fixtures are generated programmatically with ``python-docx`` + raw
+lxml so we don't have to check binary ``.docx`` blobs into the repo;
+each test builds the exact document shape it needs.
+
+The whole module is skipped when ``python-docx`` isn't importable —
+the adapter is gated on the ``docx`` extras group.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip("docx")
+pytest.importorskip("lxml")
+
+from docx import Document  # noqa: E402
+from lxml import etree  # noqa: E402
+
+from brailix.input.docx import parse_doc, parse_docx  # noqa: E402
+from brailix.ir.document import (  # noqa: E402
+    Heading,
+    List,
+    ListItem,
+    MathBlock,
+    Paragraph,
+    Table,
+)
+
+_W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_M_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+_O_NS = "urn:schemas-microsoft-com:office:office"
+_R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+
+# ---------------------------------------------------------------------------
+# Fixture builders
+# ---------------------------------------------------------------------------
+
+
+def _omml_fragment(xml_body: str) -> etree._Element:
+    """Build an ``<m:oMath>`` element from a body XML snippet."""
+    wrapped = (
+        f'<m:oMath xmlns:m="{_M_NS}">{xml_body}</m:oMath>'
+    )
+    return etree.fromstring(wrapped)
+
+
+def _omml_para(xml_body: str) -> etree._Element:
+    """Build an ``<m:oMathPara>`` (display) element."""
+    wrapped = (
+        f'<m:oMathPara xmlns:m="{_M_NS}">'
+        f'<m:oMath>{xml_body}</m:oMath>'
+        f'</m:oMathPara>'
+    )
+    return etree.fromstring(wrapped)
+
+
+def _make_docx(tmp_path: Path, name: str = "doc.docx") -> tuple[Path, Document]:
+    """Create a fresh empty ``.docx`` at ``tmp_path / name``."""
+    path = tmp_path / name
+    doc = Document()
+    return path, doc
+
+
+# ---------------------------------------------------------------------------
+# Plain paragraph / heading / list
+# ---------------------------------------------------------------------------
+
+
+class TestStructuralBlocks:
+    def test_single_paragraph(self, tmp_path: Path) -> None:
+        path, doc = _make_docx(tmp_path)
+        doc.add_paragraph("我在重庆。")
+        doc.save(path)
+
+        result = parse_docx(path)
+        # python-docx adds a trailing blank paragraph by default
+        # (it's the cursor position); filter empty paragraphs.
+        non_empty = [
+            b for b in result.blocks
+            if not (isinstance(b, Paragraph) and not (b.text or "").strip())
+        ]
+        assert len(non_empty) == 1
+        assert isinstance(non_empty[0], Paragraph)
+        assert non_empty[0].text == "我在重庆。"
+
+    def test_heading_style_becomes_heading_block(self, tmp_path: Path) -> None:
+        # Headings are detected by the pStyle name. ``add_heading``
+        # applies the "Heading 1" style which we recognise as level 1.
+        path, doc = _make_docx(tmp_path)
+        doc.add_heading("第一章", level=1)
+        doc.add_heading("第一节", level=2)
+        doc.add_paragraph("正文。")
+        doc.save(path)
+
+        result = parse_docx(path)
+        headings = [b for b in result.blocks if isinstance(b, Heading)]
+        assert [h.level for h in headings] == [1, 2]
+        assert [h.text for h in headings] == ["第一章", "第一节"]
+
+    def test_list_paragraphs_group_into_one_list(self, tmp_path: Path) -> None:
+        # python-docx's ``add_paragraph(style="List Bullet")`` attaches
+        # the bullet-list style which triggers ``numPr``.
+        path, doc = _make_docx(tmp_path)
+        doc.add_paragraph("一项", style="List Bullet")
+        doc.add_paragraph("二项", style="List Bullet")
+        doc.add_paragraph("三项", style="List Bullet")
+        doc.save(path)
+
+        result = parse_docx(path)
+        lists = [b for b in result.blocks if isinstance(b, List)]
+        assert len(lists) == 1
+        assert [it.text for it in lists[0].items] == ["一项", "二项", "三项"]
+        assert all(isinstance(it, ListItem) for it in lists[0].items)
+
+    def test_table_with_two_rows(self, tmp_path: Path) -> None:
+        path, doc = _make_docx(tmp_path)
+        t = doc.add_table(rows=2, cols=2)
+        t.rows[0].cells[0].text = "甲"
+        t.rows[0].cells[1].text = "乙"
+        t.rows[1].cells[0].text = "丙"
+        t.rows[1].cells[1].text = "丁"
+        doc.save(path)
+
+        result = parse_docx(path)
+        tables = [b for b in result.blocks if isinstance(b, Table)]
+        assert len(tables) == 1
+        rows = tables[0].rows
+        assert len(rows) == 2
+        assert [c.text for c in rows[0].cells] == ["甲", "乙"]
+        assert [c.text for c in rows[1].cells] == ["丙", "丁"]
+
+
+# ---------------------------------------------------------------------------
+# Math handling
+# ---------------------------------------------------------------------------
+
+
+class TestMath:
+    def test_display_math_paragraph_becomes_math_block(
+        self, tmp_path: Path
+    ) -> None:
+        # A paragraph that contains only ``<m:oMathPara>`` produces a
+        # MathBlock; the OMML XML is preserved as ``MathBlock.text``.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        para._p.append(_omml_para(
+            '<m:f><m:num><m:r><m:t>x</m:t></m:r></m:num>'
+            '<m:den><m:r><m:t>2</m:t></m:r></m:den></m:f>'
+        ))
+        doc.save(path)
+
+        result = parse_docx(path)
+        math_blocks = [b for b in result.blocks if isinstance(b, MathBlock)]
+        assert len(math_blocks) == 1
+        assert math_blocks[0].source == "omml"
+        # Round-trip preserved enough that the OMML adapter can still
+        # find the fraction tags.
+        assert "<m:f" in math_blocks[0].text or "m:f" in math_blocks[0].text
+
+    def test_inline_math_embedded_in_paragraph_text(
+        self, tmp_path: Path
+    ) -> None:
+        # Inline ``m:oMath`` (no ``m:oMathPara`` wrapper) stays in the
+        # paragraph; the docx adapter swaps it for ``$<math>...</math>$``
+        # so the segmenter recognises it as inline math.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("公式 ")
+        para._p.append(_omml_fragment(
+            '<m:sSup>'
+            '<m:e><m:r><m:t>x</m:t></m:r></m:e>'
+            '<m:sup><m:r><m:t>2</m:t></m:r></m:sup>'
+            '</m:sSup>'
+        ))
+        # python-docx ``add_run`` after the math node appends text.
+        para.add_run(" 是平方。")
+        doc.save(path)
+
+        result = parse_docx(path)
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        # The inline equation should sit in the same paragraph text as
+        # the surrounding Chinese.
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "公式" in joined
+        assert "是平方" in joined
+        assert "$<math" in joined and "</math>$" in joined
+
+
+# ---------------------------------------------------------------------------
+# MathType / Equation 3.0 OLE handling
+# ---------------------------------------------------------------------------
+
+
+def _embed_ole_equation(
+    doc: Document, paragraph, blob: bytes, *, progid: str = "Equation.DSMT4"
+) -> str:
+    """Attach ``blob`` as an OLE equation part and reference it from ``paragraph``.
+
+    Inserts a minimal ``<w:object>`` + ``<o:OLEObject>`` skeleton inside
+    a new ``<w:r>`` at the end of ``paragraph``, and creates the matching
+    ``OLE_OBJECT`` relationship so ``parse_docx`` can resolve the rId
+    back to the part blob. Returns the assigned rId for visibility.
+
+    The OLE part's content type and partname mirror what Word emits;
+    python-docx's ``Part`` constructor + ``relate_to`` does the rest of
+    the bookkeeping (rels XML, [Content_Types].xml, package zip layout).
+    """
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    from docx.opc.packuri import PackURI
+    from docx.opc.part import Part
+
+    # python-docx assigns unique rIds across parts; pick the next
+    # available bin number too so multiple equations don't collide.
+    existing = [
+        n for n in doc.part.package.iter_parts()
+        if "/word/embeddings/oleObject" in n.partname
+    ]
+    idx = len(existing) + 1
+    ole_part = Part(
+        partname=PackURI(f"/word/embeddings/oleObject{idx}.bin"),
+        content_type="application/vnd.openxmlformats-officedocument.oleObject",
+        blob=blob,
+        package=doc.part.package,
+    )
+    rid = doc.part.relate_to(ole_part, RT.OLE_OBJECT)
+
+    # Build the in-paragraph markup. Word's typical layout is:
+    #   <w:r>
+    #     <w:object>
+    #       <o:OLEObject Type="Embed" ProgID="..." r:id="...".../>
+    #     </w:object>
+    #   </w:r>
+    obj_xml = (
+        f'<w:r xmlns:w="{_W_NS}" xmlns:o="{_O_NS}" xmlns:r="{_R_NS}">'
+        f'<w:object>'
+        f'<o:OLEObject Type="Embed" ProgID="{progid}" '
+        f'ShapeID="1000" DrawAspect="Content" ObjectID="1" '
+        f'r:id="{rid}"/>'
+        f'</w:object>'
+        f'</w:r>'
+    )
+    paragraph._p.append(etree.fromstring(obj_xml))
+    return rid
+
+
+def _mtef_sample_payload() -> bytes:
+    """Hand-crafted MTEF v5 payload encoding ``x²``.
+
+    Reuses the same byte-builder the math-adapter tests use so any
+    selector regression shows up here AND in the adapter tests.
+    """
+    from tests.frontend.math._mtef_builder import (
+        v5_line,
+        v5_prelude,
+        v5_simple_char_line,
+        v5_tmpl,
+    )
+    base = v5_simple_char_line(ord("x"))
+    sup = v5_simple_char_line(ord("2"))
+    # selector 28 = superscript
+    return v5_prelude() + v5_line(v5_tmpl(28, [base, sup]))
+
+
+def _eqnolehdr_wrapped(payload: bytes) -> bytes:
+    """Prepend a 28-byte EQNOLEFILEHDR so the blob mimics an OLE stream."""
+    header = (
+        bytes([0x1C, 0x00])  # cbHdr=28
+        + bytes([0x00, 0x00, 0x02, 0x00])  # version
+        + bytes([0x00, 0x00])  # cf
+        + len(payload).to_bytes(4, "little")  # cbObject
+        + bytes(16)  # reserved
+    )
+    assert len(header) == 28
+    return header + payload
+
+
+class TestMathTypeOLE:
+    def test_inline_ole_equation_becomes_inline_math(
+        self, tmp_path: Path
+    ) -> None:
+        # A paragraph containing "公式 [OLE x²] 是平方" — the docx adapter
+        # should resolve the OLE rId, run MTEF→MathML, and surface the
+        # result as inline $<math>...</math>$ text in the paragraph.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("公式 ")
+        _embed_ole_equation(
+            doc, para, _eqnolehdr_wrapped(_mtef_sample_payload())
+        )
+        para.add_run(" 是平方。")
+        doc.save(path)
+
+        result = parse_docx(path)
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "公式" in joined
+        assert "是平方" in joined
+        assert "$<math" in joined and "</math>$" in joined
+        assert "<msup>" in joined
+        assert "<mi>x</mi>" in joined
+        assert "<mn>2</mn>" in joined
+
+    def test_equation_3_progid_also_recognised(
+        self, tmp_path: Path
+    ) -> None:
+        # ProgID "Equation.3" is the legacy Microsoft Equation 3.0
+        # marker; many old textbooks use it. Same MTEF wire format.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("旧公式 ")
+        _embed_ole_equation(
+            doc, para,
+            _eqnolehdr_wrapped(_mtef_sample_payload()),
+            progid="Equation.3",
+        )
+        doc.save(path)
+
+        result = parse_docx(path)
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "<msup>" in joined
+
+    def test_unknown_progid_is_skipped(self, tmp_path: Path) -> None:
+        # An OLE object that isn't an equation (e.g. an embedded
+        # spreadsheet) must not crash parse_docx — we just leave it
+        # out of the IR.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("文本 ")
+        _embed_ole_equation(
+            doc, para, b"random bytes", progid="Excel.Sheet.12"
+        )
+        para.add_run(" 末尾")
+        doc.save(path)
+
+        result = parse_docx(path)
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "文本" in joined
+        assert "末尾" in joined
+        assert "$<math" not in joined
+
+    def test_malformed_mtef_yields_merror_not_crash(
+        self, tmp_path: Path
+    ) -> None:
+        # Truncated MTEF payload still has to produce a recognisable
+        # inline math marker (with merror inside) — the document must
+        # round-trip end-to-end without throwing.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("坏 ")
+        # First byte is a v5 version, but the rest is junk → adapter
+        # raises internally and falls back to merror_wrap.
+        _embed_ole_equation(doc, para, bytes([5, 1, 0, 11, 0, 0xFF, 0xFF]))
+        doc.save(path)
+
+        result = parse_docx(path)
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "$<math" in joined
+        assert "merror" in joined
+
+    def test_no_ole_objects_path_unaffected(self, tmp_path: Path) -> None:
+        # Sanity: a document without any OLE objects produces no
+        # ole_blobs entries and should walk identically to the pre-
+        # patch behaviour.
+        path, doc = _make_docx(tmp_path)
+        doc.add_paragraph("纯文本")
+        doc.save(path)
+
+        result = parse_docx(path)
+        # Build the blob map manually to confirm it's empty.
+        from brailix.input.docx import _build_ole_blob_map
+        assert _build_ole_blob_map(doc) == {}
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        non_empty = [p for p in paragraphs if (p.text or "").strip()]
+        assert len(non_empty) == 1
+        assert non_empty[0].text == "纯文本"
+
+
+# ---------------------------------------------------------------------------
+# Word EQ field (legacy ``eq \\f(...)`` style equations)
+# ---------------------------------------------------------------------------
+
+
+def _embed_eq_field(paragraph, instr: str) -> None:
+    """Append a Word EQ field to ``paragraph`` using the multi-run form.
+
+    Builds the canonical ``fldChar(begin) → instrText → fldChar(end)``
+    sequence inside three runs, with an optional ``separate`` + cached
+    result that the parser must ignore.
+    """
+    runs_xml = (
+        f'<w:r xmlns:w="{_W_NS}">'
+        f'<w:fldChar w:fldCharType="begin"/>'
+        f'</w:r>'
+        f'<w:r xmlns:w="{_W_NS}">'
+        f'<w:instrText xml:space="preserve">{instr}</w:instrText>'
+        f'</w:r>'
+        f'<w:r xmlns:w="{_W_NS}">'
+        f'<w:fldChar w:fldCharType="end"/>'
+        f'</w:r>'
+    )
+    # ``etree.fromstring`` accepts only one root, so wrap and unpack.
+    wrapper = etree.fromstring(f'<root xmlns:w="{_W_NS}">{runs_xml}</root>')
+    for run in list(wrapper):
+        paragraph._p.append(run)
+
+
+def _embed_eq_field_with_result(paragraph, instr: str, cached: str) -> None:
+    """EQ field with a ``separate`` + cached-result section."""
+    runs_xml = (
+        f'<w:r xmlns:w="{_W_NS}">'
+        f'<w:fldChar w:fldCharType="begin"/>'
+        f'</w:r>'
+        f'<w:r xmlns:w="{_W_NS}">'
+        f'<w:instrText xml:space="preserve">{instr}</w:instrText>'
+        f'</w:r>'
+        f'<w:r xmlns:w="{_W_NS}">'
+        f'<w:fldChar w:fldCharType="separate"/>'
+        f'</w:r>'
+        f'<w:r xmlns:w="{_W_NS}">'
+        f'<w:t>{cached}</w:t>'
+        f'</w:r>'
+        f'<w:r xmlns:w="{_W_NS}">'
+        f'<w:fldChar w:fldCharType="end"/>'
+        f'</w:r>'
+    )
+    wrapper = etree.fromstring(f'<root xmlns:w="{_W_NS}">{runs_xml}</root>')
+    for run in list(wrapper):
+        paragraph._p.append(run)
+
+
+class TestEqField:
+    def test_simple_fraction_becomes_inline_math(self, tmp_path: Path) -> None:
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("分数 ")
+        _embed_eq_field(para, r"eq \f(1,2)")
+        para.add_run(" 是二分之一")
+        doc.save(path)
+
+        result = parse_docx(path)
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "分数" in joined
+        assert "是二分之一" in joined
+        assert "$<math" in joined and "</math>$" in joined
+        assert "<mfrac>" in joined
+        assert "<mn>1</mn>" in joined
+        assert "<mn>2</mn>" in joined
+
+    def test_piecewise_function_from_problem_15(self, tmp_path: Path) -> None:
+        # The actual EQ field text from ``周练习6-5.4学生版.docx`` problem
+        # 15 — the original regression that motivated this whole path.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("f(x)＝")
+        _embed_eq_field(
+            para,
+            r"eq \b\lc\{(\a\vs4\al\co1(sin x，x≥0，,x＋2，x&lt;0，))",
+        )
+        para.add_run("则不等式 f(x)>")
+        _embed_eq_field(para, r"eq \f(1,2)")
+        para.add_run(" 的解集是____.")
+        doc.save(path)
+
+        result = parse_docx(path)
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        # Surrounding Chinese text survived.
+        assert "f(x)＝" in joined
+        assert "解集" in joined
+        # Two inline math spans — the piecewise function and the 1/2.
+        assert joined.count("$<math") == 2
+        # Piecewise: left brace, no right brace, mtable with 2 rows.
+        assert '<mo fence="true">{</mo>' in joined
+        assert '<mo fence="true">}</mo>' not in joined
+        assert "<mtable" in joined
+        # The fraction.
+        assert "<mfrac>" in joined
+
+    def test_cached_result_is_dropped(self, tmp_path: Path) -> None:
+        # When a field has a ``separate`` + cached result, the result
+        # text must NOT show up alongside the converted math — Word
+        # writes a visual fallback like "x²" there, which would be
+        # mistaken for paragraph text if we kept it.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        _embed_eq_field_with_result(
+            para, r"eq \f(1,2)", "CACHED_RESULT_TEXT"
+        )
+        doc.save(path)
+
+        result = parse_docx(path)
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "CACHED_RESULT_TEXT" not in joined
+        assert "<mfrac>" in joined
+
+    def test_non_eq_field_is_skipped_silently(self, tmp_path: Path) -> None:
+        # HYPERLINK / PAGE / TOC and the rest of Word's non-equation
+        # fields must not throw, must not produce math, and must let
+        # surrounding text through unchanged.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("前")
+        _embed_eq_field_with_result(
+            para, r"HYPERLINK \"http://example.com\"", "click here"
+        )
+        para.add_run("后")
+        doc.save(path)
+
+        result = parse_docx(path)
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "前" in joined
+        assert "后" in joined
+        assert "$<math" not in joined
+        # The cached result is dropped (we don't try to display
+        # hyperlink text — that's a separate feature).
+        assert "click here" not in joined
+
+    def test_fld_simple_form_also_supported(self, tmp_path: Path) -> None:
+        # Word's ``<w:fldSimple w:instr="eq \\f(1,2)">`` shortcut form
+        # is rarer but still used by some emitters.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("简 ")
+        fld_xml = (
+            f'<w:fldSimple xmlns:w="{_W_NS}" w:instr="eq \\f(1,2)">'
+            f'<w:r><w:t>cached</w:t></w:r>'
+            f'</w:fldSimple>'
+        )
+        para._p.append(etree.fromstring(fld_xml))
+        doc.save(path)
+
+        result = parse_docx(path)
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "$<math" in joined
+        assert "<mfrac>" in joined
+
+
+# ---------------------------------------------------------------------------
+# mathtype_fallback — LibreOffice escape hatch
+# ---------------------------------------------------------------------------
+
+
+class TestMathTypeFallback:
+    def test_invalid_fallback_value_rejected(self, tmp_path: Path) -> None:
+        path, doc = _make_docx(tmp_path)
+        doc.add_paragraph("x")
+        doc.save(path)
+        with pytest.raises(ValueError):
+            parse_docx(path, mathtype_fallback="bogus")
+
+    def test_libreoffice_mode_without_converter_raises(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from brailix.core.errors import ParseError
+
+        monkeypatch.setattr(
+            "brailix.input.docx._resolve_doc_converter",
+            lambda override: None,
+        )
+        path, doc = _make_docx(tmp_path)
+        doc.add_paragraph("x")
+        doc.save(path)
+        with pytest.raises(ParseError) as exc:
+            parse_docx(path, mathtype_fallback="libreoffice")
+        assert "LibreOffice" in str(exc.value)
+
+    def test_libreoffice_mode_invokes_converter(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # When mathtype_fallback="libreoffice" is set, we should
+        # delegate the entire parse to the LibreOffice path even if
+        # the document has no OLE objects.
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *, check, capture_output, timeout):
+            calls.append(cmd)
+            # Simulate LibreOffice writing the converted file.
+            out_dir = Path(cmd[cmd.index("--outdir") + 1])
+            stem = Path(cmd[-1]).stem
+            (out_dir / f"{stem}.docx").write_bytes(
+                Path(cmd[-1]).read_bytes()
+            )
+
+            class Result:
+                returncode = 0
+            return Result()
+
+        monkeypatch.setattr(
+            "brailix.input.docx._resolve_doc_converter",
+            lambda override: "soffice",
+        )
+        monkeypatch.setattr("brailix.input.docx.subprocess.run", fake_run)
+
+        path, doc = _make_docx(tmp_path)
+        doc.add_paragraph("回归测试")
+        doc.save(path)
+
+        result = parse_docx(path, mathtype_fallback="libreoffice")
+        assert len(calls) == 1
+        assert "--convert-to" in calls[0]
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "回归测试" in joined
+
+    def test_auto_mode_skips_libreoffice_when_native_succeeds(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # If the native MTEF adapter parses everything cleanly,
+        # mathtype_fallback="auto" must NOT call LibreOffice.
+        calls: list[list[str]] = []
+
+        def fake_run(*args, **kwargs):
+            calls.append(args)
+            raise AssertionError("LibreOffice should not be invoked")
+
+        monkeypatch.setattr(
+            "brailix.input.docx._resolve_doc_converter",
+            lambda override: "soffice",
+        )
+        monkeypatch.setattr("brailix.input.docx.subprocess.run", fake_run)
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("前 ")
+        _embed_ole_equation(
+            doc, para, _eqnolehdr_wrapped(_mtef_sample_payload())
+        )
+        doc.save(path)
+
+        result = parse_docx(path, mathtype_fallback="auto")
+        assert calls == []
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "<msup>" in joined
+
+    def test_auto_mode_retries_when_all_mtef_failed(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # When every OLE blob produces merror, "auto" should re-parse
+        # via LibreOffice.
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *, check, capture_output, timeout):
+            calls.append(cmd)
+            out_dir = Path(cmd[cmd.index("--outdir") + 1])
+            stem = Path(cmd[-1]).stem
+            # Simulate LibreOffice replacing the OLE equation with a
+            # native OMML one by rewriting the file to have a simple
+            # OMML expression and no OLE.
+            new = _make_docx(out_dir, name=f"{stem}.docx")
+            _, conv = new
+            para = conv.add_paragraph("修复后 ")
+            para._p.append(_omml_fragment(
+                '<m:sSup>'
+                '<m:e><m:r><m:t>y</m:t></m:r></m:e>'
+                '<m:sup><m:r><m:t>3</m:t></m:r></m:sup>'
+                '</m:sSup>'
+            ))
+            conv.save(out_dir / f"{stem}.docx")
+
+            class Result:
+                returncode = 0
+            return Result()
+
+        monkeypatch.setattr(
+            "brailix.input.docx._resolve_doc_converter",
+            lambda override: "soffice",
+        )
+        monkeypatch.setattr("brailix.input.docx.subprocess.run", fake_run)
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("前 ")
+        # Garbled MTEF — adapter will emit merror.
+        _embed_ole_equation(doc, para, bytes([5, 1, 0, 11, 0, 0xFF, 0xFF]))
+        doc.save(path)
+
+        result = parse_docx(path, mathtype_fallback="auto")
+        assert len(calls) == 1
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "修复后" in joined
+        # The fallback path swapped the bad OLE for a valid OMML.
+        assert "<msup>" in joined
+        assert "merror" not in joined
+
+    def test_auto_mode_swallows_libreoffice_unavailable(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # If LibreOffice isn't around, "auto" keeps the native result
+        # (including merror) rather than raising — that's the point
+        # of "auto" vs "libreoffice".
+        monkeypatch.setattr(
+            "brailix.input.docx._resolve_doc_converter",
+            lambda override: None,
+        )
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("前 ")
+        _embed_ole_equation(doc, para, bytes([5, 1, 0, 11, 0, 0xFF, 0xFF]))
+        doc.save(path)
+
+        result = parse_docx(path, mathtype_fallback="auto")
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "merror" in joined  # native fallback kept
+
+
+# ---------------------------------------------------------------------------
+# parse_doc legacy path
+# ---------------------------------------------------------------------------
+
+
+class TestParseDocLegacy:
+    def test_missing_converter_raises_helpful_error(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # When no LibreOffice is on PATH, parse_doc must raise
+        # ParseError with a "convert to .docx first" hint — not
+        # silently fail or attempt to read the binary blob.
+        from brailix.core.errors import ParseError
+
+        monkeypatch.setattr(
+            "brailix.input.docx._resolve_doc_converter",
+            lambda override: None,
+        )
+        # Create a dummy .doc file so the FileNotFoundError path is
+        # not hit before the converter check.
+        path = tmp_path / "legacy.doc"
+        path.write_bytes(b"\xd0\xcf\x11\xe0")  # OLE magic bytes
+        with pytest.raises(ParseError) as exc:
+            parse_doc(path)
+        assert ".doc" in str(exc.value)
+        assert "LibreOffice" in str(exc.value) or "soffice" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# parse_file suffix dispatch
+# ---------------------------------------------------------------------------
+
+
+class TestParseFileDispatch:
+    def test_docx_routes_through_parse_docx(self, tmp_path: Path) -> None:
+        # End-to-end via parse_file: ``.docx`` suffix dispatches to the
+        # docx adapter (not the plain reader, which would choke on
+        # binary content).
+        from brailix.input import parse_file
+
+        path, doc = _make_docx(tmp_path)
+        doc.add_heading("章节", level=1)
+        doc.add_paragraph("正文。")
+        doc.save(path)
+
+        result = parse_file(path)
+        headings = [b for b in result.blocks if isinstance(b, Heading)]
+        assert len(headings) == 1
+        assert headings[0].text == "章节"
+
+    def test_docm_suffix_also_routes_to_docx(self, tmp_path: Path) -> None:
+        # ``.docm`` (macro-enabled) is the same OOXML container with
+        # macros embedded; parse_docx reads it identically.
+        from brailix.input import parse_file
+
+        path = tmp_path / "macros.docm"
+        doc = Document()
+        doc.add_paragraph("hi")
+        doc.save(path)
+
+        result = parse_file(path)
+        # Just confirm the parser ran (no exception).
+        assert result.blocks  # not empty
+
+
+# ---------------------------------------------------------------------------
+# Error paths
+# ---------------------------------------------------------------------------
+
+
+class TestErrorPaths:
+    def test_missing_file_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            parse_docx(tmp_path / "nope.docx")
+
+    def test_not_a_zip_raises_parse_error(self, tmp_path: Path) -> None:
+        from brailix.core.errors import ParseError
+
+        bogus = tmp_path / "fake.docx"
+        bogus.write_bytes(b"not a real zip archive")
+        with pytest.raises(ParseError):
+            parse_docx(bogus)

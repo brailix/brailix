@@ -1,0 +1,312 @@
+{
+  "schema": "brailix.music.ornaments.v1",
+  "name": "bana_2015_music_ornaments",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 16. Ornaments (Pars. 16.1-16.8)",
+  "ornaments": {
+    "long_appoggiatura": {
+      "cells": [
+        "c_5",
+        "c_26"
+      ]
+    },
+    "short_appoggiatura": {
+      "cells": [
+        "c_26"
+      ]
+    },
+    "trill": {
+      "cells": [
+        "c_235"
+      ]
+    },
+    "inflected_trill_flat": {
+      "cells": [
+        "c_126",
+        "c_235"
+      ]
+    },
+    "inflected_trill_sharp": {
+      "cells": [
+        "c_146",
+        "c_235"
+      ]
+    },
+    "turn_between_notes": {
+      "cells": [
+        "c_256"
+      ]
+    },
+    "turn_above_or_below": {
+      "cells": [
+        "c_6",
+        "c_256"
+      ]
+    },
+    "inverted_turn_between_notes": {
+      "cells": [
+        "c_256",
+        "c_123"
+      ]
+    },
+    "inverted_turn_above_or_below": {
+      "cells": [
+        "c_6",
+        "c_256",
+        "c_123"
+      ]
+    },
+    "turn_with_inflected_upper_sharp": {
+      "cells": [
+        "c_146",
+        "c_256"
+      ]
+    },
+    "turn_with_inflected_upper_flat": {
+      "cells": [
+        "c_126",
+        "c_256"
+      ]
+    },
+    "turn_with_inflected_lower_sharp": {
+      "cells": [
+        "c_6",
+        "c_146",
+        "c_256"
+      ]
+    },
+    "turn_with_inflected_lower_flat": {
+      "cells": [
+        "c_6",
+        "c_126",
+        "c_256"
+      ]
+    },
+    "turn_with_both_inflected": {
+      "cells": [
+        "c_126",
+        "c_6",
+        "c_146",
+        "c_256"
+      ]
+    },
+    "upper_mordent": {
+      "cells": [
+        "c_5",
+        "c_235"
+      ]
+    },
+    "extended_upper_mordent": {
+      "cells": [
+        "c_56",
+        "c_235"
+      ]
+    },
+    "lower_mordent": {
+      "cells": [
+        "c_5",
+        "c_235",
+        "c_123"
+      ]
+    },
+    "extended_lower_mordent": {
+      "cells": [
+        "c_56",
+        "c_235",
+        "c_123"
+      ]
+    },
+    "inflected_upper_mordent_sharp": {
+      "cells": [
+        "c_146",
+        "c_5",
+        "c_235"
+      ]
+    },
+    "inflected_upper_mordent_flat": {
+      "cells": [
+        "c_126",
+        "c_56",
+        "c_235"
+      ]
+    },
+    "inflected_lower_mordent_sharp": {
+      "cells": [
+        "c_146",
+        "c_5",
+        "c_235",
+        "c_123"
+      ]
+    },
+    "inflected_lower_mordent_flat": {
+      "cells": [
+        "c_126",
+        "c_56",
+        "c_235",
+        "c_123"
+      ]
+    },
+    "glissando_line_between_notes": {
+      "cells": [
+        "c_4",
+        "c_1"
+      ]
+    },
+    "jazz_rising_curved_line": {
+      "cells": [
+        "c_126",
+        "c_3",
+        "c_14"
+      ]
+    },
+    "jazz_rising_straight_line": {
+      "cells": [
+        "c_126",
+        "c_3",
+        "c_4",
+        "c_1"
+      ]
+    },
+    "jazz_inverted_arch_above": {
+      "cells": [
+        "c_126",
+        "c_14"
+      ]
+    },
+    "jazz_falling_curved_line": {
+      "cells": [
+        "c_14",
+        "c_126",
+        "c_12"
+      ]
+    },
+    "jazz_falling_straight_line": {
+      "cells": [
+        "c_4",
+        "c_1",
+        "c_126",
+        "c_12"
+      ]
+    },
+    "extended_upper_mordent_preceded_turn": {
+      "cells": [
+        "c_256",
+        "c_56",
+        "c_235"
+      ]
+    },
+    "extended_upper_mordent_preceded_inv_turn": {
+      "cells": [
+        "c_256",
+        "c_123",
+        "c_56",
+        "c_235"
+      ]
+    },
+    "extended_upper_mordent_followed_turn": {
+      "cells": [
+        "c_56",
+        "c_235",
+        "c_256"
+      ]
+    },
+    "extended_upper_mordent_followed_inv_turn": {
+      "cells": [
+        "c_56",
+        "c_235",
+        "c_256",
+        "c_123"
+      ]
+    },
+    "extended_upper_mordent_preceded_desc_curve": {
+      "cells": [
+        "c_4",
+        "c_56",
+        "c_235"
+      ]
+    },
+    "extended_upper_mordent_followed_desc_curve": {
+      "cells": [
+        "c_56",
+        "c_235",
+        "c_3"
+      ]
+    },
+    "extended_upper_mordent_preceded_asc_curve": {
+      "cells": [
+        "c_6",
+        "c_56",
+        "c_235"
+      ]
+    },
+    "extended_upper_mordent_followed_asc_curve": {
+      "cells": [
+        "c_56",
+        "c_235",
+        "c_1"
+      ]
+    },
+    "extended_upper_mordent_followed_slide": {
+      "cells": [
+        "c_56",
+        "c_235",
+        "c_4",
+        "c_1"
+      ]
+    },
+    "descending_curve_preceding_note": {
+      "cells": [
+        "c_4",
+        "c_26"
+      ]
+    },
+    "ascending_curve_preceding_note": {
+      "cells": [
+        "c_6",
+        "c_26"
+      ]
+    },
+    "upward_wedge_nachschlag": {
+      "cells": [
+        "c_6",
+        "c_14"
+      ]
+    },
+    "downward_wedge_nachschlag": {
+      "cells": [
+        "c_14",
+        "c_3"
+      ]
+    },
+    "short_curve_passing_note": {
+      "cells": [
+        "c_6",
+        "c_14",
+        "c_3"
+      ]
+    },
+    "short_thick_line_anticipation": {
+      "cells": [
+        "c_5",
+        "c_14",
+        "c_2"
+      ]
+    },
+    "chord_acciaccatura": {
+      "cells": [
+        "c_26",
+        "c_345",
+        "c_13"
+      ]
+    },
+    "bebung_curve_dots": {
+      "cells": [
+        "c_4",
+        "c_236",
+        "c_236",
+        "c_236",
+        "c_236"
+      ]
+    }
+  }
+}

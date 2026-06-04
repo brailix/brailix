@@ -1,0 +1,40 @@
+{
+  "schema": "brailix.music.braille_repeats.v1",
+  "name": "bana_2015_music_braille_repeats",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 18. Braille Full- and Part-Measure Repeats, Parallel Movement, Sequence Abbreviation (Pars. 18.1-18.7.2)",
+  "braille_repeats": {
+    "measure_or_part_measure_repeat": {
+      "cells": [
+        "c_2356"
+      ]
+    },
+    "separation_part_measure_repeats": {
+      "cells": [
+        "c_3"
+      ]
+    },
+    "parallel_movement": {
+      "cells": [
+        "c_36"
+      ]
+    },
+    "sequence_abbreviation": {
+      "cells": [
+        "c_36"
+      ]
+    },
+    "sequence_abbreviation_facsimile": {
+      "cells": [
+        "c_36",
+        "c_3"
+      ]
+    },
+    "isolation_repeated_unmeasured": {
+      "cells": [
+        "c_16",
+        "c_2356"
+      ]
+    }
+  }
+}

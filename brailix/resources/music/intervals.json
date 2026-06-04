@@ -1,0 +1,89 @@
+{
+  "schema": "brailix.music.intervals.v1",
+  "name": "bana_2015_music_intervals",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 9. Intervals (Pars. 9.1-9.5.3)",
+  "intervals": {
+    "second": {
+      "cells": [
+        "c_34"
+      ]
+    },
+    "third": {
+      "cells": [
+        "c_346"
+      ]
+    },
+    "fourth": {
+      "cells": [
+        "c_3456"
+      ]
+    },
+    "fifth": {
+      "cells": [
+        "c_35"
+      ]
+    },
+    "sixth": {
+      "cells": [
+        "c_356"
+      ]
+    },
+    "seventh": {
+      "cells": [
+        "c_25"
+      ]
+    },
+    "octave": {
+      "cells": [
+        "c_36"
+      ]
+    },
+    "tone_cluster_naturals": {
+      "cells": [
+        "c_45",
+        "c_16",
+        "c_12"
+      ]
+    },
+    "tone_cluster_flats": {
+      "cells": [
+        "c_45",
+        "c_126",
+        "c_12"
+      ]
+    },
+    "tone_cluster_sharps": {
+      "cells": [
+        "c_45",
+        "c_146",
+        "c_12"
+      ]
+    },
+    "tone_cluster_all_notes": {
+      "cells": [
+        "c_45",
+        "c_146",
+        "c_16",
+        "c_12"
+      ]
+    },
+    "tone_cluster_unspecified": {
+      "cells": [
+        "c_45",
+        "c_26",
+        "c_12"
+      ]
+    },
+    "moving_note_one_interval": {
+      "cells": [
+        "c_6"
+      ]
+    },
+    "moving_note_two_three_intervals": {
+      "cells": [
+        "c_56"
+      ]
+    }
+  }
+}

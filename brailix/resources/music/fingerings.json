@@ -1,0 +1,48 @@
+{
+  "schema": "brailix.music.fingerings.v1",
+  "name": "bana_2015_music_fingerings",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 15. Fingerings (Pars. 15.1-15.4.1)",
+  "fingerings": {
+    "first_finger": {
+      "cells": [
+        "c_1"
+      ]
+    },
+    "second_finger": {
+      "cells": [
+        "c_12"
+      ]
+    },
+    "third_finger": {
+      "cells": [
+        "c_123"
+      ]
+    },
+    "fourth_finger": {
+      "cells": [
+        "c_2"
+      ]
+    },
+    "fifth_finger": {
+      "cells": [
+        "c_13"
+      ]
+    },
+    "change_of_fingers": {
+      "cells": [
+        "c_14"
+      ]
+    },
+    "omit_first_fingering": {
+      "cells": [
+        "c_6"
+      ]
+    },
+    "omit_second_fingering": {
+      "cells": [
+        "c_3"
+      ]
+    }
+  }
+}

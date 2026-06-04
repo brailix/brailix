@@ -1,0 +1,52 @@
+{
+  "schema": "brailix.math.functions.v1",
+  "name": "cn_current_math_functions",
+  "cell": "six_dot",
+  "reference": "《中国盲文》",
+  "_note": "Function-name abbreviations. Keys are function names (matching the multi-char MathML <mi> content). cells are the letters AFTER the function prefix (c_1246) — the backend wraps the prefix on the outside.",
+  "functions": {
+    "sin":    {"cells": ["c_234"]},
+    "cos":    {"cells": ["c_14"]},
+    "tan":    {"cells": ["c_2345"]},
+    "cot":    {"cells": ["c_14", "c_2345"]},
+    "sec":    {"cells": ["c_234", "c_14"]},
+    "csc":    {"cells": ["c_14", "c_234"]},
+
+    "arcsin": {"cells": ["c_1", "sin"]},
+    "arccos": {"cells": ["c_1", "cos"]},
+    "arctan": {"cells": ["c_1", "tan"]},
+    "arccot": {"cells": ["c_1", "cot"]},
+    "arcsec": {"cells": ["c_1", "sec"]},
+    "arccsc": {"cells": ["c_1", "csc"]},
+
+    "sinh":   {"cells": ["sin", "c_125"]},
+    "cosh":   {"cells": ["cos", "c_125"]},
+    "tanh":   {"cells": ["tan", "c_125"]},
+    "coth":   {"cells": ["cot", "c_125"]},
+
+    "ln":     {"cells": ["c_123", "c_1345"]},
+    "lg":     {"cells": ["c_123", "c_1245"]},
+    "lb":     {"cells": ["c_123", "c_12"]},
+    "log":    {"cells": ["c_123"]},
+    "exp":    {"cells": ["c_15"]},
+
+    "lim":    {"cells": ["c_123", "c_134"], "big_op": true, "script_prefix": true},
+    "max":    {"cells": ["c_134", "c_1346"], "big_op": true, "script_prefix": true},
+    "min":    {"cells": ["c_134", "c_1345"], "big_op": true, "script_prefix": true},
+    "sup":    {"cells": ["c_234", "c_136", "c_1234"], "big_op": true, "script_prefix": true},
+    "inf":    {"cells": ["c_24", "c_1345", "c_124"], "big_op": true, "script_prefix": true},
+    "gcd":    {"cells": ["c_1245", "c_14", "c_145"]},
+    "lcm":    {"cells": ["c_123", "c_14", "c_134"]},
+    "det":    {"cells": ["c_145", "c_2345"]},
+    "dim":    {"cells": ["c_145", "c_24", "c_134"]},
+    "Tr":     {"cells": ["c_6", "c_2345", "c_1235"]},
+    "Sp":     {"cells": ["c_6", "c_234", "c_1234"]},
+
+    "arg":    {"cells": ["c_1"]},
+    "mod":    {"cells": ["c_134"]},
+    "sgn":    {"cells": ["c_234", "c_1245", "c_1345"]},
+    "grad":   {"cells": ["c_1245"]},
+    "div":    {"cells": ["c_145"]},
+    "rot":    {"cells": ["c_1235"]}
+  }
+}

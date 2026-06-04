@@ -1,0 +1,315 @@
+{
+  "schema": "brailix.music.nuances.v1",
+  "name": "bana_2015_music_nuances",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 22. Nuances (Pars. 22.1-22.4.1)",
+  "nuances": {
+    "staccato": {
+      "cells": [
+        "c_236"
+      ]
+    },
+    "staccatissimo": {
+      "cells": [
+        "c_6",
+        "c_236"
+      ]
+    },
+    "mezzo_staccato": {
+      "cells": [
+        "c_5",
+        "c_236"
+      ]
+    },
+    "agogic_accent_tenuto": {
+      "cells": [
+        "c_456",
+        "c_236"
+      ]
+    },
+    "accent_thin_converging": {
+      "cells": [
+        "c_46",
+        "c_236"
+      ]
+    },
+    "expressive_accent_extended": {
+      "cells": [
+        "c_45",
+        "c_236"
+      ]
+    },
+    "reversed_accent_thin_diverging": {
+      "cells": [
+        "c_4",
+        "c_236"
+      ]
+    },
+    "martellato": {
+      "cells": [
+        "c_56",
+        "c_236"
+      ]
+    },
+    "upward_arpeggio_one_staff": {
+      "cells": [
+        "c_345",
+        "c_13"
+      ]
+    },
+    "upward_arpeggio_two_staves": {
+      "cells": [
+        "c_5",
+        "c_345",
+        "c_13"
+      ]
+    },
+    "downward_arpeggio_one_staff": {
+      "cells": [
+        "c_345",
+        "c_13",
+        "c_13"
+      ]
+    },
+    "downward_arpeggio_two_staves": {
+      "cells": [
+        "c_5",
+        "c_345",
+        "c_13",
+        "c_13"
+      ]
+    },
+    "swell_on_one_note": {
+      "cells": [
+        "c_16",
+        "c_3"
+      ]
+    },
+    "fermata_over_under_note": {
+      "cells": [
+        "c_126",
+        "c_123"
+      ]
+    },
+    "fermata_between_notes": {
+      "cells": [
+        "c_5",
+        "c_126",
+        "c_123"
+      ]
+    },
+    "fermata_above_below_bar_line": {
+      "cells": [
+        "c_456",
+        "c_126",
+        "c_123"
+      ]
+    },
+    "fermata_above_below_sectional_bar": {
+      "cells": [
+        "c_126",
+        "c_13",
+        "c_3",
+        "c_126",
+        "c_123"
+      ]
+    },
+    "fermata_above_below_final_bar": {
+      "cells": [
+        "c_126",
+        "c_13",
+        "c_126",
+        "c_123"
+      ]
+    },
+    "fermata_squared": {
+      "cells": [
+        "c_56",
+        "c_126",
+        "c_123"
+      ]
+    },
+    "fermata_tent_shaped": {
+      "cells": [
+        "c_45",
+        "c_126",
+        "c_123"
+      ]
+    },
+    "breath_mark_a": {
+      "cells": [
+        "c_345",
+        "c_2"
+      ]
+    },
+    "breath_mark_b": {
+      "cells": [
+        "c_6",
+        "c_34"
+      ]
+    },
+    "word_sign": {
+      "cells": [
+        "c_345"
+      ]
+    },
+    "abbreviation_period": {
+      "cells": [
+        "c_3"
+      ]
+    },
+    "dynamic_pp": {
+      "cells": [
+        "c_345",
+        "c_1234",
+        "c_1234"
+      ]
+    },
+    "dynamic_p": {
+      "cells": [
+        "c_345",
+        "c_1234"
+      ]
+    },
+    "dynamic_mf": {
+      "cells": [
+        "c_345",
+        "c_134",
+        "c_124"
+      ]
+    },
+    "dynamic_f": {
+      "cells": [
+        "c_345",
+        "c_124"
+      ]
+    },
+    "dynamic_ff": {
+      "cells": [
+        "c_345",
+        "c_124",
+        "c_124"
+      ]
+    },
+    "dynamic_cresc": {
+      "cells": [
+        "c_345",
+        "c_14",
+        "c_1235",
+        "c_3"
+      ]
+    },
+    "dynamic_decresc": {
+      "cells": [
+        "c_345",
+        "c_145",
+        "c_15",
+        "c_14",
+        "c_1235",
+        "c_3"
+      ]
+    },
+    "dynamic_dimin": {
+      "cells": [
+        "c_345",
+        "c_145",
+        "c_24",
+        "c_134",
+        "c_3"
+      ]
+    },
+    "lv_marker": {
+      "cells": [
+        "c_345",
+        "c_123",
+        "c_1236",
+        "c_12",
+        "c_3"
+      ]
+    },
+    "diverging_hairpin": {
+      "cells": [
+        "c_345",
+        "c_14"
+      ]
+    },
+    "diverging_hairpin_terminator": {
+      "cells": [
+        "c_345",
+        "c_25"
+      ]
+    },
+    "converging_hairpin": {
+      "cells": [
+        "c_345",
+        "c_145"
+      ]
+    },
+    "converging_hairpin_terminator": {
+      "cells": [
+        "c_345",
+        "c_256"
+      ]
+    },
+    "line_continuation_first": {
+      "cells": [
+        "c_3",
+        "c_3"
+      ]
+    },
+    "line_continuation_first_terminator": {
+      "cells": [
+        "c_345",
+        "c_3"
+      ]
+    },
+    "line_continuation_second": {
+      "cells": [
+        "c_36",
+        "c_36"
+      ]
+    },
+    "line_continuation_second_terminator": {
+      "cells": [
+        "c_345",
+        "c_36"
+      ]
+    },
+    "diverging_beams_accelerando": {
+      "cells": [
+        "c_45",
+        "c_126",
+        "c_2",
+        "c_6",
+        "c_126",
+        "c_2"
+      ]
+    },
+    "parallel_beams_unusual_group": {
+      "cells": [
+        "c_6",
+        "c_126",
+        "c_2",
+        "c_6",
+        "c_126",
+        "c_2"
+      ]
+    },
+    "converging_beams_ritardando": {
+      "cells": [
+        "c_6",
+        "c_126",
+        "c_2",
+        "c_45",
+        "c_126",
+        "c_2"
+      ]
+    },
+    "special_beams_termination": {
+      "cells": [
+        "c_56",
+        "c_13"
+      ]
+    }
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "schema": "brailix.music.slur.v1",
+  "name": "bana_2015_music_slur",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 13. The Slur (Pars. 13.1-13.10.2)",
+  "slur": {
+    "simple_short_slur": {
+      "cells": [
+        "c_14"
+      ]
+    },
+    "doubled_long_slur": {
+      "cells": [
+        "c_14",
+        "c_14",
+        "c_blank",
+        "c_14"
+      ]
+    },
+    "bracket_long_slur": {
+      "cells": [
+        "c_56",
+        "c_12",
+        "c_blank",
+        "c_45",
+        "c_23"
+      ]
+    },
+    "convergent_short_slurs": {
+      "cells": [
+        "c_6",
+        "c_14"
+      ]
+    },
+    "convergent_long_slurs_bracket": {
+      "cells": [
+        "c_56",
+        "c_12",
+        "c_45",
+        "c_23"
+      ]
+    },
+    "slur_from_part_to_part": {
+      "cells": [
+        "c_456",
+        "c_14"
+      ]
+    },
+    "long_slur_from_part_to_part": {
+      "cells": [
+        "c_456",
+        "c_14",
+        "c_14",
+        "c_blank",
+        "c_456",
+        "c_14"
+      ]
+    },
+    "continuation_part_to_part_slur": {
+      "cells": [
+        "c_46",
+        "c_456",
+        "c_14"
+      ]
+    },
+    "slur_transfer_between_staves": {
+      "cells": [
+        "c_5",
+        "c_14"
+      ]
+    },
+    "slur_transfer_destination": {
+      "cells": [
+        "c_5",
+        "c_14",
+        "c_3"
+      ]
+    },
+    "straight_line_between_staves": {
+      "cells": [
+        "c_4",
+        "c_123"
+      ]
+    },
+    "straight_line_between_staves_end": {
+      "cells": [
+        "c_46",
+        "c_4",
+        "c_123"
+      ]
+    },
+    "half_phrase": {
+      "cells": [
+        "c_4",
+        "c_23"
+      ]
+    },
+    "slur_short_appoggiatura": {
+      "cells": [
+        "c_56",
+        "c_14"
+      ]
+    },
+    "slur_not_from_note": {
+      "cells": [
+        "c_46",
+        "c_56",
+        "c_14"
+      ]
+    },
+    "slur_not_to_note": {
+      "cells": [
+        "c_56",
+        "c_14"
+      ]
+    }
+  }
+}

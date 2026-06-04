@@ -1,0 +1,72 @@
+{
+  "description": "Numbers — plain text, decimals, dates, percentages, units, and numbers inside math.",
+  "regen_hint": "python -c \"from brailix import Pipeline; print(repr(Pipeline().translate_text(SRC).render()))\"",
+  "groups": {
+    "int": {
+      "description": "Integers in plain text",
+      "cases": [
+        {"src": "0", "expected": "⠼⠚", "note": "single 0"},
+        {"src": "9", "expected": "⠼⠊", "note": "single 9"},
+        {"src": "5", "expected": "⠼⠑", "note": "single 5"},
+        {"src": "42", "expected": "⠼⠙⠃", "note": "two-digit"},
+        {"src": "100", "expected": "⠼⠁⠚⠚", "note": "three-digit"},
+        {"src": "123", "expected": "⠼⠁⠃⠉", "note": "three-digit ascending"},
+        {"src": "1024", "expected": "⠼⠁⠚⠃⠙", "note": "four-digit"}
+      ]
+    },
+    "decimal": {
+      "description": "Decimals",
+      "cases": [
+        {"src": "3.14", "expected": "⠼⠉⠂⠁⠙", "note": "pi"},
+        {"src": "0.5", "expected": "⠼⠚⠂⠑", "note": "less than one"},
+        {"src": "9.99", "expected": "⠼⠊⠂⠊⠊", "note": "decimal with repeated digits"},
+        {"src": "0.01", "expected": "⠼⠚⠂⠚⠁", "note": "decimal starting 0.0"},
+        {"src": "3.14159265", "expected": "⠼⠉⠂⠁⠙⠁⠑⠊⠃⠋⠑", "note": "long decimal"}
+      ]
+    },
+    "num_hanzi": {
+      "description": "Number directly followed by hanzi → hyphen ⠤ (the number cell and the hanzi's first cell collide in shape; without separation it reads as a continuation of the number)",
+      "cases": [
+        {"src": "10页", "expected": "⠼⠁⠚⠤⠑⠆", "note": "页's leading cell ⠑=5: without separation 10页 reads as 105"},
+        {"src": "3个", "expected": "⠼⠉⠤⠛⠢⠆", "note": "个's leading cell ⠛=7: without separation 3个 reads as 37"}
+      ]
+    },
+    "date": {
+      "description": "Dates (year/month/day recognized by the normalizer as a Date node)",
+      "cases": [
+        {"src": "2026年", "expected": "⠼⠃⠚⠃⠋⠝⠩⠂", "note": "year only: digits + 年(nian2); 年 is the sole exception to the hyphen/connector, written directly attached"},
+        {"src": "2026年5月", "expected": "⠼⠃⠚⠃⠋⠝⠩⠂⠼⠑⠤⠾⠆", "note": "年 takes no hyphen/connector, 月 takes the hyphen/connector ⠤ (each digit group re-emits the number sign)"},
+        {"src": "2026年5月17日", "expected": "⠼⠃⠚⠃⠋⠝⠩⠂⠼⠑⠤⠾⠆⠼⠁⠛⠤⠚⠆", "note": "月/日 each take the hyphen/connector, 年 excepted (日's ⠚=0, without separation 17日 reads as 170)"}
+      ]
+    },
+    "percent": {
+      "description": "Percent sign",
+      "cases": [
+        {"src": "50%", "expected": "⠼⠑⠚⠨", "note": "rules §16 percent sign ⠨ after digits"},
+        {"src": "99.5%", "expected": "⠼⠊⠊⠂⠑⠨", "note": "decimal percentage"}
+      ]
+    },
+    "quantity": {
+      "description": "Number + unit",
+      "cases": [
+        {"src": "3kg", "expected": "⠼⠉⠰⠅⠰⠛", "note": "3 kg: digits + latin_lower prefix per unit char"},
+        {"src": "5m", "expected": "⠼⠑⠰⠍", "note": "5 m"},
+        {"src": "100mg", "expected": "⠼⠁⠚⠚⠰⠍⠰⠛", "note": "100 mg"}
+      ]
+    },
+    "math_number": {
+      "description": "Numbers inside math formulas (different codepath)",
+      "cases": [
+        {"src": "$0$", "expected": "⠼⠚", "note": "math zero"},
+        {"src": "$5$", "expected": "⠼⠑", "note": "math 5"},
+        {"src": "$42$", "expected": "⠼⠙⠃", "note": "math 42"},
+        {"src": "$2026$", "expected": "⠼⠃⠚⠃⠋", "note": "math 2026"},
+        {"src": "$3.14$", "expected": "⠼⠉⠂⠁⠙", "note": "math decimal"},
+        {"src": "$-0.5$", "expected": "⠤⠼⠚⠂⠑", "note": "math negative decimal"},
+        {"src": "$-7$", "expected": "⠤⠼⠛", "note": "math negative int"},
+        {"src": "$42.5$", "expected": "⠼⠙⠃⠂⠑", "note": "math 42.5"},
+        {"src": "$1,000$", "expected": "⠼⠁⠂⠀⠚⠚⠚", "note": "math thousands separator → blank cell"}
+      ]
+    }
+  }
+}

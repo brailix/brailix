@@ -1,0 +1,222 @@
+{
+  "schema": "brailix.music.instruments.names_fr.v1",
+  "name": "bana_2015_music_names_fr",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 29 (C). Abbreviations for Instrument Names -- French (Pars. Par. 33)",
+  "names_fr": {
+    "petite_flute": {
+      "cells": [
+        "c_345",
+        "c_1234",
+        "c_124",
+        "c_123",
+        "c_3"
+      ]
+    },
+    "grande_flute": {
+      "cells": [
+        "c_345",
+        "c_124",
+        "c_123",
+        "c_3"
+      ]
+    },
+    "hautbois": {
+      "cells": [
+        "c_345",
+        "c_125",
+        "c_12",
+        "c_3"
+      ]
+    },
+    "cor_anglais": {
+      "cells": [
+        "c_345",
+        "c_14",
+        "c_1",
+        "c_3"
+      ]
+    },
+    "clarinette": {
+      "cells": [
+        "c_345",
+        "c_14",
+        "c_123",
+        "c_3"
+      ]
+    },
+    "clarinette_basse": {
+      "cells": [
+        "c_345",
+        "c_12",
+        "c_14",
+        "c_123",
+        "c_3"
+      ]
+    },
+    "basson": {
+      "cells": [
+        "c_345",
+        "c_12",
+        "c_3"
+      ]
+    },
+    "contrebasson": {
+      "cells": [
+        "c_345",
+        "c_12",
+        "c_12",
+        "c_3"
+      ]
+    },
+    "cor": {
+      "cells": [
+        "c_345",
+        "c_14",
+        "c_135",
+        "c_1235",
+        "c_3"
+      ]
+    },
+    "trompette": {
+      "cells": [
+        "c_345",
+        "c_2345",
+        "c_1234",
+        "c_3"
+      ]
+    },
+    "trombone": {
+      "cells": [
+        "c_345",
+        "c_2345",
+        "c_12",
+        "c_3"
+      ]
+    },
+    "tuba": {
+      "cells": [
+        "c_345",
+        "c_2345",
+        "c_136",
+        "c_3"
+      ]
+    },
+    "timbales": {
+      "cells": [
+        "c_345",
+        "c_2345",
+        "c_24",
+        "c_134",
+        "c_3"
+      ]
+    },
+    "cymbale": {
+      "cells": [
+        "c_345",
+        "c_14",
+        "c_13456",
+        "c_134",
+        "c_3"
+      ]
+    },
+    "triangle": {
+      "cells": [
+        "c_345",
+        "c_2345",
+        "c_1235",
+        "c_24",
+        "c_3"
+      ]
+    },
+    "caisse_claire": {
+      "cells": [
+        "c_345",
+        "c_14",
+        "c_14",
+        "c_123",
+        "c_3"
+      ]
+    },
+    "grosse_caisse": {
+      "cells": [
+        "c_345",
+        "c_1245",
+        "c_14",
+        "c_3"
+      ]
+    },
+    "harpe_main_droite": {
+      "cells": [
+        "c_345",
+        "c_125",
+        "c_145",
+        "c_3"
+      ]
+    },
+    "harpe_main_gauche": {
+      "cells": [
+        "c_345",
+        "c_125",
+        "c_1245",
+        "c_3"
+      ]
+    },
+    "piano_main_droite": {
+      "cells": [
+        "c_345",
+        "c_1234",
+        "c_145",
+        "c_3"
+      ]
+    },
+    "piano_main_gauche": {
+      "cells": [
+        "c_345",
+        "c_1234",
+        "c_1245",
+        "c_3"
+      ]
+    },
+    "violon_1": {
+      "cells": [
+        "c_345",
+        "c_1236",
+        "c_2",
+        "c_3"
+      ]
+    },
+    "violon_2": {
+      "cells": [
+        "c_345",
+        "c_1236",
+        "c_23",
+        "c_3"
+      ]
+    },
+    "alto": {
+      "cells": [
+        "c_345",
+        "c_1236",
+        "c_123",
+        "c_3"
+      ]
+    },
+    "violoncelle": {
+      "cells": [
+        "c_345",
+        "c_1236",
+        "c_14",
+        "c_3"
+      ]
+    },
+    "contrebasse": {
+      "cells": [
+        "c_345",
+        "c_14",
+        "c_12",
+        "c_3"
+      ]
+    }
+  }
+}

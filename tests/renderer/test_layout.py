@@ -1,0 +1,803 @@
+"""Tests for :mod:`brailix.renderer.layout`.
+
+The layout renderer's job: wrap cells at a configurable cell width,
+apply per-block indent rules, and (optionally) paginate. Tests here
+exercise each rule in isolation rather than asserting on full braille
+glyph output — that's covered by golden tests downstream."""
+
+
+from brailix.core.span import Span
+from brailix.ir.braille import (
+    BLANK_CELL,
+    BrailleBlock,
+    BrailleCell,
+    BrailleDocument,
+    BrailleSequence,
+)
+from brailix.renderer.layout import LayoutOptions, LayoutRenderer
+from brailix.renderer.unicode_braille import dots_to_char
+
+
+def _word(n: int) -> list[BrailleCell]:
+    """Build an ``n``-cell "word" — every cell has dot 1 (uniform, no
+    blanks). Distinct from BLANK_CELL so the wrapper treats them as
+    content rather than separators."""
+    return [BrailleCell(dots=(1,)) for _ in range(n)]
+
+
+def _atom(n: int, span_start: int) -> list[BrailleCell]:
+    """Build an ``n``-cell atomic group — every cell shares the same
+    ``source_span``, so the wrapper treats them as indivisible."""
+    span = Span(span_start, span_start + 1)
+    return [BrailleCell(dots=(1,), source_span=span) for _ in range(n)]
+
+
+def _hyphen_char() -> str:
+    """Unicode glyph for the default continuation hyphen (dots 3-6)."""
+    return dots_to_char((3, 6))
+
+
+def _seq(*words_or_blanks):
+    """Compose a sequence: ints are blank cells, lists are words."""
+    out: list[BrailleCell] = []
+    for piece in words_or_blanks:
+        if isinstance(piece, int):
+            out.extend([BLANK_CELL] * piece)
+        else:
+            out.extend(piece)
+    return BrailleSequence(cells=out)
+
+
+class TestWordWrapping:
+    def test_short_line_passes_through(self):
+        seq = _seq(_word(3))
+        out = LayoutRenderer(options=LayoutOptions(line_width=40)).render(seq)
+        assert "\n" not in out
+
+    def test_wrap_breaks_at_word_boundary(self):
+        # Three 5-cell words with single blanks: "AAAAA BBBBB CCCCC".
+        # With line_width=10 and no indent, only the first word fits
+        # before the wrap; the next word starts on a new line.
+        seq = _seq(_word(5), 1, _word(5), 1, _word(5))
+        out = LayoutRenderer(options=LayoutOptions(line_width=10, paragraph_indent=0)).render(
+            BrailleDocument(blocks=[BrailleBlock(cells=seq.cells)])
+        )
+        lines = out.split("\n")
+        # Three short words → three lines (each is one 5-cell word).
+        assert len(lines) == 3
+        for line in lines:
+            assert len(line) <= 10
+
+    def test_oversized_word_is_split_in_middle(self):
+        # 30-cell single word (all cells share ``source_span=None`` so
+        # they merge into one atom) with width=10 → mid-atom split
+        # with a continuation hyphen at each break.  Lines: 9 + ⠤,
+        # 9 + ⠤, 9 + ⠤, 3 — the source 30 cells are all preserved,
+        # plus 3 hyphens at break points.
+        seq = _seq(_word(30))
+        out = LayoutRenderer(options=LayoutOptions(line_width=10, paragraph_indent=0)).render(
+            BrailleDocument(blocks=[BrailleBlock(cells=seq.cells)])
+        )
+        lines = out.split("\n")
+        assert all(len(line) <= 10 for line in lines)
+        # All 30 source cells preserved (dot-1 glyph appears 30 times
+        # across all lines; the ⠤ hyphen does not collide with it).
+        dot1 = dots_to_char((1,))
+        assert sum(line.count(dot1) for line in lines) == 30
+
+    def test_oversized_word_split_silent_when_hyphen_disabled(self):
+        # Same shape as above but with ``continuation_hyphen=None`` —
+        # restores the legacy "split into N equal pieces, no hyphen"
+        # behaviour for callers that opted out.
+        seq = _seq(_word(30))
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=10, paragraph_indent=0, continuation_hyphen=None,
+        )).render(
+            BrailleDocument(blocks=[BrailleBlock(cells=seq.cells)])
+        )
+        lines = out.split("\n")
+        assert all(len(line) <= 10 for line in lines)
+        assert sum(len(line) for line in lines) == 30
+
+
+class TestParagraphIndent:
+    def test_default_indent_is_two_cells(self):
+        seq = BrailleDocument(blocks=[BrailleBlock(cells=_word(5))])
+        out = LayoutRenderer().render(seq)
+        # First line begins with two blank cells then the word.
+        assert out.startswith(dots_to_char(()) * 2)
+
+    def test_custom_indent_is_applied_to_first_line_only(self):
+        seq = _seq(_word(5), 1, _word(5))
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=10, paragraph_indent=3
+        )).render(BrailleDocument(blocks=[BrailleBlock(cells=seq.cells)]))
+        lines = out.split("\n")
+        # First line: 3 blanks + first 5-cell word → 8 cells.
+        assert len(lines[0]) == 8
+        # Continuation line: just the next word, no indent.
+        assert len(lines[1]) == 5
+
+
+class TestBlockTypes:
+    def test_heading_gets_blank_line_around(self):
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(block_type="heading", cells=_word(3)),
+        ])
+        out = LayoutRenderer().render(doc)
+        # Blank line above + content + blank line below — three lines total
+        # (the trailing blank does count).
+        lines = out.split("\n")
+        assert len(lines) >= 3
+        # First and last lines are blank (only the BLANK_CELL char).
+        assert lines[0] == dots_to_char(())
+        assert lines[-1] == dots_to_char(())
+
+    def test_heading_level_1_is_centered(self):
+        # 5-cell heading in a 21-cell line should be centered with
+        # (21 - 5) // 2 = 8 leading blanks.
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(block_type="heading", heading_level=1, cells=_word(5)),
+        ])
+        out = LayoutRenderer(options=LayoutOptions(line_width=21)).render(doc)
+        lines = out.split("\n")
+        # The non-blank line should start with the centering padding.
+        content_lines = [ln for ln in lines if any(c != dots_to_char(()) for c in ln)]
+        assert content_lines
+        assert content_lines[0].startswith(dots_to_char(()) * 8)
+
+    def test_heading_level_2_stays_flush_left(self):
+        # Deeper headings keep the visual hierarchy by NOT being centered.
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(block_type="heading", heading_level=2, cells=_word(5)),
+        ])
+        out = LayoutRenderer(options=LayoutOptions(line_width=21)).render(doc)
+        lines = out.split("\n")
+        content_lines = [ln for ln in lines if any(c != dots_to_char(()) for c in ln)]
+        # First content character is the word's first cell, not padding.
+        assert content_lines
+        assert not content_lines[0].startswith(dots_to_char(()))
+
+    def test_heading_without_level_is_not_centered(self):
+        # Backward compatibility: a Heading the backend produced without
+        # setting heading_level (heading_level=None) gets blank lines
+        # but no centering — the layout doesn't take a position on
+        # something the source IR didn't declare.
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(block_type="heading", cells=_word(5)),
+        ])
+        out = LayoutRenderer(options=LayoutOptions(line_width=21)).render(doc)
+        lines = out.split("\n")
+        content_lines = [ln for ln in lines if any(c != dots_to_char(()) for c in ln)]
+        assert content_lines
+        assert not content_lines[0].startswith(dots_to_char(()))
+
+    def test_list_item_uses_hanging_indent(self):
+        # Two-word list item; line_width forces a wrap. The second
+        # line should start with the list hanging indent, not the
+        # paragraph indent.
+        cells = _word(8) + [BLANK_CELL] + _word(8)
+        doc = BrailleDocument(blocks=[BrailleBlock(block_type="list_item", cells=cells)])
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=10, list_hanging_indent=2
+        )).render(doc)
+        lines = out.split("\n")
+        # First line: no indent, second line: 2-cell indent.
+        assert not lines[0].startswith(dots_to_char(()))
+        assert lines[1].startswith(dots_to_char(()) * 2)
+
+    def test_quote_indents_every_line(self):
+        cells = _word(8) + [BLANK_CELL] + _word(8)
+        doc = BrailleDocument(blocks=[BrailleBlock(block_type="quote", cells=cells)])
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=10, quote_indent=2
+        )).render(doc)
+        lines = out.split("\n")
+        # Both lines start with the quote indent.
+        for line in lines:
+            assert line.startswith(dots_to_char(()) * 2)
+
+    def test_code_block_is_verbatim(self):
+        # A 50-cell run; with line_width=10 a normal block would wrap.
+        # code_block must NOT wrap (verbatim by convention).
+        cells = _word(50)
+        doc = BrailleDocument(blocks=[BrailleBlock(block_type="code_block", cells=cells)])
+        out = LayoutRenderer(options=LayoutOptions(line_width=10)).render(doc)
+        assert "\n" not in out
+        assert len(out) == 50
+
+    def test_table_row_is_verbatim(self):
+        cells = _word(20)
+        doc = BrailleDocument(blocks=[BrailleBlock(block_type="table_row", cells=cells)])
+        out = LayoutRenderer(options=LayoutOptions(line_width=10)).render(doc)
+        assert "\n" not in out
+
+
+class TestPagination:
+    def test_form_feed_inserted_at_page_height(self):
+        # 5 single-line blocks, page_height=2 → 3 pages, 2 form feeds.
+        blocks = [BrailleBlock(cells=_word(3)) for _ in range(5)]
+        doc = BrailleDocument(blocks=blocks)
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=40, page_height=2
+        )).render(doc)
+        assert out.count("\f") == 2
+
+    def test_no_pagination_when_height_unset(self):
+        blocks = [BrailleBlock(cells=_word(3)) for _ in range(5)]
+        doc = BrailleDocument(blocks=blocks)
+        out = LayoutRenderer().render(doc)
+        assert "\f" not in out
+
+
+class TestBrfFormat:
+    def test_brf_returns_bytes_with_crlf(self):
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(cells=[BrailleCell(dots=(1,))]),
+            BrailleBlock(cells=[BrailleCell(dots=(1, 2))]),
+        ])
+        out = LayoutRenderer(format="brf", options=LayoutOptions(
+            paragraph_indent=0
+        )).render(doc)
+        assert isinstance(out, bytes)
+        assert b"\r\n" in out
+
+    def test_brf_pagination_uses_form_feed_byte(self):
+        blocks = [BrailleBlock(cells=[BrailleCell(dots=(1,))]) for _ in range(4)]
+        doc = BrailleDocument(blocks=blocks)
+        out = LayoutRenderer(format="brf", options=LayoutOptions(
+            paragraph_indent=0, page_height=2
+        )).render(doc)
+        assert out.count(b"\f") == 1
+
+
+class TestFootnoteIndent:
+    """Footnote blocks use a hanging indent: first line flush left,
+    continuation lines indented by ``footnote_hanging_indent``."""
+
+    def test_footnote_continuation_uses_hanging_indent(self):
+        # Two-word footnote body wide enough to force a wrap.
+        cells = _word(8) + [BLANK_CELL] + _word(8)
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(block_type="footnote", cells=cells),
+        ])
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=10, footnote_hanging_indent=2,
+        )).render(doc)
+        lines = out.split("\n")
+        # First line flush left (no leading blank cell), second line
+        # starts with 2 cells of indent.
+        assert not lines[0].startswith(dots_to_char(()))
+        assert lines[1].startswith(dots_to_char(()) * 2)
+
+
+class TestWrapEdgeCases:
+    """Defensive paths in the wrapping engine — easy to forget, expensive
+    when broken."""
+
+    def test_empty_cells_produce_no_lines(self):
+        # An empty BrailleBlock (no cells) must yield nothing — not
+        # an empty line, not a crash. Layout doesn't fabricate output.
+        doc = BrailleDocument(blocks=[BrailleBlock(cells=[])])
+        out = LayoutRenderer(options=LayoutOptions(paragraph_indent=0)).render(doc)
+        assert out == ""
+
+    def test_non_positive_line_width_emits_single_line(self):
+        # A non-positive ``line_width`` would loop forever in a naive
+        # greedy wrap; the defensive branch returns the cells as one
+        # long line instead. We trigger it via a 0-cell line width.
+        seq = BrailleSequence(cells=_word(6))
+        out = LayoutRenderer(options=LayoutOptions(line_width=0)).render(seq)
+        # All 6 cells land on the same (only) line.
+        assert "\n" not in out
+        assert len(out) == 6
+
+    def test_word_longer_than_remaining_but_fits_after_wrap(self):
+        # Three cells already on the line + a 6-cell word, line width 8.
+        # The word doesn't fit in the remaining 5 cells but does fit on
+        # a fresh line — wrapper must flush, then place the whole word.
+        seq = _seq(_word(3), 1, _word(6))
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=8, paragraph_indent=0,
+        )).render(BrailleDocument(blocks=[BrailleBlock(cells=seq.cells)]))
+        lines = out.split("\n")
+        # The 6-cell word ended up intact on a new line, not split.
+        assert len(lines) == 2
+        assert len(lines[0]) == 3
+        assert len(lines[1]) == 6
+
+
+class TestPageNumbers:
+    """``show_page_numbers=True`` adds ⠼ + digit cells to each page's
+    top-right corner.  Only takes effect when ``page_height`` is set."""
+
+    def _multi_line_doc(self, line_count: int, cells_per_line: int = 6) -> BrailleDocument:
+        # One block per line so each line is exactly ``cells_per_line``
+        # cells wide and we control pagination cleanly.
+        return BrailleDocument(
+            blocks=[
+                BrailleBlock(cells=_word(cells_per_line)) for _ in range(line_count)
+            ]
+        )
+
+    def test_unicode_page_one_carries_number_sign_and_digit_one(self):
+        doc = self._multi_line_doc(line_count=2, cells_per_line=3)
+        out = LayoutRenderer(options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+        )).render(doc)
+        from brailix.renderer.layout import _page_number_chars
+
+        # The first line should END with ⠼⠁.
+        first_line = out.split("\n")[0]
+        assert first_line.endswith(_page_number_chars(1))
+
+    def test_unicode_page_two_carries_digit_two(self):
+        doc = self._multi_line_doc(line_count=4, cells_per_line=3)
+        out = LayoutRenderer(options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+        )).render(doc)
+        from brailix.renderer.layout import _page_number_chars
+
+        # Two pages joined by \f; the second page's top line ends with ⠼⠂.
+        pages = out.split("\f")
+        assert len(pages) == 2
+        second_top = pages[1].split("\n")[0]
+        assert second_top.endswith(_page_number_chars(2))
+
+    def test_brf_page_one_uses_hash_a(self):
+        """NABCC: number_sign → '#', digit 1 → 'A'."""
+        doc = self._multi_line_doc(line_count=2, cells_per_line=3)
+        out = LayoutRenderer(format="brf", options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+        )).render(doc)
+        first_line = out.split(b"\r\n")[0]
+        assert first_line.endswith(b"#A")
+
+    def test_page_number_pads_to_line_width(self):
+        """A short top line should be padded with blanks so the page
+        number sits flush right at ``line_width``."""
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(cells=_word(3)),  # one short line
+            BrailleBlock(cells=_word(3)),  # second line so page has 2 rows
+        ])
+        out = LayoutRenderer(options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+        )).render(doc)
+        first_line = out.split("\n")[0]
+        # 3 content cells + N blank cells + 2 page-number cells = 10.
+        assert len(first_line) == 10
+
+    def test_truncates_content_when_collision(self):
+        """A top line that already fills the width must give up cells
+        for the page number — content gets truncated, page number wins."""
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(cells=_word(10)),  # exactly line_width
+            BrailleBlock(cells=_word(3)),
+        ])
+        out = LayoutRenderer(options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+        )).render(doc)
+        first_line = out.split("\n")[0]
+        from brailix.renderer.layout import _page_number_chars
+
+        assert first_line.endswith(_page_number_chars(1))
+        assert len(first_line) == 10
+
+    def test_no_pagination_skips_page_numbers(self):
+        """``show_page_numbers`` is a no-op when ``page_height`` is
+        unset — there are no pages to number."""
+        doc = self._multi_line_doc(line_count=3, cells_per_line=3)
+        out = LayoutRenderer(options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=None, show_page_numbers=True,
+        )).render(doc)
+        from brailix.renderer.layout import _page_number_chars
+
+        # No \f either way; and no page number injected anywhere.
+        assert _page_number_chars(1) not in out
+
+
+class TestPageNumberPosition:
+    """``page_number_position`` picks which corner of the page carries
+    the page number.  Four choices: top-right (default / BANA), top-left,
+    bottom-right, bottom-left.  Top-X anchors on the page's first line,
+    Bottom-X on the page's last line; -right / -left picks the
+    alignment within that line."""
+
+    def _two_line_doc(self) -> BrailleDocument:
+        # Each block becomes one line of 3 cells under line_width=10 +
+        # paragraph_indent=0.  Two blocks = two lines = one page when
+        # ``page_height=2``.
+        return BrailleDocument(
+            blocks=[
+                BrailleBlock(cells=_word(3)),
+                BrailleBlock(cells=_word(3)),
+            ]
+        )
+
+    # --- top-right (the V1 default, still works after the refactor) ---
+
+    def test_top_right_anchors_first_line(self):
+        doc = self._two_line_doc()
+        out = LayoutRenderer(options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+            page_number_position="top-right",
+        )).render(doc)
+        from brailix.renderer.layout import _page_number_chars
+
+        lines = out.split("\n")
+        assert lines[0].endswith(_page_number_chars(1))
+        assert _page_number_chars(1) not in lines[1]
+
+    # --- top-left -----------------------------------------------------
+
+    def test_top_left_anchors_first_line_left(self):
+        doc = self._two_line_doc()
+        out = LayoutRenderer(options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+            page_number_position="top-left",
+        )).render(doc)
+        from brailix.renderer.layout import _page_number_chars
+
+        lines = out.split("\n")
+        assert lines[0].startswith(_page_number_chars(1))
+        # Bottom row stays untouched.
+        assert _page_number_chars(1) not in lines[1]
+
+    def test_top_left_brf_uses_hash_a_at_start(self):
+        doc = self._two_line_doc()
+        out = LayoutRenderer(format="brf", options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+            page_number_position="top-left",
+        )).render(doc)
+        first_line = out.split(b"\r\n")[0]
+        assert first_line.startswith(b"#A")
+
+    def test_top_left_pads_short_content_to_width(self):
+        """Page number flush left, blank-cell gap, content right of it,
+        total line width preserved."""
+        doc = self._two_line_doc()
+        out = LayoutRenderer(options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+            page_number_position="top-left",
+        )).render(doc)
+        lines = out.split("\n")
+        # 2 page-number cells + 1 blank gap + content cells, padded to 10.
+        assert len(lines[0]) == 10
+
+    def test_top_left_truncates_content_when_collision(self):
+        """Top line that already fills width: page number wins, content
+        loses its leading cells."""
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(cells=_word(10)),  # fills the line
+            BrailleBlock(cells=_word(3)),
+        ])
+        out = LayoutRenderer(options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+            page_number_position="top-left",
+        )).render(doc)
+        from brailix.renderer.layout import _page_number_chars
+
+        first_line = out.split("\n")[0]
+        assert first_line.startswith(_page_number_chars(1))
+        assert len(first_line) == 10
+
+    # --- bottom-right -------------------------------------------------
+
+    def test_bottom_right_anchors_last_line(self):
+        doc = self._two_line_doc()
+        out = LayoutRenderer(options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+            page_number_position="bottom-right",
+        )).render(doc)
+        from brailix.renderer.layout import _page_number_chars
+
+        lines = out.split("\n")
+        # Page-number off the top row.
+        assert _page_number_chars(1) not in lines[0]
+        # Page-number flush right on the bottom row.
+        assert lines[1].endswith(_page_number_chars(1))
+
+    def test_bottom_right_brf_uses_hash_a_at_end_of_last_line(self):
+        doc = self._two_line_doc()
+        out = LayoutRenderer(format="brf", options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+            page_number_position="bottom-right",
+        )).render(doc)
+        last_line = out.split(b"\r\n")[-1]
+        assert last_line.endswith(b"#A")
+
+    # --- bottom-left --------------------------------------------------
+
+    def test_bottom_left_anchors_last_line_left(self):
+        doc = self._two_line_doc()
+        out = LayoutRenderer(options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+            page_number_position="bottom-left",
+        )).render(doc)
+        from brailix.renderer.layout import _page_number_chars
+
+        lines = out.split("\n")
+        assert _page_number_chars(1) not in lines[0]
+        assert lines[1].startswith(_page_number_chars(1))
+
+    def test_bottom_left_brf_at_start_of_last_line(self):
+        doc = self._two_line_doc()
+        out = LayoutRenderer(format="brf", options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+            page_number_position="bottom-left",
+        )).render(doc)
+        last_line = out.split(b"\r\n")[-1]
+        assert last_line.startswith(b"#A")
+
+    # --- multi-page sanity --------------------------------------------
+
+    def test_bottom_right_carries_each_page_number(self):
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(cells=_word(3)) for _ in range(4)
+        ])
+        out = LayoutRenderer(options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+            page_number_position="bottom-right",
+        )).render(doc)
+        from brailix.renderer.layout import _page_number_chars
+
+        pages = out.split("\f")
+        assert len(pages) == 2
+        # Each page's last line ends with its number.
+        assert pages[0].split("\n")[-1].endswith(_page_number_chars(1))
+        assert pages[1].split("\n")[-1].endswith(_page_number_chars(2))
+
+
+class TestAtomicWrap:
+    """Atomic-group wrapping + continuation hyphen.
+
+    Cells that share a non-None ``source_span`` form one indivisible
+    atom (a Chinese syllable / a Latin prefix+letter / the inside of a
+    single math structure). Cells with ``source_span=None`` (synthesised
+    markers like ``number_sign``) cling to the next non-None atom so they
+    never float off alone.  Wrap breaks at atom boundaries (with a hyphen)
+    before falling back to mid-atom split.
+    """
+
+    def test_single_atom_wraps_to_fresh_line_without_hyphen(self):
+        # A 3-cell prior word + blank + 5-cell single-atom word at
+        # line_width=7.  The 5-cell atom doesn't fit alongside the
+        # prior word's trailing blank (5 cells > 3 remaining), so it
+        # wraps to a fresh line.  Because the wrap point is the blank
+        # separator (not inside the atom), no hyphen is emitted —
+        # confirms the algorithm doesn't sprinkle hyphens at every
+        # break, only at non-blank ones.
+        cells = [*_word(3), BLANK_CELL, *_atom(5, 0)]
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=7, paragraph_indent=0,
+        )).render(BrailleDocument(blocks=[BrailleBlock(cells=cells)]))
+        lines = out.split("\n")
+        assert len(lines) == 2
+        assert len(lines[0]) == 3
+        assert _hyphen_char() not in lines[0]
+        assert len(lines[1]) == 5
+        assert _hyphen_char() not in lines[1]
+
+    def test_multi_atom_word_splits_between_atoms_with_hyphen(self):
+        # Two 5-cell atoms in one word (no blank between), line_width=8.
+        # Whole word (10 cells) > line_width: must split between the
+        # two atoms.  The split adds a hyphen on the broken line.
+        cells = [*_atom(5, 0), *_atom(5, 1)]
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=8, paragraph_indent=0,
+        )).render(BrailleDocument(blocks=[BrailleBlock(cells=cells)]))
+        lines = out.split("\n")
+        assert len(lines) == 2
+        # Line 1: first 5-cell atom + hyphen = 6 cells.
+        assert len(lines[0]) == 6
+        assert lines[0].endswith(_hyphen_char())
+        # Line 2: second atom intact.
+        assert len(lines[1]) == 5
+        assert _hyphen_char() not in lines[1]
+
+    def test_blank_break_emits_no_hyphen(self):
+        # Two 5-cell words separated by a blank, line_width=10.  The
+        # second word doesn't fit on line 1, so we break at the blank
+        # (word boundary).  No hyphen — that's only for non-blank
+        # breaks.
+        cells = [*_atom(5, 0), BLANK_CELL, *_atom(5, 1)]
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=8, paragraph_indent=0,
+        )).render(BrailleDocument(blocks=[BrailleBlock(cells=cells)]))
+        lines = out.split("\n")
+        assert len(lines) == 2
+        assert len(lines[0]) == 5
+        assert _hyphen_char() not in lines[0]
+        assert len(lines[1]) == 5
+        assert _hyphen_char() not in lines[1]
+
+    def test_hyphen_consumes_one_cell_of_line_width(self):
+        # Two 5-cell atoms, line_width=10.  Total cells = 10 — would
+        # fit exactly if hyphen weren't reserved.  But splitting
+        # reserves one cell for the hyphen, so only the first 4 cells
+        # of available space can hold an atom… and the first atom
+        # alone is 5 cells, so it fits without splitting the second
+        # atom up front.  Actually both atoms fit on one line (10/10),
+        # so this test asserts: when the *combined* width exactly
+        # equals line_width, no hyphen is emitted — placement wins
+        # over splitting.
+        cells = [*_atom(5, 0), *_atom(5, 1)]
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=10, paragraph_indent=0,
+        )).render(BrailleDocument(blocks=[BrailleBlock(cells=cells)]))
+        lines = out.split("\n")
+        # All 10 cells fit on one line, no hyphen.
+        assert len(lines) == 1
+        assert len(lines[0]) == 10
+        assert _hyphen_char() not in lines[0]
+
+    def test_hyphen_reservation_when_split_required(self):
+        # Two 5-cell atoms, line_width=9.  Total=10 doesn't fit on
+        # line_width=9.  Must split between atoms: first atom (5) +
+        # hyphen (1) = 6 cells on line 1; second atom (5) on line 2.
+        cells = [*_atom(5, 0), *_atom(5, 1)]
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=9, paragraph_indent=0,
+        )).render(BrailleDocument(blocks=[BrailleBlock(cells=cells)]))
+        lines = out.split("\n")
+        assert len(lines) == 2
+        assert lines[0] == dots_to_char((1,)) * 5 + _hyphen_char()
+        assert lines[1] == dots_to_char((1,)) * 5
+
+    def test_none_span_marker_clings_to_next_atom(self):
+        # Simulates a number_sign + 4 digits run: marker has no
+        # source_span; each digit has its own narrow span.  At
+        # line_width=3, the algorithm must keep the marker bound to
+        # the first digit (one atom = [marker, digit1]) and split
+        # between subsequent digit atoms.
+        marker = BrailleCell(dots=(3, 4, 5, 6), role="number_sign")
+        d1 = BrailleCell(dots=(1,),     source_span=Span(0, 1))
+        d2 = BrailleCell(dots=(1, 2),   source_span=Span(1, 2))
+        d3 = BrailleCell(dots=(1, 4),   source_span=Span(2, 3))
+        d4 = BrailleCell(dots=(1, 4, 5),source_span=Span(3, 4))
+        cells = [marker, d1, d2, d3, d4]
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=3, paragraph_indent=0,
+        )).render(BrailleDocument(blocks=[BrailleBlock(cells=cells)]))
+        lines = out.split("\n")
+        # Line 1 must contain *both* the marker and the first digit
+        # (marker clings to d1).  Hyphen makes the break visible.
+        assert lines[0].startswith(dots_to_char((3, 4, 5, 6)) + dots_to_char((1,)))
+        assert lines[0].endswith(_hyphen_char())
+        # No hyphen on the final line (it didn't break further).
+        assert _hyphen_char() not in lines[-1]
+
+    def test_continuation_hyphen_none_disables_hyphen_emission(self):
+        # When the proofreader explicitly opts out, multi-atom split still
+        # happens but without the trailing ⠤ — useful for callers
+        # that want the legacy "long word splits silently" behaviour
+        # (or for raw-cell tests).
+        cells = [*_atom(5, 0), *_atom(5, 1)]
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=9,
+            paragraph_indent=0,
+            continuation_hyphen=None,
+        )).render(BrailleDocument(blocks=[BrailleBlock(cells=cells)]))
+        lines = out.split("\n")
+        assert len(lines) == 2
+        assert _hyphen_char() not in out
+        # Without hyphen reservation, line 1 takes the whole 5-cell
+        # atom (still can't fit both atoms on a 9-cell line).
+        assert len(lines[0]) == 5
+        assert len(lines[1]) == 5
+
+    def test_single_atom_wider_than_line_width_mid_breaks_with_hyphen(self):
+        # A single 12-cell atom (same source_span throughout) on a
+        # line_width=8 line.  No internal break point — last-resort
+        # mid-atom split.  Per BANA convention, the hyphen still
+        # marks each break.
+        cells = _atom(12, 0)
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=8, paragraph_indent=0,
+        )).render(BrailleDocument(blocks=[BrailleBlock(cells=cells)]))
+        lines = out.split("\n")
+        # Line 1: 7 cells + hyphen = 8.  Line 2: 5 cells (12 - 7).
+        assert lines[0] == dots_to_char((1,)) * 7 + _hyphen_char()
+        assert lines[1] == dots_to_char((1,)) * 5
+
+    def test_chinese_syllable_initial_final_tone_stay_together(self):
+        # A 3-cell syllable (initial + final + tone, all sharing the
+        # source char's span), followed by another 3-cell syllable.
+        # On a line_width=3 line the second syllable can't fit
+        # alongside the first — but neither syllable should be split
+        # internally.  Each lands on its own line.
+        syl1 = [
+            BrailleCell(dots=(1, 3, 5), role="zh_initial",
+                        source_span=Span(0, 1), source_text="中"),
+            BrailleCell(dots=(2, 4, 5, 6), role="zh_final",
+                        source_span=Span(0, 1), source_text="中"),
+            BrailleCell(dots=(2, 3, 6), role="zh_tone",
+                        source_span=Span(0, 1), source_text="中"),
+        ]
+        syl2 = [
+            BrailleCell(dots=(2, 4, 5), role="zh_initial",
+                        source_span=Span(1, 2), source_text="国"),
+            BrailleCell(dots=(1, 2, 3, 5, 6), role="zh_final",
+                        source_span=Span(1, 2), source_text="国"),
+            BrailleCell(dots=(2, 5, 6), role="zh_tone",
+                        source_span=Span(1, 2), source_text="国"),
+        ]
+        cells = syl1 + syl2
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=3, paragraph_indent=0,
+        )).render(BrailleDocument(blocks=[BrailleBlock(cells=cells)]))
+        lines = out.split("\n")
+        # Two lines, three glyphs each — no syllable internal split.
+        # Hyphen lands on line 1 because we broke between atoms (not
+        # at a blank).  Wait — at line_width=3 the hyphen would push
+        # the line to 4 cells (3 syllable + 1 hyphen).  The algorithm
+        # reserves a cell for the hyphen, so only 2 cells of the first
+        # syllable would fit — but that would split the syllable!
+        # Instead, the fresh-line attempt + multi-atom path means we
+        # flush the first syllable intact (its own 3-cell atom fits a
+        # fresh 3-cell line), with hyphen.  Actually the first
+        # syllable is 1 atom (same span), so we never split within
+        # it; line 1 = syl1 cells (no hyphen — fits exactly on fresh
+        # line), line 2 = syl2.
+        assert len(lines) == 2
+        assert len(lines[0]) == 3  # syl1 intact
+        assert len(lines[1]) == 3  # syl2 intact
+
+    def test_latin_word_breaks_between_letters_with_hyphen(self):
+        # "Hello" — first letter is prefix+H (same source_span, two
+        # cells); subsequent letters each have their own span (one
+        # cell each).  At line_width=4, the word doesn't fit on one
+        # line; split between letters with hyphen.
+        prefix = BrailleCell(dots=(4, 6), role="latin_letter",
+                              source_span=Span(0, 1), source_text="H")
+        h = BrailleCell(dots=(1, 2, 5), role="latin_letter",
+                        source_span=Span(0, 1), source_text="H")
+        e = BrailleCell(dots=(1, 5), role="latin_letter",
+                        source_span=Span(1, 2), source_text="e")
+        l1 = BrailleCell(dots=(1, 2, 3), role="latin_letter",
+                         source_span=Span(2, 3), source_text="l")
+        l2 = BrailleCell(dots=(1, 2, 3), role="latin_letter",
+                         source_span=Span(3, 4), source_text="l")
+        o = BrailleCell(dots=(1, 3, 5), role="latin_letter",
+                        source_span=Span(4, 5), source_text="o")
+        cells = [prefix, h, e, l1, l2, o]  # 6 cells total
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=4, paragraph_indent=0,
+        )).render(BrailleDocument(blocks=[BrailleBlock(cells=cells)]))
+        lines = out.split("\n")
+        # Line 1 must include the prefix + H together (one atom);
+        # ends with hyphen because we split before line end.
+        assert lines[0].startswith(dots_to_char((4, 6)) + dots_to_char((1, 2, 5)))
+        assert lines[0].endswith(_hyphen_char())
+        # Total cells = 6 source + N hyphens; the prefix is not
+        # separated from H on any line.
+        for ln in lines:
+            # The bare prefix cell never appears alone on a line.
+            assert ln != dots_to_char((4, 6))
+
+
+class TestRegistration:
+    def test_registered_by_name(self):
+        from brailix.renderer import renderer_registry
+
+        assert renderer_registry.has("layout")
+        r = renderer_registry.get("layout")
+        # Returns a string by default.
+        seq = BrailleSequence(cells=[BrailleCell(dots=(1,))])
+        assert isinstance(r.render(seq), str)

@@ -1,0 +1,61 @@
+# brailix CI — lint and type-check, plus unit tests on Linux and Windows.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: lint + type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Ruff (lint)
+        run: uv run ruff check
+
+      - name: Mypy (type-check)
+        run: uv run mypy brailix
+
+  test:
+    name: tests (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Don't cancel the other OS when one fails — we want both results.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      # Installs the project + the `dev` dependency group (pytest plus the
+      # tokenizer / pinyin / LaTeX adapters the core test suite exercises).
+      # Optional adapters not in the dev group (partitura / abc) make their
+      # few tests skip, not fail.
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run the test suite
+        run: uv run pytest

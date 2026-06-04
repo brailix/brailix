@@ -1,0 +1,126 @@
+{
+  "schema": "brailix.zh_exceptions.v1",
+  "name": "cn_ncb_exceptions",
+  "cell": "six_dot",
+  "reference": "GF0019-2018 国家通用盲文方案",
+  "_note": "All differences of National Common Braille from Current Chinese Braille, in three sections: tone_omission (per-initial tone dropping + exceptions + cross-syllable boundary), char_overrides (definite-word shorthand + special spellings + char-level tone keeping), word_overrides (word-level tone keeping).",
+
+  "tone_omission": {
+    "by_initial": {
+      "b":  {"omit_tone": "4"},
+      "p":  {"omit_tone": "2"},
+      "m":  {"omit_tone": "2"},
+      "f":  {"omit_tone": "1"},
+      "d":  {"omit_tone": "4"},
+      "t":  {"omit_tone": "2", "keep_syllables": ["tou2"]},
+      "n":  {"omit_tone": "2"},
+      "l":  {"omit_tone": "4", "keep_syllables": ["le4"]},
+      "g":  {"omit_tone": "4"},
+      "k":  {"omit_tone": "4"},
+      "h":  {"omit_tone": "2"},
+      "j":  {"omit_tone": "4"},
+      "q":  {"omit_tone": "2"},
+      "x":  {"omit_tone": "4"},
+      "zh": {"omit_tone": "4"},
+      "ch": {"omit_tone": "2"},
+      "sh": {"omit_tone": "4"},
+      "r":  {"omit_tone": "2"},
+      "z":  {"omit_tone": "4", "keep_syllables": ["zi4"]},
+      "c":  {"omit_tone": "2"},
+      "s":  {"omit_tone": "4"}
+    },
+
+    "zero_initial": {
+      "default_omit_tone": "4",
+      "omit_syllables": ["wo3", "ye3", "you3", "yi1", "er2", "o1", "o2", "o3", "o4"],
+      "keep_syllables": ["e1", "e2", "e3", "e4", "yi4", "er4", "wo4", "ye4", "you4"]
+    },
+
+    "boundary_rule": {
+      "enabled": true
+    }
+  },
+
+  "char_overrides": {
+    "entries": [
+      {
+        "_id": "de_definite",
+        "surface": "的",
+        "_pinyin": "de0",
+        "shorthand": {
+          "cells": ["c_145"],
+          "boundary_exception": true
+        }
+      },
+      {
+        "_id": "me_question",
+        "surface": "么",
+        "_pinyin": "me0",
+        "shorthand": {
+          "cells": ["c_134"],
+          "boundary_exception": true
+        }
+      },
+      {
+        "_id": "ni_you",
+        "surface": "你",
+        "_pinyin": "ni3",
+        "shorthand": {
+          "cells": ["c_1345"],
+          "boundary_exception": true
+        }
+      },
+      {
+        "_id": "ta_he",
+        "surface": "他",
+        "_pinyin": "ta1",
+        "shorthand": {
+          "cells": ["c_2345"],
+          "boundary_exception": true,
+          "boundary_spelling": ["c_2345", "c_35"]
+        }
+      },
+      {
+        "_id": "ta_she",
+        "surface": "她",
+        "_pinyin": "ta1",
+        "shorthand": {
+          "cells": ["c_2345", "c_1"]
+        }
+      },
+      {
+        "_id": "ta_it",
+        "surface": "它",
+        "_pinyin": "ta1",
+        "shorthand": {
+          "cells": ["c_4", "c_2345"],
+          "boundary_exception": true,
+          "boundary_spelling": ["c_4", "c_2345", "c_35"]
+        }
+      },
+      {
+        "_id": "zai_again",
+        "surface": "再",
+        "_pinyin": "zai4",
+        "keep_tone": true
+      },
+      {
+        "_id": "wen_ask",
+        "surface": "问",
+        "_pinyin": "wen4",
+        "keep_tone": true
+      }
+    ]
+  },
+
+  "word_overrides": {
+    "entries": [
+      {
+        "_id": "didao_authentic",
+        "surface": "地道",
+        "pinyin": "di4 dao4",
+        "keep_tone_per_char": [false, true]
+      }
+    ]
+  }
+}

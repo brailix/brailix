@@ -1,0 +1,119 @@
+{
+  "schema": "brailix.music.general.v1",
+  "name": "bana_2015_music_general",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 1. General Signs (Pars. 1.1-1.16)",
+  "general": {
+    "music_parens_open": {
+      "cells": [
+        "c_6",
+        "c_3"
+      ]
+    },
+    "music_parens_close": {
+      "cells": [
+        "c_6",
+        "c_3"
+      ]
+    },
+    "special_parens_open": {
+      "cells": [
+        "c_2356"
+      ]
+    },
+    "special_parens_close": {
+      "cells": [
+        "c_2356"
+      ]
+    },
+    "print_pagination_indicator": {
+      "cells": [
+        "c_5",
+        "c_25"
+      ]
+    },
+    "metronome_equals": {
+      "cells": [
+        "c_2356"
+      ]
+    },
+    "print_dotted_bar_line": {
+      "cells": [
+        "c_13"
+      ]
+    },
+    "print_bar_space": {
+      "cells": [
+        "c_blank"
+      ]
+    },
+    "bar_line_unusual": {
+      "cells": [
+        "c_123"
+      ]
+    },
+    "final_double_bar": {
+      "cells": [
+        "c_126",
+        "c_13"
+      ]
+    },
+    "sectional_double_bar": {
+      "cells": [
+        "c_126",
+        "c_13",
+        "c_3"
+      ]
+    },
+    "braille_music_hyphen": {
+      "cells": [
+        "c_5"
+      ]
+    },
+    "transcriber_prefix": {
+      "cells": [
+        "c_5"
+      ]
+    },
+    "square_bracket_above_open": {
+      "cells": [
+        "c_56",
+        "c_2"
+      ]
+    },
+    "square_bracket_above_close": {
+      "cells": [
+        "c_5",
+        "c_23"
+      ]
+    },
+    "coincidence_of_notes": {
+      "cells": [
+        "c_56",
+        "c_23"
+      ]
+    },
+    "opening_music_code": {
+      "cells": [
+        "c_6",
+        "c_3"
+      ]
+    },
+    "music_code_terminator": {
+      "cells": [
+        "c_56",
+        "c_23"
+      ]
+    },
+    "punctuation_indicator": {
+      "cells": [
+        "c_456"
+      ]
+    },
+    "literary_comma_with_music": {
+      "cells": [
+        "c_6"
+      ]
+    }
+  }
+}

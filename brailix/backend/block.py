@@ -1,0 +1,329 @@
+"""Block-level translation: turn one :class:`Block` into one **or
+more** :class:`BrailleBlock`\\ s.
+
+The inline dispatcher in :mod:`brailix.backend.dispatch` knows how
+to translate :class:`InlineNode`\\ s; this module sits one layer up,
+handling block kinds that need either:
+
+* a **prefix marker** (list items get bullets / numbers, footnotes a
+  reference indicator), or
+* **expansion into multiple BrailleBlocks** so the layout pass can
+  treat each line independently (lists become one
+  ``block_type="list_item"`` block per item; tables become one
+  ``block_type="table_row"`` block per row).
+
+The contract: :func:`expand_block` always returns ``list[BrailleBlock]``.
+Simple blocks (paragraph / heading / quote / code_block / math_block /
+footnote / image_alt) return a one-element list. Composite blocks
+(List, Table) return multiple elements. The renderer / layout pass
+sees the expanded form and never has to look inside ``children``
+again.
+
+This module is **purely backend** — it never reaches back into the
+Frontend. MathBlock and CodeBlock children are pre-populated by
+:meth:`brailix.pipeline.Pipeline._populate_block` (MathBlock children
+become :class:`MathInline` nodes with parsed MathML; CodeBlock
+children become :class:`CodeInline`). expand_block then dispatches
+them like any other inline children.
+"""
+
+from __future__ import annotations
+
+from brailix.backend import number as number_backend
+from brailix.backend.dispatch import translate_node
+from brailix.core.config import BrailleProfile
+from brailix.core.context import BackendContext
+from brailix.ir.braille import BLANK_CELL, BrailleBlock, BrailleCell, BrailleDocument
+from brailix.ir.document import (
+    Block,
+    DocumentIR,
+    Footnote,
+    List,
+    ListItem,
+    Table,
+)
+from brailix.ir.inline import InlineNode, Number
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+
+def translate_block(
+    block: Block, ctx: BackendContext, profile: BrailleProfile
+) -> BrailleBlock:
+    """Translate one DocumentIR block into a single :class:`BrailleBlock`.
+
+    Kept for backward compatibility with callers that don't want to
+    deal with composite expansion (Lists, Tables). For those cases
+    this returns the **first** expanded block — for a List that means
+    only the first ``list_item`` survives. New callers should use
+    :func:`expand_block` or :func:`translate_document`, which handle
+    composites correctly.
+    """
+    block_ctx = BackendContext(
+        profile=ctx.profile,
+        mode=ctx.mode,
+        block_type=block.type,
+        warnings=ctx.warnings,
+        options=dict(ctx.options),
+    )
+    expanded = expand_block(block, block_ctx, profile)
+    return expanded[0] if expanded else BrailleBlock(block_type=block.type)
+
+
+def translate_document(
+    doc: DocumentIR, ctx: BackendContext, profile: BrailleProfile
+) -> BrailleDocument:
+    """Translate every block in ``doc``, expanding composite containers
+    (List, Table, MathBlock) into multiple :class:`BrailleBlock`\\ s.
+    """
+    blocks: list[BrailleBlock] = []
+    for block in doc.blocks:
+        block_ctx = BackendContext(
+            profile=ctx.profile,
+            mode=ctx.mode,
+            block_type=block.type,
+            warnings=ctx.warnings,
+            options=dict(ctx.options),
+        )
+        blocks.extend(expand_block(block, block_ctx, profile))
+    return BrailleDocument(
+        metadata={**doc.metadata, "profile": profile.name},
+        blocks=blocks,
+    )
+
+
+def expand_block(
+    block: Block, ctx: BackendContext, profile: BrailleProfile
+) -> list[BrailleBlock]:
+    """Return one or more :class:`BrailleBlock`\\ s for ``block``.
+
+    Composite containers (List, Table) expand into multiple blocks so
+    the layout pass can apply per-row / per-item indent rules without
+    re-walking the source IR.
+    """
+    if isinstance(block, List):
+        return _expand_list(block, ctx, profile)
+    if isinstance(block, Table):
+        return _expand_table(block, ctx, profile)
+    # All other block kinds (Paragraph, Heading, Quote, MathBlock,
+    # CodeBlock, Footnote, ImageAlt) flow through the simple path —
+    # translate inline children and stamp the block type. Pipeline
+    # is responsible for populating children before we get here.
+    # Footnote optionally gets a reference marker prepended.
+    cells: list[BrailleCell] = []
+    if isinstance(block, Footnote) and block.ref:
+        cells.extend(_footnote_ref_cells(block.ref, profile))
+    cells.extend(_translate_children(block.children, ctx, profile))
+    return [
+        BrailleBlock(
+            block_type=block.type,
+            id=block.id,
+            heading_level=getattr(block, "level", None),
+            cells=cells,
+        )
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _translate_children(
+    children: list[InlineNode],
+    ctx: BackendContext,
+    profile: BrailleProfile,
+) -> list[BrailleCell]:
+    """Run the inline dispatcher over each child and concatenate.
+
+    Each dispatch sees the immediately-following sibling stashed under
+    ``ctx.options['_next_inline_sibling']`` so backends can peek
+    across IR-node boundaries (the zh backend uses this for NCB's
+    Lesson-9 boundary rule). The key is cleared after the loop so it
+    doesn't leak to unrelated callers that share the context.
+    """
+    out: list[BrailleCell] = []
+    for i, child in enumerate(children):
+        ctx.options["_next_inline_sibling"] = (
+            children[i + 1] if i + 1 < len(children) else None
+        )
+        out.extend(translate_node(child, ctx, profile))
+    ctx.options.pop("_next_inline_sibling", None)
+    return out
+
+
+# ---- List -----------------------------------------------------------------
+
+
+def _expand_list(
+    block: List, ctx: BackendContext, profile: BrailleProfile
+) -> list[BrailleBlock]:
+    """One :class:`BrailleBlock` per :class:`ListItem`, marker prepended."""
+    blocks: list[BrailleBlock] = []
+    for i, item in enumerate(block.items, start=1):
+        cells: list[BrailleCell] = []
+        cells.extend(_list_marker_cells(i, block.ordered, ctx, profile, item))
+        cells.extend(_translate_children(item.children, ctx, profile))
+        blocks.append(
+            BrailleBlock(
+                block_type="list_item",
+                id=item.id,
+                cells=cells,
+            )
+        )
+    return blocks
+
+
+def _list_marker_cells(
+    index: int,
+    ordered: bool,
+    ctx: BackendContext,
+    profile: BrailleProfile,
+    item: ListItem,
+) -> list[BrailleCell]:
+    """Produce the marker cells for a list item.
+
+    The marker character (``profile.list_marker_ordered_char()`` for
+    ordered, ``profile.list_marker_unordered_char()`` for unordered —
+    BANA defaults ``.`` / ``·``) is looked up in the same profile
+    punctuation table that drives plain-text :class:`Punct` rendering
+    — including its ``space_before`` / ``space_after`` flags — so the
+    braille output for a list item is indistinguishable from the
+    equivalent plain text "1. foo" / "· foo". Lists have no special
+    spacing logic beyond what the punct table declares for the marker
+    char.
+    """
+    cells: list[BrailleCell] = []
+    if ordered:
+        sub_ctx = _block_ctx(ctx, block_type="list_item")
+        digits_node = Number(surface=str(index), span=item.span)
+        cells.extend(
+            number_backend.translate_number(digits_node, sub_ctx, profile)
+        )
+        cells.extend(_marker_punct_cells(profile.list_marker_ordered_char(), profile))
+    else:
+        cells.extend(_marker_punct_cells(profile.list_marker_unordered_char(), profile))
+        # No profile bullet → silently fall through; the layout still
+        # produces a usable line with just the content.
+    return cells
+
+
+def _marker_punct_cells(ch: str, profile: BrailleProfile) -> list[BrailleCell]:
+    """Render ``ch`` as a list marker with the punct table's own
+    cells + spacing flags (role=``list_marker`` instead of ``punct``).
+
+    Mirrors :func:`brailix.backend.punct.translate_punct` but stamps the
+    cells with the marker role so proofread tools can tell a structural
+    marker apart from a literal punctuation char in the source.
+    Returns ``[]`` when ``ch`` is not in the table.
+    """
+    punct_cells = profile.punctuation.get(ch)
+    if not punct_cells:
+        return []
+    out: list[BrailleCell] = [
+        BrailleCell(dots=dots, role="list_marker", source_text=ch)
+        for dots in punct_cells
+    ]
+    space_before, space_after = profile.punctuation_spaces(ch)
+    if space_before:
+        out.insert(0, BLANK_CELL)
+    if space_after:
+        out.append(BLANK_CELL)
+    return out
+
+
+# ---- Table ----------------------------------------------------------------
+
+
+def _expand_table(
+    block: Table, ctx: BackendContext, profile: BrailleProfile
+) -> list[BrailleBlock]:
+    """One :class:`BrailleBlock` per :class:`TableRow`.
+
+    Within a row the rendered cell content is separated by ``"  "``
+    (two blank cells) so columns are visibly distinct. We don't try
+    to align columns to a fixed width — that's a layout concern and
+    requires inspecting all rows; V1 accepts the ragged-right look.
+    """
+    blocks: list[BrailleBlock] = []
+    for row in block.rows:
+        cells: list[BrailleCell] = []
+        for j, table_cell in enumerate(row.cells):
+            if j > 0:
+                cells.append(BLANK_CELL)
+                cells.append(BLANK_CELL)
+            cells.extend(_translate_children(table_cell.children, ctx, profile))
+        blocks.append(
+            BrailleBlock(
+                block_type="table_row",
+                id=row.id,
+                cells=cells,
+            )
+        )
+    return blocks
+
+
+# ---- Footnote -------------------------------------------------------------
+
+
+def _footnote_ref_cells(ref: str, profile: BrailleProfile) -> list[BrailleCell]:
+    """Render a footnote ref (``"1"``, ``"a"``, ``"*"``) as a marker.
+
+    V1 just spells the ref characters out via the profile's punct /
+    letter tables and follows them with a blank cell so the body text
+    has clear separation. Unknown chars produce an unknown cell.
+    """
+    if not ref:
+        return []
+    cells: list[BrailleCell] = []
+    for ch in ref:
+        bare = profile.bare_letter(ch)
+        if bare is not None:
+            cells.append(BrailleCell(dots=bare, role="footnote_ref", source_text=ch))
+            continue
+        punct = profile.punctuation.get(ch)
+        if punct:
+            cells.extend(
+                BrailleCell(dots=dots, role="footnote_ref", source_text=ch)
+                for dots in punct
+            )
+            continue
+        digit = profile.digits.get(ch)
+        if digit is not None:
+            # Number-sign prefix once at the start of a digit run.
+            if profile.number_sign and not any(
+                c.role == "number_sign" for c in cells
+            ):
+                cells.append(
+                    BrailleCell(dots=profile.number_sign, role="number_sign")
+                )
+            cells.append(
+                BrailleCell(dots=digit, role="footnote_ref", source_text=ch)
+            )
+            continue
+        cells.append(
+            BrailleCell(dots=(), role="unknown", source_text=ch)
+        )
+    cells.append(BLANK_CELL)
+    return cells
+
+
+# ---- BackendContext helper ------------------------------------------------
+
+
+def _block_ctx(ctx: BackendContext, *, block_type: str) -> BackendContext:
+    """Return a context tagged with the right ``block_type``.
+
+    Used so list-marker translation runs see they're inside a list
+    item, not a paragraph — important for any future block-aware
+    formatting rules. The collector and other state are shared.
+    """
+    return BackendContext(
+        profile=ctx.profile,
+        mode=ctx.mode,
+        block_type=block_type,
+        warnings=ctx.warnings,
+        options=dict(ctx.options),
+    )

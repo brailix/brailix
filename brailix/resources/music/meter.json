@@ -1,0 +1,113 @@
+{
+  "schema": "brailix.music.meter.v1",
+  "name": "bana_2015_music_meter",
+  "cell": "six_dot",
+  "reference": "Music Braille Code 2015 (BANA), Table 7. Meter Indications and Time Devices (Pars. 7.1-7.2.3)",
+  "meter": {
+    "four_four_time": {
+      "cells": [
+        "c_3456",
+        "c_145",
+        "c_256"
+      ]
+    },
+    "six_eight_time": {
+      "cells": [
+        "c_3456",
+        "c_124",
+        "c_236"
+      ]
+    },
+    "common_time": {
+      "cells": [
+        "c_46",
+        "c_14"
+      ]
+    },
+    "alla_breve_cut_time": {
+      "cells": [
+        "c_456",
+        "c_14"
+      ]
+    },
+    "numeral_over_note_value": {
+      "cells": [
+        "c_3456",
+        "c_145",
+        "c_6",
+        "c_3",
+        "c_1456"
+      ]
+    },
+    "two_or_more_upper_numerals": {
+      "cells": [
+        "c_3456",
+        "c_12",
+        "c_346",
+        "c_14",
+        "c_256"
+      ]
+    },
+    "combined_time_signature": {
+      "cells": [
+        "c_3456",
+        "c_14",
+        "c_256",
+        "c_3456",
+        "c_24",
+        "c_236"
+      ]
+    },
+    "combined_time_signature_with_plus": {
+      "cells": [
+        "c_3456",
+        "c_14",
+        "c_256",
+        "c_346",
+        "c_3456",
+        "c_24",
+        "c_236"
+      ]
+    },
+    "combined_time_signature_with_parens": {
+      "cells": [
+        "c_3456",
+        "c_14",
+        "c_256",
+        "c_6",
+        "c_3",
+        "c_3456",
+        "c_24",
+        "c_236",
+        "c_6",
+        "c_3"
+      ]
+    },
+    "one_second": {
+      "cells": [
+        "c_45"
+      ]
+    },
+    "two_seconds": {
+      "cells": [
+        "c_45",
+        "c_3456",
+        "c_12"
+      ]
+    },
+    "ten_seconds": {
+      "cells": [
+        "c_45",
+        "c_3456",
+        "c_1",
+        "c_245"
+      ]
+    },
+    "extension_of_time": {
+      "cells": [
+        "c_36",
+        "c_36"
+      ]
+    }
+  }
+}
