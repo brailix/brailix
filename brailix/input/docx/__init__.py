@@ -164,19 +164,24 @@ def parse_docx(
             hint="Install with: pip install brailix[docx]",
         ) from e
 
-    # python-docx raises ``docx.opc.exceptions.PackageNotFoundError``
-    # for anything that isn't a valid ZIP / OOXML container; older
-    # paths still surface ``zipfile.BadZipFile`` / ``KeyError``.  Catch
-    # all three (plus the package-level error class as a safety net)
-    # so the caller always sees a brailix :class:`ParseError`.
+    # python-docx raises ``docx.opc.exceptions.PackageNotFoundError`` for
+    # anything that isn't a valid ZIP / OOXML container; older paths still
+    # surface ``zipfile.BadZipFile`` / ``KeyError``. Gather them into one
+    # exception tuple so the caller always sees a brailix :class:`ParseError`.
+    # The tuple is typed as a generic exception tuple, so it type-checks the
+    # same whether or not python-docx is installed (the import resolves to the
+    # real class with the extra, or to ``Any`` without it).
+    bad_docx: tuple[type[BaseException], ...] = (zipfile.BadZipFile, KeyError)
     try:
         from docx.opc.exceptions import PackageNotFoundError
     except ImportError:  # pragma: no cover — defensive
-        PackageNotFoundError = Exception  # type: ignore[misc, assignment]
+        bad_docx += (Exception,)
+    else:
+        bad_docx += (PackageNotFoundError,)
 
     try:
         document = Document(str(p))
-    except (zipfile.BadZipFile, KeyError, PackageNotFoundError) as e:
+    except bad_docx as e:
         raise ParseError(f"not a valid .docx file: {p} ({e})") from e
 
     ole_blobs = _build_ole_blob_map(document)
