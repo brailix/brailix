@@ -187,6 +187,28 @@ def load_profile(
     )
     zh_compounds = _load_compounds(base, t("compounds"))
 
+    # Generic per-language table slot (ARCHITECTURE §7.6). For any
+    # non-zh language, load every cell-sequence table declared under
+    # ``tables.<lang>`` into ``lang_tables[<lang>]`` keyed by the same
+    # name. zh keeps its welded loaders above (initials / finals /
+    # tones / exceptions / compounds); when zh migrates to this slot,
+    # drop the guard. The subtag is taken before the hyphen so
+    # ``ja-JP`` -> ``ja``.
+    lang_tables: dict[
+        str, dict[str, dict[str, tuple[tuple[int, ...], ...]]]
+    ] = {}
+    lang_subtag = payload.get("language", DEFAULT_LANGUAGE).split("-")[0]
+    lang_section = tables.get(lang_subtag)
+    if lang_subtag != "zh" and isinstance(lang_section, dict):
+        loaded: dict[str, dict[str, tuple[tuple[int, ...], ...]]] = {}
+        for tbl_key, ref in lang_section.items():
+            if isinstance(ref, str):
+                loaded[tbl_key] = _load_lang_table(
+                    base, tbl_key, ref, cells_pool
+                )
+        if loaded:
+            lang_tables[lang_subtag] = loaded
+
     features = dict(payload.get("features", {}))
 
     profile = BrailleProfile(
@@ -221,9 +243,30 @@ def load_profile(
         zh_exceptions=zh_exceptions,
         music=music,
         music_specs=music_specs,
+        lang_tables=lang_tables,
     )
     validate_profile(profile, payload, base, str(profile_path))
     return profile
+
+
+def _load_lang_table(
+    base: Path,
+    key: str,
+    relative: str,
+    cells_pool: dict[str, tuple[int, ...]],
+) -> dict[str, tuple[tuple[int, ...], ...]]:
+    """Load one per-language cell-sequence table (e.g. ja ``kana``).
+
+    Entries may be single- or multi-cell (a Japanese dakuon / youon
+    mora is two cells), so this goes through the cell-sequence resolver
+    :func:`_resolve_table` rather than the single-cell one. Entries live
+    either under a group named ``key`` (matching the profile's
+    ``tables.<lang>.<key>``) or at the file's top level.
+    """
+    payload = _read_json(base / relative)
+    group = payload.get(key)
+    src = group if isinstance(group, dict) else payload
+    return _resolve_table(src, cells_pool)
 
 
 def iter_builtin_profiles(
@@ -281,6 +324,7 @@ __all__ = (
     "_is_spec_object",
     "_list_available_profiles",
     "_load_cells_pool",
+    "_load_lang_table",
     "_load_letters_table",
     "_load_math_table",
     "_load_music_tables",
