@@ -97,15 +97,16 @@ A different braille standard is **data, not code**: a profile JSON plus its reso
 
 ## Add a language
 
-Supporting a new language (Japanese, Korean, and so on) is additive — the orchestrator stays language-agnostic, and you register at four seams plus add resources. In brief:
+Supporting a new language (Japanese, Korean, and so on) is additive — the orchestrator stays language-agnostic, and you register at a few seams plus add resources. In brief:
 
 1. **Segmenter** (`Segmenter` protocol) — recognize the writing system and cut prose into typed segments; register in `frontend.segment.segmenter_registry` under the language subtag.
 2. **Frontend** (`LanguageFrontend` protocol) — turn a prose run into inline IR (segment, annotate the reading, build nodes); declare the `prose_types` it consumes; register in `frontend.language_frontend_registry`.
 3. **Backend** (`LanguageBackend` protocol) — translate prose nodes (`Word`, `HanziChar`) into cells by the language's braille rules; register in `backend.dispatch.language_backend_registry`. Language-neutral nodes (numbers, punctuation, Latin, math, music) keep going through the shared dispatch.
 4. **Normalizer** (`Normalizer` protocol, as needed) — if the language has its own structural conventions; otherwise reuse the default.
 5. **Resources and profile** — put the rule tables under `resources/<language>/` and write a profile whose `language` points at the new language.
+6. **Boundary pass** (optional) — for cross-kind or word-boundary separators on the assembled inline stream (Chinese spaces hanzi↔Latin; Japanese inserts a number joiner), register a handler in `frontend.boundary_registry` under the language subtag.
 
-The existing IR node set is enough: `Word`, `HanziChar`, and the language-neutral `reading` field carry an ideographic or a phonetic language without new node types. The Architecture document's "Adding a language" section walks through each seam in detail.
+The existing IR node set is enough: `Word`, `HanziChar`, and the language-neutral `reading` field carry an ideographic or a phonetic language without new node types. **Japanese is a shipped worked example**: `frontend.ja` (a kana/kanji segmenter, a morphological-analysis subsystem with janome / fugashi / sudachi adapters, and 文節 word-spacing) plus `backend.ja` (kana → cells) plus `resources/ja/` and `profiles/ja_current.json`. The Architecture document's "Adding a language" section walks through each seam in detail.
 
 ## Packaging an adapter as a separate distribution
 
