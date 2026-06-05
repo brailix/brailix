@@ -817,6 +817,7 @@ class Pipeline:
                 normalizer_registry, self.normalizer, DEFAULT_NORMALIZER, lang
             ),
             "zh_analyzer": self.analyzer,
+            "ja_analyzer": self.analyzer,
             "pinyin_resolver": self.resolver,
             "user_pinyin_dict": self.user_pinyin_dict,
         }

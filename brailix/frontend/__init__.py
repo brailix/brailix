@@ -39,7 +39,8 @@ from typing import TYPE_CHECKING
 
 from brailix.core.protocols import LanguageFrontend
 from brailix.core.registry import Registry
-from brailix.frontend.ja import prose_to_inline as _ja_prose_to_inline
+from brailix.frontend.ja import analyze as _ja_analyze
+from brailix.frontend.ja import tokens_to_inline as _ja_tokens_to_inline
 from brailix.frontend.math import parse_math_tree
 from brailix.frontend.normalize import normalize
 from brailix.frontend.segment import segment
@@ -84,23 +85,24 @@ class _ZhFrontend(LanguageFrontend):
 
 
 class _JaFrontend(LanguageFrontend):
-    """Japanese :class:`~brailix.core.protocols.LanguageFrontend` (J1).
+    """Japanese :class:`~brailix.core.protocols.LanguageFrontend`.
 
-    Pure-kana: a kana run becomes one :class:`~brailix.ir.inline.Word`
-    whose ``reading`` is the kana itself; kanji (``hanzi_text``) degrades
-    to ``reading=None`` placeholders until J2 fills readings. The
-    per-segment work lives in
-    :func:`brailix.frontend.ja.prose_to_inline`; this shell only declares
-    the prose types it claims. No analyzer chaining yet (J2) and no
-    wakachigaki yet (J3), so ``ctx`` is currently unused.
+    Chains the morphological analyzer (selected by
+    ``ctx.options["ja_analyzer"]``, default ``auto``) with
+    ``tokens_to_inline``: a ``ja_text`` run (kana + kanji) is analyzed
+    into tokens carrying katakana pronunciation-form readings, then turned
+    into :class:`~brailix.ir.inline.Word` nodes. Pure kana works with no
+    analyzer installed (the ``kana`` fallback); kanji readings need
+    janome / fugashi / sudachi. No wakachigaki yet (that is J3), so tokens
+    are emitted without word-boundary spaces.
     """
 
-    prose_types = frozenset({"kana_text", "hanzi_text"})
+    prose_types = frozenset({"ja_text"})
 
     def process(
         self, surface: str, base: int, ctx: FrontendContext
     ) -> list[InlineNode]:
-        return _ja_prose_to_inline(surface, base)
+        return _ja_tokens_to_inline(_ja_analyze(surface, ctx), base)
 
 
 # Per-language frontend registry — the Pipeline routes each prose
