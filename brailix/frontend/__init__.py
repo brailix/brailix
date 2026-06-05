@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING
 
 from brailix.core.protocols import LanguageFrontend
 from brailix.core.registry import Registry
+from brailix.frontend.ja import prose_to_inline as _ja_prose_to_inline
 from brailix.frontend.math import parse_math_tree
 from brailix.frontend.normalize import normalize
 from brailix.frontend.segment import segment
@@ -82,6 +83,26 @@ class _ZhFrontend(LanguageFrontend):
         return _zh_to_inline(tokens)
 
 
+class _JaFrontend(LanguageFrontend):
+    """Japanese :class:`~brailix.core.protocols.LanguageFrontend` (J1).
+
+    Pure-kana: a kana run becomes one :class:`~brailix.ir.inline.Word`
+    whose ``reading`` is the kana itself; kanji (``hanzi_text``) degrades
+    to ``reading=None`` placeholders until J2 fills readings. The
+    per-segment work lives in
+    :func:`brailix.frontend.ja.prose_to_inline`; this shell only declares
+    the prose types it claims. No analyzer chaining yet (J2) and no
+    wakachigaki yet (J3), so ``ctx`` is currently unused.
+    """
+
+    prose_types = frozenset({"kana_text", "hanzi_text"})
+
+    def process(
+        self, surface: str, base: int, ctx: FrontendContext
+    ) -> list[InlineNode]:
+        return _ja_prose_to_inline(surface, base)
+
+
 # Per-language frontend registry — the Pipeline routes each prose
 # segment to the implementation matching the profile's language. Adding
 # a language = register a LanguageFrontend here (or via entry points).
@@ -89,6 +110,7 @@ language_frontend_registry: Registry[LanguageFrontend] = Registry(
     "language_frontend", LanguageFrontend
 )
 language_frontend_registry.register("zh", _ZhFrontend)
+language_frontend_registry.register("ja", _JaFrontend)
 
 __all__ = (
     "segment",

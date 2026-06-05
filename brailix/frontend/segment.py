@@ -45,6 +45,7 @@ ChineseAnalyzer):
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from brailix.core.context import FrontendContext
@@ -152,8 +153,18 @@ class DefaultSegmenter:
         return _segment_text(text, base_offset=base)
 
 
-def _segment_text(text: str, base_offset: int = 0) -> list[Segment]:
-    """Public-ish helper that segments a raw string."""
+def _segment_text(
+    text: str,
+    base_offset: int = 0,
+    categorize: Callable[[str], str] = _category,
+) -> list[Segment]:
+    """Public-ish helper that segments a raw string.
+
+    ``categorize`` maps a character to its segment category; a language
+    segmenter can pass its own (e.g. the Japanese one adds ``kana_text``)
+    to reuse this chunking. Defaults to the built-in Han-aware
+    :func:`_category`.
+    """
     if not text:
         return []
 
@@ -162,7 +173,9 @@ def _segment_text(text: str, base_offset: int = 0) -> list[Segment]:
     cursor = 0
     for start, end, type_name in protected:
         if start > cursor:
-            out.extend(_segment_unprotected(text, cursor, start, base_offset))
+            out.extend(
+                _segment_unprotected(text, cursor, start, base_offset, categorize)
+            )
         out.append(
             Segment(
                 type=type_name,
@@ -172,7 +185,9 @@ def _segment_text(text: str, base_offset: int = 0) -> list[Segment]:
         )
         cursor = end
     if cursor < len(text):
-        out.extend(_segment_unprotected(text, cursor, len(text), base_offset))
+        out.extend(
+            _segment_unprotected(text, cursor, len(text), base_offset, categorize)
+        )
     return out
 
 
@@ -201,18 +216,24 @@ def _find_protected_regions(text: str) -> list[tuple[int, int, str]]:
 
 
 def _segment_unprotected(
-    text: str, start: int, end: int, base_offset: int
+    text: str,
+    start: int,
+    end: int,
+    base_offset: int,
+    categorize: Callable[[str], str] = _category,
 ) -> list[Segment]:
     """Chunk a run of unprotected text by character category.
 
-    Special case: a decimal point or comma flanked by digits stays
-    inside the digit_run so ``3.5`` and ``1,234`` survive as one
+    ``categorize`` classifies each character; pass a language-specific
+    one (the Japanese segmenter adds ``kana_text``) to reuse this
+    chunking. Special case: a decimal point or comma flanked by digits
+    stays inside the digit_run so ``3.5`` and ``1,234`` survive as one
     segment. Downstream Normalizer relies on this.
     """
     segments: list[Segment] = []
     i = start
     while i < end:
-        cat = _category(text[i])
+        cat = categorize(text[i])
         j = i + 1
         if cat == "punct":
             # Emit punctuation one char at a time so each one can be
@@ -241,12 +262,12 @@ def _segment_unprotected(
             continue
         if cat == "digit_run":
             while j < end:
-                if _category(text[j]) == "digit_run":
+                if categorize(text[j]) == "digit_run":
                     j += 1
                 elif (
                     text[j] in ".,"
                     and j + 1 < end
-                    and _category(text[j + 1]) == "digit_run"
+                    and categorize(text[j + 1]) == "digit_run"
                 ):
                     j += 1  # absorb the punctuation; the loop picks up the next digit
                 else:
@@ -260,7 +281,7 @@ def _segment_unprotected(
             )
             i = j
             continue
-        while j < end and _category(text[j]) == cat:
+        while j < end and categorize(text[j]) == cat:
             j += 1
         segments.append(
             Segment(
