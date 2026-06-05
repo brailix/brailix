@@ -2,8 +2,8 @@
   "schema": "brailix.table.kana.v1",
   "name": "ja_current_kana",
   "cell": "six_dot",
-  "reference": "日本点字表記法 2018年版（日本点字委員会） / 点字を読んでみよう!（A42025）",
-  "_note": "Japanese kana -> braille, keyed by katakana mora (1 char; 2 for youon like キャ). seion = vowel base (dots 1/2/4) + row dots: ka+6, sa+56, ta+35, na+3, ha+36, ma+356, ra+5; ya/wa/n are special shapes. dakuon = 5-dot prefix, handakuon = 6, youon = 4, youon-dakuon = 45, youon-handakuon = 46 (prefix cell then the unvoiced a/u/o base). ー(chouon)=25, ッ(sokuon)=2, ン(hatsuon)=356. Numbers reuse the global number_sign (数符). Cross-checked vs CyberLibrarian; re-verify against 日本点字表記法 2018 before treating as final.",
+  "reference": "Japanese Braille Notation 2018 (日本点字表記法, Japan Braille Committee) / \"Let's read braille\" primer (A42025)",
+  "_note": "Japanese kana -> braille, keyed by katakana mora (1 char; 2 for youon like キャ). seion = vowel base (dots 1/2/4) + row dots: ka+6, sa+56, ta+35, na+3, ha+36, ma+356, ra+5; ya/wa/n are special shapes. dakuon = 5-dot prefix, handakuon = 6, youon = 4, youon-dakuon = 45, youon-handakuon = 46 (prefix cell then the unvoiced a/u/o base). ー(chouon)=25, ッ(sokuon)=2, ン(hatsuon)=356. Numbers reuse the global number sign. Cross-checked against CyberLibrarian; re-verify against the Japanese Braille Notation (日本点字表記法) 2018 before treating as final.",
   "kana": {
     "ア": "c_1",
     "イ": "c_12",

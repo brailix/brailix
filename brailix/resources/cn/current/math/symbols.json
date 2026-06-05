@@ -2,7 +2,7 @@
   "schema": "brailix.math.symbols.v1",
   "name": "cn_current_math_symbols",
   "cell": "six_dot",
-  "reference": "《中国盲文》",
+  "reference": "Chinese Braille (《中国盲文》)",
   "_note": "Math symbol table. Each key is a MathML entity name (no & ;), normalized to a Unicode char via html.entities.html5. Each spec references named cells (c_*) from cells.json via \"cells\": [...].",
   "symbols": {
     "plus":     {"cells": ["c_235"],            "role": "op",   "space_before": true},
