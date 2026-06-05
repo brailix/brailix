@@ -64,10 +64,20 @@ midi = ["mido", "partitura"]                        # mido reads MIDI bytes, par
 abc = ["abc-xml-converter"]                         # ABC notation text → MusicXML
 music = ["mido", "partitura", "abc-xml-converter"]  # all music sources
 
+# Languages — Japanese: morphological analysis for kanji readings (発音形)
+# + part-of-speech. The ``ja`` pack is light, offline, pure-Python
+# (janome, bundled IPADIC) — a good default; heavier engines below give
+# better readings. ``auto`` selection prefers the best installed one.
+ja = ["janome"]
+janome = ["janome"]                          # light, offline, pure-Python (IPADIC)
+fugashi = ["fugashi", "unidic-lite"]         # MeCab + UniDic; best 発音形 (pron)
+sudachi = ["sudachipy", "sudachidict-core"]  # Sudachi (reading_form)
+
 # Everything (all languages + all tools):
 all = [
     "hanlp", "thulac", "jieba", "pkuseg",
     "g2pM", "numpy", "g2pw", "pypinyin",
+    "janome",
     "latex2mathml", "py-asciimath",
     "markdown-it-py", "python-docx", "lxml", "olefile",
     "mido", "partitura", "abc-xml-converter",
@@ -88,6 +98,7 @@ dev = [
     "jieba",
     "pypinyin",
     "latex2mathml",
+    "janome",  # minimal ja analyzer — exercises the ja frontend's analyzer path in CI
 ]
 
 [build-system]

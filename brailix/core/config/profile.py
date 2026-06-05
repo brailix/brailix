@@ -105,6 +105,15 @@ class BrailleProfile:
     # ``chord_symbols`` -> ``kind_spec`` -> chord-kind emit recipes),
     # loaded from ``_``-prefixed sections the cells loader skips.
     music_specs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Per-language braille tables (ARCHITECTURE §7.6 generic language
+    # slot): subtag -> table name -> entry -> cell sequence, e.g.
+    # ``lang_tables["ja"]["kana"]["カ"] == ((1, 6),)``. New languages put
+    # their cell tables here (read via :meth:`lang_table`) instead of
+    # welding per-language fields onto this dataclass the way the legacy
+    # zh tables (initials / finals / tones) did. zh isn't migrated yet.
+    lang_tables: dict[
+        str, dict[str, dict[str, tuple[tuple[int, ...], ...]]]
+    ] = field(default_factory=dict)
     # Per-instance lazy cache for letter() results.
     _letter_cache: dict[str, tuple[tuple[int, ...], ...] | None] = field(default_factory=dict)
 
@@ -131,6 +140,19 @@ class BrailleProfile:
             if value is not sentinel:
                 return value
         return default
+
+    # -- Per-language tables (§7.6 generic slot) ----------------------
+
+    def lang_table(self, name: str) -> dict[str, tuple[tuple[int, ...], ...]]:
+        """Per-language cell table ``name`` (e.g. ``"kana"``) for this
+        profile's language subtag, or ``{}`` if absent.
+
+        The generic counterpart to the welded zh tables: a Japanese
+        backend reads ``profile.lang_table("kana")`` the way the Chinese
+        backend reads ``profile.finals``. Keyed by the subtag before the
+        hyphen in :attr:`language` (``ja-JP`` -> ``ja``)."""
+        lang = self.language.split("-")[0]
+        return self.lang_tables.get(lang, {}).get(name, {})
 
     # -- Math symbol lookups -----------------------------------------
 

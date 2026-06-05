@@ -10,11 +10,12 @@ brailix targets **Python 3.13 or newer**. The core package is pure-Python and ha
 pip install brailix              # core: plain text, Markdown, MusicXML
 pip install brailix[zh]          # Chinese: segmentation + pinyin (light, offline)
 pip install brailix[zh,latex]    # + LaTeX math
+pip install brailix[ja]          # Japanese: morphological analysis (kanji readings)
 pip install brailix[hanlp,g2pw]  # accurate Chinese engines (download models)
 pip install brailix[docx]        # Word .docx / .docm (incl. MathType / OMML)
 ```
 
-Extras are grouped by language and by tool category — see the [README](../README.md) and [`pyproject.toml`](../pyproject.toml) for the full list (`zh`, individual engines, `latex`, `asciimath`, `markdown`, `docx`, `midi`, `abc`, `music`, and `all`). The `hanlp` and `g2pw` engines download their model weights on first use into a local `models/` directory; the `zh` pack (jieba plus pypinyin) is lightweight and works offline immediately.
+Extras are grouped by language and by tool category — see the [README](../README.md) and [`pyproject.toml`](../pyproject.toml) for the full list (`zh`, `ja`, individual engines, `latex`, `asciimath`, `markdown`, `docx`, `midi`, `abc`, `music`, and `all`). The `hanlp` and `g2pw` engines download their model weights on first use into a local `models/` directory; the `zh` pack (jieba plus pypinyin) is lightweight and works offline immediately.
 
 ## Your first translation
 
@@ -72,9 +73,26 @@ pipe = Pipeline(
 
 If you install only the `zh` pack, `auto` resolves to jieba plus pypinyin. Installing `hanlp` and `g2pw` upgrades accuracy at the cost of a one-time model download.
 
+## Japanese
+
+Japanese uses the `ja_current` profile. Pure kana works with nothing extra installed; reading kanji needs a morphological analyzer — the reading drives the braille, the way pinyin does for Chinese.
+
+```python
+pipe = Pipeline(profile="ja_current")          # auto-selects an installed analyzer
+print(pipe.translate_text("私は本を読む").render())
+```
+
+```bash
+pip install brailix[ja]        # janome — light, pure-Python, bundles its dictionary
+pip install brailix[fugashi]   # MeCab + UniDic — best pronunciation-form readings
+pip install brailix[sudachi]   # SudachiPy
+```
+
+The analyzer is selected by name like the Chinese one (`analyzer="janome"` / `"fugashi"` / `"sudachi"`, or `"kana"` for the dependency-free pure-kana path). It fills each word's pronunciation-form reading — long vowels become the prolonged-sound mark, and the topic / object particles read correctly; the backend writes the kana cells, and word-spacing (分かち書き) is inserted from the analyzer's part-of-speech tags.
+
 ## Profiles and run modes
 
-A **profile** is a braille standard plus its resource tables. Two ship today: `cn_current` (Current Chinese Braille, the default) and `cn_ncb` (National Common Braille). Select one with the `profile` argument.
+A **profile** is a braille standard plus its resource tables. Three ship today: `cn_current` (Current Chinese Braille, the default), `cn_ncb` (National Common Braille), and `ja_current` (Japanese kana braille). Select one with the `profile` argument.
 
 The **run mode** controls how strictly the pipeline reacts to input it cannot fully handle:
 

@@ -2,7 +2,7 @@
   "schema": "brailix.math.functions.v1",
   "name": "cn_current_math_functions",
   "cell": "six_dot",
-  "reference": "《中国盲文》",
+  "reference": "Chinese Braille (《中国盲文》)",
   "_note": "Function-name abbreviations. Keys are function names (matching the multi-char MathML <mi> content). cells are the letters AFTER the function prefix (c_1246) — the backend wraps the prefix on the outside.",
   "functions": {
     "sin":    {"cells": ["c_234"]},

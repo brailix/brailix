@@ -2,7 +2,7 @@
   "schema": "brailix.math.structures.v1",
   "name": "cn_current_math_structures",
   "cell": "six_dot",
-  "reference": "《中国盲文》",
+  "reference": "Chinese Braille (《中国盲文》)",
   "_note": "Structural markers, nested by topic: fraction.{open,bar,close} / script.{sup,sub,close,big_op_prefix} / sqrt.{...} / letter_prefix.{...} / function.{...}.",
   "structures": {
     "fraction": {

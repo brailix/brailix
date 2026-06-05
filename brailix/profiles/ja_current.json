@@ -1,0 +1,18 @@
+{
+  "name": "ja_current",
+  "language": "ja-JP",
+  "cell": "six_dot",
+  "reference": "Japanese Braille Notation 2018 (日本点字表記法, Japan Braille Committee)",
+  "_note": "Japanese kana braille. Tables: kana (mora -> cells) and punctuation; numbers reuse the global number sign (number_sign in resources/numbers.json); the connector (c_36) is the first linking sign (第1つなぎ符) inserted after a number before an ア/ラ-row word. The latin/greek tables are reused for romaji.",
+  "tables": {
+    "cells": "resources/cells.json",
+    "latin": "resources/latin/letters.json",
+    "greek": "resources/greek/letters.json",
+    "numbers": "resources/numbers.json",
+    "punctuation": "resources/ja/current/punct.json",
+    "connector": "c_36",
+    "ja": {
+      "kana": "resources/ja/current/kana.json"
+    }
+  }
+}

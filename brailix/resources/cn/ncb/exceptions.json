@@ -2,7 +2,7 @@
   "schema": "brailix.zh_exceptions.v1",
   "name": "cn_ncb_exceptions",
   "cell": "six_dot",
-  "reference": "GF0019-2018 国家通用盲文方案",
+  "reference": "GF0019-2018 National Common Braille (国家通用盲文方案)",
   "_note": "All differences of National Common Braille from Current Chinese Braille, in three sections: tone_omission (per-initial tone dropping + exceptions + cross-syllable boundary), char_overrides (definite-word shorthand + special spellings + char-level tone keeping), word_overrides (word-level tone keeping).",
 
   "tone_omission": {

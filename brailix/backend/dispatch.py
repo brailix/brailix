@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from brailix.backend import ja as ja_backend
 from brailix.backend import latin as latin_backend
 from brailix.backend import math as math_backend
 from brailix.backend import music as music_backend
@@ -89,6 +90,21 @@ class _ZhBackend:
         return zh_backend.translate_hanzi_char(node, ctx, profile)
 
 
+class _JaBackend:
+    """Japanese :class:`~brailix.core.protocols.LanguageBackend`: the
+    prose-node translators from :mod:`brailix.backend.ja`."""
+
+    def translate_word(
+        self, node: Word, ctx: BackendContext, profile: BrailleProfile
+    ) -> list[BrailleCell]:
+        return ja_backend.translate_word(node, ctx, profile)
+
+    def translate_hanzi_char(
+        self, node: HanziChar, ctx: BackendContext, profile: BrailleProfile
+    ) -> list[BrailleCell]:
+        return ja_backend.translate_hanzi_char(node, ctx, profile)
+
+
 # Per-language backend registry — the dispatcher routes prose nodes
 # (Word / HanziChar) to the implementation matching the profile's
 # language. Language-neutral nodes (Number / Punct / Latin / Math /
@@ -97,6 +113,7 @@ language_backend_registry: Registry[LanguageBackend] = Registry(
     "language_backend", LanguageBackend
 )
 language_backend_registry.register("zh", _ZhBackend)
+language_backend_registry.register("ja", _JaBackend)
 
 # Prose node types routed by the profile's language rather than the
 # static dispatch table.

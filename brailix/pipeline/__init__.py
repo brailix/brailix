@@ -70,6 +70,7 @@ from brailix.core.defaults import (
 )
 from brailix.core.errors import RunMode, WarningCollector, normalize_run_mode
 from brailix.core.span import Span
+from brailix.frontend import apply_boundary as _apply_boundary
 from brailix.frontend import language_frontend_registry
 from brailix.frontend import normalize as _frontend_normalize
 from brailix.frontend import parse_math_tree as _frontend_parse_math_tree
@@ -77,9 +78,6 @@ from brailix.frontend import segment as _frontend_segment
 from brailix.frontend.music import parse_music_tree as _frontend_parse_music_tree
 from brailix.frontend.normalize import normalizer_registry
 from brailix.frontend.segment import segmenter_registry
-from brailix.frontend.zh import (
-    insert_cross_kind_boundary_spaces as _frontend_zh_boundary_spaces,
-)
 from brailix.input import parse_file as _parse_file
 from brailix.input import parse_markdown as _parse_markdown
 from brailix.input import parse_plain as _parse_plain
@@ -817,6 +815,7 @@ class Pipeline:
                 normalizer_registry, self.normalizer, DEFAULT_NORMALIZER, lang
             ),
             "zh_analyzer": self.analyzer,
+            "ja_analyzer": self.analyzer,
             "pinyin_resolver": self.resolver,
             "user_pinyin_dict": self.user_pinyin_dict,
         }
@@ -842,7 +841,8 @@ class Pipeline:
                 out.append(item)
             else:
                 out.append(item)
-        return _frontend_zh_boundary_spaces(out, self._profile.zh_compounds)
+        lang = self._profile.language.split("-")[0]
+        return _apply_boundary(out, lang, self._profile)
 
     def _process_segment(
         self, segment: Segment, ctx: FrontendContext

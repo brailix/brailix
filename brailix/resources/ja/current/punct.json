@@ -1,0 +1,15 @@
+{
+  "schema": "brailix.table.punctuation.v1",
+  "name": "ja_current_punctuation",
+  "cell": "six_dot",
+  "reference": "Japanese Braille Notation 2018 (日本点字表記法, Japan Braille Committee) / braille chart (A42025 p.4)",
+  "_note": "Japanese punctuation. Cells cross-checked against text sources AND the Japan Braille Committee's official braille chart (A42025 page 4, read + calibrated against the alphabet). period 。=256, comma 、=56, question ？=26, exclamation ！=235. NOTE sentence-final 。？！ technically take a two-cell gap (one cell mid-sentence); this table uses a single space_after. NOT yet included pending authoritative confirmation: brackets 「」（）, middle dot ・, dash / dotted line 棒線/点線 (their 2-3-dot patterns weren't read with confidence). Re-verify against the Japanese Braille Notation (日本点字表記法) 2018 before final.",
+  "punctuation": {
+    "。": {"cells": ["c_256"], "space_after": true},
+    "、": {"cells": ["c_56"],  "space_after": true},
+    "？": {"cells": ["c_26"],  "space_after": true},
+    "！": {"cells": ["c_235"], "space_after": true},
+    "?":  {"cells": ["c_26"],  "space_after": true},
+    "!":  {"cells": ["c_235"], "space_after": true}
+  }
+}

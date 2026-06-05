@@ -2,7 +2,7 @@
   "schema": "brailix.table.punctuation.v1",
   "name": "cn_current_punctuation",
   "cell": "six_dot",
-  "reference": "《中国盲文》",
+  "reference": "Chinese Braille (《中国盲文》)",
   "_note": "Punctuation table. Each entry carries its own space_before / space_after; there is no blanket 'add one space' default.",
   "punctuation": {
     "，": {"cells": ["c_5"],                 "space_after": true},
