@@ -1,4 +1,4 @@
-"""J2 Japanese morphological-analysis subsystem.
+"""Japanese morphological-analysis subsystem.
 
 * ``tokens_to_inline`` — pure logic, tested with canned tokens (no
   analyzer dependency).
@@ -91,7 +91,7 @@ class TestJanome:
         assert readings["は"] == "ワ"   # topic particle は -> ワ (発音形)
         assert readings["を"] == "ヲ"   # object particle を -> ヲ
         pos = {t.surface: t.pos for t in toks}
-        assert pos["は"].startswith("助詞")  # POS available for J3
+        assert pos["は"].startswith("助詞")  # POS available for word-spacing
 
     def test_long_vowel_pronunciation_form(self):
         pytest.importorskip("janome")

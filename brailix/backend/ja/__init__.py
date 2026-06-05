@@ -2,9 +2,9 @@
 
 Japanese braille (仮名点字) is fully phonetic: every prose node carries a
 katakana *pronunciation form* in ``node.reading`` (long vowels already as
-ー, particle は read ワ etc.). The ja frontend fills that field; at J0 the
-reading is supplied directly (the backend is testable on its own, the way
-:mod:`brailix.backend.zh` is).
+ー, particle は read ワ etc.). The ja frontend fills that field; the
+backend translates a supplied reading directly, so it is testable on its
+own, the way :mod:`brailix.backend.zh` is.
 
 The job here is purely ``reading -> cells``:
 
@@ -20,9 +20,9 @@ Missing reading -> ``MISSING_READING`` warning + one unknown cell per
 surface character. Unknown mora -> ``UNKNOWN_KANA`` warning + an unknown
 cell. The pipeline never crashes on data gaps (mirrors backend.zh).
 
-Out of J0 scope (later phases): wakachigaki spacing, the number sign +
-tsunagi-fu, romaji 外字符 / 大文字符, and punctuation. Those are driven by
-the frontend / number / punct / latin backends, not here.
+Word-spacing (wakachigaki), the number sign + つなぎ符, romaji 外字符 /
+大文字符, and punctuation are not handled here — they are driven by the
+frontend / number / punct / latin backends.
 """
 
 from __future__ import annotations
@@ -35,8 +35,8 @@ from brailix.ir.inline import HanziChar, Word
 
 # Katakana small ya/yu/yo — these glue onto the preceding kana to form a
 # youon mora (キ + ャ -> キャ). Other small kana (ァ ィ ゥ ェ ォ, foreign
-# sounds) are left standalone; they belong to the 外来語 rules of a later
-# phase and miss the table gracefully until then.
+# sounds) are left standalone — the 外来語 (loanword) rules don't bind
+# them here — so they miss the table gracefully.
 _SMALL_YOUON = ("ャ", "ュ", "ョ")
 
 # Hiragana block — shifted to katakana by +0x60 so the table (katakana-

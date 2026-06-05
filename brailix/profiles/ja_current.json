@@ -3,7 +3,7 @@
   "language": "ja-JP",
   "cell": "six_dot",
   "reference": "日本点字表記法 2018年版（日本点字委員会）",
-  "_note": "Japanese kana braille (仮名点字). J0 scope: kana mora -> cells only. Morphological analysis (kanji readings), wakachigaki word-spacing, particle は->ワ / へ->エ, numbers + tsunagi-fu, romaji 外字符, and punctuation arrive in later phases. Numbers reuse the global 数符 (number_sign in resources/numbers.json); latin/greek tables are wired for the later romaji path and unused at J0.",
+  "_note": "Japanese kana braille (仮名点字). Tables: kana (mora -> cells) and punctuation; numbers reuse the global 数符 (number_sign in resources/numbers.json); the connector (c_36) is the 第1つなぎ符 inserted after a number before an ア/ラ-row word. The latin/greek tables are reused for romaji.",
   "tables": {
     "cells": "resources/cells.json",
     "latin": "resources/latin/letters.json",

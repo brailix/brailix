@@ -1,4 +1,4 @@
-"""J4: Japanese punctuation + the number つなぎ符 (第1つなぎ符).
+"""Japanese punctuation + the number つなぎ符 (第1つなぎ符).
 
 Exercised with analyzer='kana' so they're deterministic without a
 morphological analyzer (punctuation and the number-boundary rule are both

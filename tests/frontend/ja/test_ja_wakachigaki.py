@@ -1,4 +1,4 @@
-"""J3 分かち書き (wakachigaki word-spacing) + the per-language boundary seam.
+"""分かち書き (wakachigaki word-spacing) + the per-language boundary seam.
 
 ``tokens_to_inline`` inserts a blank cell before each 自立語 (bunsetsu
 head) using the analyzer's POS — 付属語 (助詞/助動詞) and 接尾 suffixes
@@ -99,7 +99,7 @@ class TestWakachigakiJanome:
 
 class TestBoundarySeam:
     def test_zh_registered(self):
-        # J4 also registers a ja handler (the number つなぎ符); J3 only had zh.
+        # A ja handler (the number つなぎ符) is registered alongside zh.
         assert "zh" in boundary_registry
         assert "ja" in boundary_registry
 

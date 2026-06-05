@@ -1,4 +1,4 @@
-"""End-to-end golden examples for the Japanese chain (J0–J4).
+"""End-to-end golden examples for the Japanese chain.
 
 Each case locks a representative sentence to its exact braille, so the
 whole pipeline — segment → analyze → readings → wakachigaki → cells →

@@ -14,7 +14,9 @@ Two public callables, both consumed by the Japanese
   the way pinyin does for Chinese); a token with no reading (a kanji the
   ``kana`` fallback can't read) becomes per-character placeholder
   :class:`~brailix.ir.inline.HanziChar` nodes (the backend emits a
-  ``MISSING_READING`` cell). No wakachigaki spacing here — that is J3.
+  ``MISSING_READING`` cell). A blank cell precedes each 自立語 (bunsetsu
+  head) for word-spacing (分かち書き), decided from each token's
+  part-of-speech.
 
 The reading is a **katakana pronunciation form** (発音形): long vowels
 already as ー, and particle は read ワ / へ read エ. Adapters that expose
@@ -39,8 +41,8 @@ if TYPE_CHECKING:
 class JapaneseToken:
     """One morpheme: surface text, a katakana pronunciation-form reading
     (``None`` when the analyzer can't read it), the analyzer's
-    part-of-speech string (used by J3 wakachigaki; informational here),
-    and a span relative to the analyzed run."""
+    part-of-speech string (drives word-spacing / 分かち書き), and a span
+    relative to the analyzed run."""
 
     surface: str
     reading: str | None = None
@@ -117,7 +119,8 @@ def tokens_to_inline(
     A token with a reading → one :class:`Word`. A token with no reading
     (kanji the fallback couldn't read) → per-character :class:`HanziChar`
     placeholders so the backend warns ``MISSING_READING`` rather than
-    mis-rendering. No word-boundary spacing yet (wakachigaki is J3).
+    mis-rendering. A blank cell is inserted before each 自立語 (bunsetsu
+    head) for 文節 word-spacing (分かち書き), decided by the part-of-speech.
     """
     out: list[InlineNode] = []
     prev: JapaneseToken | None = None

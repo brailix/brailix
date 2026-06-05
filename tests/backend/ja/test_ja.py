@@ -1,4 +1,4 @@
-"""J0 Japanese kana-braille backend.
+"""Japanese kana-braille backend.
 
 Three things are covered:
 

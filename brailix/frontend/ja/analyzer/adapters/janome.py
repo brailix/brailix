@@ -4,7 +4,7 @@ The light, offline default. Reading is IPADIC's ``phonetic`` field (発音)
 — the *pronunciation* form — so long vowels come out as ー (東京 →
 トーキョー) and the topic / object particles read correctly straight from
 the dictionary (は → ワ, へ → エ, を → ヲ), no special-casing needed.
-``part_of_speech`` rides ``JapaneseToken.pos`` for J3 wakachigaki.
+``part_of_speech`` rides ``JapaneseToken.pos`` for word-spacing.
 """
 
 from __future__ import annotations
