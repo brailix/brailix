@@ -1,0 +1,15 @@
+{
+  "schema": "brailix.table.punctuation.v1",
+  "name": "ja_current_punctuation",
+  "cell": "six_dot",
+  "reference": "日本点字表記法 2018年版（日本点字委員会）/ 点字一覧表（A42025 p.4）",
+  "_note": "Japanese punctuation. Cells cross-checked against text sources AND the 日点委 official 点字一覧表 (A42025 page 4, read + calibrated against the alphabet). 句点 。=256, 読点 、=56, 疑問符 ？=26, 感嘆符 ！=235. NOTE sentence-final 。？！ technically take a two-cell gap (one cell mid-sentence); V1 uses a single space_after. NOT yet included pending authoritative confirmation: brackets 「」（）, 中点 ・, 棒線/点線 (their 2-3-dot patterns weren't read with confidence). Re-verify against 日本点字表記法 2018 before final.",
+  "punctuation": {
+    "。": {"cells": ["c_256"], "space_after": true},
+    "、": {"cells": ["c_56"],  "space_after": true},
+    "？": {"cells": ["c_26"],  "space_after": true},
+    "！": {"cells": ["c_235"], "space_after": true},
+    "?":  {"cells": ["c_26"],  "space_after": true},
+    "!":  {"cells": ["c_235"], "space_after": true}
+  }
+}

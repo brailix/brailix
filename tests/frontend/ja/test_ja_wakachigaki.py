@@ -98,9 +98,10 @@ class TestWakachigakiJanome:
 
 
 class TestBoundarySeam:
-    def test_zh_registered_ja_not(self):
+    def test_zh_registered(self):
+        # J4 also registers a ja handler (the number つなぎ符); J3 only had zh.
         assert "zh" in boundary_registry
-        assert "ja" not in boundary_registry
+        assert "ja" in boundary_registry
 
     def test_unregistered_lang_is_identity(self):
         nodes = [Word(surface="ア", reading="ア")]

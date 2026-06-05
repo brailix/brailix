@@ -9,6 +9,8 @@
     "latin": "resources/latin/letters.json",
     "greek": "resources/greek/letters.json",
     "numbers": "resources/numbers.json",
+    "punctuation": "resources/ja/current/punct.json",
+    "connector": "c_36",
     "ja": {
       "kana": "resources/ja/current/kana.json"
     }

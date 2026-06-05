@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING
 from brailix.core.protocols import LanguageFrontend
 from brailix.core.registry import Registry
 from brailix.frontend.ja import analyze as _ja_analyze
+from brailix.frontend.ja import ja_boundary as _ja_boundary
 from brailix.frontend.ja import tokens_to_inline as _ja_tokens_to_inline
 from brailix.frontend.math import parse_math_tree
 from brailix.frontend.normalize import normalize
@@ -145,6 +146,7 @@ def _zh_boundary(
 
 
 boundary_registry["zh"] = _zh_boundary
+boundary_registry["ja"] = _ja_boundary
 
 
 def apply_boundary(
