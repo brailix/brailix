@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from brailix.core.span import Span
 from brailix.frontend.ja._chars import _is_kana
-from brailix.ir.inline import HanziChar, InlineNode, Word
+from brailix.ir.inline import HanziChar, InlineNode, Space, Word
 
 if TYPE_CHECKING:
     from brailix.core.context import FrontendContext
@@ -80,6 +80,35 @@ def analyze(
     return analyzer_registry.get(name).analyze(text, ctx)
 
 
+# 付属語 (dependent words) attach to the preceding 自立語 with no space.
+_DEPENDENT_POS: frozenset[str] = frozenset({"助詞", "助動詞"})
+
+
+def _is_bunsetsu_head(token: JapaneseToken, prev: JapaneseToken | None) -> bool:
+    """Whether ``token`` starts a new bunsetsu (文節) — i.e. takes a leading
+    blank cell under 文節分かち書き.
+
+    A 自立語 (independent word) starts a bunsetsu. A 付属語 (助詞 / 助動詞)
+    and a 接尾 suffix attach to the preceding word; a word right after a
+    接頭詞 prefix attaches forward. A token with no POS (the dependency-free
+    ``kana`` analyzer) yields ``False`` — no morphology, no auto-spacing,
+    so kana-only output keeps whatever spaces the source had.
+
+    V1 applies the basic 文節 rule; finer 切れ続き (compound-word splitting,
+    long-word division) is a later refinement.
+    """
+    if not token.pos:
+        return False
+    major = token.pos.split(",")[0]
+    if major in _DEPENDENT_POS:
+        return False
+    if "接尾" in token.pos:
+        return False
+    if prev is not None and prev.pos and prev.pos.split(",")[0] == "接頭詞":
+        return False
+    return True
+
+
 def tokens_to_inline(
     tokens: list[JapaneseToken], base: int = 0
 ) -> list[InlineNode]:
@@ -91,8 +120,13 @@ def tokens_to_inline(
     mis-rendering. No word-boundary spacing yet (wakachigaki is J3).
     """
     out: list[InlineNode] = []
+    prev: JapaneseToken | None = None
     for t in tokens:
         start = base + t.span.start if t.span is not None else None
+        # Wakachigaki: a blank cell precedes each 自立語 (bunsetsu head),
+        # except the first token; 付属語 attach to the preceding word.
+        if prev is not None and start is not None and _is_bunsetsu_head(t, prev):
+            out.append(Space(surface="", span=Span(start, start)))
         reading = t.reading
         # An all-kana token the analyzer didn't read — an unknown katakana
         # word comes back with phonetic "*" — is already its own
@@ -110,4 +144,5 @@ def tokens_to_inline(
             for k, ch in enumerate(t.surface):
                 cspan = Span(start + k, start + k + 1) if start is not None else None
                 out.append(HanziChar(surface=ch, reading=None, span=cspan))
+        prev = t
     return out
