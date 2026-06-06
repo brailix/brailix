@@ -66,11 +66,12 @@ A type alias: `dict[(domain, source, surface), ET.Element]`, a reuse pool of par
 
 Each function returns a `DocumentIR` with block structure populated; inline content stays as raw text until the frontend runs.
 
-- `parse_file(path, *, language=..., profile=...)` — read a file and parse by suffix: `.md` / `.markdown` use the Markdown adapter, `.docx` / `.docm` use `parse_docx`, `.doc` uses `parse_doc`, `.musicxml` / `.xml` / `.mxl` use `parse_musicxml`, and everything else (including `.txt`) uses `parse_plain`.
+- `parse_file(path, *, language=..., profile=...)` — read a file and parse by suffix: `.md` / `.markdown` use the Markdown adapter; `.docx` / `.docm` use `parse_docx`; `.doc` uses `parse_doc`; `.musicxml` / `.mxl` use `parse_musicxml`; a `.xml` file uses `parse_musicxml` only when its head looks like a MusicXML score (`<score-partwise>` / `<score-timewise>`), otherwise it is treated as plain text, since `.xml` is a generic container; `.mid` / `.midi` / `.abc` use `parse_score_file`; and everything else (including `.txt`) uses `parse_plain`.
 - `parse_plain(text, ...)` — one paragraph from a string.
 - `parse_markdown(text, ...)` — a common Markdown subset: headings, paragraphs, ordered and unordered lists, block quotes, fenced code blocks, `$$...$$` math blocks, and `| col | col |` tables.
 - `parse_docx(path, ...)` and `parse_doc(path, ...)` — Word documents. `parse_docx` reads modern OOXML (`.docx` / `.docm`, including MathType and OMML formulae) and needs the `docx` extra; `parse_doc` reads the legacy binary `.doc` and needs a LibreOffice `soffice` install on `PATH`.
-- `parse_musicxml(path, ...)` — MusicXML and compressed `.mxl` scores.
+- `parse_musicxml(path, ...)` — MusicXML and compressed `.mxl` scores (and a `.xml` file that is actually a score).
+- `parse_score_file(path, ...)` — score formats that reach MusicXML through a source adapter: MIDI (`.mid` / `.midi`, needs the `midi` extra) and ABC (`.abc`, needs the `abc` extra). The file is converted to MusicXML when it is read and wrapped as a score block, so the rest of the pipeline treats it exactly like a MusicXML file; a missing extra raises `MissingExtraError` naming the package to install.
 
 ## `brailix.ir` — the intermediate representations
 

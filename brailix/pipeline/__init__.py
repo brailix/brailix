@@ -342,13 +342,15 @@ class Pipeline:
         self,
         path: str | os.PathLike[str],
     ) -> TranslationResult:
-        """Read ``path`` as UTF-8 and translate end-to-end.
+        """Read ``path`` and translate end-to-end.
 
         Convenience wrapper over :func:`brailix.input.parse_file` +
-        :meth:`translate_document`: ``.md`` / ``.markdown`` go through
-        the Markdown adapter, everything else through the plain-text
-        wrapper. The Pipeline's own ``profile`` and language are baked
-        into the resulting :class:`DocumentIR`'s metadata so the
+        :meth:`translate_document`. The input is dispatched by suffix
+        (Markdown, Word ``.docx`` / ``.doc``, MusicXML / ``.mxl`` /
+        score MIDI / ABC, else plain text — see :meth:`parse_file` and
+        :func:`brailix.input.parse_file` for the full table). The
+        Pipeline's own ``profile`` and language are baked into the
+        resulting :class:`DocumentIR`'s metadata so the
         :class:`TranslationResult` is indistinguishable from one
         produced by :meth:`translate_text` on the same source.
 
@@ -422,11 +424,14 @@ class Pipeline:
         """Read ``path`` as UTF-8 / bytes and parse to :class:`DocumentIR`.
 
         Suffix dispatch matches :func:`brailix.input.parse_file`:
-        ``.md`` / ``.markdown`` → Markdown adapter, ``.docx`` /
-        ``.docm`` → :func:`brailix.input.parse_docx`, ``.doc`` →
-        :func:`brailix.input.parse_doc`, everything else (including
-        ``.txt`` and no suffix) → plain. The Pipeline's ``profile``
-        and ``language`` are baked into the IR metadata.
+        ``.md`` / ``.markdown`` → Markdown adapter; ``.docx`` /
+        ``.docm`` → :func:`brailix.input.parse_docx`; ``.doc`` →
+        :func:`brailix.input.parse_doc`; ``.musicxml`` / ``.mxl`` (and
+        a ``.xml`` that sniffs as a score) → :func:`brailix.input.parse_musicxml`;
+        ``.mid`` / ``.midi`` / ``.abc`` → :func:`brailix.input.parse_score_file`;
+        everything else (including ``.txt`` and no suffix) → plain. The
+        Pipeline's ``profile`` and ``language`` are baked into the IR
+        metadata.
 
         Use this when you need the unpopulated :class:`DocumentIR`
         from a file for incremental compilation (the incremental-compilation

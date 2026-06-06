@@ -1,19 +1,44 @@
-"""Tests for the M7.2 music file input adapter.
+"""Tests for the music file input adapters.
 
 Covers ``parse_musicxml`` directly + suffix dispatch through
 ``parse_file``: ``.musicxml`` / ``.xml`` (UTF-8 text) and ``.mxl``
-(ZIP container, unzipped through the frontend MxlSourceAdapter).
+(ZIP container, unzipped through the frontend MxlSourceAdapter), plus
+``parse_score_file`` for the adapter-converted score formats
+(``.mid`` / ``.midi`` as bytes, ``.abc`` as text).
 """
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import zipfile
 
 import pytest
 
-from brailix.input import parse_file, parse_musicxml
+from brailix.core import MissingExtraError
+from brailix.core.registry import Registry
+from brailix.input import parse_file, parse_musicxml, parse_score_file
 from brailix.ir.document import DocumentIR, ScoreBlock
+
+
+def _has(pkg: str) -> bool:
+    return importlib.util.find_spec(pkg) is not None
+
+
+class _RecordingAdapter:
+    """Stand-in music source adapter that records what it was handed and
+    returns a fixed MusicXML string — lets the dispatch tests run without
+    the optional ``midi`` / ``abc`` packages installed."""
+
+    def __init__(self, source: str) -> None:
+        self.source = source
+        self.received: str | bytes | None = None
+        self.ctx_source: str | None = None
+
+    def to_musicxml(self, src, ctx=None) -> str:
+        self.received = src
+        self.ctx_source = getattr(ctx, "source", None)
+        return SIMPLE_XML
 
 SIMPLE_XML = (
     '<score-partwise version="4.0">'
@@ -144,3 +169,96 @@ class TestPipelineTranslateFile:
         bblocks = result.braille_ir.blocks
         assert len(bblocks) == 1
         assert any(c.role == "music_note" for c in bblocks[0].cells)
+
+
+# ---------------------------------------------------------------------------
+# parse_score_file — adapter-converted score formats (.mid / .midi / .abc)
+# ---------------------------------------------------------------------------
+
+
+class TestParseScoreFileDispatch:
+    """The read-and-route logic, exercised with a stand-in adapter so it
+    runs without partitura / abc-xml-converter installed."""
+
+    def test_mid_reads_bytes_and_normalises_to_musicxml(
+        self, tmp_path, monkeypatch
+    ):
+        fake = _RecordingAdapter("midi")
+        # Registry uses __slots__, so patch the class method (auto-reverts,
+        # no instance-cache pollution) rather than the bound get.
+        monkeypatch.setattr(Registry, "get", lambda self, name: fake)
+
+        p = tmp_path / "song.mid"
+        p.write_bytes(b"MThd\x00\x00\x00\x06")
+        doc = parse_file(p)
+
+        assert isinstance(doc.blocks[0], ScoreBlock)
+        # Conversion is eager: source is normalised to musicxml and the
+        # block carries the adapter's MusicXML output as text.
+        assert doc.blocks[0].source == "musicxml"
+        assert "<step>C</step>" in doc.blocks[0].text
+        # MIDI is binary — the adapter must receive raw bytes, not text.
+        assert fake.received == b"MThd\x00\x00\x00\x06"
+        assert fake.ctx_source == "midi"
+
+    def test_abc_reads_text_and_normalises_to_musicxml(
+        self, tmp_path, monkeypatch
+    ):
+        fake = _RecordingAdapter("abc")
+        monkeypatch.setattr(Registry, "get", lambda self, name: fake)
+
+        p = tmp_path / "tune.abc"
+        p.write_text("X:1\nK:C\nCDEF|", encoding="utf-8")
+        doc = parse_file(p)
+
+        assert doc.blocks[0].source == "musicxml"
+        # ABC is text — the adapter receives a str, not bytes.
+        assert fake.received == "X:1\nK:C\nCDEF|"
+        assert fake.ctx_source == "abc"
+
+    def test_midi_long_suffix_maps_to_midi_source(self, tmp_path, monkeypatch):
+        captured: list[str] = []
+
+        def fake_get(self, name):
+            captured.append(name)
+            return _RecordingAdapter(name)
+
+        monkeypatch.setattr(Registry, "get", fake_get)
+
+        p = tmp_path / "song.midi"
+        p.write_bytes(b"\x00")
+        parse_file(p)
+        assert captured == ["midi"]
+
+    def test_parse_score_file_rejects_musicxml_family(self, tmp_path):
+        # The MusicXML family is parse_musicxml's job; parse_score_file
+        # only handles the adapter-converted formats.
+        p = tmp_path / "song.musicxml"
+        p.write_text(SIMPLE_XML, encoding="utf-8")
+        with pytest.raises(ValueError, match="unsupported"):
+            parse_score_file(p)
+
+
+class TestParseScoreFileMissingExtra:
+    """Without the optional dependency, file input fails loudly with a
+    MissingExtraError naming the extra — the same contract as .docx."""
+
+    @pytest.mark.skipif(
+        _has("partitura"),
+        reason="partitura installed — can't test the missing-extra path",
+    )
+    def test_mid_without_midi_extra_raises(self, tmp_path):
+        p = tmp_path / "song.mid"
+        p.write_bytes(b"MThd")
+        with pytest.raises(MissingExtraError):
+            parse_file(p)
+
+    @pytest.mark.skipif(
+        _has("abc_xml_converter"),
+        reason="abc-xml-converter installed — can't test the missing-extra path",
+    )
+    def test_abc_without_abc_extra_raises(self, tmp_path):
+        p = tmp_path / "tune.abc"
+        p.write_text("X:1\nK:C\nCDEF|", encoding="utf-8")
+        with pytest.raises(MissingExtraError):
+            parse_file(p)

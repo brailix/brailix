@@ -15,7 +15,7 @@ pip install brailix[hanlp,g2pw]  # accurate Chinese engines (download models)
 pip install brailix[docx]        # Word .docx / .docm (incl. MathType / OMML)
 ```
 
-Extras are grouped by language and by tool category — see the [README](../README.md) and [`pyproject.toml`](../pyproject.toml) for the full list (`zh`, `ja`, individual engines, `latex`, `asciimath`, `markdown`, `docx`, `midi`, `abc`, `music`, and `all`). The `hanlp` and `g2pw` engines download their model weights on first use into a local `models/` directory; the `zh` pack (jieba plus pypinyin) is lightweight and works offline immediately.
+Extras are grouped by language and by tool category — see the [README](../README.md) and [`pyproject.toml`](../pyproject.toml) for the full list (`zh`, `ja`, individual engines, `latex`, `docx`, `midi`, `abc`, `music`, and `all`). The `hanlp` and `g2pw` engines download their model weights on first use into a local `models/` directory; the `zh` pack (jieba plus pypinyin) is lightweight and works offline immediately.
 
 ## Your first translation
 

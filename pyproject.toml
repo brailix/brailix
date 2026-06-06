@@ -27,7 +27,6 @@ zh = ["jieba", "pypinyin"]
 hanlp = ["hanlp"]          # transformer MTL, most accurate (downloads a model on first use)
 thulac = ["thulac"]
 jieba = ["jieba"]          # light, offline, pure-Python
-pkuseg = ["pkuseg"]
 # Chinese pinyin engines (alternatives):
 # g2pM ships its bi-LSTM weights as bundled .pkl files but runs them on
 # numpy at inference time, yet (as of 0.1.2.5) doesn't declare numpy as
@@ -42,10 +41,8 @@ pypinyin = ["pypinyin"]    # light, offline, dictionary-based
 # itself has no third-party requirement; only the source adapters (e.g.
 # LaTeX → MathML) need an extra package.
 latex = ["latex2mathml"]
-asciimath = ["py-asciimath"]
 
 # Document input:
-markdown = ["markdown-it-py"]
 # python-docx already pulls lxml in transitively, but we name it
 # explicitly so the docx adapter's OMML extraction (which uses
 # lxml.etree.tostring) keeps working if a future python-docx release
@@ -73,13 +70,14 @@ janome = ["janome"]                          # light, offline, pure-Python (IPAD
 fugashi = ["fugashi", "unidic-lite"]         # MeCab + UniDic; best 発音形 (pron)
 sudachi = ["sudachipy", "sudachidict-core"]  # Sudachi (reading_form)
 
-# Everything (all languages + all tools):
+# Every tool + each language's default analyzer. The heavier Japanese
+# engines (fugashi / sudachi) stay opt-in — install them explicitly.
 all = [
-    "hanlp", "thulac", "jieba", "pkuseg",
+    "hanlp", "thulac", "jieba",
     "g2pM", "numpy", "g2pw", "pypinyin",
     "janome",
-    "latex2mathml", "py-asciimath",
-    "markdown-it-py", "python-docx", "lxml", "olefile",
+    "latex2mathml",
+    "python-docx", "lxml", "olefile",
     "mido", "partitura", "abc-xml-converter",
 ]
 

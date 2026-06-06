@@ -11,6 +11,12 @@ Currently shipping:
 * :mod:`brailix.input.markdown` — common Markdown subset
   (headings, paragraphs, ordered / unordered lists, block quotes,
   fenced code blocks, ``$$...$$`` math blocks, ``| col | col |`` tables).
+* :mod:`brailix.input.docx`     — Word ``.docx`` / ``.docm`` (modern
+  OOXML, incl. OMML / MathType / Equation 3.0 math) and legacy ``.doc``
+  via LibreOffice ``soffice``.
+* :mod:`brailix.input.music_xml` — score files: ``.musicxml`` / ``.xml``
+  / ``.mxl`` directly, and ``.mid`` / ``.midi`` / ``.abc`` converted to
+  MusicXML through the matching music source adapter.
 
 To plug in a new format, write an adapter that returns a
 ``DocumentIR`` and (optionally) register it through whatever
@@ -31,7 +37,11 @@ from pathlib import Path
 from brailix.core.defaults import DEFAULT_LANGUAGE, DEFAULT_PROFILE
 from brailix.input.docx import parse_doc, parse_docx
 from brailix.input.markdown import parse_markdown
-from brailix.input.music_xml import parse_musicxml
+from brailix.input.music_xml import (
+    ADAPTER_SCORE_SUFFIXES,
+    parse_musicxml,
+    parse_score_file,
+)
 from brailix.input.plain import parse_plain
 from brailix.ir.document import DocumentIR
 
@@ -41,6 +51,7 @@ __all__ = (
     "parse_docx",
     "parse_doc",
     "parse_musicxml",
+    "parse_score_file",
     "parse_file",
 )
 
@@ -90,6 +101,10 @@ def parse_file(
       document head looks like a MusicXML score
       (``<score-partwise>`` / ``<score-timewise>``); otherwise treated
       as plain text, since ``.xml`` is a generic container
+    * ``.mid`` / ``.midi`` / ``.abc`` → :func:`parse_score_file`
+      (converted to MusicXML through the matching music source adapter;
+      ``.mid`` / ``.midi`` need the ``midi`` extra, ``.abc`` the ``abc``
+      extra)
     * everything else (including ``.txt`` and no suffix) → :func:`parse_plain`
 
     Word formats are read as bytes by the underlying adapters; text
@@ -100,8 +115,9 @@ def parse_file(
 
     Errors propagate as-is: :class:`FileNotFoundError` when ``path``
     doesn't exist, :class:`UnicodeDecodeError` when text bytes aren't
-    valid UTF-8, :class:`MissingExtraError` when the ``.docx`` extra
-    isn't installed, :class:`ParseError` for malformed Word documents.
+    valid UTF-8, :class:`MissingExtraError` when a needed extra (``docx``
+    for Word, ``midi`` / ``abc`` for those score formats) isn't
+    installed, :class:`ParseError` for malformed Word documents.
     """
     p = Path(path)
     suffix = p.suffix.lower()
@@ -115,6 +131,12 @@ def parse_file(
         # ScoreBlock. Pipeline's _populate_music_block then runs the
         # music frontend to parse the XML into a MusicInline tree.
         return parse_musicxml(p, language=language, profile=profile)
+    if suffix in ADAPTER_SCORE_SUFFIXES:
+        # Score formats that need a source adapter to reach MusicXML
+        # (.mid / .midi as bytes, .abc as text). Routed before the UTF-8
+        # read below because MIDI is binary; parse_score_file reads the
+        # file itself with the right mode and runs the adapter.
+        return parse_score_file(p, language=language, profile=profile)
     text = p.read_text(encoding="utf-8")
     if suffix in _SNIFFED_XML_SUFFIXES:
         # Generic .xml: only treat as a score if it actually looks like one;

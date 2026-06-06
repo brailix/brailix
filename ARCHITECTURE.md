@@ -122,9 +122,9 @@ brailix/
 │   │   │   └── loader/       # letters / math / music / numbers / punct / zh / _refs
 │   │   └── models/           # asset_registry / paths (frozen detection)
 │   ├── input/                # document input adapters (dispatched by extension)
-│   │   ├── plain.py / markdown.py
+│   │   ├── plain.py / markdown.py   # markdown is a pure-stdlib reader (no extra)
 │   │   ├── docx.py           # .docx/.docm (incl. OMML / MTEF / EqField math extraction)
-│   │   └── music_xml.py      # .mxl / .musicxml
+│   │   └── music_xml.py      # .musicxml / .xml / .mxl direct; .mid/.midi/.abc via source adapters
 │   ├── frontend/             # text → structured IR
 │   │   ├── segment.py        # block segmentation + inline-region detection
 │   │   ├── normalize.py      # tag numbers / dates / units / percent signs
@@ -137,6 +137,7 @@ brailix/
 │   │   │   └── pinyin/            # pinyin + polyphone disambiguation (independent subsystem)
 │   │   │       ├── registry.py        # PinyinResolver registry
 │   │   │       └── adapters/         # auto / null / pypinyin / g2pm / g2pw
+│   │   ├── ja/               # Japanese (language folder): kana/kanji segmenter + analyzer adapters (kana / janome / fugashi / sudachi) + 文節 spacing
 │   │   ├── math/            # source → MathML tree (= IR)
 │   │   │   ├── normalizer.py     # MathML normalization (emits ET.Element, i.e. the IR)
 │   │   │   ├── registry.py        # math_source_registry
@@ -158,6 +159,7 @@ brailix/
 │   │   │   ├── __init__.py        # translate_word / translate_hanzi_char
 │   │   │   ├── tone/              # tone policy (basic / ncb_omission)
 │   │   │   └── pinyin_parser.py   # pinyin syllable → (initial, final, tone)
+│   │   ├── ja/               # Japanese kana → cells (LanguageBackend)
 │   │   ├── math/            # math braille state machine (chem / context / dispatch / handlers / utils)
 │   │   └── music/          # music braille (handlers/ split into files by BANA chapter)
 │   ├── renderer/            # BrailleIR → output format
@@ -166,16 +168,18 @@ brailix/
 │   │   └── music_layout.py / _page_digits.py
 │   ├── profiles/
 │   │   ├── cn_current.json   # Current Chinese Braille (default)
-│   │   └── cn_ncb.json       # National Common Braille
+│   │   ├── cn_ncb.json       # National Common Braille
+│   │   └── ja_current.json   # Japanese kana braille
 │   └── resources/            # braille tables: shared ones at the top, region/scheme-specific under <region>/<scheme>/
 │       ├── cells.json        # globally named cell pool (shared)
 │       ├── numbers.json      # numbers: number sign + a–j (shared, used worldwide)
 │       ├── latin/ / greek/   # neutral alphabets (shared, scheme/language-agnostic)
 │       ├── music/            # music resources (BANA 2015 tables + instruments/ + vocal/, international)
-│       └── cn/               # Chinese braille resources
-│           ├── compounds.json # letter+hanzi compound-word lexicon (a Chinese-language fact, scheme-agnostic)
-│           ├── current/      # Current Chinese Braille: initials / finals / tones / punct + math/
-│           └── ncb/          # National Common Braille: an exceptions overlay (everything else inherits current)
+│       ├── cn/               # Chinese braille resources
+│       │   ├── compounds.json # letter+hanzi compound-word lexicon (a Chinese-language fact, scheme-agnostic)
+│       │   ├── current/      # Current Chinese Braille: initials / finals / tones / punct + math/
+│       │   └── ncb/          # National Common Braille: an exceptions overlay (everything else inherits current)
+│       └── ja/               # Japanese braille resources (kana tables under current/)
 ├── tests/                   # backend / core / frontend / golden / integration / ir / ...
 ├── pyproject.toml
 └── ARCHITECTURE.md
@@ -283,26 +287,35 @@ What BrailleIR buys you: easy debugging, traceability, line-wrapping, BRF genera
 # core/protocols.py
 
 class Segmenter(Protocol):
-    def segment(self, block: TextBlock, ctx: FrontendContext) -> list[Segment]: ...
+    name: str
+    def segment(self, block: Block, ctx: FrontendContext | None) -> list[Segment]: ...
 
 class ChineseAnalyzer(Protocol):
     name: str
-    def analyze(self, text: str, ctx: FrontendContext) -> list[ChineseToken]: ...
+    def analyze(self, text: str, ctx: FrontendContext | None) -> list[ChineseToken]: ...
 
 class PinyinResolver(Protocol):
     name: str
-    def resolve(self, tokens: list[ChineseToken], ctx: FrontendContext) -> list[ChineseToken]: ...
+    def resolve(self, tokens: list[ChineseToken], ctx: FrontendContext | None) -> list[ChineseToken]: ...
 
 class MathSourceAdapter(Protocol):
-    source: str  # latex / omml / asciimath / mathml / ...
-    def to_mathml(self, formula: str | bytes, ctx: MathContext) -> str: ...
+    source: str  # latex / omml / mathml / chem / ...
+    def to_mathml(self, formula: str | bytes, ctx: MathContext | None = None) -> str: ...
 
-class Backend(Protocol):
-    def translate(self, doc: DocumentIR, ctx: BackendContext) -> BrailleIR: ...
+class MusicSourceAdapter(Protocol):
+    source: str  # musicxml / mxl / midi / abc / plain
+    def to_musicxml(self, src: str | bytes, ctx: MusicContext) -> str: ...
+
+class LanguageBackend(Protocol):  # prose nodes (Word / HanziChar) → cells, per language
+    def translate_word(self, node: Word, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]: ...
+    def translate_hanzi_char(self, node: HanziChar, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]: ...
 
 class Renderer(Protocol):
-    def render(self, bir: BrailleIR) -> str | bytes: ...
+    name: str
+    def render(self, bir: BrailleRenderable) -> Any: ...  # str / bytes / cells / ...
 ```
+
+There is deliberately **no `Backend` protocol**. The backend isn't a pluggable-by-name adapter; it's a node-type dispatcher (§9.1), so it has no registry and no name→implementation contract. A new braille standard is added with a Profile JSON plus resources, not by registering a backend. Per-language *prose* translation is the one pluggable seam, and it goes through `LanguageBackend` above (§12).
 
 ### 6.2 Registries and on-demand loading
 
@@ -342,25 +355,26 @@ Every adapter rides on an optional extra:
 
 ```toml
 [project.optional-dependencies]
-hanlp     = ["hanlp"]
-jieba     = ["jieba"]
-pkuseg    = ["pkuseg"]
-g2pw      = ["g2pw"]
-pypinyin  = ["pypinyin"]
-latex     = ["latex2mathml", "lxml"]
-omml      = ["pandoc"]  # or docs only: user brings their own pandoc binary
-asciimath = ["py-asciimath"]
-recommended = ["hanlp", "g2pw", "latex2mathml", "lxml"]
-all   = [...]
+zh     = ["jieba", "pypinyin"]                 # light, offline Chinese (good default)
+hanlp  = ["hanlp"]                             # transformer tokenizer (downloads a model)
+thulac = ["thulac"]
+g2pw   = ["g2pw"]                              # deep polyphone model (downloads a model)
+g2pm   = ["g2pM", "numpy"]
+latex  = ["latex2mathml"]                      # LaTeX → MathML
+docx   = ["python-docx", "lxml", "olefile"]   # Word .docx / .docm (incl. OMML / MathType)
+midi   = ["mido", "partitura"]                 # MIDI scores → MusicXML
+abc    = ["abc-xml-converter"]                 # ABC scores → MusicXML
+ja     = ["janome"]                            # light, offline Japanese
+all    = [...]                                 # every tool + each language's default analyzer
 ```
 
 ```bash
-pip install brailix[recommended]            # recommended path
-pip install brailix[jieba,pypinyin]         # lightweight path
-pip install brailix[hanlp,g2pw,latex,omml]  # full features
+pip install brailix[zh]                 # light, offline Chinese
+pip install brailix[zh,latex]           # + LaTeX math
+pip install brailix[hanlp,g2pw]         # accurate Chinese engines (download models)
 ```
 
-If an adapter's package is missing at runtime, the registry raises a clear **`MissingExtraError`** that names the extra to install.
+If an adapter's package is missing at runtime, the registry raises a clear **`MissingExtraError`** that names the extra to install. (The MathML and MusicXML readers use the stdlib `xml.etree`, so the math and music subsystems themselves need no extra — only the source adapters that wrap a third-party converter do.)
 
 ### 6.4 What ships today
 
@@ -368,15 +382,16 @@ The first batch of adapters in the box — the profile always selects which one 
 
 | Subsystem | adapters shipped | recommended to start |
 |---|---|---|
-| Chinese segmentation | `hanlp` / `jieba` / `pkuseg` | `hanlp` (accuracy first) |
-| Pinyin | `g2pw` / `pypinyin` | `g2pw` (deep polyphone model) |
-| Math parsing | `latex2mathml` (LaTeX) / `pandoc` (OMML) / `py-asciimath` / passthrough (MathML) | LaTeX + MathML; OMML lands with Word |
-| Music parsing | passthrough (MusicXML) / `.mxl` (zip unpack) / `partitura` (MIDI) / `abc-xml-converter` (ABC) | MusicXML and `.mxl` |
-| Document input | plain text / `markdown-it-py` / `python-docx` / `lxml` (HTML/EPUB) | enable per scenario |
+| Chinese segmentation | `char` / `jieba` / `thulac` / `hanlp` (plus `auto`) | `jieba` (light) or `hanlp` (accuracy) |
+| Pinyin | `null` / `pypinyin` / `g2pm` / `g2pw` (plus `auto`) | `pypinyin` (light) or `g2pw` (deep polyphone model) |
+| Japanese analysis | `kana` (no extra) / `janome` / `fugashi` / `sudachi` (plus `auto`) | `janome` (light) |
+| Math sources | `mathml` (stdlib passthrough) / `latex` (`latex2mathml`) / `omml` / `mtef` / `eq_field` / `chem` | LaTeX + MathML; OMML / MTEF / EqField land with Word |
+| Music sources | `musicxml` (stdlib) / `mxl` (zip unpack) / `midi` (`partitura`) / `abc` (`abc-xml-converter`) / `plain` | MusicXML and `.mxl` |
+| Document input | plain text / Markdown (pure-stdlib reader) / Word `.docx` / `.doc` (`python-docx` + `olefile`) / score files | enable per scenario |
 
 ### 6.5 Adding a tool is one file
 
-Adding any external tool means writing one adapter file: a new tokenizer goes under `frontend/zh/analyzer/adapters/`, a new pinyin engine under `frontend/zh/pinyin/adapters/`, a new math source under `frontend/math/adapters/`, a new braille standard becomes a module under `backend/` plus a profile, and a new output format becomes a module under `renderer/`. **Not a single line of core code needs to change.**
+Adding any external tool means writing one adapter file: a new tokenizer goes under `frontend/zh/analyzer/adapters/`, a new pinyin engine under `frontend/zh/pinyin/adapters/`, a new math source under `frontend/math/adapters/`, a new language's braille rules become a `LanguageBackend` module under `backend/` plus a profile (a new *standard* for an existing language is just a profile + resources, no code — see §9.3), and a new output format becomes a module under `renderer/`. **Not a single line of core code needs to change.**
 
 ---
 
@@ -414,12 +429,13 @@ class MathSourceAdapter(Protocol):
 
 Default implementations:
 
-| source | default adapter | alternatives |
+| source | shipped adapter | notes |
 |---|---|---|
-| `mathml` | straight through `xml.etree.ElementTree` | `lxml` |
-| `latex` | `latex2mathml` | `pylatexenc`, `mathjax-node` (external process) |
-| `omml`  | `pandoc` or OOXML XSLT | `python-docx` + custom conversion |
-| `asciimath` | `py-asciimath` | — |
+| `mathml` | straight through `xml.etree.ElementTree` | stdlib; `lxml` is an alternative |
+| `latex` | `latex2mathml` (the `latex` extra) | `pylatexenc` / `mathjax-node` are possible alternatives |
+| `omml` | built-in OOXML `<m:oMath>` → MathML converter | Word formulae; rides the `docx` extra |
+| `mtef` / `eq_field` | built-in MathType / Equation 3.0 extractors → MathML | legacy Word equation objects |
+| `chem` | built-in `\ce{...}` → MathML | chemical equations |
 | `plain` / `unicode` | a minimal heuristic → MathML | simple structures only (fallback) |
 
 Each adapter does exactly one thing — **emit valid MathML**; on error it returns `<merror>` and adds a warning.
@@ -566,14 +582,14 @@ Because every BrailleCell carries a `source_span`, the system can emit a **proof
 
 ```json
 {
-  "text":   "我在2026年5月17日去了重庆银行。",
-  "cells":  [...],
-  "map":    [{"src": [0,1], "cells": [0,1]}, ...],
-  "warnings": [...]
+  "text":       "我在2026年5月17日去了重庆银行。",
+  "ir":         { "...": "DocumentIR.to_dict()" },
+  "braille_ir": { "...": "BrailleDocument.to_dict(): every cell carries source_span + source_text" },
+  "warnings":   ["..."]
 }
 ```
 
-A front-end tool (an HTML preview) can use this JSON to highlight, click-to-correct, and batch-edit pinyin.
+`proofread_json()` returns exactly these keys — no output is pre-rendered, since each braille cell already carries the `source_span` / `source_text` a front-end needs. A tool (an HTML preview) can use this to highlight, click-to-correct, and batch-edit pinyin, and render any output format on demand.
 
 ---
 

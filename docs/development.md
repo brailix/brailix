@@ -49,11 +49,11 @@ brailix/
   pipeline/     end-to-end entry (translate_text / translate_document / translate_block)
   core/         shared types, contexts, errors, config loading, registries, protocols
   input/        document input adapters (plain / markdown / docx / music_xml)
-  frontend/     text -> structured IR (segment, normalize, zh, math, music)
+  frontend/     text -> structured IR (segment, normalize, zh, ja, math, music)
   ir/           DocumentIR / InlineIR / BrailleIR
-  backend/      IR -> BrailleIR (dispatch + number / latin / punct / zh / math / music)
+  backend/      IR -> BrailleIR (dispatch + number / latin / punct / zh / ja / math / music)
   renderer/     BrailleIR -> output (unicode / brf / cells / layout)
-  profiles/     braille standards (cn_current, cn_ncb)
+  profiles/     braille standards (cn_current, cn_ncb, ja_current)
   resources/    braille rule tables (shared at the top; region/scheme-specific below)
 tests/          backend / core / frontend / golden / input / integration / ir / renderer / resources
 ```

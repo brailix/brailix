@@ -10,6 +10,7 @@ dependencies** — install only the adapters you need as `pip` extras:
 pip install brailix              # core: plain text, Markdown, MusicXML
 pip install brailix[zh]          # Chinese: segmentation + pinyin (light, offline)
 pip install brailix[zh,latex]    # + LaTeX math
+pip install brailix[ja]          # Japanese: kana + kanji readings (light, offline)
 pip install brailix[hanlp,g2pw]  # accurate Chinese engines (download models)
 pip install brailix[docx]        # Word .docx / .docm (incl. MathType / OMML)
 ```
