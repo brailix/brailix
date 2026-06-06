@@ -230,6 +230,15 @@ class TestMo:
 
 
 class TestMtext:
+    """``<mtext>`` per-char fallback path.
+
+    ``emit`` injects no ``inline_text_translator``, so these exercise the
+    backend-only fallback (symbols → letters → punctuation → unknown).
+    The *primary* path — routing the whole run through the injected text
+    translator — is covered by ``test_mtext_routes_through_translator``
+    below and end-to-end in ``test_latex_braille_golden.TestText``.
+    """
+
     def test_mtext_finds_symbol(self, profile):
         # ≤ — entity "le" in symbols.json.
         cells, _ = emit(mml("<math><mtext>≤</mtext></math>"), profile)
@@ -248,6 +257,40 @@ class TestMtext:
         cells, wc = emit(mml("<math><mtext>☃</mtext></math>"), profile)
         assert any(c.role == "unknown" for c in cells)
         assert any(w.code == "MATH_UNKNOWN_TEXT_CHAR" for w in wc)
+
+    def test_mtext_routes_through_translator(self, profile):
+        # When a pipeline injects an inline_text_translator, <mtext> is
+        # natural-language text: hand the whole run to it (not the per-char
+        # math-table path), with latex2mathml's U+00A0 space normalised to
+        # a real space so the text path sees a word break.
+        from brailix.backend.math import translate
+        from brailix.core.context import (
+            INLINE_TEXT_TRANSLATOR_KEY,
+            BackendContext,
+        )
+        from brailix.core.errors import RunMode, WarningCollector
+        from brailix.ir.braille import BrailleCell
+        from brailix.ir.inline import MathInline
+
+        seen: list[str] = []
+        marker = BrailleCell(dots=(1, 2, 3), role="math_text")
+
+        def fake_translator(text: str) -> list[BrailleCell]:
+            seen.append(text)
+            return [marker]
+
+        wc = WarningCollector(mode=RunMode.NORMAL)
+        ctx = BackendContext(
+            profile="cn_current",
+            warnings=wc,
+            options={INLINE_TEXT_TRANSLATOR_KEY: fake_translator},
+        )
+        tree = ET.fromstring("<math><mtext>a\u00a0b</mtext></math>")
+        node = MathInline(surface="", source="mathml", span=None, math=tree)
+        cells = translate(node, ctx, profile)
+        assert seen == ["a b"]  # NBSP normalised; whole run sent once
+        assert marker in cells
+        assert not any(w.code == "MATH_UNKNOWN_TEXT_CHAR" for w in wc)
 
 
 # ---------------------------------------------------------------------------

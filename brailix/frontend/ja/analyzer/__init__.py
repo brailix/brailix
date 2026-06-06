@@ -106,7 +106,11 @@ def _is_bunsetsu_head(token: JapaneseToken, prev: JapaneseToken | None) -> bool:
         return False
     if "接尾" in token.pos:
         return False
-    if prev is not None and prev.pos and prev.pos.split(",")[0] == "接頭詞":
+    # Substring match (not exact pos1 equality) so this works across POS
+    # vocabularies: janome/IPADIC tags prefixes 接頭詞, fugashi/UniDic uses
+    # 接頭辞. Mirrors the 接尾 substring test above; an exact "== 接頭詞"
+    # silently failed under fugashi/sudachi (お名前 got a stray space).
+    if prev is not None and prev.pos and "接頭" in prev.pos:
         return False
     return True
 

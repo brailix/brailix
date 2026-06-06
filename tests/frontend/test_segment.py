@@ -58,6 +58,20 @@ class TestCharacterClasses:
         assert _types(s) == ["hanzi_text", "latin_text", "hanzi_text"]
         assert _surfaces(s) == ["电脑", "CPU", "性能"]
 
+    def test_supplementary_plane_hanzi(self):
+        # Rare given-name / dictionary characters live in CJK Ext B+
+        # (supplementary planes). They must categorize as hanzi, not fall
+        # through to ``unknown`` and a blank cell. 𠀀 = U+20000 (Ext B);
+        # 𰀀 = U+30000 (Ext G).
+        assert _types(_segs("𠀀")) == ["hanzi_text"]
+        assert _types(_segs("𰀀")) == ["hanzi_text"]
+
+    def test_supplementary_plane_hanzi_joins_bmp_run(self):
+        # A supplementary-plane hanzi between BMP hanzi stays in one run.
+        s = _segs("张𠀀华")
+        assert _types(s) == ["hanzi_text"]
+        assert _surfaces(s) == ["张𠀀华"]
+
     def test_single_greek_letter(self):
         s = _segs("测量τ值")
         assert _types(s) == ["hanzi_text", "greek_text", "hanzi_text"]

@@ -94,6 +94,12 @@ def _is_hanzi(ch: str) -> bool:
         "一" <= ch <= "鿿"
         or "㐀" <= ch <= "䶿"  # Extension A
         or "豈" <= ch <= "﫿"  # Compatibility Ideographs
+        # Supplementary planes: rare given names / dictionary
+        # characters live here. Missing them dropped such chars to
+        # ``unknown`` and a blank cell instead of routing through the
+        # Chinese frontend.
+        or "𠀀" <= ch <= "𯨟"  # SIP: Ext B-F + Compat
+        or "𰀀" <= ch <= "𲎯"  # TIP: Ext G + H
     )
 
 

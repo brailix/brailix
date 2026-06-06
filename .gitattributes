@@ -1,0 +1,12 @@
+# Line endings: store and check out as LF on every platform.
+#
+# This repository is a one-way mirror, regenerated from a Windows
+# monorepo whose exported files use LF. Without an explicit rule a
+# Windows checkout (core.autocrlf) rewrites every file to CRLF and the
+# whole tree then shows as modified against the next LF re-export.
+# Pinning LF keeps the working tree byte-identical to the export
+# everywhere, so a re-export is a clean diff instead of churn.
+* text=auto eol=lf
+
+# Raw binary test fixture (MathType MTEF bytes) — never convert.
+*.bin binary

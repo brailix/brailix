@@ -16,7 +16,11 @@ import pytest
 
 from brailix import Pipeline
 from brailix.core.span import Span
-from brailix.frontend.ja.analyzer import JapaneseToken, tokens_to_inline
+from brailix.frontend.ja.analyzer import (
+    JapaneseToken,
+    _is_bunsetsu_head,
+    tokens_to_inline,
+)
 from brailix.frontend.ja.analyzer.registry import analyzer_registry
 from brailix.ir.inline import HanziChar, Word
 
@@ -60,6 +64,31 @@ class TestTokensToInline:
             [JapaneseToken("ア", "ア", None, Span(0, 1))], base=10
         )
         assert nodes[0].span == Span(10, 11)
+
+
+class TestBunsetsuHeadPrefix:
+    """A word right after a prefix attaches forward (no leading blank).
+
+    The prefix POS test is a substring match so it stays analyzer-vocabulary
+    agnostic: janome/IPADIC tags prefixes 接頭詞, fugashi/UniDic uses 接頭辞.
+    An earlier exact ``== "接頭詞"`` silently failed under fugashi/sudachi,
+    inserting a stray 分かち書き space (お|名前).
+    """
+
+    @pytest.mark.parametrize(
+        "prefix_pos",
+        ["接頭詞", "接頭辞,接頭辞,*,*"],  # IPADIC (janome) / UniDic (fugashi)
+    )
+    def test_word_after_prefix_is_not_head(self, prefix_pos):
+        prefix = JapaneseToken("お", "オ", prefix_pos, Span(0, 1))
+        noun = JapaneseToken("名前", "ナマエ", "名詞,普通名詞", Span(1, 3))
+        assert _is_bunsetsu_head(noun, prefix) is False
+
+    def test_word_after_non_prefix_is_head(self):
+        # Sanity: with no prefix before it, the noun does start a bunsetsu.
+        prev = JapaneseToken("赤い", "アカイ", "形容詞", Span(0, 2))
+        noun = JapaneseToken("名前", "ナマエ", "名詞", Span(2, 4))
+        assert _is_bunsetsu_head(noun, prev) is True
 
 
 class TestKanaAnalyzer:

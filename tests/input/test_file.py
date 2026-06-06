@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from brailix.input import parse_file
-from brailix.ir.document import Heading, List, Paragraph
+from brailix.ir.document import Heading, List, Paragraph, ScoreBlock
 
 
 class TestSuffixDispatch:
@@ -63,6 +63,45 @@ class TestSuffixDispatch:
         path.write_text("项目说明", encoding="utf-8")
         doc = parse_file(path)
         assert isinstance(doc.blocks[0], Paragraph)
+
+
+_SCORE_XML = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    "<score-partwise version=\"3.1\">\n"
+    "  <part-list><score-part id=\"P1\"><part-name>Music</part-name>"
+    "</score-part></part-list>\n"
+    "  <part id=\"P1\"></part>\n"
+    "</score-partwise>\n"
+)
+
+
+class TestXmlSniffing:
+    def test_score_xml_routes_to_music(self, tmp_path: Path) -> None:
+        # A .xml whose head is a MusicXML score becomes a ScoreBlock.
+        path = tmp_path / "score.xml"
+        path.write_text(_SCORE_XML, encoding="utf-8")
+        doc = parse_file(path)
+        assert isinstance(doc.blocks[0], ScoreBlock)
+
+    def test_non_score_xml_falls_back_to_plain(self, tmp_path: Path) -> None:
+        # A generic .xml (here MathML) must NOT be force-parsed as a score —
+        # it falls back to plain text instead of producing MUSIC_* warnings
+        # / an empty score tree.
+        path = tmp_path / "eq.xml"
+        path.write_text(
+            '<math xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi></math>',
+            encoding="utf-8",
+        )
+        doc = parse_file(path)
+        assert isinstance(doc.blocks[0], Paragraph)
+        assert not isinstance(doc.blocks[0], ScoreBlock)
+
+    def test_musicxml_suffix_still_routes_to_music(self, tmp_path: Path) -> None:
+        # The dedicated .musicxml suffix is unconditional (no sniff needed).
+        path = tmp_path / "song.musicxml"
+        path.write_text(_SCORE_XML, encoding="utf-8")
+        doc = parse_file(path)
+        assert isinstance(doc.blocks[0], ScoreBlock)
 
 
 class TestEncoding:

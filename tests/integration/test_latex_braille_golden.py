@@ -500,6 +500,49 @@ class TestFunctionAbbreviations:
 
 
 # ---------------------------------------------------------------------------
+# \text{...} (mtext): natural-language text routed through the zh / latin
+# language path (the ARCHITECTURE §12 inline_text_translator seam), NOT the
+# per-char math-table path. Regression lock for "\\text can't render": the
+# old path dropped Chinese to blank cells + MATH_UNKNOWN_TEXT_CHAR and
+# choked on the U+00A0 latex2mathml emits for a space inside \text.
+# ---------------------------------------------------------------------------
+
+
+class TestText:
+    def test_chinese_text_renders_as_chinese_braille(self, pipe):
+        # \text{速度} used to render as ⠀⠀ (two blank cells) + two
+        # MATH_UNKNOWN_TEXT_CHAR warnings; now it's real Chinese braille.
+        res = pipe.translate_text(r"$\text{速度}$")
+        assert res.render() == "⠎⠥⠆⠙⠥⠆"
+        assert not any(w.code.startswith("MATH_") for w in res.warnings)
+
+    def test_english_word_uses_one_letter_prefix_not_per_char(self, pipe):
+        # Word-level text: a single latin prefix for the run, not one
+        # before every letter (the old per-char identifier treatment).
+        assert render(pipe, r"$\text{hello}$") == "⠰⠓⠑⠇⠇⠕"
+
+    def test_space_inside_text_is_word_break_not_unknown_char(self, pipe):
+        # latex2mathml encodes the \text space as U+00A0; it must read as
+        # a blank cell with no MATH_UNKNOWN_TEXT_CHAR warning.
+        res = pipe.translate_text(r"$\text{if } x$")
+        assert res.render() == "⠰⠊⠋⠀⠰⠭"
+        assert "MATH_UNKNOWN_TEXT_CHAR" not in [w.code for w in res.warnings]
+
+    def test_chinese_text_inside_subscript(self, pipe):
+        # \text nested in structure (v_{\text{初速度}}) routes through the
+        # language path too — the 速度 run appears, no unknown-char warning.
+        res = pipe.translate_text(r"$v_{\text{初速度}}$")
+        assert "⠎⠥⠆⠙⠥⠆" in res.render()
+        assert not any(w.code == "MATH_UNKNOWN_TEXT_CHAR" for w in res.warnings)
+
+    def test_preview_path_also_renders_chinese(self, pipe):
+        # translate_math_inline is the live-preview entry the formula
+        # editor calls; it must inject the same translator, or the preview
+        # shows blanks while the document path works. Guards that wiring.
+        assert pipe.translate_math_inline(r"\text{速度}", "latex") == "⠎⠥⠆⠙⠥⠆"
+
+
+# ---------------------------------------------------------------------------
 # Warning hygiene: a clean LaTeX formula must not emit MATH_* warnings.
 # ---------------------------------------------------------------------------
 
@@ -520,6 +563,9 @@ class TestWarningHygiene:
             r"$\alpha + \beta$",
             r"$\begin{pmatrix} a & b \\ c & d \end{pmatrix}$",
             r"$\begin{vmatrix} a & b \\ c & d \end{vmatrix}$",
+            r"$\text{速度}$",
+            r"$\text{if } x$",
+            r"$\text{hello}$",
         ],
     )
     def test_clean_inputs_produce_no_math_warnings(self, pipe, src):

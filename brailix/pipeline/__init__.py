@@ -292,7 +292,14 @@ class Pipeline:
             return ""
         node = MathInline(surface=surface, source=source, math=tree)
         backend_ctx = BackendContext(
-            profile=self.profile, mode=self.mode, warnings=silent
+            profile=self.profile,
+            mode=self.mode,
+            warnings=silent,
+            # Inject the inline-text translator so embedded text — a
+            # \text{...} / <mtext> run, esp. Chinese — renders through the
+            # zh / latin path instead of failing per-char. Without it a
+            # live preview drops to blank cells + warnings for any text.
+            options={INLINE_TEXT_TRANSLATOR_KEY: self._translate_inline_text},
         )
         cells = _math_translate(node, backend_ctx, self._profile)
         return "".join(cell_to_char(c) for c in cells)

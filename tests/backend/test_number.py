@@ -142,6 +142,25 @@ class TestTranslateQuantity:
         # Unit lookup hits math_identifiers → no UNKNOWN_NUMBER_PART warnings.
         assert not any(w.code == "UNKNOWN_NUMBER_PART" for w in ctx.warnings)
 
+    def test_unit_span_derives_from_number_span_end(self, ctx, profile):
+        # When the digit surface was normalized (here a thousands separator
+        # stripped: source "1,000g" → number.surface "1000"), the unit char
+        # span must start at the number's *source* span end, not at
+        # ``span.start + len(surface)`` which would drift by the stripped char.
+        node = Quantity(
+            surface="1,000g",
+            span=Span(0, 6),
+            number=Number(surface="1000", span=Span(0, 5)),  # covers "1,000"
+            unit="g",
+            unit_canonical="gram",
+        )
+        cells = translate_quantity(node, ctx, profile)
+        unit_cells = [c for c in cells if c.role == "quantity_unit"]
+        assert unit_cells, "expected a unit cell"
+        # "g" sits at source index 5 (right after "1,000"), so span is (5, 6) —
+        # not (4, 5) as the old len-based offset would have produced.
+        assert unit_cells[-1].source_span == Span(5, 6)
+
     def test_unit_falls_back_to_unknown_when_table_misses(self, ctx, profile):
         # An exotic unit char absent from both math_identifiers and
         # punctuation should warn and emit one unknown cell.

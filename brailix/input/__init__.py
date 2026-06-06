@@ -48,7 +48,25 @@ __all__ = (
 _MARKDOWN_SUFFIXES = frozenset({".md", ".markdown"})
 _DOCX_SUFFIXES = frozenset({".docx", ".docm"})
 _DOC_SUFFIXES = frozenset({".doc"})
-_MUSIC_SUFFIXES = frozenset({".musicxml", ".xml", ".mxl"})
+# ``.musicxml`` / ``.mxl`` are score-only containers — route unconditionally.
+# ``.xml`` is a generic container (MathML, DocBook, arbitrary XML), so it is
+# sniffed (see ``_looks_like_musicxml``) before being handed to the music
+# adapter; non-score ``.xml`` falls back to plain text instead of producing
+# misleading MUSIC_* warnings / an empty score tree.
+_MUSIC_SUFFIXES = frozenset({".musicxml", ".mxl"})
+_SNIFFED_XML_SUFFIXES = frozenset({".xml"})
+
+
+def _looks_like_musicxml(text: str) -> bool:
+    """True if ``text`` opens a MusicXML score document.
+
+    MusicXML's root element (after an optional ``<?xml?>`` / DOCTYPE) is
+    ``<score-partwise>`` or ``<score-timewise>``; element names are
+    lowercase per the schema. Only the document head is inspected so a
+    large non-score XML file isn't fully scanned.
+    """
+    head = text[:4096]
+    return "<score-partwise" in head or "<score-timewise" in head
 
 
 def parse_file(
@@ -67,6 +85,11 @@ def parse_file(
     * ``.doc``                 → :func:`parse_doc` (legacy binary;
       requires LibreOffice ``soffice`` on PATH for the
       .doc → .docx conversion)
+    * ``.musicxml`` / ``.mxl``  → :func:`parse_musicxml`
+    * ``.xml``                 → :func:`parse_musicxml` only when the
+      document head looks like a MusicXML score
+      (``<score-partwise>`` / ``<score-timewise>``); otherwise treated
+      as plain text, since ``.xml`` is a generic container
     * everything else (including ``.txt`` and no suffix) → :func:`parse_plain`
 
     Word formats are read as bytes by the underlying adapters; text
@@ -93,6 +116,12 @@ def parse_file(
         # music frontend to parse the XML into a MusicInline tree.
         return parse_musicxml(p, language=language, profile=profile)
     text = p.read_text(encoding="utf-8")
+    if suffix in _SNIFFED_XML_SUFFIXES:
+        # Generic .xml: only treat as a score if it actually looks like one;
+        # otherwise fall through to plain text.
+        if _looks_like_musicxml(text):
+            return parse_musicxml(p, language=language, profile=profile)
+        return parse_plain(text, language=language, profile=profile)
     if suffix in _MARKDOWN_SUFFIXES:
         return parse_markdown(text, language=language, profile=profile)
     return parse_plain(text, language=language, profile=profile)

@@ -64,6 +64,22 @@ def tokenize(
     return analyzer_registry.get(name).analyze(text, ctx)
 
 
+def list_analyzers() -> list[str]:
+    """Return the names of every registered Chinese-analyzer adapter.
+
+    Sorted, and independent of which third-party libraries are actually
+    installed: registration records only a lazy loader callable, so a
+    name like ``"hanlp"`` appears even on a bare install (selecting it
+    raises :class:`~brailix.core.errors.MissingExtraError` only when the
+    adapter is loaded).  Front-ends populate an analyzer picker from this
+    instead of duplicating the adapter set — the registry stays the
+    single source of truth.
+    """
+    from brailix.frontend.zh.analyzer.registry import analyzer_registry
+
+    return analyzer_registry.names()
+
+
 def shift_token_spans(
     tokens: list[ChineseToken], base: int
 ) -> list[ChineseToken]:
@@ -298,6 +314,7 @@ def _is_letter_hanzi_compound(
 
 __all__ = (
     "tokenize",
+    "list_analyzers",
     "shift_token_spans",
     "tokens_to_inline",
     "insert_cross_kind_boundary_spaces",

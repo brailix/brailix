@@ -43,6 +43,21 @@ def annotate(
     return resolved
 
 
+def list_resolvers() -> list[str]:
+    """Return the names of every registered pinyin-resolver adapter.
+
+    Sorted, and independent of installed extras: registration records a
+    lazy loader, so ``"g2pw"`` is listed even before its wheel is
+    present (selecting it raises
+    :class:`~brailix.core.errors.MissingExtraError` only on load).
+    Front-ends build a resolver picker from this rather than a
+    duplicated whitelist.
+    """
+    from brailix.frontend.zh.pinyin.registry import resolver_registry
+
+    return resolver_registry.names()
+
+
 def _suppress_low_confidence(
     ctx: FrontendContext, user_dict: dict[str, str]
 ) -> None:
@@ -87,4 +102,4 @@ def _apply_user_dict(
             tok.pinyin = reading
 
 
-__all__ = ("annotate",)
+__all__ = ("annotate", "list_resolvers")

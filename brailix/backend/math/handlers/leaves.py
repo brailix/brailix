@@ -307,24 +307,50 @@ def _emit_mo(
 def _emit_mtext(
     cells: list[BrailleCell], mctx: MathBrailleContext, elem: ET.Element
 ) -> None:
-    """Literal text inside math.
+    """Literal text inside math (``\\text{...}`` / ``<mtext>``).
 
-    Per-char fallback: symbols → identifiers → punctuation → unknown +
-    warning. Spaces become blank cells. After mtext we reset
-    ``need_number_sign``.
+    ``\\text{...}`` is natural-language text, so the primary path hands it
+    to the Pipeline-injected ``inline_text_translator`` — the same zh /
+    latin text seam chem reaction conditions and music lyrics use
+    (ARCHITECTURE §12). That makes Chinese render as Chinese braille,
+    English as word-level text (one letter prefix per word, not per char),
+    and spaces translate correctly — including the U+00A0 latex2mathml
+    emits for a literal space inside ``\\text``.
+
+    Falls back to a per-char math-table lookup (symbols → letters →
+    punctuation → unknown + warning; spaces become blank cells) when no
+    translator is wired: a bare backend run, or a unit test feeding MathML
+    straight to the backend.
 
     In chemistry mode an ``<mtext data-bk-chem-state>`` is a physical-state
     label ((s)/(l)/(g)/(aq)) — routed to the chem state emitter (one
-    Latin-lowercase prefix + bare letters) rather than the per-char path.
+    Latin-lowercase prefix + bare letters) instead.
     """
     if mctx.chem and elem.get("data-bk-chem-state") is not None:
         from brailix.backend.math import chem as _chem
 
         _chem.emit_state(cells, mctx, elem)
         return
+    text = elem.text or ""
+    translator = mctx.backend.inline_text_translator()
+    if text.strip() and translator is not None:
+        # latex2mathml encodes a literal space inside \text as U+00A0;
+        # normalise it to a real space so the text path sees a word break.
+        cells.extend(translator(text.replace("\u00a0", " ")))
+    else:
+        _emit_mtext_per_char(cells, mctx, text)
+    mctx.need_number_sign = True
+
+
+def _emit_mtext_per_char(
+    cells: list[BrailleCell], mctx: MathBrailleContext, text: str
+) -> None:
+    """Per-char ``<mtext>`` fallback for backend-only runs (no injected
+    text translator): symbols → letters → punctuation → unknown + warning.
+    Spaces (incl. the U+00A0 latex2mathml emits) become blank cells."""
     profile = mctx.profile
-    for ch in elem.text or "":
-        if ch == " ":
+    for ch in text:
+        if ch in (" ", "\u00a0"):
             cells.append(BLANK_CELL)
             continue
         dots_seq = profile.math_symbol(ch)
@@ -353,7 +379,6 @@ def _emit_mtext(
             )
             for dots in dots_seq
         )
-    mctx.need_number_sign = True
 
 
 _DISPATCH_PARTIAL = {

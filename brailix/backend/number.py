@@ -60,7 +60,16 @@ def translate_quantity(node: Quantity, ctx: BackendContext, profile: BrailleProf
     digits_part = node.number.surface if node.number else ""
     unit_part = node.unit or ""
     cells = _digits_to_cells(digits_part, node.number.span if node.number else None, ctx, profile)
-    base = node.span.start + len(digits_part) if node.span else 0
+    # Unit chars start right after the number's *source* span. Deriving the
+    # base from ``span.start + len(digits_part)`` would drift whenever the
+    # digit surface was normalized (thousands separators stripped, fullwidth
+    # folded to half) and so no longer matches the source character count.
+    if node.number and node.number.span:
+        base = node.number.span.end
+    elif node.span:
+        base = node.span.start + len(digits_part)
+    else:
+        base = 0
     for i, ch in enumerate(unit_part):
         sp = Span(base + i, base + i + 1)
         cells.extend(_unit_char_cells(ch, sp, ctx, profile))

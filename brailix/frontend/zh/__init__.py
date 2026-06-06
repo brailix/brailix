@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from brailix.frontend.zh.analyzer import (
     insert_cross_kind_boundary_spaces,
+    list_analyzers,
     shift_token_spans,
     tokenize,
     tokens_to_inline,
@@ -29,6 +30,7 @@ from brailix.frontend.zh.analyzer import (
 
 __all__ = (
     "tokenize",
+    "list_analyzers",
     "shift_token_spans",
     "tokens_to_inline",
     "insert_cross_kind_boundary_spaces",
