@@ -42,14 +42,16 @@ class TestSuffixDispatch:
         assert isinstance(doc.blocks[0], Heading)
 
     def test_txt_suffix_routes_to_plain_parser(self, tmp_path: Path) -> None:
-        # Markdown-looking content in a .txt should NOT get parsed —
-        # the whole file is one paragraph.
+        # Markdown-looking content in a .txt must NOT get parsed: each
+        # blank-line-separated chunk stays a literal Paragraph (the plain
+        # adapter splits on blank lines but never interprets `#` / `-`).
         path = tmp_path / "doc.txt"
         path.write_text("# not a heading\n\n- not a list\n", encoding="utf-8")
         doc = parse_file(path)
-        assert len(doc.blocks) == 1
-        assert isinstance(doc.blocks[0], Paragraph)
-        assert "# not a heading" in doc.blocks[0].text
+        assert len(doc.blocks) == 2
+        assert all(isinstance(b, Paragraph) for b in doc.blocks)
+        assert doc.blocks[0].text == "# not a heading"
+        assert doc.blocks[1].text == "- not a list"
 
     def test_unknown_suffix_falls_back_to_plain(self, tmp_path: Path) -> None:
         path = tmp_path / "doc.log"
