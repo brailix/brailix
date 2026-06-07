@@ -18,6 +18,20 @@ pip install brailix[docx]        # Word .docx / .docm (incl. MathType / OMML)
 The `hanlp` and `g2pw` backends download their model weights on first use
 (into a local `models/` directory).
 
+## Command line
+
+Installing brailix puts a `brailix` command on your `PATH` (also available as
+`python -m brailix`):
+
+```bash
+brailix "我在重庆。"                  # Unicode braille to stdout
+brailix --file lesson.md --width 32  # wrap a Markdown file at 32 cells
+brailix "123" --to brf -o out.brf    # NABCC bytes for an embosser
+brailix --list-profiles
+```
+
+See the [command-line guide](docs/cli.md) for the full reference.
+
 ## Music score formats
 
 The `music` subsystem accepts several score sources. Only MusicXML is
@@ -40,6 +54,7 @@ before compiling.
 Full docs are in [`docs/`](docs/index.md):
 
 - [Getting started](docs/getting-started.md) — install and translate your first text.
+- [Command-line interface](docs/cli.md) — translate from a terminal with the `brailix` command.
 - [API reference](docs/api.md) — the `Pipeline`, result objects, IR, profiles, and renderers.
 - [Extending brailix](docs/extending.md) — add an engine, format, renderer, profile, or language.
 - [Development](docs/development.md) — set up, run the tests, and the project conventions.

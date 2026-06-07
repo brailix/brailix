@@ -5,6 +5,7 @@
 ## Guides
 
 - [Getting started](getting-started.md) — install brailix, translate your first text, and read the result.
+- [Command-line interface](cli.md) — translate from a terminal with the `brailix` command, no Python required.
 - [API reference](api.md) — the stable public surface: the `Pipeline`, the result objects, the IR types, profiles, and renderers.
 - [Extending brailix](extending.md) — add a tokenizer, a pinyin engine, a math or music source, an input format, a renderer, a braille profile, or a whole new language.
 - [Development](development.md) — set up a development environment, run the test suite, and follow the project's conventions.

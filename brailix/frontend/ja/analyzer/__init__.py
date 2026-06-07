@@ -82,6 +82,22 @@ def analyze(
     return analyzer_registry.get(name).analyze(text, ctx)
 
 
+def list_analyzers() -> list[str]:
+    """Return the names of every registered Japanese-analyzer adapter.
+
+    Sorted, and independent of which third-party engines are installed:
+    registration records only a lazy loader, so a name like ``"fugashi"``
+    appears even on a bare install (selecting it raises
+    :class:`~brailix.core.errors.MissingExtraError` only when the adapter
+    is loaded). Mirrors :func:`brailix.frontend.zh.analyzer.list_analyzers`
+    so a front-end populates its analyzer picker from the registry instead
+    of duplicating the adapter set.
+    """
+    from brailix.frontend.ja.analyzer.registry import analyzer_registry
+
+    return analyzer_registry.names()
+
+
 # 付属語 (dependent words) attach to the preceding 自立語 with no space.
 _DEPENDENT_POS: frozenset[str] = frozenset({"助詞", "助動詞"})
 

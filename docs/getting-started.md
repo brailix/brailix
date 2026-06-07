@@ -43,6 +43,18 @@ result.proofread_json()      # a JSON-ready dict mapping source text to braille 
 
 Because every braille cell records the source span it came from, `proofread_json()` gives a downstream tool everything it needs to highlight a cell, jump back to its source, or batch-correct a reading.
 
+## From the command line
+
+Installing brailix also gives you a `brailix` command, so the first translation works from a terminal without writing any Python:
+
+```bash
+brailix "我在2026年5月17日去了重庆。"      # Unicode braille
+brailix --file lesson.md --width 32        # wrap a Markdown file at 32 cells
+brailix "123" --to brf --output out.brf    # NABCC bytes for an embosser
+```
+
+Input can be a positional string, a `--file` (dispatched by suffix), or piped standard input; output can be any renderer, optionally wrapped and paginated. The full reference is in the [command-line guide](cli.md).
+
 ## Translating documents and files
 
 For Markdown, Word, or MusicXML sources, parse them into a document first or let the Pipeline do it for you:
@@ -106,5 +118,6 @@ pipe = Pipeline(profile="cn_current", mode="normal")   # strict / normal / lenie
 
 ## Next steps
 
+- The [command-line guide](cli.md) documents the `brailix` terminal command in full.
 - The [API reference](api.md) documents every public class and function.
 - [Extending brailix](extending.md) shows how to add an engine, a format, a renderer, a profile, or a language.

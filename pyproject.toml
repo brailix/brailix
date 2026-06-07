@@ -81,6 +81,11 @@ all = [
     "mido", "partitura", "abc-xml-converter",
 ]
 
+# Console entry point — the ``brailix`` command (and ``python -m brailix``)
+# resolve to ``brailix.cli:main``, a thin frontend over ``brailix.Pipeline``.
+[project.scripts]
+brailix = "brailix.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

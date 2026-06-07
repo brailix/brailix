@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Command-line interface: a `brailix` command (also `python -m brailix`) compiles
+  text, Markdown, Word, and MusicXML to braille from a terminal. Input is a
+  positional string, a `--file` (dispatched by suffix), or piped standard input;
+  choose the renderer with `--to` (`unicode` / `brf` / `cells` / `layout`), wrap and
+  paginate with `--width` / `--page-height` / `--page-numbers`, select the profile
+  and engines (`--profile` / `--analyzer` / `--resolver` / `--mode`), and discover
+  what's installed with `--list-profiles` / `--list-analyzers` / `--list-resolvers` /
+  `--list-renderers`. The accepted values come from the core registries.
 - Japanese kana braille: a kana/kanji segmenter, morphological analysis for kanji
   readings (janome / fugashi / sudachi adapters) with 文節 word-spacing, and the
   `ja_current` profile. Pure kana needs no extra; kanji readings use an analyzer
