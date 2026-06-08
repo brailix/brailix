@@ -22,14 +22,14 @@ class TestBomHandling:
 
     def test_bom_markdown_still_detects_heading(self, tmp_path: Path) -> None:
         path = tmp_path / "bom.md"
-        path.write_bytes(b"\xef\xbb\xbf" + "# 标题\n".encode("utf-8"))
+        path.write_bytes(b"\xef\xbb\xbf" + "# 标题\n".encode())
         doc = parse_file(path)
         # A surviving BOM would make line one "﻿# 标题", failing ^#.
         assert isinstance(doc.blocks[0], Heading)
 
     def test_bom_plain_strips_bom(self, tmp_path: Path) -> None:
         path = tmp_path / "bom.txt"
-        path.write_bytes(b"\xef\xbb\xbf" + "你好".encode("utf-8"))
+        path.write_bytes(b"\xef\xbb\xbf" + "你好".encode())
         doc = parse_file(path)
         assert doc.blocks[0].text == "你好"
 
