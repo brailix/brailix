@@ -19,9 +19,7 @@ implements). For example::
 Eight-dot cells: BRF was defined for the 6-dot system, so dots 7 / 8
 have no standard ASCII representation. The renderer **strips** them
 silently — emitting a warning would be too noisy when 8-dot data is
-intentionally being downgraded for embossing — but flags the
-:class:`BrailleCell.role` ``"eight_dot"`` mapping in the cell-level
-output if you need to detect it via :mod:`renderer.cells`.
+intentionally being downgraded for embossing.
 
 Line endings follow the BRF spec: each braille block ends with CR/LF
 (``b"\\r\\n"``) and an optional form-feed at page breaks (handled by

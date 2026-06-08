@@ -319,6 +319,16 @@ def test_no_input_is_usage_error(monkeypatch, capsys):
     assert "no input" in capsys.readouterr().err
 
 
+def test_invalid_utf8_stdin_exits_1(monkeypatch, capsys):
+    # Invalid UTF-8 on the pipe (e.g. a GBK file piped on a Windows
+    # console) must surface as a clean exit-1 error, not an uncaught
+    # UnicodeDecodeError traceback. b"\xc4\xe3\xba\xc3" is 你好 in GBK.
+    monkeypatch.setattr("sys.stdin", _FakeBufferStdin(b"\xc4\xe3\xba\xc3"))
+    rc = main([])
+    assert rc == 1
+    assert "brailix:" in capsys.readouterr().err
+
+
 def test_page_numbers_without_height_warns(capsys):
     rc = main(["123", "--page-numbers"])
     assert rc == 0

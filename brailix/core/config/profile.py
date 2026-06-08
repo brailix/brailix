@@ -114,8 +114,13 @@ class BrailleProfile:
     lang_tables: dict[
         str, dict[str, dict[str, tuple[tuple[int, ...], ...]]]
     ] = field(default_factory=dict)
-    # Per-instance lazy cache for letter() results.
-    _letter_cache: dict[str, tuple[tuple[int, ...], ...] | None] = field(default_factory=dict)
+    # Per-instance lazy cache for letter() results. Excluded from
+    # ``__eq__`` / ``__repr__``: it's runtime-populated memoization, so two
+    # profiles built from identical tables must stay equal (and hashable as
+    # config-cache keys) even after one has had ``letter()`` called on it.
+    _letter_cache: dict[str, tuple[tuple[int, ...], ...] | None] = field(
+        default_factory=dict, compare=False, repr=False
+    )
 
     # -- Features -----------------------------------------------------
 

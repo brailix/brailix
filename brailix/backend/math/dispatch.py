@@ -6,13 +6,18 @@ table needs the handlers. The shared
 :class:`~brailix.core.dispatch.LazyTagDispatcher` resolves the cycle by
 loading the table lazily on first call.
 
-This module also owns ``data-bk-*`` attribute interpretation —
+This module also owns ``data-bk-*`` attribute interpretation, but only
+for the two attributes read here in dispatch:
 ``data-bk-span`` custom span overrides that flow onto every
 :class:`BrailleCell` constructed inside the handler's run, and
 ``data-bk-chem`` which switches :class:`MathBrailleContext` into
 chemistry mode for the duration of the subtree (set by the mhchem
 ``\\ce`` adapter; see ``ARCHITECTURE.md`` and
 :mod:`brailix.backend.math.chem`).
+
+A third attribute, ``data-bk-chem-state`` (physical-state labels like
+``(aq)``), is *not* read here — it is consumed solely by the ``<mtext>``
+leaf handler in :mod:`brailix.backend.math.handlers.leaves`.
 """
 
 from __future__ import annotations

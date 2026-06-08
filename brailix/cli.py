@@ -464,15 +464,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
 
-    # Resolve the input source up front so "no input at all" is a usage
-    # error before we build a pipeline.
-    source_text: str | None = None
-    if args.file is None:
-        source_text = args.text if args.text is not None else _read_stdin()
-        if source_text is None:
-            parser.error("no input: pass TEXT, use --file, or pipe text via stdin")
-
     try:
+        # Resolve the input source inside the try so a non-UTF-8 pipe
+        # (common when a GBK-encoded file is piped on a Windows console)
+        # decodes to a clean exit-1 error instead of an uncaught
+        # UnicodeDecodeError traceback. ``parser.error`` raises
+        # ``SystemExit`` (a BaseException), which the ``except`` below does
+        # NOT catch, so "no input" stays an exit-2 usage error.
+        source_text: str | None = None
+        if args.file is None:
+            source_text = args.text if args.text is not None else _read_stdin()
+            if source_text is None:
+                parser.error(
+                    "no input: pass TEXT, use --file, or pipe text via stdin"
+                )
         pipe = Pipeline(
             profile=args.profile,
             mode=args.mode,

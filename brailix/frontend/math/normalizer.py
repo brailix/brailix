@@ -65,6 +65,13 @@ def _collapse_singleton_mrows(elem: ET.Element) -> None:
     for child in list(elem):
         if child.tag == "mrow" and len(child) == 1 and not (child.text and child.text.strip()):
             grand = child[0]
+            # Carry the collapsed mrow's attributes (data-bk-span,
+            # data-bk-chem, ...) onto the surviving child so normalization
+            # stays attribute-preserving — backend dispatch reads these off
+            # the tree (math-redesign §7 / math-boundaries §7.2). The
+            # child's own value wins on conflict.
+            for _k, _v in child.attrib.items():
+                grand.attrib.setdefault(_k, _v)
             new_children.append(grand)
         else:
             new_children.append(child)

@@ -84,7 +84,10 @@ def parse_musicxml(
     if suffix in _MXL_SUFFIXES:
         text = _unzip_mxl(p.read_bytes())
     elif suffix in _MUSICXML_TEXT_SUFFIXES:
-        text = p.read_text(encoding="utf-8")
+        # utf-8-sig strips a leading BOM (still raises on truly invalid
+        # UTF-8, so the docstring's UnicodeDecodeError contract holds);
+        # a surviving BOM would break the score sniff / XML parse.
+        text = p.read_text(encoding="utf-8-sig")
     else:
         raise ValueError(
             f"unsupported music file extension {suffix!r} "
@@ -139,7 +142,7 @@ def parse_score_file(
     payload: str | bytes = (
         p.read_bytes()
         if suffix in _BINARY_SCORE_SUFFIXES
-        else p.read_text(encoding="utf-8")
+        else p.read_text(encoding="utf-8-sig")  # strip BOM; see parse_musicxml
     )
     # registry.get raises MissingExtraError (naming the extra) when the
     # adapter's optional dependency is absent — surfaced loudly here, the

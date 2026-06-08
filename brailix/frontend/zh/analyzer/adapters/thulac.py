@@ -30,7 +30,7 @@ from typing import Any
 
 from brailix.core.context import FrontendContext
 from brailix.core.errors import MissingExtraError
-from brailix.core.span import Span
+from brailix.frontend.zh.analyzer.adapters._spans import recover_spans_by_cursor
 from brailix.ir.inline import ChineseToken
 
 
@@ -53,60 +53,19 @@ class ThulacChineseAnalyzer:
     ) -> list[ChineseToken]:
         if not text:
             return []
-        tokens: list[ChineseToken] = []
-        cursor = 0
-        for pair in self.cut_fn(text):
-            word = pair[0]
-            # THULAC inserts per-line ``['\n', '']`` markers and can emit
-            # whitespace-only tokens; neither is real content, and a ''
-            # word would make ``find`` match at the cursor and stall.
-            if not word or word.isspace():
-                continue
-            # Locate the word from the cursor. THULAC gives us no spans,
-            # so we recover them by linear search — the cursor advances
-            # past each match so repeats resolve to the right occurrence.
-            start = text.find(word, cursor)
-            if start < 0:
-                # THULAC normalised the word (its preprocessor may fold
-                # some characters) or it isn't in the remaining text.
-                # Use the cursor as a synthetic span so we don't crash,
-                # but warn: the surface↔source mapping is unreliable here.
-                start = cursor
-                if ctx is not None:
-                    ctx.warnings.warn(
-                        code="THULAC_WORD_NOT_IN_TEXT",
-                        message=(
-                            f"THULAC returned word {word!r} not found in "
-                            f"source at cursor {cursor}"
-                        ),
-                        surface=word,
-                        span=Span(start, start + len(word)),
-                        source="zh.thulac",
-                    )
-            elif start > cursor and ctx is not None:
-                # Characters between cursor and start aren't claimed by
-                # any token — THULAC's input cleaning dropped them.
-                # Proofreading needs to know about the gap.
-                ctx.warnings.warn(
-                    code="THULAC_SKIPPED_CHARS",
-                    message=(
-                        f"THULAC skipped {start - cursor} char(s) before "
-                        f"word {word!r}; gap text: {text[cursor:start]!r}"
-                    ),
-                    surface=text[cursor:start],
-                    span=Span(cursor, start),
-                    source="zh.thulac",
-                )
-            end = start + len(word)
-            tokens.append(
-                ChineseToken(
-                    surface=word,
-                    pos=None,
-                    span=Span(start, end),
-                )
-            )
-            cursor = end
-        return tokens
+        # THULAC gives no offsets and seg-only mode has no POS — recover
+        # spans by cursor search (shared with HanLP). skip_blank drops the
+        # per-line ``['\n', '']`` markers / whitespace-only tokens.
+        pairs = ((pair[0], None) for pair in self.cut_fn(text))
+        return recover_spans_by_cursor(
+            pairs,
+            text,
+            ctx,
+            code_prefix="THULAC",
+            source="zh.thulac",
+            engine="THULAC",
+            skip_blank=True,
+        )
 
 
 # THULAC's seg_only decoder loads these two binary models from the

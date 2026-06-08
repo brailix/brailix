@@ -2,16 +2,14 @@
 
 The pipeline:
 
-1. ``mido`` reads the raw MIDI file (lighter than partitura for the
-   pure-bytes side, and stays useful even when partitura isn't
-   installed).
-2. ``partitura`` does the actual MIDI → MusicXML conversion (handles
-   quantisation, voice splitting, key inference). ``partitura`` ships
-   ``load_score`` (any format → ``Score``) and ``save_musicxml`` —
-   we stream through an in-memory buffer to avoid temp files.
+1. ``partitura.load_score`` reads the raw MIDI bytes (from an in-memory
+   ``BytesIO`` buffer) into a ``Score``, handling quantisation, voice
+   splitting and key inference.
+2. ``partitura.save_musicxml`` serialises that ``Score`` back out as
+   MusicXML — we stream through an in-memory buffer to avoid temp files.
 
-Both packages are optional extras. The registry registers this adapter
-with ``extra="midi"``; missing packages surface as
+``partitura`` is an optional extra. The registry registers this adapter
+with ``extra="midi"``; a missing package surfaces as
 :class:`~brailix.core.errors.MissingExtraError` pointing at
 ``pip install brailix[midi]``.
 """

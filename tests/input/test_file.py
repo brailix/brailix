@@ -16,6 +16,24 @@ from brailix.input import parse_file
 from brailix.ir.document import Heading, List, Paragraph, ScoreBlock
 
 
+class TestBomHandling:
+    """A UTF-8 BOM (Windows Notepad / Word "save as .txt|.md" writes one)
+    must be stripped, not survive into the first block."""
+
+    def test_bom_markdown_still_detects_heading(self, tmp_path: Path) -> None:
+        path = tmp_path / "bom.md"
+        path.write_bytes(b"\xef\xbb\xbf" + "# 标题\n".encode("utf-8"))
+        doc = parse_file(path)
+        # A surviving BOM would make line one "﻿# 标题", failing ^#.
+        assert isinstance(doc.blocks[0], Heading)
+
+    def test_bom_plain_strips_bom(self, tmp_path: Path) -> None:
+        path = tmp_path / "bom.txt"
+        path.write_bytes(b"\xef\xbb\xbf" + "你好".encode("utf-8"))
+        doc = parse_file(path)
+        assert doc.blocks[0].text == "你好"
+
+
 class TestSuffixDispatch:
     def test_md_suffix_routes_to_markdown_parser(self, tmp_path: Path) -> None:
         # Markdown structure (heading + list) only the markdown parser
