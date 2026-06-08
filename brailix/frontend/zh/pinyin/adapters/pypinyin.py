@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from brailix.core.context import FrontendContext
+from brailix.frontend.zh.pinyin.adapters._align import resolve_by_char_alignment
 from brailix.ir.inline import ChineseToken
 
 
@@ -34,50 +35,13 @@ class PypinyinResolver:
             return []
         sentence = "".join(t.surface for t in tokens)
         syllables = list(self.converter(sentence))
-
-        # pypinyin returns one syllable per character; mismatch means it
-        # silently dropped (or merged) something — without this guard the
-        # by-cursor slicing below would smear every subsequent token's
-        # pinyin one position over.
-        if len(syllables) != len(sentence):
-            if ctx is not None:
-                ctx.warnings.warn(
-                    code="PINYIN_LENGTH_MISMATCH",
-                    message=(
-                        f"pypinyin returned {len(syllables)} syllables for "
-                        f"{len(sentence)}-char input; dropping pinyin"
-                    ),
-                    surface=sentence,
-                    source="pinyin.pypinyin",
-                )
-            return [
-                ChineseToken(
-                    surface=tok.surface,
-                    pos=tok.pos,
-                    span=tok.span,
-                    pinyin=None,
-                    confidence=None,
-                )
-                for tok in tokens
-            ]
-
-        out: list[ChineseToken] = []
-        char_cursor = 0
-        for tok in tokens:
-            length = len(tok.surface)
-            chunk = syllables[char_cursor : char_cursor + length]
-            pinyin_str = " ".join(s for s in chunk if s) or None
-            out.append(
-                ChineseToken(
-                    surface=tok.surface,
-                    pos=tok.pos,
-                    span=tok.span,
-                    pinyin=pinyin_str,
-                    confidence=None,
-                )
-            )
-            char_cursor += length
-        return out
+        return resolve_by_char_alignment(
+            tokens,
+            syllables,
+            ctx,
+            source="pinyin.pypinyin",
+            engine="pypinyin",
+        )
 
 
 def _load() -> PypinyinResolver:

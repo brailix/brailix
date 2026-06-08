@@ -36,6 +36,29 @@ _O_NS = "urn:schemas-microsoft-com:office:office"
 _R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
 
+class TestResolveDocConverter:
+    """``_resolve_doc_converter`` finds the LibreOffice binary (or None)."""
+
+    def test_command_name_resolved_via_path(self, monkeypatch) -> None:
+        # A bare command name (not a file in cwd) must be looked up on PATH,
+        # not skipped — the operator-precedence bug returned None for it.
+        from brailix.input.docx import _resolve_doc_converter
+
+        monkeypatch.setattr(
+            "brailix.input.docx.shutil.which",
+            lambda name: "/usr/bin/soffice" if name == "soffice" else None,
+        )
+        assert _resolve_doc_converter("soffice") == "/usr/bin/soffice"
+
+    def test_none_when_override_not_runnable(self, monkeypatch) -> None:
+        from brailix.input.docx import _resolve_doc_converter
+
+        monkeypatch.setattr(
+            "brailix.input.docx.shutil.which", lambda name: None
+        )
+        assert _resolve_doc_converter("nope") is None
+
+
 # ---------------------------------------------------------------------------
 # Fixture builders
 # ---------------------------------------------------------------------------

@@ -28,7 +28,7 @@ ChineseAnalyzer):
 * ``hanzi_text``  — CJK Unified Ideographs run.
 * ``digit_run``   — ASCII or fullwidth digit run (Normalizer turns
   this into ``number`` / ``date`` / ``quantity`` / ``percent`` etc.).
-* ``latin_text``  — ASCII letters (possibly with ``-`` or ``'``).
+* ``latin_text``  — ASCII letters.
 * ``greek_text``  — Greek alphabet letters (Α-Ω / α-ω + variants
   ϕ ϵ ϑ ϱ ς). Split from latin_text so each script gets its own
   letter-prefix (Greek upper/lower-case sign ⠸/⠨ vs Latin

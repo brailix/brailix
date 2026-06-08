@@ -14,6 +14,19 @@ from brailix.core.config import (
 )
 
 
+def test_profile_equality_survives_letter_cache() -> None:
+    # The lazy letter() memoization is excluded from __eq__, so two
+    # profiles built from identical tables stay equal even after one has
+    # populated its cache (regression: dataclass eq used to include it,
+    # so any compare/dedup/cache-key use of a profile broke once letter()
+    # ran).
+    a = load_profile("cn_current")
+    b = load_profile("cn_current")
+    assert a == b
+    a.letter("x")
+    assert a == b
+
+
 class TestPackageRoot:
     def test_package_root_exists(self):
         assert PACKAGE_ROOT.exists()

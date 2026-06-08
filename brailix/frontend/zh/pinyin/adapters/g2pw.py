@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from brailix.core.context import FrontendContext
+from brailix.frontend.zh.pinyin.adapters._align import resolve_by_char_alignment
 from brailix.ir.inline import ChineseToken
 
 LOW_CONFIDENCE_THRESHOLD = 0.75
@@ -43,69 +44,15 @@ class G2pwPinyinResolver:
             return []
         sentence = "".join(t.surface for t in tokens)
         pinyins, confidences = _normalize_predictor_output(self.predictor(sentence))
-
-        # g2pW promises one pinyin per character; any length divergence
-        # means it skipped (or duplicated) a position. Slicing past that
-        # point would misalign every later token, so bail out cleanly.
-        if len(pinyins) != len(sentence) or (
-            confidences is not None and len(confidences) != len(sentence)
-        ):
-            if ctx is not None:
-                ctx.warnings.warn(
-                    code="PINYIN_LENGTH_MISMATCH",
-                    message=(
-                        f"g2pW returned {len(pinyins)} pinyins for "
-                        f"{len(sentence)}-char input; dropping pinyin"
-                    ),
-                    surface=sentence,
-                    source="pinyin.g2pw",
-                )
-            return [
-                ChineseToken(
-                    surface=tok.surface,
-                    pos=tok.pos,
-                    span=tok.span,
-                    pinyin=None,
-                    confidence=None,
-                )
-                for tok in tokens
-            ]
-
-        out: list[ChineseToken] = []
-        char_cursor = 0
-        for tok in tokens:
-            length = len(tok.surface)
-            token_pinyins = pinyins[char_cursor : char_cursor + length]
-            token_confs = (
-                confidences[char_cursor : char_cursor + length]
-                if confidences is not None
-                else None
-            )
-            pinyin_str = " ".join(p for p in token_pinyins if p)
-            new = ChineseToken(
-                surface=tok.surface,
-                pos=tok.pos,
-                span=tok.span,
-                pinyin=pinyin_str or None,
-                confidence=(
-                    min(token_confs) if token_confs else None
-                ),
-            )
-            if (
-                ctx is not None
-                and token_confs
-                and min(token_confs) < self.low_confidence_threshold
-            ):
-                ctx.warnings.warn(
-                    code="LOW_CONFIDENCE_PINYIN",
-                    message=f"polyphone reading has low confidence: {tok.surface}",
-                    surface=tok.surface,
-                    span=tok.span,
-                    source="pinyin.g2pw",
-                )
-            out.append(new)
-            char_cursor += length
-        return out
+        return resolve_by_char_alignment(
+            tokens,
+            pinyins,
+            ctx,
+            source="pinyin.g2pw",
+            engine="g2pW",
+            confidences=confidences,
+            low_confidence_threshold=self.low_confidence_threshold,
+        )
 
 
 def _normalize_predictor_output(value: Any) -> tuple[list[str], list[float] | None]:

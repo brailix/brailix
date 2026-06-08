@@ -379,7 +379,12 @@ def parse_doc(
 def _resolve_doc_converter(override: str | None) -> str | None:
     """Find the LibreOffice executable, or ``None`` if absent."""
     if override is not None:
-        return shutil.which(override) or override if Path(override).exists() else None
+        # shutil.which resolves both a bare command name (searched on PATH)
+        # and an explicit path, returning None if neither is runnable. The
+        # old ``... if Path(override).exists() else None`` bound looser than
+        # ``or`` and so skipped the PATH search entirely for a command name
+        # (the common case), always yielding None.
+        return shutil.which(override)
     for candidate in ("soffice", "libreoffice"):
         path = shutil.which(candidate)
         if path is not None:

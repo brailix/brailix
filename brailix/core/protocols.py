@@ -200,7 +200,9 @@ class MusicSourceAdapter(Protocol):
 
     source: str  # musicxml / mxl / midi / abc / plain / ...
 
-    def to_musicxml(self, src: str | bytes, ctx: MusicContext) -> str: ...
+    def to_musicxml(
+        self, src: str | bytes, ctx: MusicContext | None = None
+    ) -> str: ...
 
 
 # ---------------------------------------------------------------------------

@@ -31,6 +31,23 @@ class TestSingletonMrowCollapse:
         assert root[0].tag == "mi"
         assert root[0].text == "x"
 
+    def test_collapsed_mrow_attributes_move_to_child(self):
+        # A data-bk-* attribute on a singleton <mrow> must survive the
+        # collapse onto the surviving child — backend dispatch reads these
+        # off the tree (math-redesign §7 / math-boundaries §7.2).
+        root = normalize('<math><mrow data-bk-span="3,7"><mi>x</mi></mrow></math>')
+        assert root[0].tag == "mi"
+        assert root[0].get("data-bk-span") == "3,7"
+
+    def test_collapse_keeps_child_attribute_on_conflict(self):
+        # If both the mrow and its child carry the same key, the child's
+        # (more specific) value wins.
+        root = normalize(
+            '<math><mrow data-bk-span="0,9">'
+            '<mi data-bk-span="2,3">x</mi></mrow></math>'
+        )
+        assert root[0].get("data-bk-span") == "2,3"
+
     def test_collapses_nested_singletons(self):
         src = "<math><mrow><mrow><mi>y</mi></mrow></mrow></math>"
         root = normalize(src)

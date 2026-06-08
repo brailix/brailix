@@ -41,10 +41,10 @@ class AbcSourceAdapter:
         if not text:
             return music_error_wrap("", reason="empty abc payload")
         try:
-            # abc_xml_converter's public API has shifted across versions;
-            # try the documented entry points in order. The Wim Vree
-            # original exposes ``convert_string`` / ``do_convert``;
-            # newer wrappers expose ``abc2xml``.
+            # abc_xml_converter's public API has shifted across versions,
+            # so we don't pin a specific callable: import the ``abc2xml``
+            # module and probe it for a ``convert`` / ``abc_to_xml``
+            # entry point below.
             from abc_xml_converter import abc2xml  # noqa: WPS433
         except ImportError:
             return music_error_wrap(

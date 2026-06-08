@@ -34,7 +34,7 @@ from brailix.core.models.asset_registry import (
     register_asset,
 )
 from brailix.core.models.paths import get_model_dir
-from brailix.core.span import Span
+from brailix.frontend.zh.analyzer.adapters._spans import recover_spans_by_cursor
 from brailix.ir.inline import ChineseToken
 
 # Pinned MTL model id. Update _MTL_DIR in lockstep when bumping the
@@ -99,55 +99,16 @@ def _extract_pos(doc: Any) -> list[str] | None:
 def _tokens_from(
     words: list[str], tags: list[str] | None, text: str, ctx: FrontendContext | None = None
 ) -> list[ChineseToken]:
-    tokens: list[ChineseToken] = []
-    cursor = 0
-    for idx, w in enumerate(words):
-        # Locate the word in ``text`` starting from cursor. HanLP doesn't
-        # always give us spans, so we recover them by linear search from
-        # cursor — repeated words like "很好，很好" still land on the right
-        # occurrence because cursor advances past previous matches.
-        start = text.find(w, cursor)
-        if start < 0:
-            # Defensive: word doesn't appear in the remaining text at all.
-            # HanLP normalised it (e.g. full-width → half-width) or invented
-            # a token. Use cursor as a synthetic span so we don't crash, but
-            # warn so callers know the surface↔source mapping is unreliable
-            # for this word.
-            start = cursor
-            if ctx is not None:
-                ctx.warnings.warn(
-                    code="HANLP_WORD_NOT_IN_TEXT",
-                    message=f"HanLP returned word {w!r} not found in source at cursor {cursor}",
-                    surface=w,
-                    span=Span(start, start + len(w)),
-                    source="zh.hanlp",
-                )
-        elif start > cursor:
-            # Characters between cursor and start aren't claimed by any
-            # token. Could be whitespace HanLP stripped, but for proofread
-            # accuracy callers should know about it.
-            if ctx is not None:
-                ctx.warnings.warn(
-                    code="HANLP_SKIPPED_CHARS",
-                    message=(
-                        f"HanLP skipped {start - cursor} char(s) before "
-                        f"word {w!r}; gap text: {text[cursor:start]!r}"
-                    ),
-                    surface=text[cursor:start],
-                    span=Span(cursor, start),
-                    source="zh.hanlp",
-                )
-        end = start + len(w)
-        pos = tags[idx] if tags and idx < len(tags) else None
-        tokens.append(
-            ChineseToken(
-                surface=w,
-                pos=pos,
-                span=Span(start, end),
-            )
-        )
-        cursor = end
-    return tokens
+    # HanLP gives no offsets — recover spans by cursor search (shared with
+    # THULAC). Pair each word with its POS tag (positional, tolerant of a
+    # missing / short tags list).
+    pairs = (
+        (w, tags[idx] if tags and idx < len(tags) else None)
+        for idx, w in enumerate(words)
+    )
+    return recover_spans_by_cursor(
+        pairs, text, ctx, code_prefix="HANLP", source="zh.hanlp", engine="HanLP"
+    )
 
 
 def _load() -> HanLPChineseAnalyzer:

@@ -137,7 +137,11 @@ def parse_file(
         # read below because MIDI is binary; parse_score_file reads the
         # file itself with the right mode and runs the adapter.
         return parse_score_file(p, language=language, profile=profile)
-    text = p.read_text(encoding="utf-8")
+    # utf-8-sig strips a leading BOM if present (Windows Notepad / Word
+    # "save as .txt" write one), else behaves exactly like utf-8 — without
+    # it a BOM survives into the first block and a Markdown heading on line
+    # one ("﻿# 标题") fails the ^#{1,6} match.
+    text = p.read_text(encoding="utf-8-sig")
     if suffix in _SNIFFED_XML_SUFFIXES:
         # Generic .xml: only treat as a score if it actually looks like one;
         # otherwise fall through to plain text.
