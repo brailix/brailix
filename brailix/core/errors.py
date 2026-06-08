@@ -208,6 +208,39 @@ class WarningCollector:
             )
         )
 
+    def error(
+        self,
+        code: str,
+        message: str,
+        *,
+        surface: str | None = None,
+        span: Span | None = None,
+        candidates: tuple[str, ...] = (),
+        source: str | None = None,
+    ) -> None:
+        """Convenience: emit an ERROR-level warning.
+
+        ``ERROR`` marks an *unrecoverable structure* — the input could not
+        be processed at all and only a placeholder / unknown cell stands in
+        for it (content is lost), as opposed to :meth:`warn`'s
+        recognized-but-degraded diagnostics. This is the level the run
+        modes pivot on: ``STRICT`` raises, ``NORMAL`` keeps it as ``ERROR``
+        (a front-end can surface it red), and ``LENIENT`` downgrades it to
+        ``WARN`` — the experimental "just give me output" mode flags
+        nothing as a hard failure.
+        """
+        self.emit(
+            Warning(
+                code=code,
+                message=message,
+                level=WarningLevel.ERROR,
+                surface=surface,
+                span=span,
+                candidates=candidates,
+                source=source,
+            )
+        )
+
     def __iter__(self) -> Iterator[Warning]:
         return iter(self.warnings)
 

@@ -35,7 +35,7 @@ def _emit_merror(
         surface = "".join(t or "" for t in elem.itertext()).strip()
     else:
         surface = (elem.text or "").strip()
-    mctx.backend.warnings.warn(
+    mctx.backend.warnings.error(
         code="MATH_ERROR",
         message=f"<merror>: {reason}",
         surface=surface,
@@ -56,7 +56,7 @@ def _emit_unsupported(
         surface = serialized[:_SURFACE_MAX] + "…"
     else:
         surface = serialized
-    mctx.backend.warnings.warn(
+    mctx.backend.warnings.error(
         code="MATH_UNSUPPORTED_ELEMENT",
         message=f"unsupported math element <{elem.tag}>",
         surface=surface,

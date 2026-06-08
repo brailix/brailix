@@ -280,19 +280,19 @@ class TestRunModeEndToEnd:
 
     * strict  → the MATH_ERROR is promoted to a ``StrictModeError`` and the
       run aborts (no output at all).
-    * normal  → the warning is recorded and the run still completes,
-      rendering a fallback (blank) cell.
-    * lenient → identical to normal here.
+    * normal  → the warning is recorded **at ERROR level** and the run still
+      completes, rendering a fallback (blank) cell.
+    * lenient → same recovered output, but the ERROR-level warning is
+      *downgraded to WARN* (see ``WarningCollector`` in core/errors.py).
 
-    Why normal and lenient render the same for this input: the lenient mode
-    only differs from normal by *downgrading* ``WarningLevel.ERROR``
-    warnings to ``WARN`` (see ``WarningCollector`` in core/errors.py). The
-    MATH_ERROR recovery warning is emitted at ``WARN`` level already, so
-    there is nothing to downgrade. As of this writing no production code
-    path emits an ``ERROR``-level warning, so no real input can distinguish
-    normal from lenient end-to-end — the distinction lives entirely at the
-    strict boundary. We still assert both modes explicitly to lock the
-    "recover and keep going" contract for each.
+    A failed parse (``MATH_ERROR``) is an *unrecoverable structure* — the
+    formula is lost, only a placeholder cell stands in — so it is emitted at
+    ``WarningLevel.ERROR``. That makes the three modes genuinely distinct on
+    the same input: strict aborts, normal flags it as an error (a front-end
+    can surface it red), and lenient (experimental "just give me output")
+    downgrades it to a warning so nothing reads as a hard failure. The
+    rendered braille is identical for normal/lenient — recovery is the same;
+    only the diagnostic *level* differs.
     """
 
     BAD_MATH = "$\\frac{1}{$"
@@ -306,41 +306,57 @@ class TestRunModeEndToEnd:
             pipe.translate_text(self.BAD_MATH)
         assert ei.value.warning.code == "MATH_ERROR"
 
-    def test_normal_warns_but_still_renders(self):
+    def test_normal_keeps_error_level_but_still_renders(self):
         from brailix import Pipeline
+        from brailix.core.errors import WarningLevel
 
         pipe = Pipeline(mode="normal", analyzer="null", resolver="null")
         result = pipe.translate_text(self.BAD_MATH)
-        codes = {w.code for w in result.warnings}
-        assert "MATH_ERROR" in codes
+        math_errs = [w for w in result.warnings if w.code == "MATH_ERROR"]
+        assert math_errs, "expected a MATH_ERROR warning"
+        # NORMAL keeps the unrecoverable-structure diagnostic at ERROR level.
+        assert all(w.level is WarningLevel.ERROR for w in math_errs)
         # Run completed and produced a (fallback) rendering rather than
         # aborting — the placeholder cell is U+2800 (blank braille).
         out = result.render()
         assert isinstance(out, str)
         assert out == "⠀"
 
-    def test_lenient_recovers_like_normal(self):
+    def test_lenient_downgrades_error_to_warn(self):
         from brailix import Pipeline
+        from brailix.core.errors import WarningLevel
 
         pipe = Pipeline(mode="lenient", analyzer="null", resolver="null")
         result = pipe.translate_text(self.BAD_MATH)
-        codes = {w.code for w in result.warnings}
-        assert "MATH_ERROR" in codes
+        math_errs = [w for w in result.warnings if w.code == "MATH_ERROR"]
+        assert math_errs, "expected a MATH_ERROR warning"
+        # LENIENT downgrades the ERROR to WARN — nothing reads as hard-failed.
+        assert all(w.level is WarningLevel.WARN for w in math_errs)
         out = result.render()
         assert isinstance(out, str)
         assert out == "⠀"
 
-    def test_strict_is_the_only_mode_that_aborts(self):
-        """Cross-check: same input, only strict raises; the other two return."""
+    def test_modes_differ_on_same_input(self):
+        """Same input, three distinct outcomes: strict aborts; normal vs
+        lenient render the same braille but disagree on the warning level."""
         from brailix import Pipeline
-        from brailix.core.errors import StrictModeError
+        from brailix.core.errors import StrictModeError, WarningLevel
 
-        rendered: dict[str, str] = {}
+        results = {}
         for mode in ("normal", "lenient"):
             pipe = Pipeline(mode=mode, analyzer="null", resolver="null")
-            rendered[mode] = pipe.translate_text(self.BAD_MATH).render()
-        # normal and lenient agree on the recovered output for this input.
-        assert rendered["normal"] == rendered["lenient"]
+            results[mode] = pipe.translate_text(self.BAD_MATH)
+        # Recovery is identical...
+        assert results["normal"].render() == results["lenient"].render()
+
+        def level(result):
+            return next(
+                w.level for w in result.warnings if w.code == "MATH_ERROR"
+            )
+
+        # ...but the diagnostic level distinguishes them.
+        assert level(results["normal"]) is WarningLevel.ERROR
+        assert level(results["lenient"]) is WarningLevel.WARN
 
         with pytest.raises(StrictModeError):
             Pipeline(mode="strict", analyzer="null", resolver="null").translate_text(

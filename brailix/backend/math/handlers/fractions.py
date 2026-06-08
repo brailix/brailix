@@ -16,9 +16,9 @@ import xml.etree.ElementTree as ET
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.dispatch import _emit_element
 from brailix.backend.math.utils import (
+    _antoine_applies,
     _emit_structure,
-    _is_single_digit_mn,
-    _is_single_structure,
+    _fraction_simplifiable,
     _last_is_blank,
 )
 from brailix.ir.braille import BLANK_CELL, BrailleCell
@@ -35,15 +35,19 @@ def _emit_mfrac(
          Output: ``number_sign + upper_digit + lower_digit`` (the
          lower-form digit implies the bar; no open/close).
       2. *Simple* — both operands are single self-fenced structures
-         (mi / mn / msqrt / mfrac / msub / msup / ...) and the feature
-         ``math.simplify_fraction`` is on. Output: ``numerator +
-         fraction.bar + denominator``. The inner structure carries its
-         own closing marker (sqrt.close, script.close, Antoine lower
-         digit, nested fraction.close), so the bar's position is
-         unambiguous without explicit open/close brackets.
-      3. *Compound* — anything else (multi-token mrow numerator /
-         denominator). Output: ``fraction.open + numerator + blank +
-         fraction.bar + denominator + fraction.close``.
+         (mi / mn / msqrt / msub / msup / Antoine-or-compound mfrac / ...)
+         and the feature ``math.simplify_fraction`` is on. Output:
+         ``numerator + fraction.bar + denominator``. The inner structure
+         carries its own closing marker (sqrt.close, script.close, Antoine
+         lower digit, compound fraction.close), so the bar's position is
+         unambiguous without explicit open/close brackets. **A nested
+         *simple* fraction is NOT self-fenced** (it's just a bare bar), so
+         an operand like that forces the compound form below — otherwise
+         ``\\frac{\\frac{a}{b}}{c}`` and ``\\frac{a}{\\frac{b}{c}}`` would
+         both flatten to the same ambiguous ``a/b/c`` chain.
+      3. *Compound* — anything else (multi-token mrow operand, or a nested
+         simple fraction operand). Output: ``fraction.open + numerator +
+         blank + fraction.bar + denominator + fraction.close``.
     """
     kids = list(elem)
     numerator = kids[0] if len(kids) >= 1 else None
@@ -54,11 +58,7 @@ def _emit_mfrac(
         mctx.need_number_sign = True
         return
 
-    simplifiable = (
-        _is_single_structure(numerator)
-        and _is_single_structure(denominator)
-        and profile.feature("math.simplify_fraction", True)
-    )
+    simplifiable = _fraction_simplifiable(numerator, denominator, profile)
 
     if not simplifiable:
         _emit_structure(cells, mctx, "fraction.open", role="math_fraction_open")
@@ -85,19 +85,15 @@ def _try_emit_antoine_fraction(
     """If numerator + denominator are both single-digit ``<mn>``, emit
     the Antoine compact form and return True. Else return False.
     """
-    if numerator is None or denominator is None:
-        return False
-    if not _is_single_digit_mn(numerator):
-        return False
-    if not _is_single_digit_mn(denominator):
-        return False
     profile = mctx.profile
+    if not _antoine_applies(numerator, denominator, profile):
+        return False
+    assert numerator is not None and denominator is not None  # _antoine_applies
     num_text = (numerator.text or "").strip()
     den_text = (denominator.text or "").strip()
     upper = profile.digits.get(num_text)
     lower = profile.math_digits_lower.get(den_text)
-    if not upper or not lower:
-        return False
+    assert upper is not None and lower is not None  # guaranteed by _antoine_applies
     if (
         mctx.need_number_sign
         and profile.feature("math.number_sign", True)
@@ -143,11 +139,7 @@ def _emit_typed_slash_fraction(
     if _try_emit_antoine_fraction(cells, mctx, numerator, denominator):
         mctx.need_number_sign = True
         return
-    simplifiable = (
-        _is_single_structure(numerator)
-        and _is_single_structure(denominator)
-        and profile.feature("math.simplify_fraction", True)
-    )
+    simplifiable = _fraction_simplifiable(numerator, denominator, profile)
     if not simplifiable:
         _emit_structure(cells, mctx, "fraction.open", role="math_fraction_open")
         mctx.need_number_sign = True

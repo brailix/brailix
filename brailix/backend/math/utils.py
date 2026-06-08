@@ -174,6 +174,85 @@ def _is_single_structure(elem: ET.Element | None) -> bool:
     return True
 
 
+def _peel_single_mrow(elem: ET.Element | None) -> ET.Element | None:
+    """Peel transparent single-child ``<mrow>`` wrappers (latex2mathml
+    wraps even a one-element numerator/denominator), returning the inner
+    element, or ``None`` if a wrapper holds anything but exactly one child.
+    """
+    while elem is not None and elem.tag == "mrow":
+        kids = list(elem)
+        if len(kids) != 1:
+            return None
+        elem = kids[0]
+    return elem
+
+
+def _antoine_applies(
+    numerator: ET.Element | None, denominator: ET.Element | None, profile
+) -> bool:
+    """True if both operands are single-digit ``<mn>`` with Antoine
+    upper/lower digit forms in the profile — the compact fraction that is
+    self-fenced (the lower-form digit implies the bar; no open/close)."""
+    if not _is_single_digit_mn(numerator) or not _is_single_digit_mn(denominator):
+        return False
+    assert numerator is not None and denominator is not None  # narrowed above
+    upper = profile.digits.get((numerator.text or "").strip())
+    lower = profile.math_digits_lower.get((denominator.text or "").strip())
+    return bool(upper and lower)
+
+
+def _is_self_fenced(elem: ET.Element | None, profile) -> bool:
+    """A single structure that carries its own right-hand fence, so a
+    fraction bar placed immediately after it is unambiguous.
+
+    Like :func:`_is_single_structure`, but a nested *simple* fraction does
+    **not** qualify: it renders as a bare ``a bar b`` with no closing mark,
+    so wrapping it in another fraction's simple form would flatten into an
+    ambiguous slash chain (``a/b/c`` can't distinguish ``(a/b)/c`` from
+    ``a/(b/c)``). Antoine and compound fractions DO carry a fence
+    (lower-digit / explicit close) and still qualify.
+    """
+    if not _is_single_structure(elem):
+        return False
+    if _fraction_renders_simple(elem, profile):
+        return False
+    return True
+
+
+def _fraction_simplifiable(
+    numerator: ET.Element | None, denominator: ET.Element | None, profile
+) -> bool:
+    """Whether an ``<mfrac>`` with these operands renders in the simple bar
+    form (``numerator bar denominator``, no brackets): both operands are
+    single *self-fenced* structures and ``math.simplify_fraction`` is on.
+    """
+    return (
+        _is_self_fenced(numerator, profile)
+        and _is_self_fenced(denominator, profile)
+        and profile.feature("math.simplify_fraction", True)
+    )
+
+
+def _fraction_renders_simple(elem: ET.Element | None, profile) -> bool:
+    """True if ``elem`` (single-mrow-peeled) is an ``<mfrac>`` that renders
+    in the bare simple bar form — i.e. without any closing fence.
+
+    Used by :func:`_is_self_fenced` to decide that such a fraction can't be
+    nested inside another fraction's simple form. Antoine fractions (lower
+    digit implies the bar) and compound fractions (explicit ``fraction.close``)
+    return ``False`` here because they are self-fenced.
+    """
+    elem = _peel_single_mrow(elem)
+    if elem is None or elem.tag != "mfrac":
+        return False
+    kids = list(elem)
+    numerator = kids[0] if len(kids) >= 1 else None
+    denominator = kids[1] if len(kids) >= 2 else None
+    if _antoine_applies(numerator, denominator, profile):
+        return False
+    return _fraction_simplifiable(numerator, denominator, profile)
+
+
 def _is_atomic(elem: ET.Element | None) -> bool:
     """An element is *atomic* if it's a single-token ``<mi>`` / ``<mn>``.
     Used by the script simplifiability check."""

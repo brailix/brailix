@@ -54,7 +54,7 @@ def translate(
     """
     score_tree = node.score
     if score_tree is None:
-        ctx.warnings.warn(
+        ctx.warnings.error(
             code="MUSIC_NO_IR",
             message=(
                 "music node lacks a parsed MusicXML tree; emitting "

@@ -705,7 +705,7 @@ class Pipeline:
             try:
                 tree = _frontend_parse_music_tree(text, music_ctx)
             except Exception as exc:  # noqa: BLE001 — adapter failures are wide
-                ctx.warnings.warn(
+                ctx.warnings.error(
                     code="MUSIC_BLOCK_PARSE_FAILED",
                     message=f"music block parse failed: {exc!r}",
                     surface=text,
@@ -776,7 +776,7 @@ class Pipeline:
             try:
                 tree = parse_math_tree(text, math_ctx)
             except Exception as exc:  # noqa: BLE001 — adapter errors are wide
-                ctx.warnings.warn(
+                ctx.warnings.error(
                     code="MATH_BLOCK_PARSE_FAILED",
                     message=f"math block parse failed: {exc!r}",
                     surface=text,

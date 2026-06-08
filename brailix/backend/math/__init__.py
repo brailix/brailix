@@ -67,7 +67,7 @@ def translate(
     """
     math_tree = node.math
     if math_tree is None:
-        ctx.warnings.warn(
+        ctx.warnings.error(
             code="MATH_NO_IR",
             message=(
                 "math node lacks a parsed MathML tree; emitting raw "
