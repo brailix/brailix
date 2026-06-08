@@ -265,8 +265,6 @@ def _read_tmpl_slots_v5(
             r.u8()
         elif rec == _REC_RULER:
             _skip_ruler(r)
-        elif rec == _REC_COLOR:
-            r.u_extended()
         elif rec == _REC_COLOR_DEF:
             _skip_color_def_v5(r)
         elif rec == _REC_FONT_DEF:

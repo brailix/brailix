@@ -33,6 +33,11 @@ _TYPE_TO_FAMILY: dict[str, str] = {
     "64th":    "quarter_or_64th",
     "128th":   "eighth_or_128th",
     "256th":   "note_256th",
+    # breve (double whole note) — BANA Table 2 spells it as the
+    # whole-note shape followed by the breve suffix cell (family
+    # ``breve_a`` in notes.json). Without this entry the type fell
+    # through to the quarter default and was silently mistranslated.
+    "breve":   "breve_a",
 }
 
 # Diatonic position (within one octave) for each pitch step. Used by
@@ -59,12 +64,21 @@ _OCTAVE_ENTITY: dict[int, str] = {
 }
 
 
+def is_known_note_type(type_name: str) -> bool:
+    """True if ``type_name`` is a MusicXML ``<type>`` value the backend
+    maps to a real BANA notes family. Callers use this to warn
+    ``MUSIC_DURATION_AMBIGUOUS`` before falling back, so unknown types
+    don't degrade silently to a quarter note."""
+    return type_name in _TYPE_TO_FAMILY
+
+
 def note_entity_name(step: str, type_name: str) -> str:
     """MusicXML (step, type) → BANA notes-table entry name.
 
     Defaults to ``quarter_or_64th_<step>`` for unknown type values so
     the backend always emits *something*; the caller can attach a
-    ``MUSIC_DURATION_AMBIGUOUS`` warning at the same time.
+    ``MUSIC_DURATION_AMBIGUOUS`` warning at the same time (use
+    :func:`is_known_note_type` to detect the fallback case).
     """
     family = _TYPE_TO_FAMILY.get(type_name, "quarter_or_64th")
     return f"{family}_{step.upper()}"

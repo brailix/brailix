@@ -78,6 +78,39 @@ class TestWakachigakiRule:
         space = next(n for n in nodes if isinstance(n, Space))
         assert space.span == Span(3, 3)
 
+    def test_oversegmented_kana_word_gets_no_internal_space(self):
+        # ワタシ over-segmented into ワタ + シ (both 名詞, contiguous spans):
+        # no 分かち書き space inside the word (J3 切れ続き 細則).
+        toks = [
+            JapaneseToken("ワタ", "ワタ", "名詞,一般,*,*", Span(0, 2)),
+            JapaneseToken("シ", "シ", "名詞,一般,*,*", Span(2, 3)),
+        ]
+        assert _kinds(tokens_to_inline(toks)) == ["Word", "Word"]
+
+    def test_kana_run_separated_by_source_space_keeps_boundary(self):
+        # A separate kana word (non-contiguous span — there's a gap where
+        # the source space sat) still gets its 文節 boundary space. The
+        # over-segmented ワタ+シ stay joined; ホン (gap before it) gets a
+        # leading space.
+        toks = [
+            JapaneseToken("ワタ", "ワタ", "名詞,一般,*,*", Span(0, 2)),
+            JapaneseToken("シ", "シ", "名詞,一般,*,*", Span(2, 3)),
+            # span gap 3->4 models the dropped source space.
+            JapaneseToken("ホン", "ホン", "名詞,固有名詞,人名,姓", Span(4, 6)),
+        ]
+        assert _kinds(tokens_to_inline(toks)) == [
+            "Word", "Word", "Space", "Word"
+        ]
+
+    def test_kanji_head_after_kana_still_gets_space(self):
+        # Contiguity alone must not suppress a real 文節 boundary: a kanji
+        # head (本) after a kana word still takes its space.
+        toks = [
+            JapaneseToken("サクラ", "サクラ", "名詞,一般,*,*", Span(0, 3)),
+            JapaneseToken("本", "ホン", "名詞,一般,*,*", Span(3, 4)),
+        ]
+        assert _kinds(tokens_to_inline(toks)) == ["Word", "Space", "Word"]
+
 
 class TestWakachigakiJanome:
     def test_bunsetsu_spaces(self):
@@ -95,6 +128,16 @@ class TestWakachigakiJanome:
             "東京"
         )
         assert "⠀" not in r.render()
+
+    def test_oversegmented_kana_word_no_internal_space(self):
+        # janome over-segments ワタシ into ワタ + シ; the word must not get
+        # an internal 分かち書き space. Source has ワタシ <space> ホン, so
+        # exactly one boundary blank cell (before ホン) should remain.
+        pytest.importorskip("janome")
+        r = Pipeline(profile="ja_current", analyzer="janome").translate_text(
+            "ワタシ ホン"
+        )
+        assert r.render().count("⠀") == 1
 
 
 class TestBoundarySeam:

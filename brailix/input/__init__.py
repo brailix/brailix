@@ -1,9 +1,10 @@
 """Input layer: document source → :class:`DocumentIR`.
 
-Each adapter parses one source format (plain text, Markdown, LaTeX,
-MathML, HTML, ...) and produces a :class:`~brailix.ir.document.DocumentIR`
-with block-level structure populated. Inline content stays as raw
-``Block.text`` until the Pipeline's frontend runs over it.
+Each adapter parses one source format (plain text, Markdown, Word
+``.docx``, MusicXML, ...) and produces a
+:class:`~brailix.ir.document.DocumentIR` with block-level structure
+populated. Inline content stays as raw ``Block.text`` until the
+Pipeline's frontend runs over it.
 
 Currently shipping:
 

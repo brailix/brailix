@@ -826,8 +826,17 @@ class Pipeline:
             "normalizer": _resolve_language_adapter(
                 normalizer_registry, self.normalizer, DEFAULT_NORMALIZER, lang
             ),
-            "zh_analyzer": self.analyzer,
-            "ja_analyzer": self.analyzer,
+            # Analyzer is selected per language: each LanguageFrontend reads
+            # ``ctx.options["{lang}_analyzer"]`` (zh reads ``zh_analyzer``, ja
+            # reads ``ja_analyzer``). Key off the active profile's language
+            # primary subtag — the same ``lang`` the segmenter / normalizer
+            # use above — instead of hard-coding one option key per language,
+            # so a new prose language is registration, not a change here.
+            # ``_process_segment`` routes a run to the frontend matching this
+            # same ``lang``, so only the current language's analyzer key is
+            # ever read; a missing key falls back to the frontend's default
+            # (``auto``).
+            f"{lang}_analyzer": self.analyzer,
             "pinyin_resolver": self.resolver,
             "user_pinyin_dict": self.user_pinyin_dict,
         }

@@ -264,6 +264,90 @@ class TestUnhandledSegmentType:
             pipe.translate_text("重庆")
 
 
+class TestRunModeEndToEnd:
+    """End-to-end mode contrast through the Pipeline.
+
+    ``tests/core/test_errors.py`` covers the WarningCollector mechanism in
+    isolation; this exercises all three modes through a full
+    ``translate_text`` run on the *same* malformed input so the contrast is
+    observable at the public API.
+
+    Input: ``$\\frac{1}{$`` — an unbalanced ``\\frac`` that latex2mathml
+    cannot parse. The math frontend surfaces a ``MATH_ERROR`` warning and
+    falls back to a placeholder cell.
+
+    Observed real behaviour (verified by running each mode, not assumed):
+
+    * strict  → the MATH_ERROR is promoted to a ``StrictModeError`` and the
+      run aborts (no output at all).
+    * normal  → the warning is recorded and the run still completes,
+      rendering a fallback (blank) cell.
+    * lenient → identical to normal here.
+
+    Why normal and lenient render the same for this input: the lenient mode
+    only differs from normal by *downgrading* ``WarningLevel.ERROR``
+    warnings to ``WARN`` (see ``WarningCollector`` in core/errors.py). The
+    MATH_ERROR recovery warning is emitted at ``WARN`` level already, so
+    there is nothing to downgrade. As of this writing no production code
+    path emits an ``ERROR``-level warning, so no real input can distinguish
+    normal from lenient end-to-end — the distinction lives entirely at the
+    strict boundary. We still assert both modes explicitly to lock the
+    "recover and keep going" contract for each.
+    """
+
+    BAD_MATH = "$\\frac{1}{$"
+
+    def test_strict_aborts_on_malformed_math(self):
+        from brailix import Pipeline
+        from brailix.core.errors import StrictModeError
+
+        pipe = Pipeline(mode="strict", analyzer="null", resolver="null")
+        with pytest.raises(StrictModeError) as ei:
+            pipe.translate_text(self.BAD_MATH)
+        assert ei.value.warning.code == "MATH_ERROR"
+
+    def test_normal_warns_but_still_renders(self):
+        from brailix import Pipeline
+
+        pipe = Pipeline(mode="normal", analyzer="null", resolver="null")
+        result = pipe.translate_text(self.BAD_MATH)
+        codes = {w.code for w in result.warnings}
+        assert "MATH_ERROR" in codes
+        # Run completed and produced a (fallback) rendering rather than
+        # aborting — the placeholder cell is U+2800 (blank braille).
+        out = result.render()
+        assert isinstance(out, str)
+        assert out == "⠀"
+
+    def test_lenient_recovers_like_normal(self):
+        from brailix import Pipeline
+
+        pipe = Pipeline(mode="lenient", analyzer="null", resolver="null")
+        result = pipe.translate_text(self.BAD_MATH)
+        codes = {w.code for w in result.warnings}
+        assert "MATH_ERROR" in codes
+        out = result.render()
+        assert isinstance(out, str)
+        assert out == "⠀"
+
+    def test_strict_is_the_only_mode_that_aborts(self):
+        """Cross-check: same input, only strict raises; the other two return."""
+        from brailix import Pipeline
+        from brailix.core.errors import StrictModeError
+
+        rendered: dict[str, str] = {}
+        for mode in ("normal", "lenient"):
+            pipe = Pipeline(mode=mode, analyzer="null", resolver="null")
+            rendered[mode] = pipe.translate_text(self.BAD_MATH).render()
+        # normal and lenient agree on the recovered output for this input.
+        assert rendered["normal"] == rendered["lenient"]
+
+        with pytest.raises(StrictModeError):
+            Pipeline(mode="strict", analyzer="null", resolver="null").translate_text(
+                self.BAD_MATH
+            )
+
+
 class TestStandaloneResult:
     def test_render_without_a_pipeline(self):
         # A caller can hand-build a TranslationResult and still render

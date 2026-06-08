@@ -84,6 +84,22 @@ class TestSingleNote:
         # Quarter F = "]" = (1,2,4,5,6)
         assert _dots(cells)[-1] == (1, 2, 4, 5, 6)
 
+    def test_breve_C4(self, profile, ctx):
+        # BANA Table 2: breve (double whole note) = whole-form + breve
+        # suffix cell. breve_a_C = ["c_13456", "c_13"]. Regression: the
+        # type used to fall through to the quarter default silently.
+        note = ET.fromstring(
+            "<note><pitch><step>C</step><octave>4</octave></pitch>"
+            "<duration>32</duration><type>breve</type></note>"
+        )
+        cells = emit_tree(note, ctx, profile)
+        # [octave fourth = (5,), whole C = (1,3,4,5,6), breve suffix = (1,3)]
+        assert _dots(cells) == [(5,), (1, 3, 4, 5, 6), (1, 3)]
+        assert _roles(cells) == ["music_octave", "music_note", "music_note"]
+        # breve is a known type → no ambiguity warning.
+        codes = [w.code for w in ctx.warnings.warnings]
+        assert "MUSIC_DURATION_AMBIGUOUS" not in codes
+
 
 class TestSingleRest:
     def test_quarter_rest(self, profile, ctx):
@@ -140,6 +156,22 @@ class TestMalformedNote:
         emit_tree(note, ctx, profile)
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
+
+    def test_unknown_type_warns_not_silent(self, profile, ctx):
+        # A bogus <type> degrades to the quarter-note shape, but must
+        # warn MUSIC_DURATION_AMBIGUOUS instead of mistranslating
+        # silently (regression: any unknown type used to map to quarter
+        # with no signal at all).
+        note = ET.fromstring(
+            "<note><pitch><step>C</step><octave>4</octave></pitch>"
+            "<duration>1</duration><type>fortnight</type></note>"
+        )
+        cells = emit_tree(note, ctx, profile)
+        codes = [w.code for w in ctx.warnings.warnings]
+        assert "MUSIC_DURATION_AMBIGUOUS" in codes
+        # Still emits the fallback quarter C so the score renders.
+        # Quarter C = "?" = (1,4,5,6).
+        assert _dots(cells)[-1] == (1, 4, 5, 6)
 
 
 # ---------------------------------------------------------------------------

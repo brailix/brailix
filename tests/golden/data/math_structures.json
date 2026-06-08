@@ -29,7 +29,13 @@
         {"src": "$\\frac{\\sqrt{3}}{\\sqrt{2}}$", "expected": "⠩⠱⠼⠉⠹⠳⠩⠱⠼⠃⠹", "note": "simple: sqrt over sqrt"},
         {"src": "$\\frac{1}{\\sqrt{2}}$", "expected": "⠼⠁⠳⠩⠱⠼⠃⠹", "note": "simple: 1 over sqrt(2)"},
         {"src": "$\\frac{x^2}{2}$", "expected": "⠰⠭⠌⠆⠳⠼⠃", "note": "simple: msup over digit (atomic-lower-digit closes script)"},
-        {"src": "$\\frac{2}{x^2}$", "expected": "⠼⠃⠳⠰⠭⠌⠆", "note": "simple: digit over msup"}
+        {"src": "$\\frac{2}{x^2}$", "expected": "⠼⠃⠳⠰⠭⠌⠆", "note": "simple: digit over msup"},
+        {"src": "$\\frac{\\frac{a}{b}}{c}$", "expected": "⠰⠁⠳⠰⠃⠳⠰⠉", "note": "deep nest (ARCHITECTURE.md §10): nested simple-fraction numerator over letter — simple form flattens into a slash chain a/b/c"},
+        {"src": "$\\frac{a}{\\frac{b}{c}}$", "expected": "⠰⠁⠳⠰⠃⠳⠰⠉", "note": "deep nest: nested simple-fraction denominator. WATCH: flattens to the SAME a/b/c chain as the numerator-nested case above — simple-form nesting is ambiguous; golden locks this known behaviour"},
+        {"src": "$\\frac{\\frac{1}{2}}{\\frac{3}{4}}$", "expected": "⠼⠁⠆⠳⠼⠉⠲", "note": "deep nest: Antoine fraction over Antoine fraction → (1/2)/(3/4) as slash-joined Antoine pairs"},
+        {"src": "$\\frac{\\frac{\\frac{a}{b}}{c}}{d}$", "expected": "⠰⠁⠳⠰⠃⠳⠰⠉⠳⠰⠙", "note": "deep nest: triple-nested simple fraction flattens to a/b/c/d slash chain"},
+        {"src": "$\\frac{\\sqrt{x}}{\\sqrt{y}}$", "expected": "⠩⠱⠰⠭⠹⠳⠩⠱⠰⠽⠹", "note": "deep nest: sqrt over sqrt (each radical self-fences with close ⠹ before/after the bar)"},
+        {"src": "$\\frac{1}{\\sqrt{x^2+1}}$", "expected": "⠼⠁⠳⠩⠱⠰⠭⠌⠆⠀⠖⠼⠁⠹", "note": "deep nest (ARCHITECTURE.md §10): 1 over sqrt of a polynomial with superscript inside the radical"}
       ]
     },
     "sqrt_root": {
@@ -44,7 +50,11 @@
         {"src": "$\\sqrt{\\pi}$", "expected": "⠩⠱⠨⠏⠹", "note": "sqrt of greek letter"},
         {"src": "$\\sqrt[3]{x}$", "expected": "⠩⠼⠉⠱⠰⠭⠹", "note": "cube root: open + degree + indicator + x + close"},
         {"src": "$\\sqrt[4]{x}$", "expected": "⠩⠼⠙⠱⠰⠭⠹", "note": "fourth root with degree 4"},
-        {"src": "$\\sqrt[n]{a}$", "expected": "⠩⠰⠝⠱⠰⠁⠹", "note": "nth root: degree is letter n"}
+        {"src": "$\\sqrt[n]{a}$", "expected": "⠩⠰⠝⠱⠰⠁⠹", "note": "nth root: degree is letter n"},
+        {"src": "$\\sqrt{\\sqrt{x}}$", "expected": "⠩⠱⠩⠱⠰⠭⠹⠹", "note": "deep nest (ARCHITECTURE.md §10): radical inside radical — two opens then two closes ⠹⠹ unwind the nesting"},
+        {"src": "$\\sqrt{\\sqrt{\\sqrt{x}}}$", "expected": "⠩⠱⠩⠱⠩⠱⠰⠭⠹⠹⠹", "note": "deep nest: triple-nested sqrt — three opens, three closes; verifies fence balance at depth 3"},
+        {"src": "$\\sqrt{\\frac{a}{b}}$", "expected": "⠩⠱⠰⠁⠳⠰⠃⠹", "note": "deep nest: simple fraction inside a radical (a/b sits between the radical fences)"},
+        {"src": "$\\sqrt{x^2+y^2}$", "expected": "⠩⠱⠰⠭⠌⠆⠀⠖⠰⠽⠌⠆⠹", "note": "deep nest: radical over a polynomial with two superscripts (x^2 + y^2)"}
       ]
     },
     "scripts": {

@@ -29,6 +29,7 @@ from brailix.backend.music.utils import (
     diatonic_position,
     emit_cells_for_entity,
     first_child_text,
+    is_known_note_type,
     needs_octave_mark,
     note_entity_name,
     octave_entity_name,
@@ -133,6 +134,19 @@ def _emit_note(
                 message=f"no octave entry for octave {octave}",
                 source="backend.music",
             )
+
+    # Unknown <type> degrades to a quarter note via note_entity_name's
+    # fallback; warn so the silent mistranslation surfaces (e.g. a
+    # bogus or unsupported value). breve / 256th / etc. are all known.
+    if not is_known_note_type(type_name):
+        mctx.backend.warnings.warn(
+            code="MUSIC_DURATION_AMBIGUOUS",
+            message=(
+                f"unknown <type>{type_name!r}</type>; falling back to "
+                f"quarter-note shape"
+            ),
+            source="backend.music",
+        )
 
     note_entity = note_entity_name(step, type_name)
     if not emit_cells_for_entity(

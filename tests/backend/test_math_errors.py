@@ -64,6 +64,31 @@ class TestUnsupported:
         )
         assert any(w.code == "MATH_UNSUPPORTED_ELEMENT" for w in wc)
 
+    def test_unsupported_surface_truncated_for_large_subtree(self, profile):
+        # A large unsupported subtree (e.g. a big <mstyle>) must not copy its
+        # whole serialization into the warning surface — it is truncated with
+        # an ellipsis so memory / log noise stays bounded.
+        big = "".join(f"<mi>x{i}</mi>" for i in range(200))
+        _, wc = emit(
+            mml(f"<math><mstyle>{big}</mstyle></math>"), profile
+        )
+        w = next(w for w in wc if w.code == "MATH_UNSUPPORTED_ELEMENT")
+        assert w.surface is not None
+        assert len(w.surface) <= 201  # 200 chars + ellipsis
+        assert w.surface.endswith("…")
+        assert w.surface.startswith("<mstyle")
+
+    def test_unsupported_surface_kept_for_small_subtree(self, profile):
+        # A small unsupported element keeps its full serialization (no
+        # truncation, no ellipsis) so the warning stays maximally useful.
+        _, wc = emit(
+            mml("<math><mstyle><mi>x</mi></mstyle></math>"), profile
+        )
+        w = next(w for w in wc if w.code == "MATH_UNSUPPORTED_ELEMENT")
+        assert w.surface is not None
+        assert not w.surface.endswith("…")
+        assert "<mi>x</mi>" in w.surface
+
 
 # ---------------------------------------------------------------------------
 # 41-43: MathInline edge cases + serialization

@@ -8,6 +8,19 @@ A number-sign cell is prepended whenever a digit run starts a new
 braille "phrase". For now we emit it before every numeric token;
 context-aware suppression (e.g. "still inside a number") arrives with
 :class:`BackendContext` plumbing.
+
+Language scope: Number / Percent / Quantity are language-agnostic
+(they only touch the profile's digit / punctuation / letter tables).
+:func:`translate_date` is the exception — it is currently specialised
+for Chinese date markers: the year marker 年 takes no number→marker
+connector (NCB convention; see :data:`_DATE_CONNECTOR_EXEMPT`) and the
+marker's reading is voiced through :mod:`brailix.backend.zh`. This is
+acceptable because Chinese is the only shipping language with a
+:class:`~brailix.ir.inline.Date` that carries
+:class:`~brailix.ir.inline.HanziMarker` parts; adding another language
+with date markers should push the marker-connector rule and the
+marker-reading path down into the per-language ``LanguageBackend``
+rather than growing more special cases here.
 """
 
 from __future__ import annotations
@@ -103,15 +116,23 @@ def _unit_char_cells(
 def translate_date(node: Date, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:
     """Date → recurse into ``parts``.
 
+    **Chinese-specialised path.** Unlike the rest of this module, the
+    Date path is currently tied to Chinese date markers in two ways:
+    the connector-exemption rule below singles out 年 (NCB convention),
+    and each :class:`HanziMarker` (年/月/日/号/时/分/秒/…) is voiced as a
+    Chinese syllable through :mod:`backend.zh`. This is the only date
+    shape that ships today; the next language with date markers should
+    move both pieces (the per-marker connector rule and the
+    marker-reading backend) down into its ``LanguageBackend`` instead of
+    extending this function. See the module docstring.
+
     Each :class:`Number` part runs through the number-sign + digit
-    pipeline. Each :class:`HanziMarker` (年/月/日/号/时/分/秒/…) is
-    translated as a Chinese syllable through :mod:`backend.zh`. The
-    backend stays language-agnostic: it relies on whatever
-    :attr:`HanziMarker.reading` the frontend already attached. If
-    pinyin is missing, backend/zh emits a ``MISSING_PINYIN`` warning
-    and an unknown cell — guessing the reading is the frontend's job,
-    not ours (the backend "no longer does language detection",
-    ARCHITECTURE §12).
+    pipeline. For the marker reading the backend still does no language
+    *detection*: it relies on whatever :attr:`HanziMarker.reading` the
+    frontend already attached. If pinyin is missing, backend/zh emits a
+    ``MISSING_PINYIN`` warning and an unknown cell — guessing the
+    reading is the frontend's job, not ours (the backend "no longer does
+    language detection", ARCHITECTURE §12).
 
     A connector ⠤ is inserted before a marker that directly follows a
     Number — the same number→hanzi joiner the zh frontend applies to

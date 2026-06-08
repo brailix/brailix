@@ -972,3 +972,151 @@ class TestCoerceDotsField:
         from brailix.core.config import _coerce_dots_field
 
         assert _coerce_dots_field([1, 2]) == ((1, 2),)
+
+
+# ---------------------------------------------------------------------------
+# Per-language ``tables.<lang>`` slot (§7.6)
+# ---------------------------------------------------------------------------
+
+
+def _write_ja_profile(
+    tmp_path: Path,
+    *,
+    name: str = "ja_demo",
+    kana_payload: Any = None,
+    ja_section: Any = "__default__",
+) -> str:
+    """Write a minimal ja-language profile under ``tmp_path``.
+
+    ``kana_payload`` is the raw kana.json content (defaults to a tiny but
+    valid ``{"kana": {"ア": "c_1"}}``). ``ja_section`` is the value placed
+    at ``tables.ja`` (defaults to a slot referencing the written kana
+    file); pass ``None`` to omit the slot entirely, or any other value to
+    inject a malformed slot.
+    """
+    _write_cells_pool(tmp_path)
+    res_dir = tmp_path / "resources" / "ja"
+    res_dir.mkdir(parents=True, exist_ok=True)
+    if kana_payload is None:
+        kana_payload = {"kana": {"ア": "c_1", "イ": "c_12"}}
+    (res_dir / "kana.json").write_text(
+        json.dumps(kana_payload), encoding="utf-8"
+    )
+
+    if ja_section == "__default__":
+        ja_section = {"kana": "resources/ja/kana.json"}
+
+    tables: dict[str, Any] = {"cells": "resources/cells.json"}
+    if ja_section is not None:
+        tables["ja"] = ja_section
+
+    prof = tmp_path / "profiles" / f"{name}.json"
+    prof.parent.mkdir(parents=True, exist_ok=True)
+    prof.write_text(
+        json.dumps({
+            "name": name,
+            "language": "ja-JP",
+            "cell": "six_dot",
+            "tables": tables,
+        }),
+        encoding="utf-8",
+    )
+    return name
+
+
+class TestLangTablesValidation:
+    def test_ja_current_loads_without_error(self):
+        # Regression: the shipped ja profile must still validate.
+        p = load_profile("ja_current")
+        assert p.name == "ja_current"
+        assert p.lang_tables["ja"]["kana"]  # non-empty
+
+    def test_minimal_ja_profile_loads(self, tmp_path):
+        name = _write_ja_profile(tmp_path)
+        p = load_profile(name, root=tmp_path)
+        assert p.lang_tables["ja"]["kana"]["ア"] == ((1,),)
+
+    def test_missing_ja_slot_raises(self, tmp_path):
+        # language is ja but tables.ja is absent → required group missing.
+        name = _write_ja_profile(tmp_path, ja_section=None)
+        with pytest.raises(ConfigurationError) as ei:
+            load_profile(name, root=tmp_path)
+        msg = str(ei.value)
+        assert "tables.ja" in msg
+        assert "kana" in msg
+
+    def test_ja_slot_not_dict_raises(self, tmp_path):
+        name = _write_ja_profile(tmp_path, ja_section="resources/ja/kana.json")
+        with pytest.raises(ConfigurationError) as ei:
+            load_profile(name, root=tmp_path)
+        msg = str(ei.value)
+        assert "tables.ja" in msg
+        assert "object" in msg or "dict" in msg.lower()
+
+    def test_missing_required_kana_group_raises(self, tmp_path):
+        # tables.ja present but missing the required ``kana`` group.
+        name = _write_ja_profile(
+            tmp_path, ja_section={"punct": "resources/ja/kana.json"}
+        )
+        with pytest.raises(ConfigurationError) as ei:
+            load_profile(name, root=tmp_path)
+        msg = str(ei.value)
+        assert "tables.ja" in msg
+        assert "kana" in msg
+
+    def test_non_string_group_ref_raises(self, tmp_path):
+        # A mistyped ref (object instead of a path string) is silently
+        # dropped by the loader; the validator must reject it.
+        name = _write_ja_profile(
+            tmp_path, ja_section={"kana": {"oops": "not a ref"}}
+        )
+        with pytest.raises(ConfigurationError) as ei:
+            load_profile(name, root=tmp_path)
+        msg = str(ei.value)
+        assert "tables.ja.kana" in msg
+
+    def test_empty_kana_table_raises(self, tmp_path):
+        # kana.json has a ``kana`` group with no real entries.
+        name = _write_ja_profile(
+            tmp_path, kana_payload={"kana": {"_note": "comment only"}}
+        )
+        with pytest.raises(ConfigurationError) as ei:
+            load_profile(name, root=tmp_path)
+        msg = str(ei.value)
+        assert "kana" in msg
+        assert "no cell entries" in msg
+
+    def test_bad_cell_spec_in_kana_table_raises(self, tmp_path):
+        # An entry whose value is neither a ref string, a non-empty list,
+        # nor a cells/dots object — the loader drops it silently.
+        name = _write_ja_profile(
+            tmp_path, kana_payload={"kana": {"ア": "c_1", "イ": 42}}
+        )
+        with pytest.raises(ConfigurationError) as ei:
+            load_profile(name, root=tmp_path)
+        msg = str(ei.value)
+        assert "イ" in msg
+        assert "cell spec" in msg
+
+    def test_valid_cell_spec_shapes_accepted(self, tmp_path):
+        # str ref, bare list of refs, and dots/cells objects all load.
+        name = _write_ja_profile(
+            tmp_path,
+            kana_payload={"kana": {
+                "ア": "c_1",
+                "イ": ["c_1", "c_2"],
+                "ウ": {"dots": [1, 4]},
+                "エ": {"cells": ["c_12"]},
+            }},
+        )
+        # Should not raise.
+        load_profile(name, root=tmp_path)
+
+    def test_kana_table_top_level_fallback(self, tmp_path):
+        # kana.json may hold entries at the top level (no ``kana``
+        # wrapper) — the loader and validator both fall back to it.
+        name = _write_ja_profile(
+            tmp_path, kana_payload={"ア": "c_1", "イ": "c_12"}
+        )
+        p = load_profile(name, root=tmp_path)
+        assert p.lang_tables["ja"]["kana"]["ア"] == ((1,),)

@@ -102,6 +102,36 @@ def list_analyzers() -> list[str]:
 _DEPENDENT_POS: frozenset[str] = frozenset({"助詞", "助動詞"})
 
 
+def _is_all_kana(s: str) -> bool:
+    """True for a non-empty string made entirely of syllabic kana."""
+    return bool(s) and all(_is_kana(c) for c in s)
+
+
+def _is_intraword_kana_continuation(
+    token: JapaneseToken, prev: JapaneseToken | None
+) -> bool:
+    """Whether ``token`` continues the *same* kana word as ``prev`` and so
+    must **not** take a leading 分かち書き space.
+
+    Analyzers (janome / IPADIC) over-segment an all-kana word into adjacent
+    morphemes — ワタシ → ワタ + シ, both tagged 名詞 — which would otherwise
+    drop a stray blank cell *inside* the word. We treat two contiguous,
+    all-kana tokens as one word: 分かち書き spaces only at 文節 boundaries,
+    never word-internally (J3 切れ続き 細則).
+
+    Contiguity is decided from the spans (``prev.span.end == token.span.start``);
+    a real source space comes back as its own 記号,空白 token, so genuinely
+    separated kana runs are *not* contiguous and still get their boundary
+    space. Normal 文節 heads (本 / 読む / 名前) carry kanji, so they aren't
+    all-kana and are unaffected.
+    """
+    if prev is None or prev.span is None or token.span is None:
+        return False
+    if prev.span.end != token.span.start:
+        return False
+    return _is_all_kana(prev.surface) and _is_all_kana(token.surface)
+
+
 def _is_bunsetsu_head(token: JapaneseToken, prev: JapaneseToken | None) -> bool:
     """Whether ``token`` starts a new bunsetsu (文節) — i.e. takes a leading
     blank cell under 文節分かち書き.
@@ -112,10 +142,13 @@ def _is_bunsetsu_head(token: JapaneseToken, prev: JapaneseToken | None) -> bool:
     ``kana`` analyzer) yields ``False`` — no morphology, no auto-spacing,
     so kana-only output keeps whatever spaces the source had.
 
-    V1 applies the basic 文節 rule; finer 切れ続き (compound-word splitting,
-    long-word division) is a later refinement.
+    Two contiguous all-kana tokens are one over-segmented word (ワタ + シ),
+    so a continuation never takes a space — 分かち書き is a 文節 boundary
+    rule, not a word-internal one (J3 切れ続き 細則).
     """
     if not token.pos:
+        return False
+    if _is_intraword_kana_continuation(token, prev):
         return False
     major = token.pos.split(",")[0]
     if major in _DEPENDENT_POS:

@@ -258,3 +258,51 @@ class TestOctaveRuleOverrides:
         _emit_element(cells, mctx, tree)
         # M1: [octave, C, D]  M2: [octave, E]  → re-marks at measure 2
         assert _octave_roles(cells) == [True, False, False, True, False]
+
+
+# ---------------------------------------------------------------------------
+# octave_rule wired through the profile (regression: was hard-coded to
+# the "interval16" default and ignored features.music.octave_rule)
+# ---------------------------------------------------------------------------
+
+
+class TestOctaveRuleFromProfile:
+    """End-to-end through ``emit_tree`` (not a hand-injected context):
+    ``features.music.octave_rule`` must actually drive the backend."""
+
+    def test_always_rule_from_profile_marks_every_note(
+        self, profile, ctx, monkeypatch
+    ):
+        # feature() re-walks the live features dict, so setting it here
+        # is observed by emit_tree's _resolve_octave_rule.
+        monkeypatch.setitem(profile.features["music"], "octave_rule", "always")
+        tree = _make_measure([
+            ("C", 4, "quarter"),
+            ("D", 4, "quarter"),    # 2° — would normally skip the prefix
+            ("E", 4, "quarter"),    # 2° — would normally skip the prefix
+        ])
+        cells = emit_tree(tree, ctx, profile)
+        # Every note carries an octave prefix under "always".
+        assert _octave_roles(cells) == [True, False, True, False, True, False]
+
+    def test_default_profile_uses_interval16(self, profile, ctx):
+        # Without overriding, the BANA default skips close intervals.
+        tree = _make_measure([
+            ("C", 4, "quarter"),
+            ("D", 4, "quarter"),
+            ("E", 4, "quarter"),
+        ])
+        cells = emit_tree(tree, ctx, profile)
+        assert _octave_roles(cells) == [True, False, False, False]
+
+    def test_invalid_octave_rule_falls_back(self, profile, ctx, monkeypatch):
+        # A malformed profile value must not crash or violate the
+        # context Literal — it degrades to interval16.
+        monkeypatch.setitem(profile.features["music"], "octave_rule", "bogus")
+        tree = _make_measure([
+            ("C", 4, "quarter"),
+            ("D", 4, "quarter"),
+        ])
+        cells = emit_tree(tree, ctx, profile)
+        # interval16 behaviour: 2° skips the second prefix.
+        assert _octave_roles(cells) == [True, False, False]

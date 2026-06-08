@@ -27,10 +27,12 @@ and the heat mark ``\Delta``; a Chinese condition like 点燃 is carried as
 monatomic (``Na+``, ``Mg^2+``, ``O^2-``) and polyatomic (``SO4^2-`` — an
 ``<msup>`` the backend renders with the charge sign ⠨), and parenthesised groups
 with a multiplier (``Ca(OH)2``, ``(NH4)2SO4`` — a ``<mrow>`` group whose
-content is parsed and cased on its own). States (``(s)`` / ``(aq)`` …),
-chemical bonds (``-``/``=``/``#``) and square-bracket complexes
-(``[Cu(NH3)4]^2+``) still fall back to a soft ``<merror>`` until their braille
-rules are specified.
+content is parsed and cased on its own), physical-state labels (``(s)`` /
+``(l)`` / ``(g)`` / ``(aq)`` — carried as ``<mtext data-bk-chem-state>``) and
+square-bracket complex ions (``[Cu(NH3)4]^2+`` — the bracketed-group parser
+handles ``[...]`` with a trailing charge just like ``(...)``). Only chemical
+bonds (``-`` / ``=`` / ``#``, especially the triple bond ``#``) are still
+unimplemented, pending their braille rules.
 """
 
 from __future__ import annotations

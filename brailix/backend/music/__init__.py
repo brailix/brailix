@@ -26,6 +26,7 @@ Public surface is intentionally tiny:
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from typing import Literal
 
 # Import handlers so the dispatch table is populated before the first
 # translate() call. The handlers module is imported for its side effect
@@ -65,7 +66,12 @@ def translate(
         )
         return _unknown_cell_seq(node.surface, node.span)
 
-    mctx = MusicBrailleContext(profile=profile, backend=ctx, span=node.span)
+    mctx = MusicBrailleContext(
+        profile=profile,
+        backend=ctx,
+        span=node.span,
+        octave_rule=_resolve_octave_rule(profile),
+    )
     cells: list[BrailleCell] = []
     _emit_element(cells, mctx, score_tree)
     return cells
@@ -79,10 +85,32 @@ def emit_tree(
     Equivalent to wrapping the element in a fresh :class:`MusicInline`
     and calling :func:`translate`.
     """
-    mctx = MusicBrailleContext(profile=profile, backend=ctx)
+    mctx = MusicBrailleContext(
+        profile=profile,
+        backend=ctx,
+        octave_rule=_resolve_octave_rule(profile),
+    )
     cells: list[BrailleCell] = []
     _emit_element(cells, mctx, elem)
     return cells
+
+
+# Valid ``features.music.octave_rule`` strategies — must stay in sync
+# with the ``Literal`` on :attr:`MusicBrailleContext.octave_rule`.
+_VALID_OCTAVE_RULES = ("interval16", "every_measure", "always")
+
+
+def _resolve_octave_rule(
+    profile: BrailleProfile,
+) -> Literal["interval16", "every_measure", "always"]:
+    """Read ``features.music.octave_rule`` and narrow it to a valid
+    strategy. An unset / unrecognised value falls back to the BANA
+    default ``"interval16"`` (a malformed profile shouldn't crash the
+    backend or violate the context's ``Literal`` type)."""
+    value = profile.feature("music.octave_rule", "interval16")
+    if value in _VALID_OCTAVE_RULES:
+        return value
+    return "interval16"
 
 
 __all__ = (
