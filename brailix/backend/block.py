@@ -121,6 +121,7 @@ def expand_block(
             block_type=block.type,
             id=block.id,
             heading_level=getattr(block, "level", None),
+            align=block.align,
             cells=cells,
         )
     ]
@@ -278,10 +279,16 @@ def _footnote_ref_cells(ref: str, profile: BrailleProfile) -> list[BrailleCell]:
     if not ref:
         return []
     cells: list[BrailleCell] = []
+    # Track whether the previous emitted cell was part of a digit run so a
+    # number sign is re-emitted whenever digits resume after a letter /
+    # punctuation (a ref like ``1a2`` must not read its trailing ``2`` as a
+    # letter); scanning "any number_sign already in cells" deduped too broadly.
+    prev_was_digit = False
     for ch in ref:
         bare = profile.bare_letter(ch)
         if bare is not None:
             cells.append(BrailleCell(dots=bare, role="footnote_ref", source_text=ch))
+            prev_was_digit = False
             continue
         punct = profile.punctuation.get(ch)
         if punct:
@@ -289,23 +296,26 @@ def _footnote_ref_cells(ref: str, profile: BrailleProfile) -> list[BrailleCell]:
                 BrailleCell(dots=dots, role="footnote_ref", source_text=ch)
                 for dots in punct
             )
+            prev_was_digit = False
             continue
         digit = profile.digits.get(ch)
         if digit is not None:
-            # Number-sign prefix once at the start of a digit run.
-            if profile.number_sign and not any(
-                c.role == "number_sign" for c in cells
-            ):
+            # Number-sign prefix at the start of each digit run — a digit
+            # resuming after a letter / punct switches back into "number"
+            # mode and needs the sign again.
+            if profile.number_sign and not prev_was_digit:
                 cells.append(
                     BrailleCell(dots=profile.number_sign, role="number_sign")
                 )
             cells.append(
                 BrailleCell(dots=digit, role="footnote_ref", source_text=ch)
             )
+            prev_was_digit = True
             continue
         cells.append(
             BrailleCell(dots=(), role="unknown", source_text=ch)
         )
+        prev_was_digit = False
     cells.append(BLANK_CELL)
     return cells
 

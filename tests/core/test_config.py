@@ -412,6 +412,13 @@ class TestMathTable:
         second = p.letter("a")
         assert first is second
 
+    def test_math_identifier_is_letter_alias(self):
+        # Backwards-compat alias documented in ARCHITECTURE §P4.5 / §R5+ +
+        # math-redesign / math-boundaries — must mirror ``letter`` exactly.
+        p = load_profile("cn_current")
+        for ch in ("a", "A", "π", "一"):
+            assert p.math_identifier(ch) == p.letter(ch)
+
     def test_letter_tables_loaded_as_neutral(self):
         # Letter tables themselves stay free of any context prefix so
         # downstream backends (math now, LatinBraille later) can apply
@@ -475,23 +482,28 @@ class TestMathSymbolEntityNormalisation:
         # ne = c_4 + equals. The ``equals`` ref inside the cells array
         # must resolve to the equals entry (= U+003D) and its cells.
         p = load_profile("cn_current")
-        # ne == "≠" U+2260; expected dots (4,) + equals (2,3,5,6)
+        # ne = ["equals"] + the ⠈ negation marker (backend-applied); the
+        # ``equals`` ref still resolves to its bare cell here.
         cells = p.math_symbol("≠")
-        assert cells == ((4,), (2, 3, 5, 6))
+        assert cells == ((2, 3, 5, 6),)
+        assert p.math_symbol_indicator("≠") == "negation"
 
     def test_sibling_ref_chained(self):
-        # ncong = c_4 + cong, where cong itself is c_35 + c_2356.
+        # ncong = ["cong"] + ⠈ negation marker; cong itself is c_35 + c_2356,
+        # so the chained ref resolves to both bare cells.
         p = load_profile("cn_current")
         # ncong == "≇" U+2247
         cells = p.math_symbol("≇")
-        assert cells == ((4,), (3, 5), (2, 3, 5, 6))
+        assert cells == ((3, 5), (2, 3, 5, 6))
+        assert p.math_symbol_indicator("≇") == "negation"
 
     def test_sibling_ref_via_rArr(self):
-        # nrArr = c_4 + rArr; rArr = c_2356 + c_345.
+        # nrArr = ["rArr"] + ⠈ negation marker; rArr = c_2356 + c_345.
         # nrArr → ⇏ U+21CF
         p = load_profile("cn_current")
         cells = p.math_symbol("⇏")
-        assert cells == ((4,), (2, 3, 5, 6), (3, 4, 5))
+        assert cells == ((2, 3, 5, 6), (3, 4, 5))
+        assert p.math_symbol_indicator("⇏") == "negation"
 
     def test_divide_aliases_sol(self):
         # divide ≡ sol per the profile's display alias for ÷.
@@ -709,14 +721,20 @@ class TestMathSymbolSupplement:
 
     def test_set_operators(self):
         p = load_profile("cn_current")
-        # ∪ union ⠰⠴; ∩ intersection ⠰⠲ — role op, front-spaced.
-        assert p.math_symbol("∪") == ((5, 6), (3, 5, 6))
-        assert p.math_symbol("∩") == ((5, 6), (2, 5, 6))
+        # ∪ union ⠰⠴; ∩ intersection ⠰⠲ — the ⠰ is the backend-applied
+        # operation marker, so the table holds only the bare cell.
+        assert p.math_symbol("∪") == ((3, 5, 6),)
+        assert p.math_symbol("∩") == ((2, 5, 6),)
+        assert p.math_symbol_indicator("∪") == "operation"
+        assert p.math_symbol_indicator("∩") == "operation"
         assert p.math_symbol_role("∪") == "op"
         assert p.math_symbol_spaces("∪") == (True, False)
-        # ∖ set-difference ⠰⠤; ∅ empty-set ⠈⠴ — tight.
-        assert p.math_symbol("∖") == ((5, 6), (3, 6))
+        # ∖ set-difference ⠰⠤ (operation marker); ∅ empty-set ⠈⠴ — tight.
+        # ∅'s ⠈ is a written sign, NOT the negation marker (no indicator).
+        assert p.math_symbol("∖") == ((3, 6),)
+        assert p.math_symbol_indicator("∖") == "operation"
         assert p.math_symbol("∅") == ((4,), (3, 5, 6))
+        assert p.math_symbol_indicator("∅") is None
         assert p.math_symbol_spaces("∖") == (False, False)
         # \setminus emits U+29F5 (⧵, no html5 entity); the U+XXXX literal
         # key aliases it to ∖'s cells.
@@ -725,29 +743,42 @@ class TestMathSymbolSupplement:
 
     def test_logic_symbols(self):
         p = load_profile("cn_current")
-        # ∧ conjunction ⠰⠢; ∨ disjunction ⠰⠔; ¬ negation ⠩.
-        assert p.math_symbol("∧") == ((5, 6), (2, 6))
-        assert p.math_symbol("∨") == ((5, 6), (3, 5))
+        # ∧ conjunction ⠰⠢; ∨ disjunction ⠰⠔ — ⠰ is the backend-applied
+        # operation marker, so the table holds only the bare cell.
+        assert p.math_symbol("∧") == ((2, 6),)
+        assert p.math_symbol("∨") == ((3, 5),)
+        assert p.math_symbol_indicator("∧") == "operation"
+        assert p.math_symbol_indicator("∨") == "operation"
+        # ¬ negation ⠩ is a written sign, NOT the ⠈ negation marker.
         assert p.math_symbol("¬") == ((1, 4, 6),)
-        # ∀ universal-quantifier ⠫⠄; ∃ existential-quantifier ⠫⠢. 1246 here is a bare cell, NOT a
-        # ref to function.prefix (coincidental overlap).
-        assert p.math_symbol("∀") == ((1, 2, 4, 6), (3,))
-        assert p.math_symbol("∃") == ((1, 2, 4, 6), (2, 6))
+        assert p.math_symbol_indicator("¬") is None
+        # ∀ universal-quantifier ⠫⠄; ∃ existential ⠫⠢ — ⠫ symbol marker,
+        # backend-applied, so the table holds only the bare cell.
+        assert p.math_symbol("∀") == ((3,),)
+        assert p.math_symbol("∃") == ((2, 6),)
+        assert p.math_symbol_indicator("∀") == "symbol"
+        assert p.math_symbol_indicator("∃") == "symbol"
         for ch in "∧∨¬∀∃":
             assert p.math_symbol_role(ch) == "op"
 
     def test_calculus_constants(self):
         p = load_profile("cn_current")
-        # ∂ partial-derivative ⠹ = 1456 (tight, for ∂y/∂x); ∇ nabla ⠫⠴ = 1246+356.
+        # ∂ partial-derivative ⠹ = 1456 (tight, for ∂y/∂x); ∇ nabla ⠫⠴ —
+        # the ⠫ (1246) is the backend-applied symbol indicator, so the table
+        # holds only the bare ⠴ = 356.
         assert p.math_symbol("∂") == ((1, 4, 5, 6),)
-        assert p.math_symbol("∇") == ((1, 2, 4, 6), (3, 5, 6))
+        assert p.math_symbol("∇") == ((3, 5, 6),)
+        assert p.math_symbol_indicator("∇") == "symbol"
         assert p.math_symbol_spaces("∂") == (False, False)
 
     def test_extra_inequalities(self):
         p = load_profile("cn_current")
-        # not-greater-than ≯ ⠈⠕ = "not" + "greater than"; not-less-than ≮ ⠈⠪ = "not" + "less than".
-        assert p.math_symbol("≯") == ((4,), (1, 3, 5))
-        assert p.math_symbol("≮") == ((4,), (2, 4, 6))
+        # not-greater-than ≯ ⠈⠕; not-less-than ≮ ⠈⠪ — the ⠈ negation marker
+        # is backend-applied, so the table holds only the negated base ref.
+        assert p.math_symbol("≯") == ((1, 3, 5),)
+        assert p.math_symbol("≮") == ((2, 4, 6),)
+        assert p.math_symbol_indicator("≯") == "negation"
+        assert p.math_symbol_indicator("≮") == "negation"
         # much-greater-than ≫ ⠕⠕; much-less-than ≪ ⠪⠪ — doubled gt / lt.
         assert p.math_symbol("≫") == ((1, 3, 5), (1, 3, 5))
         assert p.math_symbol("≪") == ((2, 4, 6), (2, 4, 6))
@@ -765,10 +796,12 @@ class TestMathSymbolSupplement:
         assert p.math_symbol("≶") == ((2, 4, 6), (1, 3, 5))
         assert p.math_symbol("≷") == ((1, 3, 5), (2, 4, 6))
         assert p.math_symbol_spaces("≶") == (True, True)
-        # ⊄ not-subset-of = "not"+"proper subset of"; ⊅ not-superset-of =
-        # "not"+"proper superset of" — rel, no spaces.
-        assert p.math_symbol("⊄") == ((4,), (1, 2, 3, 4, 6))
-        assert p.math_symbol("⊅") == ((4,), (1, 4, 5, 6))
+        # ⊄ not-subset-of; ⊅ not-superset-of — the ⠈ negation marker is
+        # backend-applied, so the table holds only the negated base ref.
+        assert p.math_symbol("⊄") == ((1, 2, 3, 4, 6),)
+        assert p.math_symbol("⊅") == ((1, 4, 5, 6),)
+        assert p.math_symbol_indicator("⊄") == "negation"
+        assert p.math_symbol_indicator("⊅") == "negation"
         assert p.math_symbol_spaces("⊄") == (False, False)
 
     def test_contour_and_multiple_integrals(self):
@@ -823,20 +856,24 @@ class TestMathSymbolSupplement:
 
     def test_geometry_shape_symbols(self):
         # Elementary geometry symbols (the docx geometry-symbols section):
-        # angle ∠ + figures △□○◇▭ + right angle ∟, all role=shape, led by
-        # ⠫(1246). Figures with a Unicode character get a written sign; those
+        # angle ∠ + figures △□○◇▭ + right angle ∟, all role=shape. Each is
+        # led by the ⠫(1246) symbol indicator, which the BACKEND emits from
+        # the ``indicator`` flag — so the table holds only the bare figure
+        # cell. Figures with a Unicode character get a written sign; those
         # without a character (equilateral triangle, etc.) are still not
         # included (see math-symbols-plan §3).
         p = load_profile("cn_current")
-        assert p.math_symbol("∠") == ((1, 2, 4, 6), (2, 4, 6))     # angle ⠫⠪
-        assert p.math_symbol("△") == ((1, 2, 4, 6), (2, 5, 6))     # triangle ⠫⠲
-        assert p.math_symbol("□") == ((1, 2, 4, 6), (2, 3, 5, 6))  # square ⠫⠶
-        assert p.math_symbol("○") == ((1, 2, 4, 6), (2,))          # circle ⠫⠂
-        assert p.math_symbol("◇") == ((1, 2, 4, 6), (1, 4, 5))     # rhombus ⠫⠙
-        assert p.math_symbol("▭") == ((1, 2, 4, 6), (1, 2, 3, 4, 5, 6))  # rectangle ⠫⠿
-        assert p.math_symbol("∟") == ((1, 2, 4, 6), (2, 3, 6))     # right angle ⠫⠦
+        assert p.math_symbol("∠") == ((2, 4, 6),)           # angle → ⠪
+        assert p.math_symbol("△") == ((2, 5, 6),)           # triangle ⠲
+        assert p.math_symbol("□") == ((2, 3, 5, 6),)        # square ⠶
+        assert p.math_symbol("○") == ((2,),)                # circle ⠂
+        assert p.math_symbol("◇") == ((1, 4, 5),)           # rhombus ⠙
+        assert p.math_symbol("▭") == ((1, 2, 3, 4, 5, 6),)  # rectangle ⠿
+        assert p.math_symbol("∟") == ((2, 3, 6),)           # right angle ⠦
         for ch in "∠△□○◇▭∟":
             assert p.math_symbol_role(ch) == "shape"
+            # The ⠫ symbol marker is backend-applied, declared by name.
+            assert p.math_symbol_indicator(ch) == "symbol"
 
     def test_geometry_relation_symbols(self):
         # Geometry relations (the docx geometry-symbols section):
@@ -988,9 +1025,13 @@ class TestMathStructureLookup:
         assert p.math_structure("letter_prefix.greek_lower") == ((4, 6),)
         assert p.math_structure("letter_prefix.greek_upper") == ((4, 5, 6),)
 
-    def test_dotted_lookup_function(self):
+    def test_dotted_lookup_indicator(self):
+        # The math-symbol category markers the backend prefixes (⠫ symbol,
+        # ⠰ operation, ⠈ negation) — formerly the single ``function.prefix``.
         p = load_profile("cn_current")
-        assert p.math_structure("function.prefix") == ((1, 2, 4, 6),)
+        assert p.math_structure("indicator.symbol") == ((1, 2, 4, 6),)
+        assert p.math_structure("indicator.operation") == ((5, 6),)
+        assert p.math_structure("indicator.negation") == ((4,),)
 
     def test_missing_structure_returns_empty_tuple(self):
         p = load_profile("cn_current")

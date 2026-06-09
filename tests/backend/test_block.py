@@ -76,6 +76,18 @@ class TestParagraph:
         assert len(out) == 1
         assert out[0].cells == []
 
+    def test_align_flows_to_braille_block(self, ctx, profile):
+        para = Paragraph(
+            align="center", children=[HanziChar(surface="我", reading="wo3")]
+        )
+        out = expand_block(para, ctx, profile)
+        assert out[0].align == "center"
+
+    def test_no_align_defaults_to_none(self, ctx, profile):
+        para = Paragraph(children=[HanziChar(surface="我", reading="wo3")])
+        out = expand_block(para, ctx, profile)
+        assert out[0].align is None
+
 
 class TestHeading:
     def test_heading_level_preserved(self, ctx, profile):
@@ -335,6 +347,19 @@ class TestFootnoteRefEdges:
         from brailix.backend.block import _footnote_ref_cells
 
         assert _footnote_ref_cells("", profile) == []
+
+    def test_digit_after_letter_re_emits_number_sign(self, profile):
+        # A ref like ``1a2`` must re-emit the number sign before the
+        # trailing ``2`` so it isn't read as a letter; deduping on "any
+        # number_sign already present" dropped it.
+        from brailix.backend.block import _footnote_ref_cells
+
+        cells = _footnote_ref_cells("1a2", profile)
+        roles = [c.role for c in cells]
+        assert roles.count("number_sign") == 2  # two separate digit runs
+        twos = [i for i, c in enumerate(cells) if c.source_text == "2"]
+        assert twos, "no cell carrying digit '2'"
+        assert cells[twos[0] - 1].role == "number_sign"
 
     def test_punctuation_ref_uses_punct_table(self, ctx, profile):
         # A period has no letter / digit mapping but the punctuation

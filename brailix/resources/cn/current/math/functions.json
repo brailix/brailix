@@ -3,7 +3,7 @@
   "name": "cn_current_math_functions",
   "cell": "six_dot",
   "reference": "Chinese Braille (《中国盲文》)",
-  "_note": "Function-name abbreviations. Keys are function names (matching the multi-char MathML <mi> content). cells are the letters AFTER the function prefix (c_1246) — the backend wraps the prefix on the outside.",
+  "_note": "Function-name abbreviations. Keys are function names (matching the multi-char MathML <mi> content). cells are the letters AFTER the ⠫ symbol indicator (structures.indicator.symbol, c_1246) — the backend wraps the marker on the outside, the same one quantifiers / shapes take via their \"indicator\" flag.",
   "functions": {
     "sin":    {"cells": ["c_234"]},
     "cos":    {"cells": ["c_14"]},

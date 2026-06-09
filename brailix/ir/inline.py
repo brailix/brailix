@@ -62,7 +62,14 @@ class InlineNode:
             if f.name in ("surface", "span"):
                 continue
             value = getattr(self, f.name)
-            if value is None or value == f.default or value == ():
+            if (
+                value is None
+                or value == f.default
+                # ``default_factory=list`` fields have ``f.default`` == MISSING
+                # (so the ``== f.default`` check misses an empty list); skip
+                # any empty sequence so they don't bloat the JSON.
+                or (isinstance(value, (list, tuple)) and not value)
+            ):
                 continue
             d[f.name] = _serialize_value(value)
         return d
@@ -340,6 +347,28 @@ def from_dict(payload: dict[str, Any]) -> InlineNode:
 # --- helpers ---------------------------------------------------------
 
 
+def _strip_xml_namespace(elem: ET.Element) -> ET.Element:
+    """Drop any ``{namespace}local`` Clark-notation prefix from every tag
+    in ``elem`` (in place) and return it.
+
+    The IR round-trip serializes a math / score tree with ``ET.tostring``
+    and re-parses it with ``ET.fromstring``; if the producer left an
+    ``xmlns`` attribute on the root, the reparse rewrites every tag to
+    Clark notation and the backend — which dispatches on bare local names —
+    fails to match, yielding blank cells + spurious warnings. Stripping at
+    the IR boundary keeps the round-trip lossless no matter how the tree was
+    built. Kept local (not imported from ``frontend._xml``) so the IR layer
+    takes no dependency on the frontend package.
+    """
+    if elem.tag.startswith("{"):
+        close = elem.tag.find("}")
+        if close != -1:
+            elem.tag = elem.tag[close + 1:]
+    for child in elem:
+        _strip_xml_namespace(child)
+    return elem
+
+
 def _serialize_value(value: Any) -> Any:
     if isinstance(value, InlineNode):
         return value.to_dict()
@@ -366,7 +395,7 @@ def _deserialize_value(key: str, value: Any) -> Any:
         if value is None:
             return None
         if isinstance(value, str):
-            return ET.fromstring(value)
+            return _strip_xml_namespace(ET.fromstring(value))
         if isinstance(value, ET.Element):
             return value
         raise ValueError(
@@ -377,7 +406,7 @@ def _deserialize_value(key: str, value: Any) -> Any:
         if value is None:
             return None
         if isinstance(value, str):
-            return ET.fromstring(value)
+            return _strip_xml_namespace(ET.fromstring(value))
         if isinstance(value, ET.Element):
             return value
         raise ValueError(

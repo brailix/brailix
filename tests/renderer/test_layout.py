@@ -213,6 +213,74 @@ class TestBlockTypes:
         assert "\n" not in out
 
 
+class TestBlockAlignment:
+    """A source-declared ``BrailleBlock.align`` centres / right-aligns every
+    wrapped line, independent of block kind, and overrides the block's normal
+    first-line / hanging indent."""
+
+    def _content_lines(self, out: str) -> list[str]:
+        blank = dots_to_char(())
+        return [ln for ln in out.split("\n") if any(c != blank for c in ln)]
+
+    def test_centered_paragraph_pads_content(self):
+        # 5-cell paragraph, width 21 → (21-5)//2 = 8 leading blanks, and
+        # the paragraph's usual 2-cell first-line indent is dropped.
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(block_type="paragraph", align="center", cells=_word(5)),
+        ])
+        out = LayoutRenderer(options=LayoutOptions(line_width=21)).render(doc)
+        content = self._content_lines(out)
+        assert len(content) == 1
+        assert content[0] == dots_to_char(()) * 8 + dots_to_char((1,)) * 5
+
+    def test_right_aligned_paragraph_pads_content(self):
+        # 5-cell paragraph, width 21 → flush right = 16 leading blanks.
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(block_type="paragraph", align="right", cells=_word(5)),
+        ])
+        out = LayoutRenderer(options=LayoutOptions(line_width=21)).render(doc)
+        content = self._content_lines(out)
+        assert len(content) == 1
+        assert content[0] == dots_to_char(()) * 16 + dots_to_char((1,)) * 5
+
+    def test_center_pads_every_wrapped_line(self):
+        # Two 5-cell words, width 10 → each word wraps to its own line and
+        # each is centred independently: (10-5)//2 = 2 leading blanks.
+        seq = _seq(_word(5), 1, _word(5))
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(block_type="paragraph", align="center", cells=seq.cells),
+        ])
+        out = LayoutRenderer(options=LayoutOptions(line_width=10)).render(doc)
+        content = self._content_lines(out)
+        assert len(content) == 2
+        for ln in content:
+            assert ln == dots_to_char(()) * 2 + dots_to_char((1,)) * 5
+
+    def test_centered_level_2_heading_via_source_align(self):
+        # The default rule centres only level-1 headings; an explicit source
+        # align centres a level-2 heading too (8 leading blanks at width 21).
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(
+                block_type="heading", heading_level=2,
+                align="center", cells=_word(5),
+            ),
+        ])
+        out = LayoutRenderer(options=LayoutOptions(line_width=21)).render(doc)
+        content = self._content_lines(out)
+        assert content
+        assert content[0].startswith(dots_to_char(()) * 8)
+
+    def test_content_at_line_width_is_not_padded(self):
+        # A line already filling the width gets no padding (never widened
+        # past line_width).
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(block_type="paragraph", align="center", cells=_word(10)),
+        ])
+        out = LayoutRenderer(options=LayoutOptions(line_width=10)).render(doc)
+        content = self._content_lines(out)
+        assert content == [dots_to_char((1,)) * 10]
+
+
 class TestPagination:
     def test_form_feed_inserted_at_page_height(self):
         # 5 single-line blocks, page_height=2 → 3 pages, 2 form feeds.
@@ -291,6 +359,38 @@ class TestWrapEdgeCases:
         # All 6 cells land on the same (only) line.
         assert "\n" not in out
         assert len(out) == 6
+
+    def test_cont_indent_ge_line_width_terminates(self):
+        # Regression: a continuation indent >= line_width (e.g. a deeply
+        # indented quote on a very narrow page) used to spin forever in
+        # the mid-atom split — ``slot`` stayed <= 0 so ``rest_cells`` never
+        # shrank.  The wrap must terminate (overflowing the width is the
+        # lesser evil; hanging is not) and keep every content cell.
+        import threading
+
+        for line_width, quote_indent in ((3, 3), (2, 3)):
+            cells = _atom(8, 0)  # one indivisible 8-cell atom
+            doc = BrailleDocument(
+                blocks=[BrailleBlock(block_type="quote", cells=cells)]
+            )
+            result: dict[str, str] = {}
+
+            def run() -> None:
+                result["out"] = LayoutRenderer(options=LayoutOptions(
+                    line_width=line_width, quote_indent=quote_indent,
+                )).render(doc)
+
+            t = threading.Thread(target=run, daemon=True)
+            t.start()
+            t.join(timeout=5.0)
+            assert not t.is_alive(), (
+                f"render hung at line_width={line_width}, "
+                f"quote_indent={quote_indent}"
+            )
+            content = sum(
+                1 for ch in result["out"] if ch not in (dots_to_char(()), "\n")
+            )
+            assert content == 8
 
     def test_word_longer_than_remaining_but_fits_after_wrap(self):
         # Three cells already on the line + a 6-cell word, line width 8.
@@ -491,6 +591,25 @@ class TestPageNumberPosition:
         first_line = out.split("\n")[0]
         assert first_line.startswith(_page_number_chars(1))
         assert len(first_line) == 10
+
+    def test_left_align_no_overflow_when_page_number_fills_line(self):
+        """Regression: when the page number + its blank gap exactly fill
+        the line (avail == 0), the left-aligned content tail must be empty
+        — ``target_line[-0:]`` is the WHOLE line, which overflowed width."""
+        from brailix.renderer.layout import (
+            _apply_page_number_brf,
+            _apply_page_number_unicode,
+            _page_number_width,
+        )
+
+        # page 99 -> number-sign + two digits = 3 cells; line_width 4
+        # leaves avail = 4 - 3 - 1 = 0.
+        assert _page_number_width(99) == 3
+        content = dots_to_char((1,)) * 4
+        uni = _apply_page_number_unicode(content, 99, 4, align_right=False)
+        assert len(uni) == 4
+        brf = _apply_page_number_brf(b"ABCD", 99, 4, align_right=False)
+        assert len(brf) == 4
 
     # --- bottom-right -------------------------------------------------
 

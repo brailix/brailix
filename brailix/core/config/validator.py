@@ -150,7 +150,9 @@ def validate_profile(
     # Sub-table content validation. Each helper re-reads the relevant
     # file so error messages can point at the offending raw entry.
     if isinstance(math_tables, dict):
-        _validate_math_symbols(base, math_tables.get("symbols"))
+        _validate_math_symbols(
+            base, math_tables.get("symbols"), math_tables.get("structures")
+        )
         _validate_math_functions(base, math_tables.get("functions"))
         _validate_math_structures(base, math_tables.get("structures"))
 
@@ -258,7 +260,27 @@ def _is_valid_cell_spec(spec: Any) -> bool:
     return False
 
 
-def _validate_math_symbols(base: Path, relative: str | None) -> None:
+def _accent_mark_kinds(base: Path, structures_relative: str | None) -> set[str]:
+    """Accent-mark kinds declared in structures.json (``accent.mark.*``).
+
+    An ``accent_mark`` field in symbols.json must name one of these. We
+    derive the valid set from the resource (rather than hardcode
+    ``{arrow, bar}``) so a profile that adds a new mark kind is accepted
+    automatically, while a typo is rejected at load instead of silently
+    producing empty braille for that accent.
+    """
+    if not structures_relative:
+        return set()
+    payload = _read_json(base / structures_relative)
+    structures = payload.get("structures") if isinstance(payload, dict) else None
+    accent = structures.get("accent") if isinstance(structures, dict) else None
+    mark = accent.get("mark") if isinstance(accent, dict) else None
+    return set(mark.keys()) if isinstance(mark, dict) else set()
+
+
+def _validate_math_symbols(
+    base: Path, relative: str | None, structures_relative: str | None = None
+) -> None:
     """Check every symbols.json entry has a valid role and well-typed flags."""
     if not relative:
         return
@@ -267,6 +289,9 @@ def _validate_math_symbols(base: Path, relative: str | None) -> None:
     if not isinstance(symbols, dict):
         # Empty / absent symbols section is fine (no entries to check).
         return
+    # ``accent_mark`` values are checked against the kinds declared in
+    # structures.json (accent.mark.*), loaded lazily on first use.
+    valid_accent_kinds: set[str] | None = None
     for raw_key, spec in symbols.items():
         if _is_metadata_key(raw_key):
             continue
@@ -293,6 +318,29 @@ def _validate_math_symbols(base: Path, relative: str | None) -> None:
         _check_bool_flag(spec, "big_op", raw_key, relative)
         _check_bool_flag(spec, "script_prefix", raw_key, relative)
         _check_bool_flag(spec, "provisional", raw_key, relative)
+        indicator = spec.get("indicator")
+        if indicator is not None and not isinstance(indicator, str):
+            raise ConfigurationError(
+                f"{relative}: entry {raw_key!r} has non-string 'indicator': "
+                f"{indicator!r} (expected a marker name like 'symbol' / "
+                f"'operation' / 'negation')"
+            )
+        accent_mark = spec.get("accent_mark")
+        if accent_mark is not None:
+            if not isinstance(accent_mark, str) or not accent_mark:
+                raise ConfigurationError(
+                    f"{relative}: entry {raw_key!r} has non-string/empty "
+                    f"'accent_mark': {accent_mark!r}"
+                )
+            if valid_accent_kinds is None:
+                valid_accent_kinds = _accent_mark_kinds(base, structures_relative)
+            if accent_mark not in valid_accent_kinds:
+                raise ConfigurationError(
+                    f"{relative}: entry {raw_key!r} has accent_mark "
+                    f"{accent_mark!r} with no matching accent.mark.{accent_mark} "
+                    f"in structures.json; known kinds: "
+                    + ("/".join(sorted(valid_accent_kinds)) or "(none)")
+                )
 
 
 def _validate_math_functions(base: Path, relative: str | None) -> None:

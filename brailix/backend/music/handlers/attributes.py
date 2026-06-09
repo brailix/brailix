@@ -98,6 +98,12 @@ def _emit_clef(
         line = int(line_raw) if line_raw is not None else None
     except ValueError:
         line = None
+    # BANA Par. 9.2: remember the clef so chord emission picks the
+    # written note's direction. Set even when ``show_clef`` is off — the
+    # interval direction follows the clef whether or not the clef *cell*
+    # is printed.
+    mctx.current_clef_sign = sign
+    mctx.current_clef_line = line
     entity = _clef_entity_name(sign, line)
     emitted = emit_if_enabled(
         cells, mctx,

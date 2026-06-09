@@ -131,12 +131,19 @@ class BrailleBlock:
     ``block_type`` mirrors :class:`brailix.ir.document.Block.type`
     so layout rules can be applied per block kind (heading centring,
     list indent, etc.). ``cells`` is the rendered cell sequence.
+
+    ``align`` carries a source-declared horizontal alignment the layout
+    pass honours (``"center"`` / ``"right"``); ``None`` means the block
+    uses the layout's per-type default. It mirrors
+    :attr:`brailix.ir.document.Block.align`, stamped here by the backend
+    so the renderer never has to reach back into the document IR.
     """
 
     block_type: str = "paragraph"
     cells: list[BrailleCell] = field(default_factory=list)
     id: str | None = None
     heading_level: int | None = None
+    align: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -148,6 +155,8 @@ class BrailleBlock:
             d["id"] = self.id
         if self.heading_level is not None:
             d["heading_level"] = self.heading_level
+        if self.align is not None:
+            d["align"] = self.align
         return d
 
     @classmethod
@@ -157,6 +166,7 @@ class BrailleBlock:
             cells=[BrailleCell.from_dict(c) for c in payload.get("cells", [])],
             id=payload.get("id"),
             heading_level=payload.get("heading_level"),
+            align=payload.get("align"),
         )
 
 

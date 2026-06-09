@@ -30,6 +30,14 @@ class Block:
     children: list[InlineNode] = field(default_factory=list)
     text: str | None = None  # used before Frontend has built children
     span: Span | None = None
+    # Horizontal alignment carried over from the source document, when it
+    # declares one the braille layout can honour: ``"center"`` or
+    # ``"right"``.  ``None`` (the default) means flush-left / unspecified —
+    # the layout's own per-block-type defaults apply (e.g. a level-1 heading
+    # still centres).  Source alignments braille has no convention for
+    # (justified / distributed) normalise to ``None`` at the input layer, so
+    # only values the renderer acts on ever reach the IR.
+    align: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"type": self.type}
@@ -40,7 +48,13 @@ class Block:
                 continue
             value = getattr(self, f.name)
             default = f.default
-            if value is None or value == default or value == ():
+            if (
+                value is None
+                or value == default
+                # default_factory fields have default == MISSING, so skip
+                # any empty sequence (e.g. List.items / table rows) too.
+                or (isinstance(value, (list, tuple)) and not value)
+            ):
                 continue
             d[f.name] = value
         if self.text is not None:

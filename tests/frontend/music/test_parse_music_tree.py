@@ -90,6 +90,22 @@ class TestMusicXMLAdapter:
         assert err is not None
         assert "parse error" in err.attrib.get("data-reason", "")
 
+    def test_malformed_with_control_char_soft_fails(self):
+        # A vendor-malformed source carrying an XML-1.0-illegal control
+        # char (here form-feed) must still soft-fail to a well-formed
+        # <music-error> — the surface is echoed into the wrapper, so an
+        # un-stripped control char would make the re-parse raise.
+        ctx = MusicContext(source="musicxml")
+        tree = parse_music_tree("<score-partwise>\x0c<unclosed", ctx)
+        assert tree.tag == "score-partwise"
+        assert tree.find("music-error") is not None
+
+    def test_malformed_with_nul_byte_soft_fails(self):
+        ctx = MusicContext(source="musicxml")
+        tree = parse_music_tree("<part>\x00 bad", ctx)
+        assert tree.tag == "score-partwise"
+        assert tree.find("music-error") is not None
+
     def test_bytes_input_utf8(self):
         ctx = MusicContext(source="musicxml")
         tree = parse_music_tree(SIMPLE_SCORE.encode("utf-8"), ctx)

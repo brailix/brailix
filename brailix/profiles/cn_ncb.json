@@ -11,6 +11,11 @@
       "atomic_script_lower_digit": true,
       "number_sign": true
     },
+    "input": {
+      "docx": {
+        "detect_chemistry": true
+      }
+    },
     "zh": {
       "tone": true,
       "tone_omit_neutral": true,

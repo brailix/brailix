@@ -103,6 +103,29 @@ class TestSerializationHeading:
         assert restored.text == "标题"
 
 
+class TestSerializationAlign:
+    """``Block.align`` (source-declared centre / right) round-trips and is
+    omitted from the serialized form when unset (the default)."""
+
+    def test_center_round_trip(self):
+        p = Paragraph(text="居中", align="center")
+        d = p.to_dict()
+        assert d["align"] == "center"
+        restored = block_from_dict(d)
+        assert isinstance(restored, Paragraph)
+        assert restored.align == "center"
+
+    def test_heading_align_round_trip(self):
+        h = Heading(level=2, text="右对齐", align="right")
+        restored = block_from_dict(h.to_dict())
+        assert isinstance(restored, Heading)
+        assert restored.level == 2
+        assert restored.align == "right"
+
+    def test_align_absent_when_none(self):
+        assert "align" not in Paragraph(text="x").to_dict()
+
+
 class TestSerializationStructures:
     def test_list_round_trip(self):
         lst = List(

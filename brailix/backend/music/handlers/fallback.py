@@ -42,9 +42,11 @@ def _emit_music_error(
 def _emit_skip(
     cells: list[BrailleCell], mctx: MusicBrailleContext, elem: ET.Element
 ) -> None:
-    """Silently skip elements that the M2.3 minimal backend doesn't
-    interpret yet (``<attributes>``, ``<print>``, ``<sound>``, ...);
-    M3+ will wire them up."""
+    """Silently skip cursor controls (``<print>`` / ``<backup>`` /
+    ``<forward>``) and score-level metadata (``<part-list>`` / ``<work>`` /
+    ``<identification>`` / ...) that don't translate into braille cells —
+    the exact set is ``_DISPATCH_PARTIAL`` below.  (``<attributes>`` and
+    ``<sound>`` are NOT skipped — they have their own handlers.)"""
     return
 
 

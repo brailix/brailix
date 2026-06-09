@@ -106,6 +106,11 @@ class TestTranslatePercent:
         assert cells[-1].role == "punct"
         assert cells[-1].source_text == "%"
 
+    def test_empty_percent_emits_nothing(self, ctx, profile):
+        # The frontend never builds an empty Percent, but a hand-rolled
+        # node / IR round-trip could; node.surface[-1] must not IndexError.
+        assert translate_percent(Percent(surface=""), ctx, profile) == []
+
     def test_fullwidth_digits_in_percent(self, ctx, profile):
         node = Percent(
             surface="１２％",

@@ -27,7 +27,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from brailix.core.config._helpers import _read_json
+from brailix.core.config._helpers import _is_metadata_key, _read_json
 from brailix.core.config.loader._refs import (
     _coerce_dots_field,
     _extract_cells,
@@ -202,6 +202,12 @@ def load_profile(
     if lang_subtag != "zh" and isinstance(lang_section, dict):
         loaded: dict[str, dict[str, tuple[tuple[int, ...], ...]]] = {}
         for tbl_key, ref in lang_section.items():
+            # ``_note`` / other ``_*`` metadata keys carry doc strings, not
+            # table paths; skip them so a documented ``tables.<lang>`` block
+            # doesn't try to load the metadata value as a resource file
+            # (a raw FileNotFoundError would otherwise escape load_profile).
+            if _is_metadata_key(tbl_key):
+                continue
             if isinstance(ref, str):
                 loaded[tbl_key] = _load_lang_table(
                     base, tbl_key, ref, cells_pool
@@ -236,6 +242,7 @@ def load_profile(
         math_symbol_accent_marks=math["symbol_accent_mark"],
         math_symbol_script_prefix_flags=math["symbol_script_prefix"],
         math_symbol_provisional_flags=math["symbol_provisional"],
+        math_symbol_indicator_flags=math["symbol_indicator"],
         math_function_big_op_flags=math["function_big_op"],
         math_function_script_prefix_flags=math["function_script_prefix"],
         latin_letters=latin_letters,

@@ -55,6 +55,11 @@ def translate_number(node: Number, ctx: BackendContext, profile: BrailleProfile)
 
 def translate_percent(node: Percent, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:
     """Percent → digits + percent punctuation."""
+    if not node.surface:
+        # Empty surface — the frontend never builds one, but a hand-rolled
+        # node / IR round-trip could; guard the [-1] index like the other
+        # number translators do.
+        return []
     cells = _digits_to_cells(node.surface[:-1], _first_part_span(node), ctx, profile)
     cells.extend(_punct_cells(node.surface[-1], _last_char_span(node), ctx, profile))
     return cells

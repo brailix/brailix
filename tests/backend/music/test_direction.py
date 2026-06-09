@@ -286,6 +286,21 @@ class TestWedge:
         assert cells == []
         assert ctx.warnings.warnings == []
 
+    def test_part_boundary_resets_pending_hairpin(self, profile, ctx):
+        # A hairpin never spans a part: entering a new <part> must clear a
+        # dangling crescendo so it can't pair with a stop in the next part.
+        mctx = MusicBrailleContext(profile=profile, backend=ctx)
+        cells: list = []
+        _emit_element(
+            cells, mctx, _wrap_direction('<wedge type="crescendo"/>')
+        )
+        assert mctx.pending_hairpin == "crescendo"
+        _emit_element(
+            cells, mctx,
+            ET.fromstring('<part id="P2"><measure number="1"/></part>'),
+        )
+        assert mctx.pending_hairpin is None
+
     def test_continue_is_noop(self, profile, ctx):
         # MusicXML <wedge type="continue"/> just confirms an ongoing
         # hairpin; no extra cells.

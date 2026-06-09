@@ -172,6 +172,10 @@ def _emit_words(
         # (bare backend / tests) → keep the deferred warning.
         translator = mctx.backend.inline_text_translator()
         if translator is not None:
+            # Keep the translator's own role (latin / zh) on these cells —
+            # unlike lyrics (``_emit_lyrics_inline`` retags to 'music_lyric'),
+            # <words> text deliberately stays tagged by its language path so
+            # it reads as ordinary expression text, not a music-specific run.
             cells.extend(translator(raw))
         else:
             mctx.backend.warnings.warn(

@@ -197,6 +197,56 @@ class TestConfigurationErrorHierarchy:
         assert issubclass(ConfigurationError, ValueError)
 
 
+class TestLangTableMetadataKeys:
+    def test_lang_table_metadata_key_is_skipped(self, tmp_path):
+        # A documented tables.<lang> block can carry a ``_note`` metadata
+        # string; the generic loader must skip ``_*`` keys rather than try
+        # to load the doc string as a resource path (a raw FileNotFoundError
+        # would otherwise escape load_profile).
+        name = _write_profile(
+            tmp_path,
+            extra={"language": "xx-XX"},
+            tables_override={
+                "cells": "resources/cells.json",
+                "xx": {"_note": "documentation, not a path"},
+            },
+        )
+        p = load_profile(name, root=tmp_path)
+        assert isinstance(p, BrailleProfile)
+        assert p.language == "xx-XX"
+
+
+class TestMathSymbolAccentMark:
+    _STRUCT = {"accent": {"mark": {
+        "arrow": {"single": ["c_2"], "double": ["c_2", "c_3"]}
+    }}}
+
+    def test_unknown_accent_mark_kind_rejected(self, tmp_path):
+        # accent_mark must name a kind declared in structures.json
+        # (accent.mark.*); a typo would otherwise load and silently yield
+        # empty braille for that accent.
+        name = _write_profile(
+            tmp_path,
+            symbols={"rarr": {
+                "role": "accent", "accent_mark": "arow", "cells": ["c_2"]
+            }},
+            structures=self._STRUCT,
+        )
+        with pytest.raises(ConfigurationError, match="accent_mark"):
+            load_profile(name, root=tmp_path)
+
+    def test_known_accent_mark_kind_accepted(self, tmp_path):
+        name = _write_profile(
+            tmp_path,
+            symbols={"rarr": {
+                "role": "accent", "accent_mark": "arrow", "cells": ["c_2"]
+            }},
+            structures=self._STRUCT,
+        )
+        p = load_profile(name, root=tmp_path)
+        assert isinstance(p, BrailleProfile)
+
+
 # ---------------------------------------------------------------------------
 # symbols.json: entity-key validation
 # ---------------------------------------------------------------------------

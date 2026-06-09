@@ -10,7 +10,30 @@ rather than in two near-identical copies.
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
+
+# Code points illegal in XML 1.0 even after entity-escaping: the C0
+# controls except tab / newline / carriage-return, plus the lone
+# surrogates. ``escape`` / ``quoteattr`` only handle ``& < > " '``,
+# so a vendor-malformed source string echoed back into a soft-failure
+# ``<merror>`` / ``<music-error>`` document would otherwise make the
+# downstream ``ET.fromstring`` re-parse raise — breaking the
+# "normalizer never raises" contract. See :func:`strip_xml_invalid_chars`.
+_XML_INVALID_CHARS = re.compile(
+    "[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff]"
+)
+
+
+def strip_xml_invalid_chars(text: str) -> str:
+    """Drop characters illegal in XML 1.0 from ``text``.
+
+    Used before embedding a (possibly malformed) vendor string into a
+    soft-failure document, so the result stays well-formed and can be
+    re-parsed without raising. Escaping alone is not enough — control
+    characters are invalid in XML *content* regardless of escaping.
+    """
+    return _XML_INVALID_CHARS.sub("", text)
 
 
 def strip_namespace(elem: ET.Element) -> None:

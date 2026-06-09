@@ -79,3 +79,23 @@ def test_auto_re_raises_last_error_when_all_candidates_fail():
     with pytest.raises(KeyError) as ei:
         analyzer.analyze("我")
     assert "does_not_exist" in str(ei.value)
+
+
+def test_auto_falls_through_model_not_installed_candidate():
+    # A candidate that imports fine but whose model isn't downloaded raises
+    # ModelNotInstalledError (e.g. hanlp under managed download). The chain
+    # must treat it as "unavailable" and degrade to char rather than
+    # crashing the whole compile.
+    from brailix.core.errors import ModelNotInstalledError
+    from brailix.frontend.zh.analyzer.adapters.auto import AutoChineseAnalyzer
+
+    def _needs_model():
+        raise ModelNotInstalledError("fake-model", "/nowhere")
+
+    analyzer_registry.register("fake_mni", _needs_model)
+    try:
+        analyzer = AutoChineseAnalyzer(preferred=("fake_mni", "char"))
+        tokens = analyzer.analyze("我")
+        assert [t.surface for t in tokens] == ["我"]  # degraded to char
+    finally:
+        analyzer_registry.unregister("fake_mni")

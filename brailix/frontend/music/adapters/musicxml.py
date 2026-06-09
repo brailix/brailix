@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from xml.sax.saxutils import escape, quoteattr
 
 from brailix.core.context import MusicContext
+from brailix.frontend._xml import strip_xml_invalid_chars
 
 
 @dataclass(slots=True)
@@ -86,8 +87,8 @@ def music_error_wrap(surface: str, *, reason: str) -> str:
 
     Shared by every adapter that needs to report a soft failure.
     """
-    escaped = escape(surface)
-    escaped_reason = quoteattr(reason)
+    escaped = escape(strip_xml_invalid_chars(surface))
+    escaped_reason = quoteattr(strip_xml_invalid_chars(reason))
     return (
         "<score-partwise>"
         f"<music-error data-reason={escaped_reason}>{escaped}</music-error>"

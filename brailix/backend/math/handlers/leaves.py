@@ -131,7 +131,7 @@ def _emit_function_name(
     ``<mi>arccot</mi>``. We strip a leading backslash before the table
     lookup so authors don't have to register both spellings.
     """
-    _emit_structure(cells, mctx, "function.prefix", role="math_function_prefix")
+    _emit_structure(cells, mctx, "indicator.symbol", role="math_function_prefix")
     lookup_name = name.lstrip("\\") if name.startswith("\\") else name
     registered = mctx.profile.math_function(lookup_name)
     if registered is not None:
@@ -289,6 +289,14 @@ def _emit_mo(
         and not _previous_suppresses_space_before(cells)
     ):
         cells.append(BLANK_CELL)
+    indicator = profile.math_symbol_indicator(text)
+    if indicator is not None:
+        # Category marker (⠫ symbol / ⠰ operation / ⠈ negation), emitted
+        # here from ``structures.indicator.<name>`` — the same backend
+        # pathway a function name's ⠫ uses. Keeps the symbol table bare
+        # (just the distinguishing cells, or a ref to the negated base)
+        # instead of baking the marker into every entry.
+        _emit_structure(cells, mctx, f"indicator.{indicator}", role=cell_role)
     cells.extend(
         BrailleCell(
             dots=dots,

@@ -37,9 +37,77 @@ from brailix.backend.music.utils import (
 )
 from brailix.ir.braille import BrailleCell
 
+# BANA Par. 2.4: every printed note shape stands for a "large" value
+# (8th-and-larger) and the "small" value 1/16 of it (16th-and-smaller).
+# A 256th is a third tier with its own sign. A change between these
+# categories needs a value sign so the reader isn't left guessing.
+_VALUE_CATEGORY: dict[str, str] = {
+    "breve": "large",
+    "whole": "large",
+    "half": "large",
+    "quarter": "large",
+    "eighth": "large",
+    "16th": "small",
+    "32nd": "small",
+    "64th": "small",
+    "128th": "small",
+    "256th": "v256",
+}
+_VALUE_SIGN_ENTITY: dict[str, str] = {
+    "large": "value_sign_8ths_and_larger",
+    "small": "value_sign_16ths_and_smaller",
+    "v256": "value_sign_256th_notes",
+}
+
+
+def _emit_value_sign(
+    cells: list[BrailleCell], mctx: MusicBrailleContext, type_name: str
+) -> None:
+    """BANA Par. 2.4: emit a larger / smaller value sign before a note or
+    rest when its value category changes from the previous one.
+
+    Categories: ``large`` (8th-and-larger), ``small`` (16th-and-smaller),
+    ``v256`` (256th — always signed, "any use of the 256th ... requires a
+    value sign for each such passage"). The first note of a reading
+    establishes the baseline silently unless it is a 256th; consecutive
+    notes in the same category (incl. a 256th run = one passage) add no
+    further sign. Gated by ``features.music.value_signs`` (default on).
+
+    Notes and rests share one stream — :func:`_emit_rest` calls this too,
+    so a half-note followed by a 32nd-rest is marked correctly.
+    """
+    if not mctx.profile.feature("music.value_signs", True):
+        return
+    category = _VALUE_CATEGORY.get(type_name)
+    if category is None:
+        # Unknown <type> — the note body warns + renders the quarter
+        # fallback (a "large" value).  Set the baseline to "large" too,
+        # else prev_value_category keeps its stale value and the NEXT
+        # note's large/small transition is computed against the wrong
+        # baseline (e.g. [16th, BOGUS, 16th] would drop the second sign).
+        mctx.prev_value_category = "large"
+        return
+    prev = mctx.prev_value_category
+    mctx.prev_value_category = category
+    if category == prev:
+        return  # no change (consecutive same category / 256th passage)
+    if prev is None and category != "v256":
+        return  # first note establishes the baseline silently
+    emit_cells_for_entity(
+        cells, mctx,
+        topic="notes",
+        entity=_VALUE_SIGN_ENTITY[category],
+        role="music_value_sign",
+        source_text=f"value:{category}",
+    )
+
 
 def _emit_note(
-    cells: list[BrailleCell], mctx: MusicBrailleContext, elem: ET.Element
+    cells: list[BrailleCell],
+    mctx: MusicBrailleContext,
+    elem: ET.Element,
+    *,
+    chord_role: str | None = None,
 ) -> None:
     """Handle a single ``<note>`` element.
 
@@ -48,6 +116,12 @@ def _emit_note(
     * ``<rest/>`` child → :func:`_emit_rest`
     * ``<pitch>`` child → emit (optional octave prefix) + note cell;
       update ``mctx.prev_pitch``.
+
+    ``chord_role`` overrides the source ``<chord/>`` marker so
+    :func:`_emit_chord_run` can pick the *written* note per the clef
+    (BANA Par. 9.2): ``"root"`` forces the full-note path, ``"interval"``
+    forces the interval path, ``None`` (the dispatch default) detects via
+    ``<chord/>`` as before.
 
     Missing or malformed pitch / duration falls through to an unknown
     cell plus a warning so the rest of the score still renders.
@@ -90,7 +164,12 @@ def _emit_note(
         return
 
     curr_pitch = (step.upper(), octave)
-    is_chord_note = elem.find("chord") is not None
+    if chord_role == "interval":
+        is_chord_note = True
+    elif chord_role == "root":
+        is_chord_note = False
+    else:
+        is_chord_note = elem.find("chord") is not None
 
     if is_chord_note:
         # S6: BANA Par. 9.1 — chord notes are represented as
@@ -113,6 +192,9 @@ def _emit_note(
     # all are present. The appoggiatura sits at the very front per
     # BANA Par. 16.2 — it's a grace note marker, applied before any
     # of the following note's modifiers.
+    # BANA Par. 2.4: the value sign (if the large/small category changed)
+    # precedes the whole note, ahead of the grace / accidental / octave.
+    _emit_value_sign(cells, mctx, type_name)
     _emit_appoggiatura(cells, mctx, elem)
     _emit_tuplet_marker(cells, mctx, elem)
     _emit_note_accidental(cells, mctx, elem, curr_pitch)
@@ -171,6 +253,76 @@ def _emit_note(
     # ``<note><chord/></note>`` siblings can compute their interval.
     mctx.chord_root = curr_pitch
     mctx.prev_pitch = curr_pitch
+
+
+def _chord_written_is_top(mctx: MusicBrailleContext) -> bool:
+    """BANA Par. 9.2: is the *uppermost* chord note the written note?
+
+    Treble (G) and alto (C clef, line 3) write the uppermost note with
+    intervals read downward → ``True``. Bass (F) and tenor (C clef, line
+    4) write the lowermost with intervals upward → ``False``. Only
+    consulted when a clef is set (see :func:`_emit_chord_run`).
+    """
+    sign = mctx.current_clef_sign
+    if sign == "G":
+        return True
+    if sign == "C":
+        # Alto (line 3) groups with treble; tenor (line 4) with bass.
+        # An unspecified C-clef line defaults to alto.
+        return mctx.current_clef_line != 4
+    return False  # F (bass) / tenor → lowermost written
+
+
+def _emit_chord_run(
+    cells: list[BrailleCell],
+    mctx: MusicBrailleContext,
+    run: list[ET.Element],
+) -> None:
+    """Emit a chord — a root ``<note>`` plus its following
+    ``<note><chord/></note>`` siblings — in BANA Par. 9.2 order.
+
+    The *written* note is the uppermost (treble / alto) or lowermost
+    (bass / tenor) member; the rest become interval cells read from it.
+    Interval cells are size-only (a 3rd is a 3rd whether read up or down —
+    :func:`_emit_chord_interval`), so only the choice of written note and
+    the reading order change with the clef. Members are sorted by pitch
+    rather than trusting MusicXML order, which the spec does not
+    guarantee.
+
+    Without a clef (test fragments) or with an unreadable pitch, the
+    source order is kept (first = written), exactly the pre-9.2 path — so
+    clef-less input renders identically.
+    """
+    measured: list[tuple[int, ET.Element]] = []
+    usable = True
+    for note in run:
+        pitch = note.find("pitch")
+        step = first_child_text(pitch, "step") if pitch is not None else None
+        octave_raw = (
+            first_child_text(pitch, "octave") if pitch is not None else None
+        )
+        pos: int | None = None
+        if step is not None and octave_raw is not None:
+            try:
+                pos = diatonic_position(step.upper(), int(octave_raw))
+            except ValueError:
+                pos = None
+        if pos is None:
+            usable = False
+            break
+        measured.append((pos, note))
+
+    if usable and mctx.current_clef_sign is not None:
+        measured.sort(
+            key=lambda pe: pe[0], reverse=_chord_written_is_top(mctx)
+        )
+        ordered = [note for _, note in measured]
+    else:
+        ordered = run
+
+    _emit_note(cells, mctx, ordered[0], chord_role="root")
+    for note in ordered[1:]:
+        _emit_note(cells, mctx, note, chord_role="interval")
 
 
 _INTERVAL_ENTITY: dict[int, str] = {
@@ -372,6 +524,9 @@ def _emit_rest(
     doesn't reset the octave reference.
     """
     type_name = first_child_text(elem, "type") or "quarter"
+    # BANA Par. 2.4: a rest carries a value sign on a category change too
+    # (rests share the note value shapes), before the rest cell.
+    _emit_value_sign(cells, mctx, type_name)
     rest_entity = _rest_entity_name(type_name)
     if not emit_cells_for_entity(
         cells, mctx,

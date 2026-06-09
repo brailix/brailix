@@ -54,6 +54,16 @@ def _seq(ctx, profile, reading):
     return _dots(cells)
 
 
+def test_nfd_decomposed_dakuten_folds_to_one_cell(ctx, profile):
+    # An NFD-encoded source (カ U+30AB + ◌゙ U+3099) must translate identically
+    # to its NFC form (ガ U+30AC): the backend normalises to NFC before the
+    # mora split, so dakuten doesn't fall through as UNKNOWN_KANA.
+    nfc = "ガ"
+    nfd = unicodedata.normalize("NFD", nfc)
+    assert nfd != nfc and len(nfd) == 2  # sanity: actually decomposed
+    assert _seq(ctx, profile, nfd) == _seq(ctx, profile, nfc)
+
+
 # ---------------------------------------------------------------------------
 # Independent re-derivation of the kana table (guards the resource + loader)
 # ---------------------------------------------------------------------------

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from xml.sax.saxutils import escape, quoteattr
 
+from brailix.frontend._xml import strip_xml_invalid_chars
+
 # The MathML 3 namespace. Some emitters (latex2mathml) include it, others
 # don't; both forms are accepted by the normalizer.
 _MATHML_NS: str = "http://www.w3.org/1998/Math/MathML"
@@ -39,8 +41,8 @@ def merror_wrap(surface: str, *, reason: str) -> str:
     Shared by every adapter — and the normalizer's parse-error path — that
     needs to report a soft failure.
     """
-    escaped = escape(surface)
-    escaped_reason = quoteattr(reason)
+    escaped = escape(strip_xml_invalid_chars(surface))
+    escaped_reason = quoteattr(strip_xml_invalid_chars(reason))
     return (
         f'<math xmlns="{_MATHML_NS}">'
         f"<merror data-reason={escaped_reason}><mtext>{escaped}</mtext></merror>"

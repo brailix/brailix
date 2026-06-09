@@ -76,6 +76,12 @@ class BrailleProfile:
     # not validated against an authoritative rule reference). Proofread
     # tools should highlight these. Backend treats them as ordinary symbols.
     math_symbol_provisional_flags: dict[str, bool] = field(default_factory=dict)
+    # Symbols that take a category marker (``structures.indicator.<name>``)
+    # in front of their cells: maps the symbol char → the marker name
+    # ("symbol" ⠫ / "operation" ⠰ / "negation" ⠈). The backend emits the
+    # marker, so these symbols' cells stay bare — the same pathway a
+    # function name uses, instead of baking the marker into the table.
+    math_symbol_indicator_flags: dict[str, str] = field(default_factory=dict)
     # Function flags: which functions behave as big-ops, which take the
     # 46-dot script prefix.
     math_function_big_op_flags: dict[str, bool] = field(default_factory=dict)
@@ -197,6 +203,14 @@ class BrailleProfile:
         tools surface "double-check this" hints. Default False."""
         return self.math_symbol_provisional_flags.get(ch, False)
 
+    def math_symbol_indicator(self, ch: str) -> str | None:
+        """The category-marker name this symbol takes in front of its
+        cells, or ``None``. The backend prefixes ``structures.indicator.
+        <name>`` — ``"symbol"`` ⠫ (quantifiers ∀∃∇ + shapes), ``"operation"``
+        ⠰ (set/logic ∪∩∧∨∖), ``"negation"`` ⠈ (≠≯≮ …). Keeping it a backend
+        step means the symbol table never bakes the marker into cells."""
+        return self.math_symbol_indicator_flags.get(ch)
+
     def punctuation_spaces(self, ch: str) -> tuple[bool, bool]:
         """Return (space_before, space_after) flags for a punctuation char.
         Missing/unknown chars default to (False, False)."""
@@ -244,6 +258,17 @@ class BrailleProfile:
         result = self._compose_letter(ch)
         self._letter_cache[ch] = result
         return result
+
+    def math_identifier(self, ch: str) -> tuple[tuple[int, ...], ...] | None:
+        """Backwards-compatible alias for :meth:`letter`.
+
+        The method was renamed ``math_identifier`` → ``letter`` when the
+        letter tables were generalised beyond math (§P4.5 / §R5+). Kept so
+        external / legacy callers documented against the old name (and the
+        ARCHITECTURE / math-redesign / math-boundaries docs that promise
+        the alias) keep working.
+        """
+        return self.letter(ch)
 
     def bare_letter(self, ch: str) -> tuple[int, ...] | None:
         """Look up the bare letter cell for ``ch`` — **without** the

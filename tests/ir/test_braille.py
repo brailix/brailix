@@ -131,6 +131,16 @@ class TestBrailleBlock:
         assert restored.heading_level == 1
         assert restored.cells == b.cells
 
+    def test_align_round_trip(self):
+        b = BrailleBlock(block_type="paragraph", align="center")
+        restored = BrailleBlock.from_dict(b.to_dict())
+        assert restored.align == "center"
+
+    def test_align_absent_from_dict_when_none(self):
+        # The default carries no ``align`` key — keeps serialized blocks lean
+        # and back-compatible with readers written before alignment existed.
+        assert "align" not in BrailleBlock(block_type="paragraph").to_dict()
+
 
 class TestBrailleDocument:
     def test_default(self):

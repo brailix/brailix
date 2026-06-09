@@ -87,11 +87,11 @@ def register(
     and raise :class:`ConfigurationError` at build time if those
     are missing — instead of crashing on the first decision call.
 
-    Re-registering the same name is a no-op (idempotent) — test
-    fixtures that re-import strategy modules don't need teardown.
-    Strict-replace semantics would silently lose third-party plugin
-    overrides; we'd rather make the duplicate visible at registration
-    review time than at runtime.
+    First registration wins: re-registering the same name is a harmless
+    no-op (so test fixtures re-importing strategy modules need no
+    teardown).  Overriding an already-registered name — including a
+    builtin — is therefore NOT supported and is silently ignored; tone
+    strategies are a closed builtin set, not a plugin seam.
     """
     if name in _REGISTRY:
         return

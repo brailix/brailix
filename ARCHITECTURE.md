@@ -123,7 +123,7 @@ brailix/
 │   │   └── models/           # asset_registry / paths (frozen detection)
 │   ├── input/                # document input adapters (dispatched by extension)
 │   │   ├── plain.py / markdown.py   # markdown is a pure-stdlib reader (no extra)
-│   │   ├── docx.py           # .docx/.docm (incl. OMML / MTEF / EqField math extraction)
+│   │   ├── docx/             # .docx/.docm package (__init__ + _blocks + _ole + _xml; incl. OMML / MTEF / EqField math extraction)
 │   │   └── music_xml.py      # .musicxml / .xml / .mxl direct; .mid/.midi/.abc via source adapters
 │   ├── frontend/             # text → structured IR
 │   │   ├── segment.py        # block segmentation + inline-region detection

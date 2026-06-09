@@ -86,6 +86,7 @@ def parse_file(
     *,
     language: str = DEFAULT_LANGUAGE,
     profile: str = DEFAULT_PROFILE,
+    chem_detection: bool = False,
 ) -> DocumentIR:
     """Read ``path`` and parse to :class:`DocumentIR` by suffix.
 
@@ -123,9 +124,13 @@ def parse_file(
     p = Path(path)
     suffix = p.suffix.lower()
     if suffix in _DOCX_SUFFIXES:
-        return parse_docx(p, language=language, profile=profile)
+        return parse_docx(
+            p, language=language, profile=profile, chem_detection=chem_detection
+        )
     if suffix in _DOC_SUFFIXES:
-        return parse_doc(p, language=language, profile=profile)
+        return parse_doc(
+            p, language=language, profile=profile, chem_detection=chem_detection
+        )
     if suffix in _MUSIC_SUFFIXES:
         # Music files (MusicXML / .mxl) go through the music input
         # adapter — produces a single-block DocumentIR wrapping a

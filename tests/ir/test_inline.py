@@ -110,6 +110,13 @@ class TestSerializationWord:
 
 
 class TestSerializationComposite:
+    def test_empty_parts_omitted_from_to_dict(self):
+        # ``parts`` is a default_factory=list field (f.default == MISSING),
+        # so an empty list must still be omitted from the JSON, not emitted
+        # as "parts": [].
+        d = Date(surface="2026")
+        assert "parts" not in d.to_dict()
+
     def test_date_round_trip(self):
         d = Date(
             surface="2026年5月17日",
@@ -273,6 +280,22 @@ class TestSerializationMathInline:
         assert ET.tostring(once.math, encoding="unicode") == ET.tostring(
             twice.math, encoding="unicode"
         )
+
+    def test_round_trip_strips_xmlns_attribute_tree(self):
+        # Regression: a producer (e.g. normalize._try_atomic's math_op
+        # path) can build the tree with an ``xmlns`` attribute.  After
+        # ET.tostring -> ET.fromstring the reparse Clark-notates every tag
+        # ({http://...}math); the backend dispatches on bare local names,
+        # so an un-stripped round-trip yielded blank cells + spurious
+        # warnings.  The IR boundary must normalise back to bare tags.
+        m = ET.Element("math", {"xmlns": "http://www.w3.org/1998/Math/MathML"})
+        ET.SubElement(m, "mo").text = "+"
+        node = MathInline(surface="+", source="mathml", math=m)
+        restored = from_dict(node.to_dict()).math
+        assert restored is not None
+        assert restored.tag == "math"
+        assert restored[0].tag == "mo"  # NOT '{http://...}mo'
+        assert restored[0].text == "+"
 
 
 class TestSerializationMusicInline:

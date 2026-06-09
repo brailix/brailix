@@ -30,6 +30,24 @@ def _mathml_dump(xml: str) -> str:
     return ET.tostring(ET.fromstring(xml), encoding="unicode")
 
 
+def _shape_tree(formula: str) -> str:
+    """Full-tree shape of the OMML adapter output after normalization,
+    e.g. ``mfrac(mi:x,mi:y)`` / ``msup(mi:x,mn:2)``. Unlike substring
+    asserts, this catches structural / ordering mistranslations that
+    still emit the right tags — the OMML path has no real-docx fixture."""
+    root = parse_math_tree(formula, MathContext(source="omml", warnings=WarningCollector()))
+
+    def fmt(el: ET.Element) -> str:
+        kids = list(el)
+        tag = el.tag.split("}")[-1]
+        if not kids:
+            text = (el.text or "").strip()
+            return f"{tag}:{text}" if text else tag
+        return f"{tag}({','.join(fmt(k) for k in kids)})"
+
+    return ",".join(fmt(c) for c in root) if root is not None else "<none>"
+
+
 class TestTextRuns:
     def test_letters_become_mi(self):
         adapter = OmmlMathSourceAdapter()
@@ -237,3 +255,174 @@ class TestEndToEndThroughParseMathTree:
         # The fraction survived through to the normalised tree.
         mfrac = tree.find("mfrac")
         assert mfrac is not None
+
+
+class TestStructuralShape:
+    """Full-tree-shape assertions (not substring) so a structural /
+    ordering mistranslation that still contains the right tags can't pass
+    silently. The OMML path is every native-Word equation and has no
+    real-docx fixture, so these pin the tree shape exactly."""
+
+    def test_fraction_shape(self):
+        out = _shape_tree(_omml(
+            "<m:f>"
+            "<m:num><m:r><m:t>x</m:t></m:r></m:num>"
+            "<m:den><m:r><m:t>y</m:t></m:r></m:den>"
+            "</m:f>"
+        ))
+        assert out == "mfrac(mi:x,mi:y)"
+
+    def test_superscript_shape(self):
+        out = _shape_tree(_omml(
+            "<m:sSup>"
+            "<m:e><m:r><m:t>x</m:t></m:r></m:e>"
+            "<m:sup><m:r><m:t>2</m:t></m:r></m:sup>"
+            "</m:sSup>"
+        ))
+        assert out == "msup(mi:x,mn:2)"
+
+    def test_matrix_2x2_shape(self):
+        # [[a,b],[c,d]] — row/cell nesting + order must be exact.
+        out = _shape_tree(_omml(
+            "<m:m>"
+            "<m:mr><m:e><m:r><m:t>a</m:t></m:r></m:e>"
+            "<m:e><m:r><m:t>b</m:t></m:r></m:e></m:mr>"
+            "<m:mr><m:e><m:r><m:t>c</m:t></m:r></m:e>"
+            "<m:e><m:r><m:t>d</m:t></m:r></m:e></m:mr>"
+            "</m:m>"
+        ))
+        assert out == "mtable(mtr(mtd(mi:a),mtd(mi:b)),mtr(mtd(mi:c),mtd(mi:d)))"
+
+
+# ---------------------------------------------------------------------------
+# Constructs that were implemented but previously untested — synthetic OMML
+# exercising each handler's tag + structure mapping.
+# ---------------------------------------------------------------------------
+
+
+class TestPreScript:
+    def test_spre_becomes_mmultiscripts(self):
+        out = OmmlMathSourceAdapter().to_mathml(_omml(
+            "<m:sPre>"
+            "<m:e><m:r><m:t>X</m:t></m:r></m:e>"
+            "<m:sub><m:r><m:t>a</m:t></m:r></m:sub>"
+            "<m:sup><m:r><m:t>b</m:t></m:r></m:sup>"
+            "</m:sPre>"
+        ))
+        assert "<mmultiscripts>" in out
+        assert "<mprescripts" in out
+        assert "<mi>X</mi>" in out
+        assert "<mi>a</mi>" in out and "<mi>b</mi>" in out
+
+
+class TestFunc:
+    def test_func_emits_name_apply_arg(self):
+        out = OmmlMathSourceAdapter().to_mathml(_omml(
+            "<m:func>"
+            "<m:fName><m:r><m:t>sin</m:t></m:r></m:fName>"
+            "<m:e><m:r><m:t>x</m:t></m:r></m:e>"
+            "</m:func>"
+        ))
+        assert "<mrow>" in out
+        assert "⁡" in out  # U+2061 apply-function operator
+        assert "<mi>x</mi>" in out
+
+
+class TestEqArray:
+    def test_eqarr_becomes_mtable_rows(self):
+        out = OmmlMathSourceAdapter().to_mathml(_omml(
+            "<m:eqArr>"
+            "<m:e><m:r><m:t>a</m:t></m:r></m:e>"
+            "<m:e><m:r><m:t>b</m:t></m:r></m:e>"
+            "</m:eqArr>"
+        ))
+        assert "<mtable>" in out
+        assert out.count("<mtr>") == 2
+
+
+class TestLimits:
+    def test_lim_low_becomes_munder(self):
+        out = OmmlMathSourceAdapter().to_mathml(_omml(
+            "<m:limLow><m:e><m:r><m:t>L</m:t></m:r></m:e>"
+            "<m:lim><m:r><m:t>x</m:t></m:r></m:lim></m:limLow>"
+        ))
+        assert "<munder>" in out
+
+    def test_lim_upp_becomes_mover(self):
+        out = OmmlMathSourceAdapter().to_mathml(_omml(
+            "<m:limUpp><m:e><m:r><m:t>L</m:t></m:r></m:e>"
+            "<m:lim><m:r><m:t>x</m:t></m:r></m:lim></m:limUpp>"
+        ))
+        assert "<mover>" in out
+
+
+class TestAccentsAndGroups:
+    def test_group_chr_default_underbrace(self):
+        out = OmmlMathSourceAdapter().to_mathml(_omml(
+            "<m:groupChr><m:e><m:r><m:t>x</m:t></m:r></m:e></m:groupChr>"
+        ))
+        assert "<munder>" in out
+        assert "⏟" in out  # default underbrace
+
+    def test_bar_default_overbar(self):
+        out = OmmlMathSourceAdapter().to_mathml(_omml(
+            "<m:bar><m:e><m:r><m:t>x</m:t></m:r></m:e></m:bar>"
+        ))
+        assert "<mover>" in out
+        assert "¯" in out  # macron / overbar
+
+    def test_acc_default_is_mover(self):
+        out = OmmlMathSourceAdapter().to_mathml(_omml(
+            "<m:acc><m:e><m:r><m:t>x</m:t></m:r></m:e></m:acc>"
+        ))
+        assert "<mover>" in out
+        assert "<mi>x</mi>" in out
+
+
+class TestBoxAndPhantom:
+    def test_box_passes_contents_through(self):
+        out = OmmlMathSourceAdapter().to_mathml(_omml(
+            "<m:box><m:e><m:r><m:t>x</m:t></m:r></m:e></m:box>"
+        ))
+        assert "<mi>x</mi>" in out
+        assert "box" not in out.lower()  # no box wrapper survives
+
+    def test_border_box_passes_contents_through(self):
+        out = OmmlMathSourceAdapter().to_mathml(_omml(
+            "<m:borderBox><m:e><m:r><m:t>y</m:t></m:r></m:e></m:borderBox>"
+        ))
+        assert "<mi>y</mi>" in out
+
+    def test_phant_becomes_mphantom(self):
+        out = OmmlMathSourceAdapter().to_mathml(_omml(
+            "<m:phant><m:e><m:r><m:t>x</m:t></m:r></m:e></m:phant>"
+        ))
+        assert "<mphantom>" in out
+        assert "<mi>x</mi>" in out
+
+
+class TestNaryOptions:
+    def test_nary_sub_hidden_drops_lower_limit(self):
+        out = OmmlMathSourceAdapter().to_mathml(_omml(
+            "<m:nary>"
+            "<m:naryPr><m:chr m:val=\"∑\"/><m:subHide m:val=\"on\"/></m:naryPr>"
+            "<m:sub><m:r><m:t>a</m:t></m:r></m:sub>"
+            "<m:sup><m:r><m:t>b</m:t></m:r></m:sup>"
+            "<m:e><m:r><m:t>x</m:t></m:r></m:e>"
+            "</m:nary>"
+        ))
+        assert "<mi>a</mi>" not in out  # lower limit suppressed
+        assert "<mi>b</mi>" in out  # upper limit kept
+
+    def test_nary_limloc_subsup_uses_msubsup(self):
+        out = OmmlMathSourceAdapter().to_mathml(_omml(
+            "<m:nary>"
+            "<m:naryPr><m:chr m:val=\"∑\"/>"
+            "<m:limLoc m:val=\"subSup\"/></m:naryPr>"
+            "<m:sub><m:r><m:t>a</m:t></m:r></m:sub>"
+            "<m:sup><m:r><m:t>b</m:t></m:r></m:sup>"
+            "<m:e><m:r><m:t>x</m:t></m:r></m:e>"
+            "</m:nary>"
+        ))
+        assert "<msubsup>" in out
+        assert "<munderover>" not in out

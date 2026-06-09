@@ -33,6 +33,14 @@ Block-level rules (defaults; per-block overrides via :class:`LayoutOptions`):
   line runs over.  ``score`` is framed with one blank line before and
   after, ``music_block`` none.
 
+Any text block may additionally carry a source-declared **alignment**
+(:attr:`BrailleBlock.align` — ``"center"`` / ``"right"``, e.g. a Word
+paragraph the author centred or right-aligned). When set it overrides the
+block's usual first-line / hanging indent: every wrapped line is left-padded
+from the line width so its content sits centred or flush right. This is the
+same mechanism that centres level-1 headings — that default is just the
+``align``-less fallback applied to ``heading`` level 1.
+
 Wrapping picks blank cells as break points (word boundaries) — and
 when a single "word" (run of non-blank cells) doesn't fit, breaks at
 **atomic-group** boundaries inside it: cells that share the same
@@ -257,8 +265,8 @@ class LayoutRenderer:
         """Apply block-specific indent + blank-line rules and wrap.
 
         Takes the whole :class:`BrailleBlock` so per-block metadata
-        (currently :attr:`BrailleBlock.heading_level`) is visible to
-        the layout rules without re-walking the source IR.
+        (:attr:`BrailleBlock.heading_level`, :attr:`BrailleBlock.align`)
+        is visible to the layout rules without re-walking the source IR.
         """
         opts = self.options
         block_type = block.block_type
@@ -269,49 +277,6 @@ class LayoutRenderer:
             # Don't wrap or indent — caller wants byte-for-byte.
             if cells:
                 out.append(list(cells))
-            return out
-
-        if block_type == "heading":
-            for _ in range(opts.heading_blank_before):
-                out.append([BLANK_CELL])
-            wrapped = self._wrap_block_cells(
-                cells, first_indent=0, cont_indent=0
-            )
-            # Centre level-1 headings only. Deeper levels stay flush
-            # left so the visual hierarchy reads correctly without
-            # forcing the backend to take a position on every level.
-            should_center = (
-                opts.heading_center_level_1
-                and block.heading_level == 1
-                and wrapped
-            )
-            if should_center:
-                first = wrapped[0]
-                visible = len(first)
-                pad = max(0, (opts.line_width - visible) // 2)
-                if pad:
-                    wrapped[0] = [BLANK_CELL] * pad + first
-            out.extend(wrapped)
-            for _ in range(opts.heading_blank_after):
-                out.append([BLANK_CELL])
-            return out
-
-        if block_type == "list_item":
-            out.extend(self._wrap_block_cells(
-                cells, first_indent=0, cont_indent=opts.list_hanging_indent
-            ))
-            return out
-
-        if block_type == "quote":
-            out.extend(self._wrap_block_cells(
-                cells, first_indent=opts.quote_indent, cont_indent=opts.quote_indent
-            ))
-            return out
-
-        if block_type == "footnote":
-            out.extend(self._wrap_block_cells(
-                cells, first_indent=0, cont_indent=opts.footnote_hanging_indent
-            ))
             return out
 
         if block_type in ("score", "music_block"):
@@ -335,11 +300,90 @@ class LayoutRenderer:
                 out.append([BLANK_CELL])
             return out
 
-        # paragraph / list (parent container) / anything else.
-        out.extend(self._wrap_block_cells(
-            cells, first_indent=opts.paragraph_indent, cont_indent=0
-        ))
+        # Text-flow blocks (paragraph / heading / list_item / quote /
+        # footnote / list-container / anything else) share one path: pick
+        # the indent + blank-line framing for the kind, wrap, then apply
+        # the block's effective alignment to every wrapped line.
+        blank_before = blank_after = 0
+        first_indent = opts.paragraph_indent
+        cont_indent = 0
+        if block_type == "heading":
+            blank_before = opts.heading_blank_before
+            blank_after = opts.heading_blank_after
+            first_indent = cont_indent = 0
+        elif block_type == "list_item":
+            first_indent = 0
+            cont_indent = opts.list_hanging_indent
+        elif block_type == "quote":
+            first_indent = cont_indent = opts.quote_indent
+        elif block_type == "footnote":
+            first_indent = 0
+            cont_indent = opts.footnote_hanging_indent
+
+        align = self._effective_align(block)
+        if align is not None:
+            # Centred / right text measures its padding from the line
+            # width, so a first-line or hanging indent would only fight
+            # it — drop both and let the alignment own the placement.
+            first_indent = cont_indent = 0
+
+        wrapped = self._wrap_block_cells(
+            cells, first_indent=first_indent, cont_indent=cont_indent
+        )
+        if align is not None:
+            wrapped = [self._align_line(line, align) for line in wrapped]
+
+        for _ in range(blank_before):
+            out.append([BLANK_CELL])
+        out.extend(wrapped)
+        for _ in range(blank_after):
+            out.append([BLANK_CELL])
         return out
+
+    def _effective_align(self, block: BrailleBlock) -> str | None:
+        """The alignment to apply to ``block``'s wrapped lines, or ``None``.
+
+        A source-declared :attr:`BrailleBlock.align` (``"center"`` /
+        ``"right"``) wins. Absent that, a level-1 heading still centres by
+        default (:attr:`LayoutOptions.heading_center_level_1`) — the
+        historical behaviour, now expressed as one alignment rule rather
+        than a heading-only special case. Everything else stays flush left.
+        Because source alignment is honoured for any block kind, a Word
+        paragraph the author centred renders centred, and a centred level-2
+        heading (which the default rule leaves alone) is centred too.
+        """
+        if block.align in ("center", "right"):
+            return block.align
+        if (
+            block.block_type == "heading"
+            and block.heading_level == 1
+            and self.options.heading_center_level_1
+        ):
+            return "center"
+        return None
+
+    def _align_line(
+        self, line: list[BrailleCell], align: str
+    ) -> list[BrailleCell]:
+        """Left-pad one wrapped line so its content sits centred / right.
+
+        Padding is blank cells measured from the configured line width.
+        A line already at or past the width, an empty line, or one that's
+        only blanks (a separator) is returned untouched so alignment never
+        widens a line past ``line_width`` or shifts a blank spacer. ``align``
+        is ``"center"`` or ``"right"``; any other value is a no-op.
+        """
+        width = self.options.line_width
+        visible = len(line)
+        if visible == 0 or visible >= width or all(c.is_blank for c in line):
+            return line
+        if align == "right":
+            pad = width - visible
+        elif align == "center":
+            pad = (width - visible) // 2
+        else:
+            return line
+        return [BLANK_CELL] * pad + line if pad > 0 else line
 
     # ---- wrapping -------------------------------------------------------
 
@@ -478,6 +522,12 @@ class LayoutRenderer:
                     if slot <= 0:
                         flush_line(with_hyphen=False)
                         slot = opts.line_width - len(cur)
+                    # A continuation indent >= line_width leaves slot <= 0
+                    # even on a fresh line; force at least one cell so
+                    # rest_cells strictly shrinks and we can't spin forever
+                    # (the line overflows width, which is unavoidable when
+                    # the indent alone exceeds it).
+                    slot = max(1, slot)
                     take, rest_cells = rest_cells[:slot], rest_cells[slot:]
                     cur.extend(take)
                     if rest_cells:
@@ -649,9 +699,12 @@ def _apply_page_number_unicode(
             return target_line + padding + pn
         return pn + padding + target_line
     # Collision — give up cells from the side the page number sits on.
+    # ``avail`` can be 0 (page number + gap exactly fills the line); guard
+    # the left-aligned tail because ``target_line[-0:]`` is the whole line,
+    # not an empty slice, which would overflow the width.
     if align_right:
         return target_line[:avail] + blank + pn
-    return pn + blank + target_line[-avail:]
+    return pn + blank + (target_line[-avail:] if avail else target_line[:0])
 
 
 def _apply_page_number_brf(
@@ -679,7 +732,8 @@ def _apply_page_number_brf(
         return pn + padding + target_line
     if align_right:
         return target_line[:avail] + b" " + pn
-    return pn + b" " + target_line[-avail:]
+    # ``avail == 0`` guard: ``target_line[-0:]`` is the whole line, not empty.
+    return pn + b" " + (target_line[-avail:] if avail else target_line[:0])
 
 
 def _load() -> LayoutRenderer:

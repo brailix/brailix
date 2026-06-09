@@ -53,7 +53,9 @@ class MusicBrailleContext:
     # ("crescendo" / "diminuendo" / None). ``<wedge type="stop"/>``
     # consults this to pick the matching terminator cell, then clears
     # it. Persists across measures — hairpins routinely span multiple
-    # bars in real scores.
+    # bars — but is reset at part / staff boundaries (``_emit_part``): a
+    # hairpin never spans a part, so a dangling crescendo can't pair with
+    # the next part's stray ``<wedge type="stop"/>``.
     pending_hairpin: str | None = None
     # M8 (proofread provenance): current ``<part id="...">`` and
     # ``<measure number="...">`` values, threaded down so every
@@ -67,6 +69,27 @@ class MusicBrailleContext:
     # S6 (BANA Par. 9.1): pitch of the most recently emitted root
     # note (a ``<note>`` *without* a ``<chord/>`` child). Subsequent
     # ``<note><chord/>`` siblings emit interval cells measured from
-    # this root. Cleared (left to last root) across measures — chord
-    # spans don't cross bar lines in well-formed MusicXML.
+    # this root. Reset to None at every bar line (``_emit_measure``) —
+    # chord spans don't cross bar lines in well-formed MusicXML, so a
+    # measure that opens with an orphan ``<chord/>`` warns instead of
+    # silently measuring against the previous measure's stale root.
     chord_root: tuple[str, int] | None = None
+    # BANA Par. 9.2 (Direction of Intervals): the clef sign / line in
+    # effect, set by ``_emit_clef`` and threaded so chord emission picks
+    # the *written* note correctly. Treble (G) and alto (C on line 3)
+    # write the uppermost chord note with intervals read downward; bass
+    # (F) and tenor (C on line 4) write the lowermost with intervals read
+    # upward. ``None`` (no clef yet / percussion) keeps the lowermost as
+    # written — the pre-9.2 default. Persists until the next ``<clef>``.
+    current_clef_sign: str | None = None
+    current_clef_line: int | None = None
+    # BANA Par. 2.4 (Larger and Smaller Value Signs): the value category
+    # of the previously-emitted note / rest — ``"large"`` (8th-and-larger),
+    # ``"small"`` (16th-and-smaller), ``"v256"`` (256th), or ``None`` at
+    # the start of a reading. A value sign is emitted before a note/rest
+    # whose category differs (the eighth/half-note shapes each stand for
+    # two values, so a change between large and small needs marking; a
+    # 256th always carries its own sign). Reset to ``None`` at part /
+    # staff / voice boundaries (each starts a fresh reading); persists
+    # across bar lines like the printed value sign itself.
+    prev_value_category: str | None = None

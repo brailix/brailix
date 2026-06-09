@@ -12,8 +12,47 @@ import xml.etree.ElementTree as ET
 
 from brailix.backend.music.context import MusicBrailleContext
 from brailix.backend.music.dispatch import _emit_element
+from brailix.backend.music.handlers.notes import _emit_chord_run
 from brailix.backend.music.utils import emit_cells_for_entity, first_child_text
 from brailix.ir.braille import BrailleCell
+
+
+def _emit_note_sequence(
+    cells: list[BrailleCell],
+    mctx: MusicBrailleContext,
+    children: list[ET.Element],
+) -> None:
+    """Dispatch a measure / voice child sequence, batching chord runs.
+
+    A chord is a ``<note>`` without ``<chord/>`` immediately followed by
+    one or more ``<note><chord/></note>`` siblings. Those are handed to
+    :func:`_emit_chord_run` as a group so it can pick the written note by
+    clef (BANA Par. 9.2); every other child (single notes, rests,
+    barlines, directions, attributes, ...) dispatches individually,
+    unchanged.
+    """
+    i = 0
+    n = len(children)
+    while i < n:
+        child = children[i]
+        if (
+            child.tag == "note"
+            and child.find("rest") is None
+            and child.find("chord") is None
+        ):
+            j = i + 1
+            while (
+                j < n
+                and children[j].tag == "note"
+                and children[j].find("chord") is not None
+            ):
+                j += 1
+            if j - i > 1:  # ≥1 chord note followed the root
+                _emit_chord_run(cells, mctx, children[i:j])
+                i = j
+                continue
+        _emit_element(cells, mctx, child)
+        i += 1
 
 
 def _emit_score_partwise(
@@ -146,6 +185,8 @@ def _emit_part(
         staves = _part_staves(elem)
         if not staves:
             mctx.prev_pitch = None
+            mctx.prev_value_category = None  # BANA Par. 2.4: fresh reading
+            mctx.pending_hairpin = None  # a hairpin never spans a part
             _emit_measures(cells, mctx, list(elem), separator)
             return
         for i, staff in enumerate(staves):
@@ -158,6 +199,8 @@ def _emit_part(
                     )
                 )
             mctx.prev_pitch = None  # octave inference restarts per staff
+            mctx.prev_value_category = None  # BANA Par. 2.4: fresh reading
+            mctx.pending_hairpin = None  # a hairpin never spans a staff
             children = [
                 _measure_for_staff(c, staff) if c.tag == "measure" else c
                 for c in elem
@@ -190,6 +233,13 @@ def _emit_measure(
     if mctx.octave_rule == "every_measure":
         mctx.prev_pitch = None
     mctx.measure_accidentals = set()
+    # Reset the chord root at every bar line: a chord never spans a
+    # measure, so a measure that opens with an orphan <note><chord/>
+    # (malformed) must fall into the None-guard warning rather than
+    # silently measuring its interval against the previous measure's stale
+    # root.  Normal music overwrites this with the measure's first real
+    # note anyway, so this only changes the malformed case.
+    mctx.chord_root = None
     # M8 provenance: record current measure number so child cells'
     # source_text carries it. Restored on exit.
     saved_measure = mctx.current_measure_number
@@ -199,12 +249,21 @@ def _emit_measure(
     try:
         voices = _scan_voices(elem)
         if len(voices) <= 1:
-            for child in elem:
-                _emit_element(cells, mctx, child)
+            _emit_note_sequence(cells, mctx, list(elem))
         else:
             _emit_multi_voice(cells, mctx, elem, voices)
     finally:
         mctx.current_measure_number = saved_measure
+
+
+def _voice_of(note: ET.Element) -> str:
+    """The note's ``<voice>`` value, defaulting an unvoiced note to ``"1"``
+    (MusicXML's implicit voice).  Shared by :func:`_scan_voices` and
+    :func:`_emit_multi_voice` so the two can't drift on the default — a
+    mismatch routes an unvoiced note to a bucket nobody counted, leaving an
+    empty voice and a stray in-accord marker.
+    """
+    return first_child_text(note, "voice") or "1"
 
 
 def _scan_voices(measure: ET.Element) -> list[str]:
@@ -222,7 +281,7 @@ def _scan_voices(measure: ET.Element) -> list[str]:
     for child in measure:
         if child.tag != "note":
             continue
-        v = first_child_text(child, "voice") or "1"
+        v = _voice_of(child)
         if v not in seen_set:
             seen.append(v)
             seen_set.add(v)
@@ -291,7 +350,7 @@ def _emit_multi_voice(
     post_globals: list[ET.Element] = []
     for i, child in enumerate(children):
         if child.tag == "note":
-            v = first_child_text(child, "voice") or voices[0]
+            v = _voice_of(child)
             voice_notes.setdefault(v, []).append(child)
         elif child.tag in ("backup", "forward"):
             continue
@@ -323,8 +382,8 @@ def _emit_multi_voice(
             # like the start of a line). measure_accidentals stays
             # shared — Par. 6.2 reads across voices within the bar.
             mctx.prev_pitch = None
-        for note in voice_notes[voice]:
-            _emit_element(cells, mctx, note)
+            mctx.prev_value_category = None  # BANA Par. 2.4: fresh reading
+        _emit_note_sequence(cells, mctx, voice_notes[voice])
 
     for el in post_globals:
         _emit_element(cells, mctx, el)

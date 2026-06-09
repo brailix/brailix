@@ -159,11 +159,13 @@ class DefaultNormalizer:
 # ---------------------------------------------------------------------------
 
 
-# Canonical pinyin for the structural hanzi markers the normalizer can
-# emit. Filling this here keeps the Backend language-agnostic: it just
-# reads the IR. These are *fixed* readings (always 年→nián, 月→yuè),
-# not context-sensitive polyphone resolution — the latter is still the
-# PinyinResolver's job and is intentionally not done at this layer.
+# Canonical pinyin for the structural hanzi markers.  Only 年/月/日 are
+# currently emitted (by ``_try_date``); 号/时/点/分/秒 are reserved for a
+# future clock matcher (the backend already speaks ``reading``, so they
+# need no further wiring).  Filling this here keeps the backend language-
+# agnostic — it just reads the IR.  These are *fixed* readings (always
+# 年→nián, 月→yuè), not context-sensitive polyphone resolution; the latter
+# is still the PinyinResolver's job and is intentionally not done here.
 _MARKER_PINYIN: dict[str, str] = {
     "年": "nian2",
     "月": "yue4",
@@ -345,9 +347,12 @@ def _try_atomic(seg: Segment) -> InlineNode | None:
         # prose. Build the trivial MathML tree directly so the math
         # frontend's parser is never invoked — Pipeline._attach_math
         # short-circuits when ``MathInline.math`` is already filled.
-        math = ET.Element(
-            "math", {"xmlns": "http://www.w3.org/1998/Math/MathML"}
-        )
+        # Bare tags only (no ``xmlns`` attribute): the backend dispatches
+        # on local names, and the IR round-trip (ET.tostring -> fromstring)
+        # must stay namespace-free or the reparse Clark-notates every tag
+        # and dispatch falls through.  Adapter-sourced trees are likewise
+        # namespace-stripped, so math_op stays consistent with them.
+        math = ET.Element("math")
         mo = ET.SubElement(math, "mo")
         mo.text = _MATH_OP_CANONICAL.get(seg.surface, seg.surface)
         return MathInline(

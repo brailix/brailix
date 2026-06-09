@@ -14,6 +14,7 @@ package ``__init__`` and call into here.
 from __future__ import annotations
 
 import re
+from xml.sax.saxutils import escape
 
 from brailix.input.docx._ole import _ole_object_to_inline_math
 from brailix.input.docx._xml import (
@@ -40,6 +41,12 @@ from brailix.ir.document import (
 
 _HEADING_STYLE_RE = re.compile(r"^heading\s*(\d+)$", re.IGNORECASE)
 
+# Standard W3C MathML namespace — kept as a local literal (rather than
+# importing from the math frontend) so this leaf-ish walker stays free of
+# a frontend import cycle, matching ``_xml._inline_math_as_text``'s lazy
+# discipline. It's the same URI every MathML emitter in the project uses.
+_MATHML_NS = "http://www.w3.org/1998/Math/MathML"
+
 # Word lets a paragraph be a list item via either ``numPr`` (real
 # numbering with a definition) or just a list-flavoured pStyle (eg.
 # ``ListBullet``, ``ListNumber1``).  The style-only path is common in
@@ -59,7 +66,12 @@ _LIST_STYLE_RE = re.compile(
 # ---------------------------------------------------------------------------
 
 
-def _iter_body_blocks(body: Element, *, ole_blobs: dict[str, bytes] | None = None):
+def _iter_body_blocks(
+    body: Element,
+    *,
+    ole_blobs: dict[str, bytes] | None = None,
+    chem_detection: bool = False,
+):
     """Yield IR blocks from ``w:body`` in document order.
 
     Consecutive list-item paragraphs are merged into one :class:`List`
@@ -91,7 +103,9 @@ def _iter_body_blocks(body: Element, *, ole_blobs: dict[str, bytes] | None = Non
     for child in body:
         tag = _local(child.tag)
         if tag == "p":
-            blocks = _convert_paragraph(child, ole_blobs=ole_blobs)
+            blocks = _convert_paragraph(
+                child, ole_blobs=ole_blobs, chem_detection=chem_detection
+            )
             for blk in blocks:
                 if isinstance(blk, ListItem):
                     ordered = blk.id == "__ordered__"
@@ -108,7 +122,9 @@ def _iter_body_blocks(body: Element, *, ole_blobs: dict[str, bytes] | None = Non
                     yield blk
         elif tag == "tbl":
             yield from flush_list()
-            yield _convert_table(child, ole_blobs=ole_blobs)
+            yield _convert_table(
+                child, ole_blobs=ole_blobs, chem_detection=chem_detection
+            )
         elif tag == "oMathPara":
             yield from flush_list()
             yield _math_block_from_omath_para(child)
@@ -125,7 +141,10 @@ def _iter_body_blocks(body: Element, *, ole_blobs: dict[str, bytes] | None = Non
 
 
 def _convert_paragraph(
-    p: Element, *, ole_blobs: dict[str, bytes] | None = None
+    p: Element,
+    *,
+    ole_blobs: dict[str, bytes] | None = None,
+    chem_detection: bool = False,
 ) -> list[Block]:
     """Convert a single ``<w:p>`` into one or more IR blocks.
 
@@ -140,6 +159,7 @@ def _convert_paragraph(
         ole_blobs = {}
     style = _paragraph_style(p)
     list_info = _paragraph_list_info(p, style=style)
+    align = _paragraph_alignment(p)
 
     # First pass: split the paragraph at display-math boundaries.
     # Word allows ``m:oMathPara`` nested inside ``w:p``; treat each
@@ -153,11 +173,15 @@ def _convert_paragraph(
             text = "".join(text_parts).strip()
             if text:
                 blocks_out.append(
-                    _wrap_text_block(text, style=style, list_info=list_info)
+                    _wrap_text_block(
+                        text, style=style, list_info=list_info, align=align
+                    )
                 )
             text_parts = []
 
-    for run_text, math_block in _walk_paragraph_content(p, ole_blobs=ole_blobs):
+    for run_text, math_block in _walk_paragraph_content(
+        p, ole_blobs=ole_blobs, chem_detection=chem_detection
+    ):
         if math_block is not None:
             flush_text()
             blocks_out.append(math_block)
@@ -178,6 +202,7 @@ def _wrap_text_block(
     *,
     style: str | None,
     list_info: tuple[int, bool] | None,
+    align: str | None = None,
 ) -> Block:
     """Pick the right block class for a paragraph slice.
 
@@ -188,10 +213,15 @@ def _wrap_text_block(
     The list item carries an internal ``__ordered__`` marker via
     :attr:`Block.id` so :func:`_iter_body_blocks` knows what flavour
     of list to wrap it in. The id is cleared before yielding.
+
+    ``align`` (the paragraph's ``w:jc``, already normalised to
+    ``"center"`` / ``"right"`` / ``None``) is stamped on whichever block
+    kind we produce — recording the source's intent regardless of kind;
+    the backend / layout then decide which kinds to honour.
     """
     if list_info is not None:
         _level, ordered = list_info
-        item = ListItem(text=text)
+        item = ListItem(text=text, align=align)
         if ordered:
             item.id = "__ordered__"
         return item
@@ -199,12 +229,15 @@ def _wrap_text_block(
         m = _HEADING_STYLE_RE.match(style)
         if m:
             level = int(m.group(1))
-            return Heading(level=level, text=text)
-    return Paragraph(text=text)
+            return Heading(level=level, text=text, align=align)
+    return Paragraph(text=text, align=align)
 
 
 def _walk_paragraph_content(
-    p: Element, *, ole_blobs: dict[str, bytes] | None = None
+    p: Element,
+    *,
+    ole_blobs: dict[str, bytes] | None = None,
+    chem_detection: bool = False,
 ):
     """Yield ``(text_piece, math_block | None)`` for each content unit.
 
@@ -223,38 +256,73 @@ def _walk_paragraph_content(
     + ``<w:fldChar end>``) span multiple runs; an :class:`_FieldState`
     instance threads the in-flight ``instrText`` buffer across run
     boundaries so the EQ adapter sees the complete instruction.
+
+    Runs carrying ``<w:vertAlign>`` (the super/subscript a user sets via
+    Ctrl+Shift+= / Ctrl+=) are not text that can be flattened away: a
+    coalescing pass turns each maximal cluster of script-bearing runs
+    into the same ``$<math>...</math>$`` inline form (an ``<msup>`` /
+    ``<msub>`` tree). ``chem_detection`` additionally tries the chemistry
+    reading for clusters that match a chemical formula — see
+    :func:`_coalesce_script_clusters`.
     """
     if ole_blobs is None:
         ole_blobs = {}
+    tokens = _iter_paragraph_tokens(p, ole_blobs)
+    yield from _coalesce_script_clusters(tokens, chem_detection=chem_detection)
+
+
+def _iter_paragraph_tokens(p: Element, ole_blobs: dict[str, bytes]):
+    """Lower a ``<w:p>`` into a flat token stream for the coalescer.
+
+    Each token is one of:
+
+    * ``("text", str, vert)``  — run text, ``vert`` ∈ ``{None, "super",
+      "sub"}`` from the run's ``<w:vertAlign>``;
+    * ``("math", "$<math>...$")`` — an already-formed inline-math island
+      (OMML / OLE / EQ field), opaque to script coalescing;
+    * ``("block", MathBlock)`` — a standalone display equation.
+
+    This is the old body of :func:`_walk_paragraph_content`, re-expressed
+    so the run-level vertical-alignment survives down to the coalescer
+    instead of being flattened into bare text.
+    """
     field_state = _FieldState()
     # Iterate top-level children only — ``.iter()`` would re-visit
     # nested elements once their parent has handled them.
     for child in p:
         tag = _local(child.tag)
         if tag == "oMathPara":
-            yield "", _math_block_from_omath_para(child)
+            yield ("block", _math_block_from_omath_para(child))
         elif tag == "oMath":
-            yield _inline_math_as_text(child), None
+            yield ("math", _inline_math_as_text(child))
         elif tag == "r":
+            vert = _run_vert_align(child)
             for piece in _walk_run(child, ole_blobs, field_state):
-                yield piece, None
+                if _is_inline_math(piece):
+                    yield ("math", piece)
+                else:
+                    yield ("text", piece, vert)
         elif tag == "hyperlink":
             # Hyperlinks wrap runs and may contain math too.
             for hyper_child in child:
                 hyper_tag = _local(hyper_child.tag)
                 if hyper_tag == "r":
+                    hvert = _run_vert_align(hyper_child)
                     for piece in _walk_run(hyper_child, ole_blobs, field_state):
-                        yield piece, None
+                        if _is_inline_math(piece):
+                            yield ("math", piece)
+                        else:
+                            yield ("text", piece, hvert)
                 elif hyper_tag == "oMath":
-                    yield _inline_math_as_text(hyper_child), None
+                    yield ("math", _inline_math_as_text(hyper_child))
                 elif hyper_tag == "object":
                     text = _ole_object_to_inline_math(hyper_child, ole_blobs)
                     if text:
-                        yield text, None
+                        yield ("math", text)
         elif tag == "object":
             text = _ole_object_to_inline_math(child, ole_blobs)
             if text:
-                yield text, None
+                yield ("math", text)
         elif tag == "fldSimple":
             # Word's simple-field form: instruction in ``w:instr``
             # attribute, result text as children. Skip the result text
@@ -262,14 +330,17 @@ def _walk_paragraph_content(
             instr = child.get(_W_PREFIX + "instr") or child.get("instr") or ""
             piece = _eq_field_to_inline_math(instr)
             if piece is not None:
-                yield piece, None
+                yield ("math", piece)
         elif tag == "AlternateContent":
             # Word wraps OLE objects in <mc:AlternateContent> when both
             # a modern (Choice) and legacy (Fallback) representation
             # exist. Prefer Fallback for OLE math — Choice is usually
             # the picture preview, which we can't read.
             for piece, math in _walk_alternate_content(child, ole_blobs):
-                yield piece, math
+                if math is not None:
+                    yield ("block", math)
+                elif piece:
+                    yield ("math", piece)
         elif tag in ("pPr",):
             # Paragraph properties — already consumed by style / list
             # detection; skip here.
@@ -280,7 +351,324 @@ def _walk_paragraph_content(
             for sub in child.iter():
                 sub_tag = _local(sub.tag)
                 if sub_tag == "t":
-                    yield (sub.text or ""), None
+                    yield ("text", sub.text or "", None)
+
+
+# ---------------------------------------------------------------------------
+# Run-level vertical alignment → inline math (Ctrl+= / Ctrl+Shift+= scripts)
+# ---------------------------------------------------------------------------
+
+# Word's ``w:val`` for a raised / lowered run. ``baseline`` (and a missing
+# element) is ordinary text.
+_VERT_ALIGN = {"superscript": "super", "subscript": "sub"}
+
+# Half-width operators that may glue a formula together inside a script
+# cluster. ``-`` is canonicalised to the real minus (U+2212) so the math
+# backend's symbol table matches — a raw hyphen-minus surfaces as
+# MATH_UNKNOWN_SYMBOL (the same canonicalisation the prose ``math_op``
+# path in ``frontend/normalize`` applies).
+_CLUSTER_OP_CANON = {"-": "−"}
+_CLUSTER_OPS = frozenset("+-()[]")
+
+# Physical-state labels a chemical formula may carry, used only to give the
+# conservative chemistry detector a stronger signal (see _looks_like_chem).
+_CHEM_STATE_TOKENS = ("s", "l", "g", "aq")
+
+# Real element symbols come from the chem adapter's grammar at call time
+# (lazy, to avoid a frontend import cycle); see _looks_like_chem.
+
+
+def _run_vert_align(r: Element) -> str | None:
+    """Return ``"super"`` / ``"sub"`` for a run carrying ``<w:vertAlign>``.
+
+    Word writes ``<w:rPr><w:vertAlign w:val="superscript|subscript"/>``
+    when text is raised / lowered via the Ctrl+Shift+= / Ctrl+= shortcuts
+    (or the Font dialog). ``"baseline"`` and the absence of the element
+    both mean ordinary text → ``None``.
+    """
+    rpr = _first_local(r, "rPr")
+    if rpr is None:
+        return None
+    va = _first_local(rpr, "vertAlign")
+    if va is None:
+        return None
+    val = va.get(_W_PREFIX + "val") or va.get("val")
+    return _VERT_ALIGN.get(val or "")
+
+
+def _is_inline_math(piece: str) -> bool:
+    """True for an already-formed ``$<math>...</math>$`` inline-math piece
+    (so the coalescer treats it as an opaque island, never script text)."""
+    return piece.startswith("$<math") and piece.endswith("$")
+
+
+def _is_cluster_char(ch: str) -> bool:
+    """A character that may join a sub/superscript cluster: ASCII letters /
+    digits and the handful of half-width operators that hold a formula
+    together. Whitespace, CJK, and prose punctuation are boundaries — they
+    end a cluster so the surrounding prose stays prose."""
+    return ch.isascii() and (ch.isalnum() or ch in _CLUSTER_OPS)
+
+
+def _coalesce_script_clusters(tokens, *, chem_detection: bool = False):
+    """Turn the token stream from :func:`_iter_paragraph_tokens` back into
+    ``(text_piece, math_block)`` pairs, folding every cluster of
+    script-bearing run text into one ``$<math>...</math>$`` island.
+
+    Consecutive ``text`` tokens accumulate; an inline-math island or a
+    display block flushes them. Flushing renders the buffered text,
+    replacing each maximal run of cluster characters that contains at
+    least one script with inline math (:func:`_render_text_with_scripts`).
+    Inline pieces are concatenated into a single text yield (matching the
+    old per-paragraph join) with a guard space inserted between two
+    abutting ``$...$`` islands so the segmenter's inline-math regex — which
+    rejects ``$$`` — still sees each one.
+    """
+    inline: list[str] = []
+    text_buf: list[tuple[str, str | None]] = []
+
+    def append_inline(part: str) -> None:
+        if part and inline and inline[-1].endswith("$") and part.startswith("$"):
+            inline.append(" ")
+        if part:
+            inline.append(part)
+
+    def flush_text() -> None:
+        if text_buf:
+            append_inline(
+                _render_text_with_scripts(text_buf, chem_detection=chem_detection)
+            )
+            text_buf.clear()
+
+    def take_inline() -> str:
+        combined = "".join(inline)
+        inline.clear()
+        return combined
+
+    for tok in tokens:
+        kind = tok[0]
+        if kind == "text":
+            text_buf.append((tok[1], tok[2]))
+        elif kind == "math":
+            flush_text()
+            append_inline(tok[1])
+        elif kind == "block":
+            flush_text()
+            combined = take_inline()
+            if combined:
+                yield combined, None
+            yield "", tok[1]
+    flush_text()
+    combined = take_inline()
+    if combined:
+        yield combined, None
+
+
+def _render_text_with_scripts(
+    buf: list[tuple[str, str | None]], *, chem_detection: bool
+) -> str:
+    """Render buffered ``(text, vert)`` tokens, replacing script clusters
+    with inline math and leaving everything else as literal text.
+
+    The tokens are expanded to ``(char, vert)`` — whitespace forced to the
+    baseline so it always breaks a cluster — then scanned into maximal runs
+    of cluster characters. A run holding at least one script char becomes
+    inline math; plain runs and non-cluster characters pass through
+    unchanged.
+    """
+    chars: list[tuple[str, str | None]] = []
+    for text, vert in buf:
+        for ch in text:
+            chars.append((ch, None if ch.isspace() else vert))
+
+    out: list[str] = []
+    i = 0
+    n = len(chars)
+    while i < n:
+        ch, vert = chars[i]
+        if vert is None and not _is_cluster_char(ch):
+            out.append(ch)
+            i += 1
+            continue
+        j = i
+        has_script = False
+        while j < n:
+            cj, vj = chars[j]
+            if vj is None and not _is_cluster_char(cj):
+                break
+            if vj is not None:
+                has_script = True
+            j += 1
+        run = chars[i:j]
+        if has_script:
+            out.append(_cluster_to_inline_math(run, chem_detection=chem_detection))
+        else:
+            out.append("".join(c for c, _ in run))
+        i = j
+    return "".join(out)
+
+
+def _cluster_to_inline_math(
+    run: list[tuple[str, str | None]], *, chem_detection: bool
+) -> str:
+    """Convert one script cluster to a ``$<math>...</math>$`` string.
+
+    With ``chem_detection`` on, a cluster that reads as a chemical formula
+    is routed through the chem adapter (tagging ``data-bk-chem``); anything
+    else — and every cluster when detection is off — becomes a plain
+    ``<msup>`` / ``<msub>`` math tree. Either way the downstream pipeline
+    is untouched: it's the same inline-math channel OMML already uses.
+    """
+    if chem_detection:
+        chem = _cluster_as_chem(run)
+        if chem is not None:
+            return "$" + _flatten_xml(chem) + "$"
+    inner = _scripts_to_mathml(run)
+    mathml = f'<math xmlns="{_MATHML_NS}">{inner}</math>'
+    return "$" + _flatten_xml(mathml) + "$"
+
+
+def _scripts_to_mathml(run: list[tuple[str, str | None]]) -> str:
+    """Build the inner MathML for a cluster of ``(char, vert)`` atoms.
+
+    Walks left to right: a baseline atom (one ``<mi>`` per letter, one
+    ``<mn>`` per digit run, one ``<mo>`` per operator) absorbs the
+    immediately following super/subscript run(s) into an ``<msup>`` /
+    ``<msub>`` / ``<msubsup>``. A leading script with no base (rare) is
+    emitted as a plain atom so no character is dropped.
+    """
+    atoms: list[str] = []
+    i = 0
+    n = len(run)
+    while i < n:
+        _ch, vert = run[i]
+        if vert is not None:
+            content, i = _read_script_run(run, i, vert)
+            atoms.append(content)
+            continue
+        base, i = _read_base_atom(run, i)
+        sup = sub = None
+        while i < n and run[i][1] is not None:
+            kind = run[i][1]
+            content, i = _read_script_run(run, i, kind)
+            if kind == "super":
+                sup = content if sup is None else f"<mrow>{sup}{content}</mrow>"
+            else:
+                sub = content if sub is None else f"<mrow>{sub}{content}</mrow>"
+        if sup is not None and sub is not None:
+            atoms.append(f"<msubsup>{base}{sub}{sup}</msubsup>")
+        elif sup is not None:
+            atoms.append(f"<msup>{base}{sup}</msup>")
+        elif sub is not None:
+            atoms.append(f"<msub>{base}{sub}</msub>")
+        else:
+            atoms.append(base)
+    return "".join(atoms)
+
+
+def _read_base_atom(run: list[tuple[str, str | None]], i: int) -> tuple[str, int]:
+    """Read one baseline atom at ``i``: a whole digit run as ``<mn>``, a
+    single letter as ``<mi>``, or one operator as ``<mo>`` (so a trailing
+    script binds to the last letter, ``xy²`` = x·y²)."""
+    ch, _ = run[i]
+    if ch.isdigit():
+        j = i
+        while j < len(run) and run[j][1] is None and run[j][0].isdigit():
+            j += 1
+        digits = "".join(c for c, _ in run[i:j])
+        return f"<mn>{digits}</mn>", j
+    if ch.isalpha():
+        return f"<mi>{escape(ch)}</mi>", i + 1
+    return f"<mo>{escape(_CLUSTER_OP_CANON.get(ch, ch))}</mo>", i + 1
+
+
+def _read_script_run(
+    run: list[tuple[str, str | None]], i: int, kind: str | None
+) -> tuple[str, int]:
+    """Read the maximal run of chars whose vert equals ``kind`` and return
+    its MathML wrapped in an ``<mrow>`` (the normalizer collapses a
+    single-child mrow, so this always gives ``<msup>`` / ``<msub>`` exactly
+    two children)."""
+    j = i
+    while j < len(run) and run[j][1] == kind:
+        j += 1
+    inner = _scripts_to_mathml([(c, None) for c, _ in run[i:j]])
+    return f"<mrow>{inner}</mrow>", j
+
+
+def _cluster_as_chem(run: list[tuple[str, str | None]]) -> str | None:
+    """Return chemistry MathML for ``run`` if it conservatively reads as a
+    chemical formula, else ``None`` (so the caller falls back to math).
+
+    The cluster is linearised to ``\\ce``-style text (subscript digits
+    inline, a super run as a ``^{...}`` charge) and handed to the chem
+    adapter, which owns the grammar. A clean parse plus a chemical
+    *signature* (a multi-letter element, two or more elements, a charge, or
+    a state label) is required, so a lone single-letter variable subscript
+    (``V₁``, ``S₂``) stays math. See the memory on single-element ambiguity.
+    """
+    linear = _linearise_for_chem(run)
+    if linear is None:
+        return None
+    from brailix.frontend.math.adapters import chem as _chem
+
+    mathml = _chem.convert_ce(linear)
+    if "<merror" in mathml:
+        return None
+    if not _has_chem_signature(linear):
+        return None
+    return mathml
+
+
+def _linearise_for_chem(run: list[tuple[str, str | None]]) -> str | None:
+    """Linearise a cluster to ``\\ce`` text, or ``None`` if it can't be a
+    formula.
+
+    Baseline chars pass through verbatim (element letters / groups); a
+    subscript run must be digits — a chemical count — and is inlined
+    (``H`` ``2`` ``O`` → ``H2O``); a superscript run must be charge-shaped
+    (digits then a required ``+`` / ``-``) and becomes ``^{...}``. A
+    non-digit subscript (``H_i``) or a bare-exponent superscript (``x²``)
+    returns ``None`` so the caller keeps the math reading."""
+    parts: list[str] = []
+    i = 0
+    n = len(run)
+    while i < n:
+        ch, vert = run[i]
+        if vert is None:
+            parts.append(ch)
+            i += 1
+            continue
+        j = i
+        while j < n and run[j][1] == vert:
+            j += 1
+        chunk = "".join(c for c, _ in run[i:j])
+        if vert == "sub":
+            if not chunk.isdigit():
+                return None
+            parts.append(chunk)
+        else:  # super → must be a charge, not an exponent
+            if not re.fullmatch(r"\d*[+-]", chunk):
+                return None
+            parts.append("^{" + chunk + "}")
+        i = j
+    return "".join(parts)
+
+
+def _has_chem_signature(linear: str) -> bool:
+    """True when the linearised cluster shows evidence it's really chemistry
+    and not a coincidental single element letter: a multi-letter element, two
+    or more elements, a charge (``^``), or a physical-state label."""
+    from brailix.frontend.math.adapters.chem import _ELEMENT_RE
+
+    elements = _ELEMENT_RE.findall(linear)
+    if any(len(e) >= 2 for e in elements):
+        return True
+    if len(elements) >= 2:
+        return True
+    if "^" in linear:
+        return True
+    return any(f"({t})" in linear for t in _CHEM_STATE_TOKENS)
 
 
 # ---------------------------------------------------------------------------
@@ -518,6 +906,39 @@ def _paragraph_style(p: Element) -> str | None:
     return style.get(_W_PREFIX + "val")
 
 
+# OOXML ``w:jc@w:val`` → the alignments braille layout can act on. Word
+# 2013+ writes the LTR-relative ``start`` / ``end``; older files use
+# ``left`` / ``right``. Only ``center`` and ``right`` (and ``end``, right's
+# relative spelling) map to something — ``left`` / ``start`` are the default
+# and ``both`` (justified) / ``distribute`` / the kashida variants have no
+# braille convention, so all of those are absent and fall through to ``None``.
+_JC_ALIGN = {
+    "center": "center",
+    "right": "right",
+    "end": "right",
+}
+
+
+def _paragraph_alignment(p: Element) -> str | None:
+    """Return the braille-relevant alignment of ``<w:p>``, or ``None``.
+
+    Reads ``w:pPr/w:jc@w:val`` and maps it through :data:`_JC_ALIGN`. Only
+    ``center`` and ``right`` survive — the two horizontal placements braille
+    layout has a convention for. ``left`` / ``start`` (the default) and
+    ``both`` / ``distribute`` (no braille analogue) all yield ``None``, so
+    the paragraph reads flush-left exactly like untagged prose and no align
+    marker is carried needlessly.
+    """
+    pPr = _first(p, _W_PREFIX + "pPr")
+    if pPr is None:
+        return None
+    jc = _first(pPr, _W_PREFIX + "jc")
+    if jc is None:
+        return None
+    val = jc.get(_W_PREFIX + "val") or jc.get("val")
+    return _JC_ALIGN.get((val or "").lower())
+
+
 def _paragraph_list_info(
     p: Element, *, style: str | None = None
 ) -> tuple[int, bool] | None:
@@ -569,7 +990,10 @@ def _paragraph_list_info(
 
 
 def _convert_table(
-    tbl: Element, *, ole_blobs: dict[str, bytes] | None = None
+    tbl: Element,
+    *,
+    ole_blobs: dict[str, bytes] | None = None,
+    chem_detection: bool = False,
 ) -> Table:
     rows: list[TableRow] = []
     for tr in tbl:
@@ -579,14 +1003,21 @@ def _convert_table(
         for tc in tr:
             if _local(tc.tag) != "tc":
                 continue
-            cells.append(_convert_table_cell(tc, ole_blobs=ole_blobs))
+            cells.append(
+                _convert_table_cell(
+                    tc, ole_blobs=ole_blobs, chem_detection=chem_detection
+                )
+            )
         if cells:
             rows.append(TableRow(cells=cells))
     return Table(rows=rows)
 
 
 def _convert_table_cell(
-    tc: Element, *, ole_blobs: dict[str, bytes] | None = None
+    tc: Element,
+    *,
+    ole_blobs: dict[str, bytes] | None = None,
+    chem_detection: bool = False,
 ) -> TableCell:
     """Flatten a cell's paragraphs into one TableCell text.
 
@@ -598,7 +1029,9 @@ def _convert_table_cell(
     for child in tc:
         if _local(child.tag) != "p":
             continue
-        paragraph_blocks = _convert_paragraph(child, ole_blobs=ole_blobs)
+        paragraph_blocks = _convert_paragraph(
+            child, ole_blobs=ole_blobs, chem_detection=chem_detection
+        )
         for blk in paragraph_blocks:
             if isinstance(blk, MathBlock):
                 # Surface OMML as inline math by round-tripping through

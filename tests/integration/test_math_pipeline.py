@@ -58,6 +58,28 @@ class TestTranslateMathInline:
         assert pipe.translate_math_inline("   ", "mathml") == ""
 
 
+class TestInlineMathAdapterCrash:
+    """A non-conforming math source adapter that raises must not crash the
+    whole document translate; the inline parse is guarded like display
+    math, and the backend's MATH_NO_IR path degrades a None tree to a
+    warning + placeholder rather than propagating the exception."""
+
+    def test_raising_adapter_degrades_not_crashes(self, monkeypatch):
+        import brailix.pipeline as pipeline_mod
+
+        def _boom(surface, ctx):
+            raise ValueError("adapter blew up")
+
+        # _attach_math calls the module-level parse alias; make it raise.
+        monkeypatch.setattr(pipeline_mod, "_frontend_parse_math_tree", _boom)
+        pipe = Pipeline(profile="cn_current", mode="normal")
+        # Inline $...$ math flows through _attach_math (math=None at first).
+        result = pipe.translate_text("看 $x^2$ 完")
+        # Must NOT raise; the surrounding prose still renders.
+        assert result.render()
+        assert "MATH_INLINE_PARSE_FAILED" in [w.code for w in result.warnings]
+
+
 # ---------------------------------------------------------------------------
 # MathML adapter + normalizer wiring (no IR-builder layer)
 # ---------------------------------------------------------------------------

@@ -52,15 +52,14 @@ class TestNeedsOctaveMarkPure:
         [
             (("C", 4), ("F", 4)),    # 4° same BANA octave
             (("C", 4), ("G", 4)),    # 5° same BANA octave
-            (("G", 4), ("D", 5)),    # 5° asc but crosses octave -> see other test
         ],
     )
     def test_four_or_five_same_octave_omits(self, prev, curr):
-        # Only the same-octave cases should omit. The asc to D5 in the
-        # third tuple actually crosses BANA octave 4→5 — verified by
-        # the cross-octave test below.
-        if prev[1] == curr[1]:
-            assert needs_octave_mark(prev, curr) is False
+        # Same-octave 4° / 5° intervals omit the octave mark.  (The
+        # cross-octave G4→D5 case is covered by the cross-octave test
+        # below; it was a dead parametrize entry here — the if-guard made
+        # its assertion never run.)
+        assert needs_octave_mark(prev, curr) is False
 
     @pytest.mark.parametrize(
         "prev, curr",

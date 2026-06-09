@@ -27,6 +27,8 @@ frontend / number / punct / latin backends.
 
 from __future__ import annotations
 
+import unicodedata
+
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
@@ -117,6 +119,11 @@ def _translate_japanese(
             for i, ch in enumerate(surface)
         ]
 
+    # The kana table is keyed by NFC single code points (e.g. ガ U+30AC); an
+    # NFD-decomposed source (カ U+30AB + ◌゙ U+3099) would otherwise split into
+    # a bare-kana mora (wrong cell) + a stray combining mark (UNKNOWN_KANA).
+    # Fold dakuten / handakuten back into one code point first.
+    reading = unicodedata.normalize("NFC", reading)
     kana_table = profile.lang_table("kana")
     out: list[BrailleCell] = []
     for mora in _split_mora(reading):

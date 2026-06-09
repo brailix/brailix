@@ -321,6 +321,12 @@ def _convert_nary(node: ET.Element) -> list[ET.Element]:
     if sub_elem is None and sup_elem is None:
         scripted = op
     else:
+        # limLoc absent → munderover (limits above/below).  Word's true
+        # default is location-by-operator (∑/∏ stack, ∫ scripts to the
+        # side), so this slightly over-stacks a bare ∫ — but the braille
+        # backend treats munderover and msubsup limits identically, so the
+        # emitted cells are the same either way.  Kept simple until that
+        # distinction starts to matter.
         use_underover = lim_loc != "subSup"
         container_tag = "munderover" if use_underover else "msubsup"
         if sub_elem is not None and sup_elem is not None:

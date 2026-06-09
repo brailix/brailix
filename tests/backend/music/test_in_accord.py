@@ -122,6 +122,22 @@ class TestMultiVoice:
         # full_measure_in_accord = "<>" = (1,2,6)(3,4,5)
         assert [c.dots for c in in_accord_cells] == [(1, 2, 6), (3, 4, 5)]
 
+    def test_unvoiced_note_routes_to_voice_one(self, profile, ctx):
+        # _scan_voices counts an unvoiced note as voice "1"; emission must
+        # route it to "1" too (not voices[0]="2"), else voice "1" is empty
+        # and the in-accord marker has no note content after it.
+        m = ET.fromstring(
+            '<measure number="1">'
+            + _note("E", 4, voice="2")
+            + _note("C", 4)  # unvoiced -> implicit voice "1"
+            + "</measure>"
+        )
+        cells = emit_tree(m, ctx, profile)
+        roles = _roles(cells)
+        markers = [i for i, r in enumerate(roles) if r == "music_in_accord"]
+        assert markers, "two voices should produce an in-accord marker"
+        assert "music_note" in roles[markers[-1] + 1:]
+
     def test_three_voices_get_two_markers(self, profile, ctx):
         m = ET.fromstring(
             '<measure number="1">'

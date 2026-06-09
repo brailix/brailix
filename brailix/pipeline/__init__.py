@@ -442,6 +442,9 @@ class Pipeline:
             path,
             language=self._profile.language,
             profile=self.profile,
+            chem_detection=self._profile.feature(
+                "input.docx.detect_chemistry", False
+            ),
         )
 
     def translate_block(
@@ -913,7 +916,7 @@ class Pipeline:
             # snapshot is complete — otherwise a re-parse that hits this
             # short-circuit path would silently drop the formula from
             # the next compile's reuse pool.
-            if tree_out is not None and node.math is not None:
+            if tree_out is not None:
                 tree_out[("math", node.source, node.surface)] = node.math
             return
         cache_key = ("math", node.source, node.surface)
@@ -931,7 +934,22 @@ class Pipeline:
             warnings=ctx.warnings,
             options=dict(ctx.options),
         )
-        tree = _frontend_parse_math_tree(node.surface, math_ctx)
+        # The MathSourceAdapter registry is open, so a non-conforming
+        # adapter can raise; mirror _populate_block's display-math guard so
+        # an inline formula can never crash the whole document translate
+        # (the backend's MATH_NO_IR path degrades a None tree to a warning).
+        try:
+            tree = _frontend_parse_math_tree(node.surface, math_ctx)
+        except Exception as exc:  # noqa: BLE001 — adapter errors are wide
+            ctx.warnings.error(
+                code="MATH_INLINE_PARSE_FAILED",
+                message=f"inline math parse failed: {exc!r}",
+                surface=node.surface,
+                span=node.span,
+                source="pipeline",
+            )
+            node.math = None
+            return
         node.math = tree
         if tree is not None and tree_out is not None:
             tree_out[cache_key] = tree

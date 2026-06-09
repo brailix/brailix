@@ -7,9 +7,10 @@ special cases to handle:
 * drop XML namespaces from element tags so the backend can match on
   bare local names (``note``, ``pitch``, ...) instead of Clark notation;
 * drop XML declarations / DOCTYPEs that some vendors prepend;
-* if the root is ``<score-timewise>``, transpose it to
-  ``<score-partwise>`` (later — currently raises a soft-failure marker
-  so the test surface stays small);
+* ``<score-timewise>`` is NOT transposed to ``<score-partwise>`` here —
+  a timewise root passes through unchanged and the backend dispatch falls
+  to ``_emit_unsupported`` (one ``MUSIC_UNSUPPORTED_NOTATION`` warning, no
+  cells), since timewise scores are rare in practice;
 * strip pure-whitespace text nodes that confuse element iteration.
 
 The normalizer never raises — malformed input is wrapped into a single

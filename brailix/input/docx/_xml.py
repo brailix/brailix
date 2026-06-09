@@ -111,11 +111,13 @@ def _inline_math_as_text(omath: Element) -> str:
 
 
 def _flatten_xml(xml: str) -> str:
-    """Strip newlines between tags so the inline-math regex matches.
+    """Collapse all runs of whitespace (including inside text nodes) to a
+    single space so the inline-math regex matches.
 
-    The segmenter's ``_INLINE_MATH_RE`` rejects newlines inside
-    ``$...$``; replacing them with spaces lets longer formulas live
-    on a single text line without changing the underlying MathML
-    parse.
+    The segmenter's ``_INLINE_MATH_RE`` rejects newlines inside ``$...$``;
+    collapsing them lets longer formulas live on a single text line.  This
+    also folds whitespace inside ``<mtext>`` — only reachable via OMML's
+    ``itertext()`` fallback for unknown constructs, and braille ignores
+    such whitespace, so the MathML parse is unaffected in practice.
     """
     return re.sub(r"\s+", " ", xml).strip()

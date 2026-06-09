@@ -159,6 +159,108 @@ class TestStructuralBlocks:
 
 
 # ---------------------------------------------------------------------------
+# Paragraph alignment (``w:jc`` → Block.align)
+# ---------------------------------------------------------------------------
+
+
+class TestParagraphAlignment:
+    """A paragraph's ``w:jc`` survives as :attr:`Block.align`, but only for
+    the alignments braille layout can honour (centre / right)."""
+
+    def _only_paragraph(self, result) -> Paragraph:
+        paras = [
+            b for b in result.blocks
+            if isinstance(b, Paragraph) and (b.text or "").strip()
+        ]
+        assert len(paras) == 1
+        return paras[0]
+
+    def test_centered_paragraph_carries_center(self, tmp_path: Path) -> None:
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("居中标题")
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        doc.save(path)
+
+        assert self._only_paragraph(parse_docx(path)).align == "center"
+
+    def test_right_aligned_paragraph_carries_right(self, tmp_path: Path) -> None:
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("二〇二六年五月")
+        para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        doc.save(path)
+
+        assert self._only_paragraph(parse_docx(path)).align == "right"
+
+    def test_justified_paragraph_has_no_align(self, tmp_path: Path) -> None:
+        # Braille has no justification convention, so "both" normalises to
+        # None — the paragraph reads flush-left, same as untagged prose.
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("一段两端对齐的正文内容")
+        para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        doc.save(path)
+
+        assert self._only_paragraph(parse_docx(path)).align is None
+
+    def test_default_paragraph_has_no_align(self, tmp_path: Path) -> None:
+        path, doc = _make_docx(tmp_path)
+        doc.add_paragraph("普通左对齐段落")
+        doc.save(path)
+
+        assert self._only_paragraph(parse_docx(path)).align is None
+
+    def test_centered_heading_carries_center(self, tmp_path: Path) -> None:
+        # Alignment is recorded regardless of block kind: a centred level-2
+        # heading carries align so the layout can centre it even though the
+        # default rule centres only level 1.
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        path, doc = _make_docx(tmp_path)
+        h = doc.add_heading("居中小标题", level=2)
+        h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        doc.save(path)
+
+        headings = [b for b in parse_docx(path).blocks if isinstance(b, Heading)]
+        assert len(headings) == 1
+        assert headings[0].level == 2
+        assert headings[0].align == "center"
+
+
+class TestAlignmentEndToEnd:
+    """parse → translate → layout: a centred Word paragraph renders centred."""
+
+    def test_centered_paragraph_renders_centered(self, tmp_path: Path) -> None:
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        from brailix.pipeline import Pipeline
+        from brailix.renderer.layout import LayoutOptions, LayoutRenderer
+        from brailix.renderer.unicode_braille import dots_to_char
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("一")
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        doc.save(path)
+
+        ir = parse_docx(path)
+        result = Pipeline(profile="cn_current").translate_document(ir)
+        out = LayoutRenderer(options=LayoutOptions(line_width=20)).render(
+            result.braille_ir
+        )
+        blank = dots_to_char(())
+        content = [ln for ln in out.split("\n") if any(c != blank for c in ln)]
+        assert content
+        # Genuinely centred → leading padding well past the 2-cell first-line
+        # indent a plain (flush-left) paragraph would have used.
+        leading_blanks = len(content[0]) - len(content[0].lstrip(blank))
+        assert leading_blanks > 2
+
+
+# ---------------------------------------------------------------------------
 # Math handling
 # ---------------------------------------------------------------------------
 
@@ -325,6 +427,37 @@ class TestMathTypeOLE:
         assert "<msup>" in joined
         assert "<mi>x</mi>" in joined
         assert "<mn>2</mn>" in joined
+
+    def test_inline_ole_equation_real_mathtype_bytes(
+        self, tmp_path: Path
+    ) -> None:
+        # End-to-end with REAL MathType bytes (the committed Equation
+        # Native fixture), not the synthetic slot-0 builder: docx OLE →
+        # MTEF decode → MathML must reproduce y = x³ with the base x
+        # *inside* the <msup> (the preceding-sibling fix), proving the
+        # docx path handles the real wire shape — the synthetic builder
+        # puts the base in slot 0, which masked this exact bug class once.
+        import pathlib
+
+        blob = (
+            pathlib.Path(__file__).parent.parent
+            / "frontend" / "math" / "fixtures"
+            / "mathtype_v5_y_eq_x_cubed.bin"
+        ).read_bytes()  # already a full Equation Native stream (EQNOLEFILEHDR)
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("结果 ")
+        _embed_ole_equation(doc, para, blob)
+        doc.save(path)
+
+        result = parse_docx(path)
+        joined = "\n".join(
+            p.text or "" for p in result.blocks if isinstance(p, Paragraph)
+        )
+        assert "$<math" in joined and "</math>$" in joined
+        assert "<mi>y</mi>" in joined
+        assert "<mo>=</mo>" in joined
+        # Base x lives inside the script, not orphaned as a sibling.
+        assert "<msup><mi>x</mi><mn>3</mn></msup>" in joined
 
     def test_equation_3_progid_also_recognised(
         self, tmp_path: Path
@@ -658,6 +791,16 @@ class TestMathTypeFallback:
         joined = "\n".join(p.text or "" for p in paragraphs)
         assert "<msup>" in joined
 
+    def test_all_mtef_failed_false_when_no_inline_math(self) -> None:
+        # A doc with no $<math>...$ spans (only non-formula OLE — Excel /
+        # chart) must NOT trigger the LibreOffice fallback: there are no
+        # equations to recover, so the round-trip would be wasted latency.
+        from brailix.input.docx import _all_mtef_failed
+        from brailix.ir.document import DocumentIR
+
+        result = DocumentIR(blocks=[Paragraph(text="hello world, no math")])
+        assert _all_mtef_failed(result) is False
+
     def test_auto_mode_retries_when_all_mtef_failed(
         self, tmp_path: Path, monkeypatch
     ) -> None:
@@ -812,3 +955,237 @@ class TestErrorPaths:
         bogus.write_bytes(b"not a real zip archive")
         with pytest.raises(ParseError):
             parse_docx(bogus)
+
+
+# ---------------------------------------------------------------------------
+# Run-level vertical alignment (Ctrl+Shift+= / Ctrl+= scripts) → inline math
+# ---------------------------------------------------------------------------
+
+
+def _vert_run_xml(text: str, vert: str | None) -> str:
+    """One ``<w:r>`` with an optional ``<w:vertAlign>`` (the property Word
+    sets for super/subscript)."""
+    rpr = f'<w:rPr><w:vertAlign w:val="{vert}"/></w:rPr>' if vert else ""
+    return (
+        f'<w:r xmlns:w="{_W_NS}">{rpr}'
+        f'<w:t xml:space="preserve">{text}</w:t></w:r>'
+    )
+
+
+def _append_script_runs(paragraph, runs: list[tuple[str, str | None]]) -> None:
+    """Append ``(text, vert)`` runs to ``paragraph``; ``vert`` is
+    ``"superscript"`` / ``"subscript"`` / ``None``."""
+    runs_xml = "".join(_vert_run_xml(t, v) for t, v in runs)
+    wrapper = etree.fromstring(f'<root xmlns:w="{_W_NS}">{runs_xml}</root>')
+    for run in list(wrapper):
+        paragraph._p.append(run)
+
+
+def _para_text(result) -> str:
+    return "\n".join(
+        p.text or "" for p in result.blocks if isinstance(p, Paragraph)
+    )
+
+
+class TestVertAlignScripts:
+    """Scripts set via Ctrl+Shift+= / Ctrl+= become inline math. Always on —
+    they used to be flattened to bare text, losing the formula."""
+
+    def test_superscript_becomes_msup(self, tmp_path: Path) -> None:
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        _append_script_runs(para, [("x", None), ("2", "superscript")])
+        doc.save(path)
+        text = _para_text(parse_docx(path))
+        assert "$<math" in text and "</math>$" in text
+        assert "<msup>" in text
+        assert "<mi>x</mi>" in text and "<mn>2</mn>" in text
+
+    def test_subscript_becomes_msub(self, tmp_path: Path) -> None:
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        _append_script_runs(
+            para, [("H", None), ("2", "subscript"), ("O", None)]
+        )
+        doc.save(path)
+        text = _para_text(parse_docx(path))
+        assert "<msub>" in text
+        assert "<mi>H</mi>" in text and "<mn>2</mn>" in text
+        assert "<mi>O</mi>" in text
+        # chemistry detection is off by default → plain math, no chem tag.
+        assert "data-bk-chem" not in text
+
+    def test_prose_around_script_stays_prose(self, tmp_path: Path) -> None:
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        para.add_run("面积是 ")
+        _append_script_runs(para, [("x", None), ("2", "superscript")])
+        para.add_run(" 平方米")
+        doc.save(path)
+        text = _para_text(parse_docx(path))
+        assert "面积是" in text and "平方米" in text
+        assert "$<math" in text
+        # The surrounding Chinese must not be swallowed into the math island.
+        island = text[text.index("$<math"):text.index("</math>$")]
+        assert "面积" not in island and "平方" not in island
+
+    def test_unit_superscript(self, tmp_path: Path) -> None:
+        path, doc = _make_docx(tmp_path)  # m² — square metre
+        para = doc.add_paragraph()
+        _append_script_runs(para, [("m", None), ("2", "superscript")])
+        doc.save(path)
+        text = _para_text(parse_docx(path))
+        assert "<msup>" in text and "<mi>m</mi>" in text
+
+    def test_subscript_then_superscript_is_msubsup(self, tmp_path: Path) -> None:
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        _append_script_runs(
+            para, [("x", None), ("1", "subscript"), ("2", "superscript")]
+        )
+        doc.save(path)
+        assert "<msubsup>" in _para_text(parse_docx(path))
+
+    def test_negative_exponent_uses_canonical_minus(self, tmp_path: Path) -> None:
+        # 10⁻³ — the hyphen-minus is canonicalised to U+2212 so the math
+        # backend's symbol table matches (a raw '-' is MATH_UNKNOWN_SYMBOL).
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        _append_script_runs(
+            para, [("10", None), ("-", "superscript"), ("3", "superscript")]
+        )
+        doc.save(path)
+        text = _para_text(parse_docx(path))
+        assert "<msup>" in text and "−" in text and "<mn>3</mn>" in text
+
+    def test_plain_text_without_vertalign_unchanged(self, tmp_path: Path) -> None:
+        # Regression: ordinary "H2O" (no vertAlign) must NOT become math.
+        path, doc = _make_docx(tmp_path)
+        doc.add_paragraph("H2O 是水")
+        doc.save(path)
+        text = _para_text(parse_docx(path))
+        assert "$<math" not in text and "H2O" in text
+
+    def test_super_run_without_text_is_safe(self, tmp_path: Path) -> None:
+        # A superscript run carrying no <w:t> (e.g. an auto footnote mark)
+        # produces no math and doesn't crash.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        para.add_run("见正文")
+        empty = (
+            f'<w:r xmlns:w="{_W_NS}"><w:rPr>'
+            f'<w:vertAlign w:val="superscript"/></w:rPr></w:r>'
+        )
+        wrapper = etree.fromstring(f'<root xmlns:w="{_W_NS}">{empty}</root>')
+        for run in list(wrapper):
+            para._p.append(run)
+        doc.save(path)
+        text = _para_text(parse_docx(path))
+        assert "见正文" in text and "$<math" not in text
+
+    def test_cluster_adjacent_to_omml_no_double_dollar(self, tmp_path: Path) -> None:
+        # A script cluster directly followed by an OMML island must keep a
+        # separator so the segmenter's inline-math regex (which rejects $$)
+        # still sees both.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        _append_script_runs(para, [("a", None), ("2", "superscript")])
+        para._p.append(_omml_fragment("<m:r><m:t>z</m:t></m:r>"))
+        doc.save(path)
+        assert "$$" not in _para_text(parse_docx(path))
+
+    def test_end_to_end_braille_superscript(self, tmp_path: Path) -> None:
+        from brailix.pipeline import Pipeline
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        _append_script_runs(para, [("x", None), ("2", "superscript")])
+        doc.save(path)
+        result = Pipeline(profile="cn_current").translate_document(parse_docx(path))
+        # ⠰⠭⠌⠆ : latin-x prefix, superscript marker, lowered 2.
+        assert "⠰⠭⠌⠆" in result.render("unicode")
+
+
+class TestVertAlignChemistry:
+    """Conservative chemistry reading of script clusters — opt-in via
+    ``chem_detection`` (the ``input.docx.detect_chemistry`` profile feature),
+    off by default because a lone single-letter subscript coincides with an
+    element symbol."""
+
+    def test_off_by_default_h2o_is_math(self, tmp_path: Path) -> None:
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        _append_script_runs(
+            para, [("H", None), ("2", "subscript"), ("O", None)]
+        )
+        doc.save(path)
+        text = _para_text(parse_docx(path))
+        assert "data-bk-chem" not in text and "<msub>" in text
+
+    def test_on_h2o_tagged_chem(self, tmp_path: Path) -> None:
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        _append_script_runs(
+            para, [("H", None), ("2", "subscript"), ("O", None)]
+        )
+        doc.save(path)
+        text = _para_text(parse_docx(path, chem_detection=True))
+        assert 'data-bk-chem="1"' in text
+
+    def test_single_letter_variable_stays_math(self, tmp_path: Path) -> None:
+        # V₁ — vanadium IS an element, but a lone single-letter subscript is
+        # almost always a maths/physics variable, so it stays math.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        _append_script_runs(para, [("V", None), ("1", "subscript")])
+        doc.save(path)
+        text = _para_text(parse_docx(path, chem_detection=True))
+        assert "data-bk-chem" not in text and "<msub>" in text
+
+    def test_lowercase_base_stays_math(self, tmp_path: Path) -> None:
+        path, doc = _make_docx(tmp_path)  # x² — x isn't an element symbol
+        para = doc.add_paragraph()
+        _append_script_runs(para, [("x", None), ("2", "superscript")])
+        doc.save(path)
+        text = _para_text(parse_docx(path, chem_detection=True))
+        assert "data-bk-chem" not in text and "<msup>" in text
+
+    def test_charge_is_chem(self, tmp_path: Path) -> None:
+        path, doc = _make_docx(tmp_path)  # Ca²⁺
+        para = doc.add_paragraph()
+        _append_script_runs(
+            para,
+            [("Ca", None), ("2", "superscript"), ("+", "superscript")],
+        )
+        doc.save(path)
+        text = _para_text(parse_docx(path, chem_detection=True))
+        assert 'data-bk-chem="1"' in text
+
+    def test_end_to_end_chem_braille_h2o(self, tmp_path: Path) -> None:
+        from brailix.pipeline import Pipeline
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        _append_script_runs(
+            para, [("H", None), ("2", "subscript"), ("O", None)]
+        )
+        doc.save(path)
+        doc_ir = parse_docx(path, chem_detection=True)
+        result = Pipeline(profile="cn_current").translate_document(doc_ir)
+        # ⠸⠓⠆⠕ : chemical-formula indicator ⠸, H, lowered 2, O.
+        assert "⠸⠓⠆⠕" in result.render("unicode")
+
+    def test_profile_feature_enables_chem(self, tmp_path: Path) -> None:
+        # cn_current ships input.docx.detect_chemistry=true, so the Pipeline
+        # reads H₂O as chemistry through translate_file without the caller
+        # passing chem_detection at all.
+        from brailix.pipeline import Pipeline
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        _append_script_runs(
+            para, [("H", None), ("2", "subscript"), ("O", None)]
+        )
+        doc.save(path)
+        result = Pipeline(profile="cn_current").translate_file(path)
+        assert "⠸⠓⠆⠕" in result.render("unicode")

@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from brailix.core.context import FrontendContext
-from brailix.core.errors import MissingExtraError
+from brailix.core.errors import MissingExtraError, ModelNotInstalledError
 from brailix.core.protocols import ChineseAnalyzer
 from brailix.ir.inline import ChineseToken
 
@@ -49,7 +49,12 @@ class AutoChineseAnalyzer:
             try:
                 self._delegate = analyzer_registry.get(name)
                 return self._delegate
-            except (KeyError, MissingExtraError) as e:
+            except (KeyError, MissingExtraError, ModelNotInstalledError) as e:
+                # ModelNotInstalledError: a candidate (e.g. hanlp under
+                # managed download) is importable but its model isn't
+                # downloaded yet. Treat it like any other "candidate
+                # unavailable" and fall through to the next — the shipping
+                # default chain must degrade to char, not crash the compile.
                 last_error = e
 
         if last_error is not None:

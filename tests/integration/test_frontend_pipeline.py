@@ -52,9 +52,13 @@ def _run_frontend(text: str, *, zh: str = "char", pinyin: str = "null"):
             tokens = resolver.resolve(tokens, ctx)
             children.extend(_chinese_tokens_to_inline(tokens, base=item.span.start))
         elif isinstance(item, Segment):
-            # Other Segment types (math_inline edge cases, unknown) are
-            # passed through as Unknown placeholders for now.
-            pass
+            # A residual Segment that isn't hanzi_text means the frontend
+            # left something un-lowered — fail loudly rather than silently
+            # dropping it (the old ``pass`` masked exactly that, and the
+            # comment that claimed it built Unknown placeholders was wrong).
+            raise AssertionError(
+                f"unexpected residual Segment {item.type!r}: {item.surface!r}"
+            )
         else:
             children.append(item)
     return children, ctx.warnings

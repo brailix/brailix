@@ -145,8 +145,11 @@ class TestMalformedNote:
         cells = emit_tree(note, ctx, profile)
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
-        # One unknown cell as a marker.
-        assert cells == [c for c in cells if c.dots == ()]
+        # Unknown element → only no-braille marker cells (empty dots); the
+        # old ``cells == [c for c in cells if c.dots == ()]`` was a
+        # self-referential way of saying the same thing.
+        assert cells
+        assert all(c.dots == () for c in cells)
 
     def test_octave_not_integer(self, profile, ctx):
         note = ET.fromstring(

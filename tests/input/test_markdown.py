@@ -35,6 +35,46 @@ class TestHeading:
         assert doc.blocks[0].text == expected_text
 
 
+class TestAlignment:
+    """Trailing ``{align=center|right}`` attribute → ``Block.align``,
+    stripped from the text. This is the channel that carries a centred /
+    right-aligned Word block through a docx→markdown→re-parse import
+    round-trip."""
+
+    def test_centered_heading(self):
+        doc = parse_markdown("# 通知 {align=center}")
+        h = doc.blocks[0]
+        assert isinstance(h, Heading)
+        assert h.level == 1
+        assert h.text == "通知"
+        assert h.align == "center"
+
+    def test_right_aligned_paragraph(self):
+        doc = parse_markdown("二〇二六年五月 {align=right}")
+        p = doc.blocks[0]
+        assert isinstance(p, Paragraph)
+        assert p.text == "二〇二六年五月"
+        assert p.align == "right"
+
+    def test_plain_block_has_no_align(self):
+        assert parse_markdown("# 标题").blocks[0].align is None
+        assert parse_markdown("普通段落").blocks[0].align is None
+
+    def test_unrecognised_align_value_stays_literal(self):
+        # Only center / right are alignment; anything else is left as text
+        # so prose mentioning braces isn't silently eaten.
+        p = parse_markdown("正文 {align=justify}").blocks[0]
+        assert p.align is None
+        assert p.text == "正文 {align=justify}"
+
+    def test_align_on_last_line_of_multiline_paragraph(self):
+        # The emitter appends the marker at the paragraph's end; after the
+        # soft-break join it sits at the tail of the body and is stripped.
+        p = parse_markdown("第一行\n第二行 {align=center}").blocks[0]
+        assert p.text == "第一行 第二行"
+        assert p.align == "center"
+
+
 class TestParagraph:
     def test_single_line(self):
         doc = parse_markdown("简单一段")

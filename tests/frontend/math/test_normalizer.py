@@ -99,3 +99,10 @@ class TestSoftFailures:
     def test_empty_input_yields_merror(self):
         root = normalize("")
         assert root.find(".//merror") is not None
+
+    def test_malformed_with_control_char_yields_merror(self):
+        # An XML-1.0-illegal control char in the malformed source is
+        # echoed into the <merror> wrapper; un-stripped it would make the
+        # re-parse raise instead of soft-failing.
+        root = normalize("<math>\x0c<mi>x")  # form-feed + missing close
+        assert root.find(".//merror") is not None

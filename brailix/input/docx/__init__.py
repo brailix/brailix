@@ -32,6 +32,14 @@ Math handling
                                    normalize tweak detects the MathML
                                    payload and sets ``source="mathml"``
                                    on the resulting :class:`MathInline`.
+    * Sub/superscript runs (``<w:vertAlign>`` — the Ctrl+= / Ctrl+Shift+=
+      shortcuts, or the Font dialog) → a maximal cluster of script-bearing
+      runs is folded into the same inline ``$<math>...</math>$`` form as an
+      ``<msup>`` / ``<msub>`` tree, so a formula typed as formatted text
+      (``x²``, ``H₂O``) is no longer flattened to ``x2`` / ``H2O``. With
+      ``chem_detection`` on, a cluster that conservatively reads as a
+      chemical formula is tagged ``data-bk-chem`` so the backend applies
+      chemistry rules instead of generic math.
 
 The split lets inline math stay inline (no spurious paragraph break)
 while keeping the docx adapter's OMML→MathML conversion path identical
@@ -97,6 +105,7 @@ def parse_docx(
     language: str = DEFAULT_LANGUAGE,
     profile: str = DEFAULT_PROFILE,
     mathtype_fallback: str = "off",
+    chem_detection: bool = False,
 ) -> DocumentIR:
     """Parse a ``.docx`` (or ``.docm``) file into :class:`DocumentIR`.
 
@@ -127,6 +136,15 @@ def parse_docx(
           OLE equations AND all of them failed, retry once through
           LibreOffice. Combines the speed of the native adapter with
           a safety net for old MTEF v3 / v4 files our coverage misses.
+    chem_detection
+        When ``True``, a sub/superscript cluster that conservatively reads
+        as a chemical formula (real element signature: a multi-letter
+        element, ≥2 elements, a charge, or a state label) is translated as
+        chemistry (``data-bk-chem``) instead of generic math. Off by
+        default because a lone single-letter variable subscript (``V₁``)
+        coincides with an element symbol and can't be told apart from a
+        formula by structure alone — the caller (Pipeline) turns it on from
+        the ``input.docx.detect_chemistry`` profile feature.
 
     Raises
     ------
@@ -151,7 +169,7 @@ def parse_docx(
 
     if mathtype_fallback == "libreoffice":
         return _parse_docx_via_libreoffice(
-            p, language=language, profile=profile
+            p, language=language, profile=profile, chem_detection=chem_detection
         )
 
     try:
@@ -186,7 +204,9 @@ def parse_docx(
 
     ole_blobs = _build_ole_blob_map(document)
     body = document.element.body
-    blocks = list(_iter_body_blocks(body, ole_blobs=ole_blobs))
+    blocks = list(
+        _iter_body_blocks(body, ole_blobs=ole_blobs, chem_detection=chem_detection)
+    )
     result = DocumentIR(
         metadata={"language": language, "profile": profile},
         blocks=blocks,
@@ -199,7 +219,8 @@ def parse_docx(
     ):
         try:
             return _parse_docx_via_libreoffice(
-                p, language=language, profile=profile
+                p, language=language, profile=profile,
+                chem_detection=chem_detection,
             )
         except ParseError:
             # LibreOffice unavailable or refused — silently keep the
@@ -217,6 +238,7 @@ def _parse_docx_via_libreoffice(
     language: str,
     profile: str,
     converter: str | None = None,
+    chem_detection: bool = False,
 ) -> DocumentIR:
     """Round-trip the document through LibreOffice and re-parse.
 
@@ -267,6 +289,7 @@ def _parse_docx_via_libreoffice(
             language=language,
             profile=profile,
             mathtype_fallback="off",
+            chem_detection=chem_detection,
         )
 
 
@@ -278,10 +301,11 @@ def _all_mtef_failed(result: DocumentIR) -> bool:
     inline-math surface contains ``merror``, the native path is
     effectively useless for this file — that's the signal for
     ``mathtype_fallback="auto"`` to retry through LibreOffice. A
-    document with zero inline math spans returns ``True`` only when
-    OLE objects existed AND none of them produced any inline math
-    (i.e. they were all skipped); the caller already gates on
-    ``ole_blobs`` being non-empty, so this is safe.
+    A document with zero inline math spans returns ``False`` — a
+    non-formula OLE (Excel / chart) produces no inline math, and the
+    native path emits a ``<merror>`` span (not silence) for an equation
+    it can't decode, so "no spans" means "no equations to recover" rather
+    than "all equations failed".
     """
     saw_inline = False
     saw_ok = False
@@ -303,9 +327,15 @@ def _all_mtef_failed(result: DocumentIR) -> bool:
                 saw_ok = True
             idx = end + 1
     if not saw_inline:
-        # No inline math at all → fall back, since the caller already
-        # confirmed OLE objects existed.
-        return True
+        # No inline math at all.  ``_build_ole_blob_map`` collects every
+        # OLE object (embedded Excel sheets, charts, ...), not just
+        # equations, and a non-formula OLE never produces inline math — so
+        # "no inline math" most likely means "no equations here", not
+        # "equations we failed to read".  Don't pay the LibreOffice round-
+        # trip.  (A genuine equation the native path can't decode emits a
+        # ``<merror>`` span, i.e. saw_inline would be True and we fall
+        # through to ``not saw_ok``.)
+        return False
     return not saw_ok
 
 
@@ -315,6 +345,7 @@ def parse_doc(
     language: str = DEFAULT_LANGUAGE,
     profile: str = DEFAULT_PROFILE,
     converter: str | None = None,
+    chem_detection: bool = False,
 ) -> DocumentIR:
     """Parse a legacy ``.doc`` file by converting to ``.docx`` first.
 
@@ -373,7 +404,10 @@ def parse_doc(
                 f"LibreOffice did not produce a .docx for {p.name!r}; "
                 "the file may be unreadable."
             )
-        return parse_docx(converted, language=language, profile=profile)
+        return parse_docx(
+            converted, language=language, profile=profile,
+            chem_detection=chem_detection,
+        )
 
 
 def _resolve_doc_converter(override: str | None) -> str | None:

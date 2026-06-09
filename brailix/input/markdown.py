@@ -27,6 +27,15 @@ pattern):
 * Any other line → joined into a :class:`Paragraph` until a blank line
   ends it.
 
+A heading or paragraph may carry a trailing ``{align=center}`` /
+``{align=right}`` attribute (pandoc-style), which sets
+:attr:`brailix.ir.document.Block.align` and is stripped from the text.
+It lets a centred / right-aligned block survive a docx→markdown→re-parse
+round-trip: an importer serialises a parsed Word document back to markdown
+with this marker, this parser reads it back into ``align``, and the layout
+renderer then centres / right-aligns the braille. Only ``center`` /
+``right`` are recognised — the placements braille has a convention for.
+
 Inline formatting (bold / italic / inline math / inline code) is
 **not parsed** here — those would clash with braille conventions and
 should be handled by the renderer / front-end if needed. ``$...$``
@@ -70,6 +79,16 @@ _FENCE_RE = re.compile(r"^```\s*(\S*)\s*$")
 _DOLLAR_FENCE = "$$"
 _TABLE_RE = re.compile(r"^\s*\|(.+)\|\s*$")
 _TABLE_SEP_CHARS = re.compile(r"^[\s\-|:]+$")
+
+# A trailing block-attribute marker carrying horizontal alignment, e.g.
+# ``# 标题 {align=center}`` or ``正文 {align=right}`` (pandoc-style attribute
+# syntax). It feeds :attr:`brailix.ir.document.Block.align`, mirroring the
+# docx adapter's ``w:jc`` capture so a centred / right-aligned block survives
+# a docx→markdown→re-parse round-trip (an importer serialises a parsed Word
+# document back to markdown, then this parser rebuilds the IR). Only
+# ``center`` / ``right`` — the alignments the braille layout renders;
+# anything else stays literal text and yields no alignment.
+_ALIGN_ATTR_RE = re.compile(r"\s*\{align=(center|right)\}\s*$", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -185,9 +204,11 @@ def _iter_blocks(text: str) -> Iterable[Block]:
             start = cur.i
             cur.consume()
             level = len(m_h.group(1))
+            heading_text, align = _extract_align(m_h.group(2))
             yield Heading(
                 level=level,
-                text=m_h.group(2),
+                text=heading_text,
+                align=align,
                 span=cur.span_of(start, start + 1),
             )
             continue
@@ -307,6 +328,20 @@ def _infer_math_source(body: str) -> str:
     a single-prefix check is robust enough without parsing.
     """
     return "mathml" if body.lstrip().startswith("<math") else "latex"
+
+
+def _extract_align(text: str) -> tuple[str, str | None]:
+    """Split a trailing ``{align=center|right}`` attribute off ``text``.
+
+    Returns ``(text_without_attr, align)``. ``align`` is ``None`` when no
+    recognised marker is present, leaving ``text`` untouched — so ordinary
+    prose that happens to mention braces is unaffected (only the exact
+    ``{align=center}`` / ``{align=right}`` tail is consumed).
+    """
+    m = _ALIGN_ATTR_RE.search(text)
+    if m is None:
+        return text, None
+    return text[: m.start()].rstrip(), m.group(1).lower()
 
 
 def _consume_quote(cur: _LineCursor) -> Quote:
@@ -444,4 +479,5 @@ def _consume_paragraph(cur: _LineCursor) -> Paragraph:
         parts.append(line)
         cur.consume()
     body = " ".join(p.strip() for p in parts)
-    return Paragraph(text=body, span=cur.span_of(start, cur.i))
+    body, align = _extract_align(body)
+    return Paragraph(text=body, align=align, span=cur.span_of(start, cur.i))

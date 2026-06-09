@@ -258,6 +258,29 @@ class TestProvenance:
                 assert c.source_span is not None
                 assert c.source_span.start < c.source_span.end
 
+    def test_date_connector_carries_zero_length_boundary_span(self):
+        # A Date emits a ``connector`` cell with an intentional zero-length
+        # boundary span (anti-collision between the year digits and 日).
+        # The strict ``start < end`` invariant above doesn't cover it
+        # because the other provenance test has no Date input.
+        from brailix import Pipeline
+
+        result = Pipeline(profile="cn_current").translate_text("2026年5月17日")
+        cells = result.braille_ir.all_cells()
+        connectors = [c for c in cells if c.role == "connector"]
+        assert connectors, "expected a connector cell between date parts"
+        for c in connectors:
+            assert c.source_span is not None
+            assert c.source_span.start == c.source_span.end  # zero-length
+        # Every other content cell still carries a real (non-empty) span.
+        for c in cells:
+            if c.role in (
+                "number_sign", "capital_sign", "math_start", "space", "connector",
+            ):
+                continue
+            assert c.source_span is not None
+            assert c.source_span.start < c.source_span.end
+
 
 # ---------------------------------------------------------------------------
 # Profile swap doesn't crash

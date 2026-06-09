@@ -67,8 +67,9 @@ def _find_rootfile(zf: zipfile.ZipFile) -> str | None:
 
     Per the W3C MusicXML container spec, ``META-INF/container.xml``
     holds a ``<rootfiles>`` block with one or more ``<rootfile>``
-    entries; the first one with a MusicXML media type (or by
-    convention any first entry) is the score file.
+    entries; the first one is the main score by spec.  We take the first
+    ``<rootfile>`` with a ``full-path`` attribute — the ``media-type``
+    attribute is not consulted.
 
     Falls back to scanning for any top-level ``*.xml`` /
     ``*.musicxml`` entry when ``container.xml`` is missing or
