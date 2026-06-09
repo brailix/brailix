@@ -375,7 +375,16 @@ class TestWrapEdgeCases:
             )
             result: dict[str, str] = {}
 
-            def run() -> None:
+            # Bind the loop vars as defaults so the closure captures this
+            # iteration's values (ruff B023): the thread is joined before the
+            # next iteration, so late binding wouldn't bite — but the lint
+            # flags the pattern regardless, and binding is the canonical fix.
+            def run(
+                line_width=line_width,
+                quote_indent=quote_indent,
+                doc=doc,
+                result=result,
+            ) -> None:
                 result["out"] = LayoutRenderer(options=LayoutOptions(
                     line_width=line_width, quote_indent=quote_indent,
                 )).render(doc)
