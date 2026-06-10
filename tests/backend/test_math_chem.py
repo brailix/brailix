@@ -18,7 +18,7 @@ import pytest
 from brailix.backend.math import translate
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
-from brailix.core.errors import RunMode, WarningCollector
+from brailix.core.errors import RunMode, WarningCollector, WarningLevel
 from brailix.frontend.math.adapters.chem import convert_ce
 from brailix.frontend.math.normalizer import normalize
 from brailix.ir.inline import MathInline
@@ -145,10 +145,11 @@ class TestGasPrecipitate:
             (4, 5, 6), (1, 2, 5), (2, 3), (4, 5), (1, 6)
         ]
 
-    def test_unicode_arrow_same_as_mhchem(self, profile):
-        assert dots(ce_cells("O2 ↑", profile)[0]) == dots(
-            ce_cells("O2 ^", profile)[0]
-        )
+    def test_literal_arrow_flagged_in_ce(self, profile):
+        # \ce{} is LaTeX — a literal ↑ is non-standard (use ^) and flagged,
+        # not treated as a gas arrow.
+        _, wc = ce_cells("O2 ↑", profile)
+        assert wc.by_code("MATH_NONSTANDARD_CHAR")
 
     def test_arrow_attaches_without_leading_blank(self, profile):
         # No empty () blank cell anywhere — the arrow sits flush against the
@@ -591,3 +592,162 @@ class TestBrackets:
         cells, wc = ce_cells("K3[Fe(CN)6]", profile)
         assert not wc.warnings
         assert dots(cells)[0] == (4, 5, 6)    # leading ⠸ for K₃
+
+
+# ---------------------------------------------------------------------------
+# Encoding tolerance + non-standard-writing diagnostics (end to end)
+# ---------------------------------------------------------------------------
+
+
+class TestNonStandardCharWarnings:
+    def test_fullwidth_letter_warns_at_warn_level_not_translated(self, profile):
+        cells, wc = ce_cells("Ｈ２Ｏ", profile)
+        hits = wc.by_code("MATH_NONSTANDARD_CHAR")
+        assert len(hits) == 2  # Ｈ and Ｏ (the full-width digit ２ folds)
+        assert all(h.level is WarningLevel.WARN for h in hits)
+        assert "half-width" in hits[0].message
+        # not silently translated as if it were H2O
+        b, _ = ce_cells("H2O", profile)
+        assert dots(cells) != dots(b)
+
+    def test_fullwidth_operator_warns(self, profile):
+        _, wc = ce_cells("2H2 ＝ 2H2O", profile)
+        hits = wc.by_code("MATH_NONSTANDARD_CHAR")
+        assert len(hits) == 1
+        assert "half-width" in hits[0].message
+
+    def test_zero_width_char_warns(self, profile):
+        _, wc = ce_cells("H2​O", profile)
+        hits = wc.by_code("MATH_NONSTANDARD_CHAR")
+        assert len(hits) == 1
+        assert "zero-width" in hits[0].message
+
+    def test_lowercase_element_is_error_level(self, profile):
+        _, wc = ce_cells("h2o", profile)
+        errs = wc.by_code("MATH_ERROR")
+        assert len(errs) == 1
+        assert errs[0].level is WarningLevel.ERROR
+        assert "capitalised" in errs[0].message
+
+    def test_unicode_arrow_flagged_in_ce(self, profile):
+        # \ce{} is LaTeX — a literal → is non-standard input, flagged (not
+        # silently translated like the ASCII -> connector).
+        _, wc = ce_cells("Na + Cl2 → 2NaCl", profile)
+        assert wc.by_code("MATH_NONSTANDARD_CHAR")
+
+
+class TestRepeatedConnectorWarning:
+    def test_double_equals_warns_at_warn_level(self, profile):
+        cells, wc = ce_cells("H2 + O2 == H2O", profile)
+        hits = wc.by_code("MATH_REPEATED_OPERATOR")
+        assert len(hits) == 1
+        assert hits[0].level is WarningLevel.WARN
+        # faithful output: both '=' cells (⠶ = 2356) still present
+        assert dots(cells).count((2, 3, 5, 6)) == 2
+
+    def test_single_equals_no_warning(self, profile):
+        _, wc = ce_cells("H2 + O2 = H2O", profile)
+        assert wc.by_code("MATH_REPEATED_OPERATOR") == []
+
+    def test_double_bond_no_warning(self, profile):
+        # O=C=O: two double bonds, not consecutive — must not warn.
+        _, wc = ce_cells("O=C=O", profile)
+        assert wc.by_code("MATH_REPEATED_OPERATOR") == []
+
+
+# ---------------------------------------------------------------------------
+# Triple bond  #  →  ⠿ (c_123456), tight (no surrounding space)
+# ---------------------------------------------------------------------------
+
+
+class TestTripleBond:
+    def test_n_triple_n_is_one_molecule(self, profile):
+        # ⠸ N ⠿ N — one leading indicator (the bond stays inside the molecule
+        # run), ⠿ tight with no blank cell on either side.
+        cells, wc = ce_cells("N#N", profile)
+        assert dots(cells) == [
+            (4, 5, 6),         # ⠸ one chemical-formula indicator
+            (1, 3, 4, 5),      # N
+            (1, 2, 3, 4, 5, 6),  # ⠿ triple bond
+            (1, 3, 4, 5),      # N
+        ]
+        assert cells[2].role == "math_chem_bond"
+        assert not wc.warnings
+
+    def test_not_the_math_equiv_cell(self, profile):
+        # The chem triple bond is ⠿, NOT the math ≡ / equiv ⠘⠶ (⠘ = 56).
+        assert (5, 6) not in dots(ce_cells("N#N", profile)[0])
+
+    def test_hash_is_the_only_triple_bond_input(self, profile):
+        # mhchem ``#`` works; a literal ≡ is non-standard in \ce{} and flagged.
+        _, wc = ce_cells("C≡C", profile)
+        assert wc.by_code("MATH_NONSTANDARD_CHAR")
+
+
+# ---------------------------------------------------------------------------
+# Double bond  =  (tight, in a lone molecule)  →  ⠶, no space, one indicator;
+# the spaced / spaceless reaction yields keeps its spacing.
+# ---------------------------------------------------------------------------
+
+
+class TestDoubleBond:
+    def test_oco_is_one_molecule_tight(self, profile):
+        # ⠸ O ⠶ C ⠶ O — one indicator, both double bonds ⠶ tight (no 空方).
+        cells, wc = ce_cells("O=C=O", profile)
+        assert dots(cells) == [
+            (4, 5, 6),     # ⠸
+            (1, 3, 5),     # O
+            (2, 3, 5, 6),  # ⠶ double bond
+            (1, 4),        # C
+            (2, 3, 5, 6),  # ⠶ double bond
+            (1, 3, 5),     # O
+        ]
+        assert cells[2].role == "math_chem_bond"
+        assert not wc.warnings
+
+    def test_double_bond_indicator_emitted_once(self, profile):
+        cells, _ = ce_cells("CH2=CH2", profile)
+        inds = [c for c in cells if c.role == "math_chem_indicator"]
+        assert len(inds) == 1  # one molecule, one ⠸
+        assert () not in dots(cells)  # tight: no blank around the bond
+
+    def test_reaction_yields_keeps_spacing(self, profile):
+        # In a reaction the '=' is the yields connector — spaced (blank before)
+        # and re-indicating each species — NOT a tight double bond.
+        cells, _ = ce_cells("H2 + O2 = H2O", profile)
+        d = dots(cells)
+        assert () in d  # the yields keeps its leading blank (space)
+        inds = [c for c in cells if c.role == "math_chem_indicator"]
+        assert len(inds) == 3  # one per species
+
+    def test_spaceless_equation_still_yields(self, profile):
+        # 2H2+O2=2H2O (school spaceless form) — the tight '=' is still the
+        # yields, identical to the spaced form, not a double bond.
+        a, _ = ce_cells("2H2+O2=2H2O", profile)
+        b, _ = ce_cells("2H2 + O2 = 2H2O", profile)
+        assert dots(a) == dots(b)
+        assert not any(c.role == "math_chem_bond" for c in a)
+
+
+# ---------------------------------------------------------------------------
+# Reverse reaction arrow  <-  →  ⠠⠶⠂ (chem.arrow_reverse), spaced
+# ---------------------------------------------------------------------------
+
+
+class TestReverseArrow:
+    _REV = [(6,), (2, 3, 5, 6), (2,)]  # ⠠⠶⠂
+
+    def test_reverse_arrow_cells_and_leading_space(self, profile):
+        cells, wc = ce_cells("2NH3 <- N2 + 3H2", profile)
+        d = dots(cells)
+        k = next(
+            (k for k in range(len(d) - 2) if d[k : k + 3] == self._REV), None
+        )
+        assert k is not None  # ⠠⠶⠂ present
+        assert d[k - 1] == ()  # spaced: a blank cell sits before it
+        assert cells[k].role == "math_rel"
+        assert not wc.warnings
+
+    def test_reverse_arrow_is_not_the_math_left_arrow(self, profile):
+        # ⠫ (1-2-4-6, the math larr's lead cell) must not appear.
+        assert (1, 2, 4, 6) not in dots(ce_cells("A <- B", profile)[0])

@@ -45,6 +45,7 @@ def normalize(mathml: str) -> ET.Element:
     strip_namespace(root)
     _collapse_singleton_mrows(root)
     strip_whitespace_text(root)
+    _flag_repeated_operators(root)
     return root
 
 
@@ -81,3 +82,35 @@ def _collapse_singleton_mrows(elem: ET.Element) -> None:
             elem.remove(c)
         for c in new_children:
             elem.append(c)
+
+
+# Binary operators / relations whose *immediate* repetition (``==``, ``<<``,
+# ``++``, ``--``) is almost always a typo rather than real notation — unlike
+# ``!!`` (double factorial) or ``||`` (norm bars), which are intentionally
+# doubled and so are excluded.
+_REPEAT_TYPO_OPS: frozenset[str] = frozenset({"=", "<", ">", "+", "-"})
+
+
+def _flag_repeated_operators(elem: ET.Element) -> None:
+    """In-place: tag the second of two immediately-adjacent identical
+    ``<mo>`` siblings (from :data:`_REPEAT_TYPO_OPS`) with
+    ``data-bk-warn="repeated-operator"`` so the backend flags a likely typo.
+
+    Only *adjacent* duplicates are flagged, so a legitimate chained relation
+    (``a = b = c``, whose ``=`` operators are separated by operands) is left
+    alone. This is the general-math counterpart to the chemistry frontend's
+    own repeated-connector check; an ``<mo>`` already tagged (by chem) is left
+    untouched. The cell still renders — faithful output, just a warning."""
+    for child in list(elem):
+        _flag_repeated_operators(child)
+    kids = list(elem)
+    for prev, cur in zip(kids, kids[1:], strict=False):
+        text = (cur.text or "").strip()
+        if (
+            prev.tag == "mo"
+            and cur.tag == "mo"
+            and "data-bk-warn" not in cur.attrib
+            and text in _REPEAT_TYPO_OPS
+            and text == (prev.text or "").strip()
+        ):
+            cur.set("data-bk-warn", "repeated-operator")

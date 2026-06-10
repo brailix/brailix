@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
+from brailix.backend._chars import nonstandard_char_hint
 from brailix.backend._digits import DigitRoles, emit_digit_run
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.utils import (
@@ -104,9 +105,11 @@ def _emit_identifier_char(
         )
         mctx.need_number_sign = True
         return
+    _hint = nonstandard_char_hint(ch)
     mctx.backend.warnings.warn(
         code="MATH_UNKNOWN_IDENTIFIER",
-        message=f"no braille mapping for math identifier {ch!r}",
+        message=f"no braille mapping for math identifier {ch!r}"
+        + (f" — {_hint}" if _hint else ""),
         surface=ch,
         span=mctx.span,
         source="backend.math",
@@ -203,7 +206,29 @@ def _emit_mo(
     In chemistry mode, the gas / precipitate arrows render via the chem
     operator path (cells attached with no leading space); any ``<mo>`` the
     chem table doesn't recognise falls through to the ordinary path below.
+
+    A ``data-bk-warn="repeated-operator"`` tag (set by the chem frontend on
+    the second of two consecutive connectors) raises a non-fatal warning —
+    the operator still renders, so the faithful output is unchanged; the
+    writer is just told the doubled ``==`` looks like a typo.
     """
+    if elem.get("data-bk-warn") == "repeated-operator":
+        op = (elem.text or "").strip()
+        hint = ""
+        if op == "<":
+            hint = " (did you mean ≪, much-less-than?)"
+        elif op == ">":
+            hint = " (did you mean ≫, much-greater-than?)"
+        mctx.backend.warnings.warn(
+            code="MATH_REPEATED_OPERATOR",
+            message=(
+                f"consecutive duplicate operator {op!r}; likely a typo{hint}"
+                " — translated faithfully as written"
+            ),
+            surface=op or None,
+            span=mctx.span,
+            source="backend.math",
+        )
     if mctx.chem:
         from brailix.backend.math import chem as _chem
 
@@ -270,9 +295,11 @@ def _emit_mo(
             )
             mctx.need_number_sign = True
             return
+        _hint = nonstandard_char_hint(text)
         mctx.backend.warnings.warn(
             code="MATH_UNKNOWN_SYMBOL",
-            message=f"no braille mapping for math symbol {text!r}",
+            message=f"no braille mapping for math symbol {text!r}"
+            + (f" — {_hint}" if _hint else ""),
             surface=text,
             span=mctx.span,
             source="backend.math",
@@ -369,9 +396,11 @@ def _emit_mtext_per_char(
             if punct:
                 dots_seq = punct
         if dots_seq is None:
+            _hint = nonstandard_char_hint(ch)
             mctx.backend.warnings.warn(
                 code="MATH_UNKNOWN_TEXT_CHAR",
-                message=f"no braille mapping for math text char {ch!r}",
+                message=f"no braille mapping for math text char {ch!r}"
+                + (f" — {_hint}" if _hint else ""),
                 surface=ch,
                 span=mctx.span,
                 source="backend.math",

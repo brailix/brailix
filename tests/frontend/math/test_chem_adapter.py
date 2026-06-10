@@ -86,12 +86,12 @@ class TestConvertCe:
         "inner,arrow",
         [
             ("O2 ^", "↑"),       # mhchem gas
-            ("O2 ↑", "↑"),       # literal up arrow
             ("BaSO4 v", "↓"),    # mhchem precipitate
-            ("BaSO4 ↓", "↓"),    # literal down arrow
         ],
     )
     def test_gas_precipitate_arrow_becomes_mo(self, inner, arrow):
+        # Only the mhchem ASCII forms ^ / v are recognised; the emitted <mo>
+        # still carries the canonical ↑ / ↓ glyph for the backend.
         root = ET.fromstring(convert_ce(inner))
         mos = [e.text for e in root.iter(f"{_NS}mo")]
         assert mos == [arrow]
@@ -100,14 +100,19 @@ class TestConvertCe:
     def test_empty_yields_merror(self, inner):
         assert _merror(convert_ce(inner)) is not None
 
-    @pytest.mark.parametrize("inner", ["C#C", "N#N"])
-    def test_unsupported_content_yields_merror(self, inner):
-        # Explicit bond markers (#) aren't supported yet — they must degrade to
-        # <merror>, never crash. (Polyatomic ions, ()-groups and (s)/(aq)
-        # states now translate — see TestCharges / TestParentheses / TestStates.)
-        err = _merror(convert_ce(inner))
-        assert err is not None
-        assert "unsupported" in err.get("data-reason", "")
+    @pytest.mark.parametrize("src", ["C#C", "N#N", "HC#CH"])
+    def test_triple_bond_emits_bond_marker(self, src):
+        # mhchem ``#`` becomes a triple-bond <mo> the backend renders ⠿ — no
+        # longer a degraded soft <merror>. (A literal ≡ is non-standard in
+        # \ce{} and is flagged instead — see TestUnicodeArrowsRejectedInCe.)
+        out = convert_ce(src)
+        assert _merror(out) is None
+        bonds = [
+            e
+            for e in ET.fromstring(out).iter(f"{_NS}mo")
+            if e.get("data-bk-chem-bond") == "triple"
+        ]
+        assert len(bonds) == 1 and bonds[0].text == "≡"
 
     def test_leading_coefficient_is_mn(self):
         root = ET.fromstring(convert_ce("2H2O"))
@@ -435,3 +440,158 @@ class TestLatexDelegation:
 
         adapter = math_source_registry.get("chem")
         assert isinstance(adapter, ChemMathSourceAdapter)
+
+
+# ---------------------------------------------------------------------------
+# Source-text normalization: full-width / zero-width folding
+# ---------------------------------------------------------------------------
+
+
+class TestNonStandardCharsAreFlaggedNotFolded:
+    """Full-width symbols and invisible zero-width chars are writing errors:
+    flagged in place (soft <merror>), never silently folded to half-width —
+    ＝ (U+FF1D) and = (U+003D) are different code points. The rest of the
+    equation still translates; only the offending character is blanked."""
+
+    @staticmethod
+    def _soft(out):
+        return [
+            e
+            for e in ET.fromstring(out).iter(f"{_NS}merror")
+            if e.get("data-bk-soft") == "1"
+        ]
+
+    def test_fullwidth_letters_flagged_in_place(self):
+        out = convert_ce("Ｈ２Ｏ")
+        assert ET.fromstring(out).get("data-bk-chem") == "1"  # not whole-merror
+        # the full-width letters are flagged; the full-width digit ２ folds
+        # downstream in the backend digit path, so it isn't flagged here.
+        assert [e.text for e in self._soft(out)] == ["Ｈ", "Ｏ"]
+
+    def test_fullwidth_operator_flagged_not_folded(self):
+        out = convert_ce("2H2 ＝ 2H2O")
+        assert ET.fromstring(out).get("data-bk-chem") == "1"
+        assert [e.text for e in self._soft(out)] == ["＝"]
+        # the ＝ is NOT turned into an '=' connector
+        assert "=" not in [e.text for e in ET.fromstring(out).iter(f"{_NS}mo")]
+
+    def test_zero_width_space_flagged_not_silently_dropped(self):
+        out = convert_ce("H2​O")  # ZWSP between the 2 and the O
+        assert ET.fromstring(out).get("data-bk-chem") == "1"
+        soft = self._soft(out)
+        assert len(soft) == 1 and soft[0].text == "​"
+
+    def test_lowercase_element_is_whole_formula_error(self):
+        # A casing mistake degrades the whole formula with an actionable reason
+        # (capitalise it) rather than blanking each letter.
+        err = _merror(convert_ce("h2o"))
+        assert err is not None
+        assert "capitalised" in err.get("data-reason", "")
+        assert ET.fromstring(convert_ce("h2o")).get("data-bk-chem") is None
+
+    def test_supported_halfwidth_stays_clean(self):
+        out = convert_ce("2H2 + O2 = 2H2O")
+        assert self._soft(out) == []
+        assert _merror(out) is None
+
+
+class TestUnicodeArrowsRejectedInCe:
+    """``\\ce{}`` is LaTeX — only the mhchem ASCII forms are recognised. A
+    literal Unicode arrow / ≡ / ↑ / ↓ is non-standard input: flagged in place
+    (soft <merror>), not silently translated. Unicode glyphs belong to
+    plain-text sources, not LaTeX."""
+
+    @staticmethod
+    def _soft(out):
+        return [
+            e.text
+            for e in ET.fromstring(out).iter(f"{_NS}merror")
+            if e.get("data-bk-soft") == "1"
+        ]
+
+    @pytest.mark.parametrize("ch", ["→", "⟶", "⇌", "↑", "↓", "≡"])
+    def test_unicode_symbol_flagged_not_translated(self, ch):
+        assert self._soft(convert_ce(f"A {ch} B")) == [ch]
+
+    def test_ascii_mhchem_arrows_still_work(self):
+        assert _merror(convert_ce("Na + Cl2 -> 2NaCl")) is None
+        mos = [
+            e.text for e in ET.fromstring(convert_ce("N2 <=> O2")).iter(f"{_NS}mo")
+        ]
+        assert "⇌" in mos  # <=> still renders the reversible symbol
+
+
+class TestReverseArrowConnector:
+    def test_reverse_arrow_recognised(self):
+        out = convert_ce("2NH3 <- N2 + 3H2")
+        assert _merror(out) is None
+        mos = [e.text for e in ET.fromstring(out).iter(f"{_NS}mo")]
+        assert "←" in mos  # the mhchem <- reverse arrow
+
+    @pytest.mark.parametrize("src", ["A <-> B", "A <--> B"])
+    def test_resonance_arrows_not_supported(self, src):
+        # <-> / <--> aren't supported yet — the leading '<' is flagged, not
+        # silently rendered.
+        out = convert_ce(src)
+        soft = [
+            e.text
+            for e in ET.fromstring(out).iter(f"{_NS}merror")
+            if e.get("data-bk-soft") == "1"
+        ]
+        assert "<" in soft
+
+
+class TestRepeatedConnectorTagging:
+    def test_double_equals_tags_only_second(self):
+        out = convert_ce("H2 + O2 == H2O")
+        eqs = [e for e in ET.fromstring(out).iter(f"{_NS}mo") if e.text == "="]
+        warned = [e for e in eqs if e.get("data-bk-warn") == "repeated-operator"]
+        assert len(eqs) == 2
+        assert len(warned) == 1  # faithful: both kept; only the 2nd flagged
+
+    def test_spaced_double_equals_still_tagged(self):
+        out = convert_ce("H2 = = O2")
+        warned = [
+            e
+            for e in ET.fromstring(out).iter(f"{_NS}mo")
+            if e.get("data-bk-warn") == "repeated-operator"
+        ]
+        assert len(warned) == 1
+
+    def test_double_bond_not_tagged(self):
+        # O=C=O has two '=' separated by C — legitimate double bonds, no flag.
+        out = convert_ce("O=C=O")
+        warned = [
+            e for e in ET.fromstring(out).iter(f"{_NS}mo") if e.get("data-bk-warn")
+        ]
+        assert warned == []
+
+
+class TestStructuralBondMarkers:
+    @staticmethod
+    def _bonds(out):
+        return [
+            e.get("data-bk-chem-bond")
+            for e in ET.fromstring(out).iter(f"{_NS}mo")
+            if e.get("data-bk-chem-bond")
+        ]
+
+    def test_tight_equals_in_molecule_is_double_bond(self):
+        # O=C=O (no '+', no arrow) — both tight '=' are structural double bonds.
+        assert self._bonds(convert_ce("O=C=O")) == ["double", "double"]
+
+    def test_reaction_equals_is_not_a_bond(self):
+        # The yields '=' (spaced or spaceless, formula has '+' and no arrow) is
+        # a connector, not a structural bond — no data-bk-chem-bond marker.
+        assert self._bonds(convert_ce("H2 + O2 = H2O")) == []
+        assert self._bonds(convert_ce("2H2+O2=2H2O")) == []
+
+    def test_double_bond_inside_reactant_molecule(self):
+        # A lone double-bonded molecule keeps its bond marker.
+        assert self._bonds(convert_ce("CH2=CH2")) == ["double"]
+
+    def test_double_bond_in_arrow_reaction_reactant(self):
+        # Organic addition CH2=CH2 + H2 -> CH3CH3: the '->' is the yields, so
+        # the '=' inside the ethylene reactant is a double bond — not the
+        # yields, even though the whole expression is a reaction.
+        assert self._bonds(convert_ce("CH2=CH2 + H2 -> CH3CH3")) == ["double"]

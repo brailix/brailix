@@ -30,8 +30,12 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 
 from brailix.backend.math.context import MathBrailleContext
-from brailix.backend.math.utils import _ROLE_TO_CELL_ROLE, _unknown_cell
-from brailix.ir.braille import BrailleCell
+from brailix.backend.math.utils import (
+    _ROLE_TO_CELL_ROLE,
+    _last_is_blank,
+    _unknown_cell,
+)
+from brailix.ir.braille import BLANK_CELL, BrailleCell
 
 # Gas / precipitate arrows attach to the formula with no leading space —
 # unlike ``+`` / ``=`` / ⇌, which keep ordinary maths operator spacing.
@@ -58,14 +62,33 @@ def emit_children(
     n = len(children)
     while i < n:
         if _is_element_node(children[i]):
+            # A molecule run is its element nodes plus any *structural* bonds
+            # (``=`` double / ``#`` triple) between them — the bond stays inside
+            # the run so the whole molecule carries one leading ⠸, not a fresh
+            # indicator after every bond. (The spaced reaction connector is NOT
+            # a structural bond, so it still splits runs.)
             j = i + 1
-            while j < n and _is_element_node(children[j]):
+            while j < n and (
+                _is_element_node(children[j])
+                or _is_structural_bond_node(children[j])
+            ):
                 j += 1
+            # Never let a run end on a dangling bond (a bond joins two atoms).
+            while j > i + 1 and _is_structural_bond_node(children[j - 1]):
+                j -= 1
             emit_molecule(cells, mctx, children[i:j])
             i = j
         else:
             _emit_element(cells, mctx, children[i])
             i += 1
+
+
+def _is_structural_bond_node(node: ET.Element) -> bool:
+    """A structural bond ``<mo>`` (the frontend's tight ``=`` double / ``#`` ≡
+    triple), tagged ``data-bk-chem-bond``. It lives *inside* a molecule run, so
+    it doesn't trigger a fresh chemical-formula indicator the way the spaced
+    reaction connector does."""
+    return node.tag == "mo" and node.get("data-bk-chem-bond") is not None
 
 
 def _is_element_node(node: ET.Element) -> bool:
@@ -184,11 +207,52 @@ def emit_operator(
     (``uarr`` = ⠰⠌, ``darr`` = ⠘⠡) attached with **no** leading space —
     chemistry writes H₂↑, not H₂ ↑.
 
-    Returns ``False`` for every other ``<mo>`` (``+`` / ``=`` / ⇌ …) so they
-    take the ordinary spaced maths operator path; chemistry reuses maths
+    A structural bond (``data-bk-chem-bond`` from the frontend — ``"double"``
+    for a tight ``=``, ``"triple"`` for ``#``) renders the matching
+    ``chem.bond_double`` ⠶ / ``chem.bond_triple`` ⠿ cell with **no** surrounding
+    space. The triple bond is distinct from the math ≡ / equiv ⠘⠶; the double
+    bond reuses the ⠶ glyph but, unlike the spaced reaction connector, sits
+    tight against its atoms.
+
+    The reverse reaction arrow ``←`` (mhchem ``<-``) renders ``chem.arrow_reverse``
+    ⠠⠶⠂ **spaced** (a leading blank, like the forward connector) — not the math
+    left arrow ⠫⠒.
+
+    Returns ``False`` for every other ``<mo>`` (``+`` / spaced ``=`` / ⇌ …) so
+    they take the ordinary spaced maths operator path; chemistry reuses maths
     operator rules for those.
     """
+    bond = elem.get("data-bk-chem-bond")
+    if bond in ("double", "triple"):
+        for dots in mctx.profile.math_structure(f"chem.bond_{bond}"):
+            cells.append(
+                BrailleCell(
+                    dots=dots,
+                    role="math_chem_bond",
+                    source_span=mctx.span,
+                    source_text=(elem.text or "").strip(),
+                )
+            )
+        mctx.need_number_sign = True
+        return True
     text = (elem.text or "").strip()
+    if text == "←":
+        # Reverse reaction arrow (mhchem ``<-``): chem-specific cells
+        # (``chem.arrow_reverse`` ⠠⠶⠂), spaced like the forward connector — a
+        # leading blank — NOT the math left arrow ⠫⠒ (``larr``).
+        if cells and not _last_is_blank(cells):
+            cells.append(BLANK_CELL)
+        for dots in mctx.profile.math_structure("chem.arrow_reverse"):
+            cells.append(
+                BrailleCell(
+                    dots=dots,
+                    role="math_rel",
+                    source_span=mctx.span,
+                    source_text="←",
+                )
+            )
+        mctx.need_number_sign = True
+        return True
     if text not in _ATTACHED_ARROWS:
         return False
     sym = mctx.profile.math_symbol(text)

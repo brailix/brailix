@@ -44,7 +44,10 @@
       "indicator": ["c_456"],
       "heat": ["c_45", "c_456", "c_256"],
       "charge": ["c_46"],
-      "charge_plus_guard": ["c_6"]
+      "charge_plus_guard": ["c_6"],
+      "bond_double": ["c_2356"],
+      "bond_triple": ["c_123456"],
+      "arrow_reverse": ["c_6", "c_2356", "c_2"]
     }
   }
 }

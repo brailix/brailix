@@ -16,7 +16,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 
 from brailix.backend.math.context import MathBrailleContext
-from brailix.backend.math.utils import _unknown_cell
+from brailix.backend.math.utils import _describe_nonstandard_char, _unknown_cell
 from brailix.ir.braille import BrailleCell
 
 # Cap on how much of an unsupported element's serialized subtree is copied
@@ -28,20 +28,32 @@ _SURFACE_MAX = 200
 def _emit_merror(
     cells: list[BrailleCell], mctx: MathBrailleContext, elem: ET.Element
 ) -> None:
-    reason = elem.get("data-reason", "merror")
-    surface = ""
     if list(elem):
         # Concatenate text from any direct children (mtext, etc.).
         surface = "".join(t or "" for t in elem.itertext()).strip()
     else:
         surface = (elem.text or "").strip()
-    mctx.backend.warnings.error(
-        code="MATH_ERROR",
-        message=f"<merror>: {reason}",
-        surface=surface,
-        span=mctx.span,
-        source="backend.math",
-    )
+    if elem.get("data-bk-soft") == "1":
+        # Soft, in-place degrade (e.g. the chem parser flagging one stray
+        # full-width / zero-width / unsupported character): warn rather than
+        # error — the surrounding formula translated fine, only this cell is
+        # blank. The message names the writing problem so it's actionable.
+        mctx.backend.warnings.warn(
+            code="MATH_NONSTANDARD_CHAR",
+            message=_describe_nonstandard_char(surface),
+            surface=surface or None,
+            span=mctx.span,
+            source="backend.math",
+        )
+    else:
+        reason = elem.get("data-reason", "merror")
+        mctx.backend.warnings.error(
+            code="MATH_ERROR",
+            message=f"<merror>: {reason}",
+            surface=surface,
+            span=mctx.span,
+            source="backend.math",
+        )
     cells.append(_unknown_cell(surface or "?", mctx.span))
     mctx.need_number_sign = True
 

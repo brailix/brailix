@@ -17,6 +17,7 @@ was moved to its own layer in line with the architecture in
 
 from __future__ import annotations
 
+from brailix.backend._chars import nonstandard_char_hint
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
@@ -97,9 +98,13 @@ def translate_connector(
 
 
 def translate_unknown(node: Unknown, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:
+    hint = nonstandard_char_hint(node.surface)
+    message = f"no translation for unknown node: {node.surface!r}"
+    if hint:
+        message = f"{message} — {hint}"
     ctx.warnings.warn(
         code="UNKNOWN_NODE",
-        message=f"no translation for unknown node: {node.surface!r}",
+        message=message,
         surface=node.surface,
         span=node.span,
         source="backend.punct",
@@ -143,9 +148,13 @@ def lookup_or_unknown(
     """
     cells = profile.punctuation.get(ch)
     if not cells:
+        hint = nonstandard_char_hint(ch)
+        message = f"no punctuation mapping for {ch!r}"
+        if hint:
+            message = f"{message} — {hint}"
         ctx.warnings.warn(
             code="UNKNOWN_PUNCT",
-            message=f"no punctuation mapping for {ch!r}",
+            message=message,
             surface=ch,
             span=span,
             source="backend.punct",

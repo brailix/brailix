@@ -30,9 +30,10 @@ with a multiplier (``Ca(OH)2``, ``(NH4)2SO4`` — a ``<mrow>`` group whose
 content is parsed and cased on its own), physical-state labels (``(s)`` /
 ``(l)`` / ``(g)`` / ``(aq)`` — carried as ``<mtext data-bk-chem-state>``) and
 square-bracket complex ions (``[Cu(NH3)4]^2+`` — the bracketed-group parser
-handles ``[...]`` with a trailing charge just like ``(...)``). Only chemical
-bonds (``-`` / ``=`` / ``#``, especially the triple bond ``#``) are still
-unimplemented, pending their braille rules.
+handles ``[...]`` with a trailing charge just like ``(...)``), and the triple
+bond (mhchem ``#`` or a literal ≡, as in ``N#N`` / ``HC#CH``) rendered ⠿ with
+no surrounding space. The single-bond dash ``-`` has no structural-bond
+rendering yet (only the reaction connectors consume it).
 """
 
 from __future__ import annotations
@@ -132,7 +133,11 @@ def extract_ce_inner(text: str) -> str | None:
 
 def convert_ce(inner: str) -> str:
     r"""Convert the content of a ``\ce{...}`` into a MathML string tagged
-    ``data-bk-chem="1"``. Unsupported content yields a soft ``<merror>``."""
+    ``data-bk-chem="1"``. A genuinely unparseable formula (no chemical
+    content, an unbalanced group) yields a whole-formula soft ``<merror>``;
+    an isolated non-standard character (a full-width symbol, an invisible
+    zero-width char, an unsupported bond ``#``) is flagged in place and the
+    rest of the equation still translates (see :func:`_emit_formula`)."""
     inner = inner.strip()
     if not inner:
         return merror_wrap("", reason="empty \\ce")
@@ -144,19 +149,17 @@ def convert_ce(inner: str) -> str:
 
 
 def _match_arrow(inner: str, i: int) -> tuple[str, int] | None:
-    """Recognise a gas / precipitate arrow at position ``i``.
+    """Recognise a gas / precipitate arrow at position ``i``, **mhchem syntax
+    only**: standalone ``^`` (gas) / ``v`` (precipitate).
 
-    Returns ``(symbol, next_index)`` for ↑ / ↓ / standalone ``v`` /
-    standalone ``^``, else ``None``. ``^`` is only the gas arrow when it
-    stands alone (next char is whitespace or end) so a charge like
+    Returns ``(symbol, next_index)`` or ``None``. ``^`` is only the gas arrow
+    when it stands alone (next char is whitespace or end) so a charge like
     ``^2-`` isn't mistaken for one; ``v`` is unambiguous because an element
     symbol always starts uppercase, so a lone lowercase ``v`` can't be one.
-    """
+    A literal ↑ / ↓ inside ``\\ce{}`` is non-standard input (use ``^`` / ``v``)
+    — it isn't matched here, so it falls through and is flagged. The emitted
+    ``<mo>`` still carries the canonical ↑ / ↓ glyph for the backend."""
     ch = inner[i]
-    if ch == "↑":
-        return _GAS, i + 1
-    if ch == "↓":
-        return _PRECIPITATE, i + 1
     if ch == "v":
         return _PRECIPITATE, i + 1
     if ch == "^" and (i + 1 >= len(inner) or inner[i + 1].isspace()):
@@ -191,10 +194,21 @@ _HEAT_CONDITIONS = frozenset({"\\Delta", "Δ", "△", "\\triangle", "\\vartriang
 
 
 def _match_connector(inner: str, i: int) -> tuple[str, int] | None:
-    """Reaction connector at ``i``: ``<=>`` → reversible ⇌, ``->`` / ``=`` →
-    yields (rendered ``=``). Returns ``(char, next_index)`` or ``None``."""
+    """Reaction connector at ``i``, **mhchem syntax only**: ``<=>`` is
+    reversible (rendered ⇌); ``->`` and ``=`` are yields (rendered ``=``).
+    Returns ``(char, next_index)`` or ``None``.
+
+    ``\\ce{}`` is LaTeX, so only the mhchem ASCII forms are recognised here.
+    A literal Unicode arrow (→ / ⟶ / ⇌) inside ``\\ce{}`` is non-standard
+    input — it falls through to the soft-unknown path and is flagged, not
+    silently translated (Unicode glyphs belong to plain-text sources, not
+    LaTeX). ``<-`` is the reverse arrow ← (backend renders ``chem.arrow_reverse``
+    ⠠⠶⠂); ``<->`` / ``<-->`` aren't supported yet, so a bare ``<-`` is matched
+    only when not the start of one of those."""
     if inner.startswith("<=>", i):
         return "⇌", i + 3
+    if inner.startswith("<-", i) and inner[i + 2 : i + 3] not in (">", "-"):
+        return "←", i + 2
     if inner.startswith("->", i):
         return "=", i + 2
     if inner[i] == "=":
@@ -233,10 +247,18 @@ def _parse_conditions(inner: str, i: int) -> tuple[str | None, str | None, int]:
     return above, below, i
 
 
-def _connector_mathml(conn: str, above: str | None, below: str | None) -> str:
+def _connector_mathml(
+    conn: str, above: str | None, below: str | None, *, repeated: bool = False
+) -> str:
     """Build the connector MathML, wrapping it in ``<mover>`` / ``<munder>``
-    / ``<munderover>`` when conditions are present (base, under, over)."""
-    base = f"<mo>{conn}</mo>"
+    / ``<munderover>`` when conditions are present (base, under, over).
+
+    ``repeated`` tags the base ``<mo>`` with ``data-bk-warn`` so the backend
+    flags a consecutive duplicate connector (``==``, ``= =``) as a likely
+    typo — the cell still renders, faithfully, so no original meaning is
+    lost; the writer just gets told."""
+    attr = ' data-bk-warn="repeated-operator"' if repeated else ""
+    base = f"<mo{attr}>{conn}</mo>"
     if above is None and below is None:
         return base
     over = _condition_mathml(above) if above is not None else None
@@ -260,9 +282,55 @@ def _condition_mathml(text: str) -> str:
     if text in _HEAT_CONDITIONS:
         return "<mi>Δ</mi>"
     try:
-        return f"<mrow>{_emit_formula(text)}</mrow>"
+        body = _emit_formula(text)
     except _ChemParseError:
         return f"<mtext>{escape(text)}</mtext>"
+    if "data-bk-soft" in body:
+        # The condition held non-formula characters (e.g. Chinese 点燃, which
+        # now localises to soft <merror>s instead of raising). Render the whole
+        # condition as text — a placeholder for the zh-backed path — rather than
+        # a string of flagged blanks.
+        return f"<mtext>{escape(text)}</mtext>"
+    return f"<mrow>{body}</mrow>"
+
+
+def _equals_is_yields(inner: str) -> bool:
+    """True when a bare ``=`` in ``inner`` is the reaction *yields* connector
+    rather than a structural double bond.
+
+    The discriminator is organic-reaction-aware:
+
+    * An explicit mhchem arrow (``->`` / ``<-`` / ``<=>``) **is** the yields,
+      so every ``=`` is a double bond — even inside a reactant, as in the
+      addition reaction ``CH2=CH2 + H2 -> CH3CH3``.
+    * Otherwise, an addition ``+`` (one followed by a new species — a digit or
+      uppercase element letter, so a trailing charge ``Na+`` doesn't count)
+      means the formula is an equation written with ``=`` as its arrow
+      (``2H2+O2=2H2O``, even spaceless), so the ``=`` is the yields.
+    * A lone molecule (no arrow, no addition ``+`` — ``O=C=O`` / ``CH2=CH2``)
+      reads ``=`` as a double bond.
+    """
+    if any(a in inner for a in ("->", "<-", "<=>")):
+        return False
+    for m in re.finditer(r"\+", inner):
+        j = m.end()
+        while j < len(inner) and inner[j].isspace():
+            j += 1
+        if j < len(inner) and (inner[j].isdigit() or "A" <= inner[j] <= "Z"):
+            return True
+    return False
+
+
+def _soft_unknown_mathml(ch: str) -> str:
+    """Wrap one non-standard character as a *soft* inline ``<merror>``.
+
+    ``data-bk-soft="1"`` tells the backend to emit a warning (not an error)
+    and one blank cell, then carry on — so a stray full-width symbol, an
+    invisible zero-width char, or an unsupported bond ``#`` is flagged in
+    place instead of degrading the whole equation. The character is carried
+    verbatim (not folded): the backend classifies it for the message, and
+    no original Unicode is silently rewritten."""
+    return f'<merror data-bk-soft="1">{escape(ch)}</merror>'
 
 
 def _emit_formula(inner: str) -> str:
@@ -297,25 +365,63 @@ def _emit_formula(inner: str) -> str:
     n = len(inner)
     prev_boundary = True  # start of string acts like a token boundary
     species_atoms = 0  # element symbols since the last species boundary
+    prev_was_connector = False  # last non-space token was a reaction connector
+    prev_was_atom = False  # last token was an element / group, tight (no space)
+    equals_is_yields = _equals_is_yields(inner)  # bare ``=`` is the yields, not a bond
     while i < n:
         ch = inner[i]
         if ch.isspace():
             prev_boundary = True
+            prev_was_atom = False
             species_atoms = 0
             i += 1
+            continue  # whitespace preserves prev_was_connector ("= =" still flags)
+        if ch == "#":
+            # Triple bond, mhchem ``#`` (as in N#N / HC#CH). A structural bond
+            # *within* one species: tight (no surrounding space). The backend
+            # renders it ⠿ via the data-bk-chem-bond marker — NOT the math ≡ /
+            # equiv ⠘⠶, which is a different symbol — and keeps it inside the
+            # molecule run (one leading ⠸, no re-indicator). A literal ≡ inside
+            # ``\ce{}`` is non-standard (use ``#``) and is flagged, not matched.
+            parts.append('<mo data-bk-chem-bond="triple">≡</mo>')
+            i += 1
+            prev_boundary = False
+            prev_was_connector = False
+            prev_was_atom = False
+            continue
+        if ch == "=" and prev_was_atom and not equals_is_yields:
+            # A ``=`` tight against the preceding atom, where ``=`` isn't the
+            # reaction yields (see :func:`_equals_is_yields`), is a structural
+            # double bond: rendered ⠶ with no surrounding space, kept inside the
+            # molecule run. Covers a lone molecule (``O=C=O`` / ``CH2=CH2``) and
+            # a double bond inside a reactant of an arrow reaction
+            # (``CH2=CH2 + H2 -> CH3CH3``). The spaceless equation
+            # ``2H2+O2=2H2O`` keeps ``=`` as the spaced yields connector.
+            parts.append('<mo data-bk-chem-bond="double">=</mo>')
+            i += 1
+            prev_boundary = False
+            prev_was_connector = False
+            prev_was_atom = False
             continue
         connector = _match_connector(inner, i)
         if connector is not None:
+            repeated = prev_was_connector
             conn_char, i = connector
             above, below, i = _parse_conditions(inner, i)
-            parts.append(_connector_mathml(conn_char, above, below))
+            parts.append(
+                _connector_mathml(conn_char, above, below, repeated=repeated)
+            )
             prev_boundary = False
+            prev_was_connector = True
+            prev_was_atom = False
             species_atoms = 0
             continue
         if ch == "+" and (prev_boundary or _species_follows(inner, i + 1)):
             parts.append("<mo>+</mo>")
             i += 1
             prev_boundary = False
+            prev_was_connector = False
+            prev_was_atom = False
             species_atoms = 0
             continue
         arrow = _match_arrow(inner, i)
@@ -323,6 +429,8 @@ def _emit_formula(inner: str) -> str:
             symbol, i = arrow
             parts.append(f"<mo>{symbol}</mo>")
             prev_boundary = False
+            prev_was_connector = False
+            prev_was_atom = False
             continue
         if ch.isdigit():
             start = i
@@ -330,16 +438,40 @@ def _emit_formula(inner: str) -> str:
                 i += 1
             parts.append(f"<mn>{inner[start:i]}</mn>")
             prev_boundary = False
+            prev_was_connector = False
+            prev_was_atom = False
             continue
         if ch == "(" or ch == "[":
             group, i = _bracketed_group(inner, i)
             parts.append(group)
             species_atoms += 1
             prev_boundary = False
+            prev_was_connector = False
+            prev_was_atom = True  # a group is a species part — ``)=`` is a bond
             continue
         m = _ELEMENT_RE.match(inner, i)
         if not m:
-            raise _ChemParseError(f"unexpected {ch!r} at index {i}")
+            if "a" <= ch <= "z":
+                # ASCII lowercase where an element symbol must start: a casing
+                # mistake (``h2o``). Degrade the whole formula with an
+                # actionable reason rather than litter it with per-letter
+                # blanks — the fix is "capitalise it", not "skip this char".
+                raise _ChemParseError(
+                    f"element symbols must be capitalised (got {ch!r}); "
+                    "e.g. write H2O, not h2o"
+                )
+            # A stray, non-standard character: a full-width symbol (＝＋（）)
+            # or an invisible zero-width char. Flag it in place and keep going,
+            # so one bad character doesn't sink the whole equation. The
+            # character is NOT folded — the backend warns and emits a blank
+            # cell.
+            parts.append(_soft_unknown_mathml(ch))
+            i += 1
+            prev_boundary = False
+            prev_was_connector = False
+            prev_was_atom = False
+            species_atoms = 0
+            continue
         element = m.group(0)
         i = m.end()
         start = i
@@ -370,6 +502,8 @@ def _emit_formula(inner: str) -> str:
         else:
             parts.append(atom)
         prev_boundary = False
+        prev_was_connector = False
+        prev_was_atom = True  # an element symbol — a following tight ``=`` bonds
     if not parts:
         raise _ChemParseError("no chemical content")
     return "".join(parts)
