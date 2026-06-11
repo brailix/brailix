@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 
 from brailix.backend._chars import nonstandard_char_hint
 from brailix.backend._digits import DigitRoles, emit_digit_run
+from brailix.backend._inline import rebase_translated_cells
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.utils import (
     _NUMBER_BREAKING_ROLES,
@@ -371,7 +372,13 @@ def _emit_mtext(
     if text.strip() and translator is not None:
         # latex2mathml encodes a literal space inside \text as U+00A0;
         # normalise it to a real space so the text path sees a word break.
-        cells.extend(translator(text.replace("\u00a0", " ")))
+        # The translator's cells carry throwaway-document spans \u2014 rebase
+        # onto the formula's own span so proofread jumps land here.
+        cells.extend(
+            rebase_translated_cells(
+                translator(text.replace("\u00a0", " ")), mctx.span
+            )
+        )
     else:
         _emit_mtext_per_char(cells, mctx, text)
     mctx.need_number_sign = True

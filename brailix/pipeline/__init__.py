@@ -283,7 +283,12 @@ class Pipeline:
         surface = surface.strip()
         if not surface:
             return ""
-        silent = WarningCollector(mode=self.mode)
+        # NORMAL regardless of the pipeline's own mode: a strict-mode
+        # collector RAISES on the first warning, which would turn the
+        # documented "failures surface as soft-failure cells" preview
+        # contract into a StrictModeError crash for any formula with an
+        # unknown symbol.
+        silent = WarningCollector(mode=RunMode.NORMAL)
         math_ctx = MathContext(
             source=source, mode="inline", profile=self.profile, warnings=silent
         )
@@ -293,7 +298,10 @@ class Pipeline:
         node = MathInline(surface=surface, source=source, math=tree)
         backend_ctx = BackendContext(
             profile=self.profile,
-            mode=self.mode,
+            # NORMAL, not self.mode — the context's __post_init__
+            # re-stamps its mode onto the shared collector, which would
+            # silently undo the NORMAL collector above.
+            mode=RunMode.NORMAL,
             warnings=silent,
             # Inject the inline-text translator so embedded text — a
             # \text{...} / <mtext> run, esp. Chinese — renders through the
@@ -969,10 +977,19 @@ class Pipeline:
         """
         if not text.strip():
             return []
-        warnings = WarningCollector(mode=self.mode)
+        # NORMAL regardless of the pipeline's own mode: the docstring
+        # promises this private collector never pollutes the caller's
+        # diagnostics, but a strict-mode collector raises on the first
+        # warning — a stray untranslatable char inside a <words> /
+        # \text{...} run would abort the whole score's translation from
+        # deep inside a backend handler.
+        warnings = WarningCollector(mode=RunMode.NORMAL)
+        # NORMAL on the contexts too, not just the collector — their
+        # __post_init__ re-stamps the context mode onto the shared
+        # collector, which would silently undo the line above.
         ctx = FrontendContext(
             profile=self.profile,
-            mode=self.mode,
+            mode=RunMode.NORMAL,
             warnings=warnings,
             options=self._frontend_options(),
         )
@@ -980,7 +997,7 @@ class Pipeline:
         paragraph = Paragraph(children=children, span=Span(0, len(text)))
         doc = DocumentIR(blocks=[paragraph])
         backend_ctx = BackendContext(
-            profile=self.profile, mode=self.mode, warnings=warnings
+            profile=self.profile, mode=RunMode.NORMAL, warnings=warnings
         )
         braille_doc = translate_document(doc, backend_ctx, self._profile)
         return braille_doc.all_cells()

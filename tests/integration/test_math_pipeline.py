@@ -318,3 +318,52 @@ def _find_math_nodes(doc) -> list[MathInline]:
             if isinstance(child, MathInline):
                 out.append(child)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Strict mode must not leak through best-effort paths
+# ---------------------------------------------------------------------------
+
+
+class TestStrictModePreviewPaths:
+    """The pipeline's throwaway collectors stay NORMAL even when the
+    pipeline itself is strict: a strict collector raises on the first
+    warning, which used to turn the documented best-effort preview /
+    embedded-text contracts into StrictModeError crashes."""
+
+    def test_translate_math_inline_strict_does_not_raise(self):
+        pipe = Pipeline(profile="cn_current", mode="strict")
+        out = pipe.translate_math_inline(
+            "<math><mo>☃</mo></math>", source="mathml"
+        )
+        assert isinstance(out, str)
+
+    def test_inline_text_translator_strict_does_not_raise(self):
+        pipe = Pipeline(profile="cn_current", mode="strict")
+        # The seam injected onto BackendContext.options — best-effort
+        # by contract ("a stray untranslatable char shouldn't spam the
+        # score's report"), let alone abort it.
+        cells = pipe._translate_inline_text("☃")  # noqa: SLF001
+        assert isinstance(cells, list)
+
+
+class TestEmbeddedTextSpans:
+    def test_mtext_cells_carry_the_formula_span(self):
+        # The injected inline-text translator runs over a throwaway
+        # document; its cells used to keep those 0-based spans, so a
+        # proofread double-click on embedded text jumped to the start
+        # of the file.  They are rebased onto the formula's own span.
+        pipe = Pipeline()
+        text = "前面 $<math><mtext>中文</mtext></math>$ 后面"
+        result = pipe.translate_text(text)
+        node = _find_math_nodes(result.ir)[0]
+        assert node.span is not None
+        translated = [
+            c
+            for block in result.braille_ir.blocks
+            for c in block.cells
+            if c.source_text in ("中", "文")
+        ]
+        assert translated, "embedded text produced no cells"
+        for c in translated:
+            assert c.source_span == node.span
