@@ -1,6 +1,12 @@
 import pytest
 
-from brailix.ir.braille import BrailleBlock, BrailleCell, BrailleDocument, BrailleSequence
+from brailix.ir.braille import (
+    LINE_BREAK_CELL,
+    BrailleBlock,
+    BrailleCell,
+    BrailleDocument,
+    BrailleSequence,
+)
 from brailix.renderer import renderer_registry
 from brailix.renderer.unicode_braille import (
     BRAILLE_BASE,
@@ -95,6 +101,28 @@ class TestRendererSequence:
         ])
         out = UnicodeBrailleRenderer().render(seq)
         assert out == chr(0x2801) + chr(0x2803) + chr(0x2800)
+
+    def test_line_break_sentinel_renders_as_newline(self):
+        # Forced in-block break (matrix / equation-system rows) — a
+        # real \n, NOT the U+2800 a blank cell would produce.
+        seq = BrailleSequence(cells=[
+            BrailleCell(dots=(1,)),
+            LINE_BREAK_CELL,
+            BrailleCell(dots=(2,)),
+        ])
+        out = UnicodeBrailleRenderer().render(seq)
+        assert out == chr(0x2801) + "\n" + chr(0x2802)
+
+    def test_hang_region_sentinels_print_nothing(self):
+        # Zero-width layout metadata — must NOT become U+2800.
+        from brailix.ir.braille import HANG_CLOSE_CELL, HANG_OPEN_CELL
+
+        seq = BrailleSequence(cells=[
+            HANG_OPEN_CELL,
+            BrailleCell(dots=(1,)),
+            HANG_CLOSE_CELL,
+        ])
+        assert UnicodeBrailleRenderer().render(seq) == chr(0x2801)
 
 
 class TestRendererDocument:

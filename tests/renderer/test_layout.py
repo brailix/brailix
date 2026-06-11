@@ -9,6 +9,9 @@ glyph output — that's covered by golden tests downstream."""
 from brailix.core.span import Span
 from brailix.ir.braille import (
     BLANK_CELL,
+    HANG_CLOSE_CELL,
+    HANG_OPEN_CELL,
+    LINE_BREAK_CELL,
     BrailleBlock,
     BrailleCell,
     BrailleDocument,
@@ -98,6 +101,137 @@ class TestWordWrapping:
         lines = out.split("\n")
         assert all(len(line) <= 10 for line in lines)
         assert sum(len(line) for line in lines) == 30
+
+
+class TestForcedLineBreak:
+    """LINE_BREAK_CELL — the in-block forced break matrix /
+    equation-system rows and bare ``\\`` emit. The wrapper flushes the
+    pending line (no continuation hyphen) and the sentinel itself never
+    prints."""
+
+    def test_break_splits_line_even_when_width_remains(self):
+        seq = _seq(_word(3))
+        seq.cells.append(LINE_BREAK_CELL)
+        seq.cells.extend(_word(3))
+        out = LayoutRenderer(options=LayoutOptions(line_width=40)).render(seq)
+        lines = out.split("\n")
+        assert len(lines) == 2
+        assert all(len(line) == 3 for line in lines)
+
+    def test_break_adds_no_continuation_hyphen(self):
+        seq = _seq(_word(3))
+        seq.cells.append(LINE_BREAK_CELL)
+        seq.cells.extend(_word(3))
+        out = LayoutRenderer(options=LayoutOptions(line_width=40)).render(seq)
+        assert _hyphen_char() not in out
+
+    def test_continuation_lines_use_block_cont_indent(self):
+        # In a list item (hanging indent 2) a forced break starts the
+        # next row at the continuation indent, like any wrapped line.
+        cells = _word(3) + [LINE_BREAK_CELL] + _word(3)
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(block_type="list_item", cells=cells),
+        ])
+        out = LayoutRenderer(
+            options=LayoutOptions(line_width=40, list_hanging_indent=2)
+        ).render(doc)
+        first, second = out.split("\n")
+        assert len(first) == 3
+        assert second == dots_to_char(()) * 2 + dots_to_char((1,)) * 3
+
+    def test_trailing_blank_before_break_is_stripped(self):
+        # ``…⠀<break>…`` must not leave a dangling blank at line end.
+        cells = _word(2) + [BLANK_CELL, LINE_BREAK_CELL] + _word(2)
+        out = LayoutRenderer(options=LayoutOptions(line_width=40)).render(
+            BrailleSequence(cells=cells)
+        )
+        first, second = out.split("\n")
+        assert len(first) == 2
+        assert len(second) == 2
+
+
+class TestHangRegion:
+    """hang_open … hang_close — the math backend brackets every matrix /
+    determinant / equation system in these zero-width sentinels. WIDTH
+    overflow inside the region continues with ``hang_region_indent``
+    (《盲文常用数学符号》§17 规则1: 某一行写不完，下一行空两方继续);
+    FORCED row breaks and anything outside the region keep the block's
+    own indent."""
+
+    @staticmethod
+    def _render(cells, width=10):
+        opts = LayoutOptions(line_width=width, paragraph_indent=0)
+        return LayoutRenderer(options=opts).render(
+            BrailleDocument(blocks=[BrailleBlock(cells=cells)])
+        )
+
+    def test_overflow_inside_region_hangs_two_cells(self):
+        # One 16-cell "row" of 8 + 8 with a blank between, width 10:
+        # the second word overflows → continuation indented 2 blanks.
+        cells = (
+            [HANG_OPEN_CELL]
+            + _word(8) + [BLANK_CELL] + _word(8)
+            + [HANG_CLOSE_CELL]
+        )
+        first, second = self._render(cells).split("\n")
+        assert len(first) == 8
+        assert second == dots_to_char(()) * 2 + dots_to_char((1,)) * 8
+
+    def test_forced_row_break_inside_region_does_not_hang(self):
+        # Row boundary (LINE_BREAK_CELL) starts the next ROW at the
+        # block indent — only overflow continuations hang.
+        cells = (
+            [HANG_OPEN_CELL]
+            + _word(3) + [LINE_BREAK_CELL] + _word(3)
+            + [HANG_CLOSE_CELL]
+        )
+        first, second = self._render(cells).split("\n")
+        assert len(first) == 3
+        assert second == dots_to_char((1,)) * 3  # no leading blanks
+
+    def test_overflow_after_region_uses_block_indent(self):
+        # Trailing prose past hang_close wraps at the block indent again.
+        cells = (
+            [HANG_OPEN_CELL] + _word(4) + [HANG_CLOSE_CELL]
+            + [BLANK_CELL] + _word(8) + [BLANK_CELL] + _word(8)
+        )
+        lines = self._render(cells).split("\n")
+        # 4 + blank + 8 won't fit in 10 → wrap; 8 + blank + 8 → wrap.
+        assert len(lines) == 3
+        for line in lines[1:]:
+            assert not line.startswith(dots_to_char(()))
+
+    def test_last_row_word_committed_at_close_still_hangs(self):
+        # The word pending when hang_close arrives belongs to the last
+        # row — its overflow continuation must hang.
+        cells = (
+            [HANG_OPEN_CELL]
+            + _word(8) + [BLANK_CELL] + _word(8)
+            + [HANG_CLOSE_CELL]
+            + [BLANK_CELL] + _word(2)
+        )
+        lines = self._render(cells).split("\n")
+        assert lines[1].startswith(dots_to_char(()) * 2)
+
+    def test_nested_regions_keep_hanging_until_outer_close(self):
+        # Block matrix: inner region closes, outer still open → still
+        # hangs.
+        cells = (
+            [HANG_OPEN_CELL, HANG_OPEN_CELL]
+            + _word(4)
+            + [HANG_CLOSE_CELL]
+            + [BLANK_CELL] + _word(8) + [BLANK_CELL] + _word(8)
+            + [HANG_CLOSE_CELL]
+        )
+        lines = self._render(cells).split("\n")
+        assert len(lines) >= 2
+        for line in lines[1:]:
+            assert line.startswith(dots_to_char(()) * 2)
+
+    def test_sentinels_never_print(self):
+        cells = [HANG_OPEN_CELL] + _word(3) + [HANG_CLOSE_CELL]
+        out = self._render(cells)
+        assert out == dots_to_char((1,)) * 3
 
 
 class TestParagraphIndent:

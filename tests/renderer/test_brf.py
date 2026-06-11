@@ -89,6 +89,29 @@ class TestSequenceRender:
         ])
         assert BrfRenderer().render(seq) == b"A C"
 
+    def test_line_break_sentinel_emits_terminator(self):
+        # Forced in-block break (matrix / equation-system rows) — the
+        # line terminator, NOT the space a blank cell would produce.
+        from brailix.ir.braille import LINE_BREAK_CELL
+
+        seq = BrailleSequence(cells=[
+            BrailleCell(dots=(1,)),
+            LINE_BREAK_CELL,
+            BrailleCell(dots=(1, 4)),
+        ])
+        assert BrfRenderer().render(seq) == b"A\r\nC"
+
+    def test_hang_region_sentinels_emit_nothing(self):
+        # Zero-width layout metadata — must NOT become a space.
+        from brailix.ir.braille import HANG_CLOSE_CELL, HANG_OPEN_CELL
+
+        seq = BrailleSequence(cells=[
+            HANG_OPEN_CELL,
+            BrailleCell(dots=(1,)),
+            HANG_CLOSE_CELL,
+        ])
+        assert BrfRenderer().render(seq) == b"A"
+
 
 class TestDocumentRender:
     def test_blocks_joined_with_crlf(self):

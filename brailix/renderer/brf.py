@@ -107,11 +107,23 @@ class BrfRenderer:
 
     def render(self, source: BrailleDocument | BrailleSequence) -> bytes:
         if isinstance(source, BrailleSequence):
-            return "".join(cell_to_brf(c) for c in source.cells).encode("ascii")
+            return self._cells_to_bytes(source.cells)
         return self.line_terminator.join(
-            "".join(cell_to_brf(c) for c in block.cells).encode("ascii")
-            for block in source.blocks
+            self._cells_to_bytes(block.cells) for block in source.blocks
         )
+
+    def _cells_to_bytes(self, cells: list[BrailleCell]) -> bytes:
+        # A forced in-block line break (LINE_BREAK_CELL — matrix /
+        # equation-system rows) emits the line terminator, same as a
+        # block boundary; the zero-width hang-region sentinels (layout
+        # metadata only) emit nothing.
+        out = bytearray()
+        for c in cells:
+            if c.role == "line_break":
+                out += self.line_terminator
+            elif c.role not in ("hang_open", "hang_close"):
+                out += cell_to_brf(c).encode("ascii")
+        return bytes(out)
 
 
 def _load() -> BrfRenderer:

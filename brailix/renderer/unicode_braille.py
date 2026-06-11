@@ -70,19 +70,33 @@ class UnicodeBrailleRenderer:
     into a Unicode braille string.
 
     Block boundaries become a single ``\n``; cell separators are not
-    inserted (cells map 1:1 to characters).
+    inserted (cells map 1:1 to characters). A forced in-block line break
+    (:data:`~brailix.ir.braille.LINE_BREAK_CELL`, emitted between matrix /
+    equation-system rows) also renders as ``\n`` — the row structure is
+    part of the braille notation, not a layout nicety.
     """
 
     name: str = "unicode"
 
     def render(self, source: BrailleDocument | BrailleSequence) -> str:
         if isinstance(source, BrailleSequence):
-            return "".join(cell_to_char(c) for c in source.cells)
+            return _cells_to_str(source.cells)
         # Document: join blocks with newline.
         return "\n".join(
-            "".join(cell_to_char(c) for c in block.cells)
-            for block in source.blocks
+            _cells_to_str(block.cells) for block in source.blocks
         )
+
+
+def _cells_to_str(cells: list[BrailleCell]) -> str:
+    # line_break → newline; the zero-width hang-region sentinels (layout
+    # metadata only) print nothing.
+    out: list[str] = []
+    for c in cells:
+        if c.role == "line_break":
+            out.append("\n")
+        elif c.role not in ("hang_open", "hang_close"):
+            out.append(cell_to_char(c))
+    return "".join(out)
 
 
 def _load() -> UnicodeBrailleRenderer:
