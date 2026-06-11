@@ -1,10 +1,12 @@
-"""Tests for :mod:`brailix.input.plain` — the paragraph-splitting wrapper.
+"""Tests for :mod:`brailix.input.plain` — the line-splitting wrapper.
 
 The plain adapter hands the Pipeline a :class:`DocumentIR` whose blocks
-are one :class:`Paragraph` per blank-line-separated paragraph. Tests pin:
-span computation (None for empty, exact range otherwise), metadata
-propagation, blank-line splitting, single-newline-stays-in-paragraph, and
-the ``text[span] == block.text`` provenance invariant.
+are one :class:`Paragraph` per source line — plain text has no soft-wrap
+convention, so every newline is a paragraph boundary and the braille
+output breaks where the source breaks. Tests pin: span computation
+(None for empty, exact range otherwise), metadata propagation,
+newline splitting, blank-line collapsing, and the
+``text[span] == block.text`` provenance invariant.
 """
 
 from __future__ import annotations
@@ -51,6 +53,17 @@ class TestParsePlain:
 
 
 class TestParagraphSplitting:
+    def test_single_newline_splits_paragraphs(self):
+        # Every source newline is a paragraph boundary, so the braille
+        # output breaks where the source breaks. Regression: a single
+        # newline used to be treated as a Markdown-style soft break and
+        # joined into one paragraph — a one-paragraph-per-line Chinese
+        # .txt rendered as one run-on braille stream.
+        doc = parse_plain("甲\n乙")
+        assert [b.text for b in doc.blocks] == ["甲", "乙"]
+        assert doc.blocks[0].span == Span(0, 1)
+        assert doc.blocks[1].span == Span(2, 3)
+
     def test_blank_line_splits_into_paragraphs(self):
         doc = parse_plain("第一段。\n\n第二段。")
         assert [b.text for b in doc.blocks] == ["第一段。", "第二段。"]
@@ -58,15 +71,9 @@ class TestParagraphSplitting:
         assert doc.blocks[0].span == Span(0, 4)
         assert doc.blocks[1].span == Span(6, 10)
 
-    def test_single_newline_stays_inside_paragraph(self):
-        # One newline is a soft break — the paragraph keeps the newline
-        # (the segmenter renders it as a word-boundary space later).
-        doc = parse_plain("甲\n乙")
-        assert len(doc.blocks) == 1
-        assert doc.blocks[0].text == "甲\n乙"
-        assert doc.blocks[0].span == Span(0, 3)
-
     def test_multiple_blank_lines_collapse_to_one_separator(self):
+        # Blank lines render nothing of their own — braille paragraphs
+        # are distinguished by first-line indent, not blank lines.
         doc = parse_plain("甲\n\n\n乙")
         assert [b.text for b in doc.blocks] == ["甲", "乙"]
         assert doc.blocks[1].span == Span(4, 5)
@@ -81,11 +88,20 @@ class TestParagraphSplitting:
         doc = parse_plain("甲\n  \n乙")
         assert [b.text for b in doc.blocks] == ["甲", "乙"]
 
+    def test_line_leading_whitespace_trimmed_with_exact_span(self):
+        # A hand-indented line keeps its span anchored at the first
+        # non-blank character; indentation is the layout's job.
+        doc = parse_plain("  甲乙  \n丙")
+        assert [b.text for b in doc.blocks] == ["甲乙", "丙"]
+        assert doc.blocks[0].span == Span(2, 4)
+        assert doc.blocks[1].span == Span(7, 8)
+
     def test_span_text_invariant_holds_for_every_block(self):
         # The proofread layer relies on text[span] == block.text so a
         # per-cell source offset maps back to the right character.
-        src = "  缩进段落  \n\n第二段有内容。\n续行。\n\n\n第三段。"
+        src = "  缩进段落  \n\n第二段有内容。\n第三段。\n\n\n第四段。"
         doc = parse_plain(src)
+        assert len(doc.blocks) == 4
         for block in doc.blocks:
             assert block.span is not None
             assert src[block.span.start : block.span.end] == block.text

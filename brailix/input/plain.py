@@ -1,15 +1,21 @@
 """Plain-text input adapter: wrap a string as a :class:`DocumentIR`,
-splitting on blank lines into one :class:`Paragraph` per paragraph.
+one :class:`Paragraph` per source line.
 
-Paragraphs are separated by blank lines (a line that is empty or
-whitespace-only), the same convention :mod:`brailix.input.markdown`
-uses. A single newline *inside* a paragraph stays in the block text and
-renders as a word-boundary space (the segmenter categorises ``\\n`` as
-whitespace), so soft-wrapped source lines join into one paragraph.
+Plain text has no soft-wrap convention: unlike Markdown (where a single
+newline is presentation, joined into the paragraph as a space), a
+newline in a ``.txt`` file is the author's layout intent — Chinese
+documents conventionally put one paragraph per line, and poetry / song
+lyrics put one verse per line. So **every** newline is a paragraph
+boundary here, and the braille output breaks where the source breaks.
+Blank lines contribute no block of their own (braille paragraphs are
+distinguished by the layout's first-line indent, not by blank lines),
+so runs of newlines just collapse. Markdown sources wanting the
+join-on-single-newline behaviour go through
+:mod:`brailix.input.markdown` instead.
 
 Splitting into blocks (rather than one monolithic block holding the
 whole file) lets a front-end compile, cache, and re-render a large
-document one paragraph at a time instead of recompiling the whole thing
+document one line at a time instead of recompiling the whole thing
 on every edit — the incremental-compilation pattern (see ARCHITECTURE
 §9.1). Each block carries an exact :class:`Span` back into the source so
 per-cell proofread mapping stays aligned.
@@ -17,36 +23,31 @@ per-cell proofread mapping stays aligned.
 
 from __future__ import annotations
 
-import re
-
 from brailix.core.defaults import DEFAULT_LANGUAGE, DEFAULT_PROFILE
 from brailix.core.span import Span
 from brailix.ir.document import Block, DocumentIR, Paragraph
 
-# A blank line — two or more newlines, ignoring spaces/tabs on the blank
-# line(s) — separates paragraphs. A single newline does NOT match, so it
-# stays inside a paragraph (rendered as a space). The trailing ``\s*``
-# folds any further run of blank lines into one separator so consecutive
-# blank lines don't produce empty paragraphs.
-_BLANK_LINE = re.compile(r"\n[ \t]*\n\s*")
-
 
 def _paragraph_blocks(text: str) -> list[Block]:
-    """Split ``text`` on blank lines into one :class:`Paragraph` per chunk.
+    """Split ``text`` on newlines into one :class:`Paragraph` per line.
 
-    Each chunk is the verbatim source slice with surrounding whitespace
+    Each line is the verbatim source slice with surrounding whitespace
     trimmed; the :class:`Span` is adjusted so ``text[span.start:span.end]``
     still equals the block's ``text`` (exact per-character provenance for
-    proofread mapping). Whitespace-only chunks are dropped. Typed
-    ``list[Block]`` (the Paragraphs' static supertype) so it drops
-    straight into :attr:`DocumentIR.blocks` without a variance cast.
+    proofread mapping). Whitespace-only lines are dropped — they separate
+    paragraphs but render nothing of their own. Typed ``list[Block]``
+    (the Paragraphs' static supertype) so it drops straight into
+    :attr:`DocumentIR.blocks` without a variance cast.
     """
     blocks: list[Block] = []
     pos = 0
-    for sep in _BLANK_LINE.finditer(text):
-        _add_chunk(blocks, text, pos, sep.start())
-        pos = sep.end()
-    _add_chunk(blocks, text, pos, len(text))
+    while pos <= len(text):
+        nl = text.find("\n", pos)
+        end = len(text) if nl == -1 else nl
+        _add_chunk(blocks, text, pos, end)
+        if nl == -1:
+            break
+        pos = nl + 1
     return blocks
 
 
@@ -67,7 +68,7 @@ def parse_plain(
     profile: str = DEFAULT_PROFILE,
 ) -> DocumentIR:
     """Wrap ``text`` as a :class:`DocumentIR`, one :class:`Paragraph` per
-    blank-line-separated paragraph.
+    source line.
 
     Empty or whitespace-only input falls back to a single (empty) block
     so downstream tooling always has a block to anchor to; the span is
