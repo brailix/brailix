@@ -15,10 +15,12 @@ jobs:
     name: lint + type-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        # setup-uv stopped publishing floating major tags with v8 — pin the
+        # exact (immutable) release tag.
+        uses: astral-sh/setup-uv@v8.2.0
         with:
           python-version: "3.13"
           enable-cache: true
@@ -42,10 +44,10 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8.2.0
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
