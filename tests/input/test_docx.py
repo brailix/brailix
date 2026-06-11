@@ -791,15 +791,27 @@ class TestMathTypeFallback:
         joined = "\n".join(p.text or "" for p in paragraphs)
         assert "<msup>" in joined
 
-    def test_all_mtef_failed_false_when_no_inline_math(self) -> None:
-        # A doc with no $<math>...$ spans (only non-formula OLE — Excel /
-        # chart) must NOT trigger the LibreOffice fallback: there are no
-        # equations to recover, so the round-trip would be wasted latency.
-        from brailix.input.docx import _all_mtef_failed
+    def test_recovery_needed_unit_semantics(self) -> None:
+        # Unit semantics of the auto-retry decision: silent loss (fewer
+        # spans than equation OLEs) and all-merror both trigger; a
+        # healthy span count with at least one success doesn't.
+        from brailix.input.docx import _mtef_recovery_needed
         from brailix.ir.document import DocumentIR
 
-        result = DocumentIR(blocks=[Paragraph(text="hello world, no math")])
-        assert _all_mtef_failed(result) is False
+        def doc_with(text: str) -> DocumentIR:
+            return DocumentIR(blocks=[Paragraph(text=text)])
+
+        ok = "$<math><mi>x</mi></math>$"
+        bad = "$<math><merror><mtext>?</mtext></merror></math>$"
+
+        # One equation OLE, zero spans — it vanished silently → retry.
+        assert _mtef_recovery_needed(doc_with("no math here"), 1) is True
+        # Two equation OLEs, only one span — one vanished → retry.
+        assert _mtef_recovery_needed(doc_with(f"前 {ok}"), 2) is True
+        # Every span is a soft failure → retry.
+        assert _mtef_recovery_needed(doc_with(f"前 {bad}"), 1) is True
+        # As many spans as equations, at least one decoded → no retry.
+        assert _mtef_recovery_needed(doc_with(f"前 {ok} 后 {bad}"), 2) is False
 
     def test_auto_mode_retries_when_all_mtef_failed(
         self, tmp_path: Path, monkeypatch
@@ -850,6 +862,114 @@ class TestMathTypeFallback:
         # The fallback path swapped the bad OLE for a valid OMML.
         assert "<msup>" in joined
         assert "merror" not in joined
+
+    def test_auto_mode_retries_when_equation_ole_vanishes_silently(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # An equation OLE whose blob is neither a CFB container nor raw
+        # MTEF produces NO span at all (silent drop — corrupt container,
+        # third-party writer, or olefile missing).  "auto" must treat
+        # that as a failure to recover, not as "no equations here" —
+        # the old heuristic ("no inline math → skip") lost the whole
+        # formula silently.
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *, check, capture_output, timeout):
+            calls.append(cmd)
+            out_dir = Path(cmd[cmd.index("--outdir") + 1])
+            stem = Path(cmd[-1]).stem
+            new = _make_docx(out_dir, name=f"{stem}.docx")
+            _, conv = new
+            para = conv.add_paragraph("修复后 ")
+            para._p.append(_omml_fragment(
+                '<m:sSup>'
+                '<m:e><m:r><m:t>y</m:t></m:r></m:e>'
+                '<m:sup><m:r><m:t>3</m:t></m:r></m:sup>'
+                '</m:sSup>'
+            ))
+            conv.save(out_dir / f"{stem}.docx")
+
+            class Result:
+                returncode = 0
+            return Result()
+
+        monkeypatch.setattr(
+            "brailix.input.docx._resolve_doc_converter",
+            lambda override: "soffice",
+        )
+        monkeypatch.setattr("brailix.input.docx.subprocess.run", fake_run)
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("前 ")
+        # First byte 0x00: not an EQNOLEFILEHDR, not a known MTEF
+        # prelude, not a CFB container → _extract_mtef_payload returns
+        # None and the walker emits nothing for this object.
+        _embed_ole_equation(doc, para, b"\x00not-mtef-not-cfb")
+        doc.save(path)
+
+        result = parse_docx(path, mathtype_fallback="auto")
+        assert len(calls) == 1
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "修复后" in joined
+
+    def test_auto_mode_ignores_non_equation_ole(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # A non-formula OLE (chart / Excel sheet) must NOT trigger the
+        # LibreOffice round-trip — there is no equation to recover, and
+        # its blob never decodes, so without the ProgID gate this would
+        # look exactly like the silent-loss case above.
+        def fake_run(*args, **kwargs):
+            raise AssertionError("LibreOffice should not be invoked")
+
+        monkeypatch.setattr(
+            "brailix.input.docx._resolve_doc_converter",
+            lambda override: "soffice",
+        )
+        monkeypatch.setattr("brailix.input.docx.subprocess.run", fake_run)
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("图表 ")
+        _embed_ole_equation(
+            doc, para, b"\x00chart-bytes", progid="Excel.Sheet.12"
+        )
+        doc.save(path)
+
+        result = parse_docx(path, mathtype_fallback="auto")
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "图表" in joined
+
+    def test_inner_dollar_is_escaped_in_inline_math(
+        self, tmp_path: Path
+    ) -> None:
+        # A literal ``$`` inside a Word formula must not break the
+        # ``$...$`` inline wrapping — the span used to terminate at the
+        # inner dollar, corrupting the formula and leaking raw XML
+        # fragments into the prose.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("前 ")
+        para._p.append(_omml_fragment("<m:r><m:t>a$b</m:t></m:r>"))
+        doc.save(path)
+
+        result = parse_docx(path)
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        # The wrappers are the only raw dollars; the inner one is the
+        # XML character reference.
+        assert joined.count("$") == 2
+        assert "&#36;" in joined
+        start = joined.find("$<math")
+        end = joined.find("</math>$")
+        assert 0 <= start < end
+        # The reference round-trips to a real dollar when the span's
+        # MathML is re-parsed.
+        import xml.etree.ElementTree as ET
+
+        inner = joined[start + 1 : end + len("</math>")]
+        tree = ET.fromstring(inner)
+        assert "$" in "".join(tree.itertext())
 
     def test_auto_mode_swallows_libreoffice_unavailable(
         self, tmp_path: Path, monkeypatch

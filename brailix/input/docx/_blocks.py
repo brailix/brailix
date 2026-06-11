@@ -22,10 +22,10 @@ from brailix.input.docx._xml import (
     Element,
     _first,
     _first_local,
-    _flatten_xml,
     _inline_math_as_text,
     _local,
     _serialize,
+    _wrap_inline_math,
 )
 from brailix.ir.document import (
     Block,
@@ -522,10 +522,10 @@ def _cluster_to_inline_math(
     if chem_detection:
         chem = _cluster_as_chem(run)
         if chem is not None:
-            return "$" + _flatten_xml(chem) + "$"
+            return _wrap_inline_math(chem)
     inner = _scripts_to_mathml(run)
     mathml = f'<math xmlns="{_MATHML_NS}">{inner}</math>'
-    return "$" + _flatten_xml(mathml) + "$"
+    return _wrap_inline_math(mathml)
 
 
 def _scripts_to_mathml(run: list[tuple[str, str | None]]) -> str:
@@ -758,7 +758,7 @@ def _eq_field_to_inline_math(instr: str) -> str | None:
     from brailix.frontend.math.registry import math_source_registry
 
     mathml = math_source_registry.get("eq_field").to_mathml(text)
-    return "$" + _flatten_xml(mathml) + "$"
+    return _wrap_inline_math(mathml)
 
 
 def _walk_run(
@@ -1040,7 +1040,7 @@ def _convert_table_cell(
                 # math doesn't fit anyway.
                 from brailix.frontend.math.registry import math_source_registry
                 mathml = math_source_registry.get("omml").to_mathml(blk.text or "")
-                parts.append("$" + _flatten_xml(mathml) + "$")
+                parts.append(_wrap_inline_math(mathml))
             else:
                 parts.append(blk.text or "")
     return TableCell(text="\n".join(p for p in parts if p))
