@@ -130,7 +130,7 @@ def _emit_harmony(
     if root_elem is None:
         # MusicXML allows <function> instead of <root> for Roman-
         # numeral harmony; not supported here.
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message="<harmony> without <root> (e.g. roman <function>) not supported",
             source="backend.music",
@@ -153,7 +153,7 @@ def _emit_harmony(
     # A-G; we reject anything outside that range.
     root_step_lc = root_step.lower()
     if root_step_lc not in {"a", "b", "c", "d", "e", "f", "g"}:
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=f"chord root-step {root_step!r} not in A-G",
             source="backend.music",
@@ -194,7 +194,7 @@ def _emit_harmony(
             kind
         )
         if spec is None:
-            mctx.backend.warnings.warn(
+            mctx.warn(
                 code="MUSIC_UNSUPPORTED_NOTATION",
                 message=(
                     f"<harmony><kind>{kind_raw!r}</kind> not in S7 spec "

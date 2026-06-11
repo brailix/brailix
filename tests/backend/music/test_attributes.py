@@ -119,6 +119,32 @@ class TestClef:
         assert cells == []
         assert not ctx.warnings.warnings  # no warning when gated off
 
+    def test_percussion_sign_warns_and_emits_nothing(self, profile, ctx):
+        # Drum parts write <sign>percussion</sign>; BANA Table 4 has no
+        # cell for it.  The old fallback silently emitted a TREBLE clef
+        # — a misstatement, not a degradation — so the contract is now:
+        # warn, emit nothing.
+        clef = ET.fromstring("<clef><sign>percussion</sign></clef>")
+        cells = emit_tree(clef, ctx, profile)
+        assert cells == []
+        assert any(
+            w.code == "MUSIC_UNKNOWN_CLEF" for w in ctx.warnings.warnings
+        )
+
+    def test_tab_sign_does_not_drive_chord_direction(self, profile, ctx):
+        # TAB must neither print a clef cell nor leave a sign behind
+        # for the chord-direction rule (Par. 9.2 covers G/F/C only).
+        clef = ET.fromstring("<clef><sign>TAB</sign><line>5</line></clef>")
+        mctx = MusicBrailleContext(profile=profile, backend=ctx)
+        cells: list = []
+        _emit_element(cells, mctx, clef)
+        assert cells == []
+        assert mctx.current_clef_sign is None
+        assert mctx.current_clef_line is None
+        assert any(
+            w.code == "MUSIC_UNKNOWN_CLEF" for w in ctx.warnings.warnings
+        )
+
 
 # ---------------------------------------------------------------------------
 # <key>
@@ -288,10 +314,43 @@ class TestTimeSignature:
 
     def test_malformed_skipped(self, profile, ctx):
         # Missing children, no symbol → quiet skip (the warning belongs
-        # to upstream validators, not the cell emitter).
+        # to upstream validators, not the cell emitter).  A genuinely
+        # empty <time> is also what senza-misura looks like here.
         time = ET.fromstring("<time></time>")
         cells = emit_tree(time, ctx, profile)
         assert cells == []
+
+    def test_compound_meter_warns_and_renders_first_group(
+        self, profile, ctx
+    ):
+        # Interchangeable meter (3/4 + 3/8) writes multiple beats /
+        # beat-type groups; only the first renders, and dropping the
+        # rest used to be silent — the meter was misstated with no
+        # trace.
+        time = ET.fromstring(
+            "<time><beats>3</beats><beat-type>4</beat-type>"
+            "<beats>3</beats><beat-type>8</beat-type></time>"
+        )
+        cells = emit_tree(time, ctx, profile)
+        assert cells, "the first group must still render"
+        assert all(c.role == "music_time_signature" for c in cells)
+        assert any(
+            "compound time signature" in w.message
+            for w in ctx.warnings.warnings
+        )
+
+    def test_additive_meter_warns_instead_of_vanishing(self, profile, ctx):
+        # Additive meters (beats="3+2") have no cell mapping yet; the
+        # old int() failure path silently dropped the ENTIRE signature.
+        time = ET.fromstring(
+            "<time><beats>3+2</beats><beat-type>8</beat-type></time>"
+        )
+        cells = emit_tree(time, ctx, profile)
+        assert cells == []
+        assert any(
+            w.code == "MUSIC_UNSUPPORTED_NOTATION" and "3+2" in w.message
+            for w in ctx.warnings.warnings
+        )
 
 
 # ---------------------------------------------------------------------------

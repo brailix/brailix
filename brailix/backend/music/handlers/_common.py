@@ -23,7 +23,7 @@ def warn_and_fallback(
     source_text: str | None,
 ) -> None:
     """Common pattern: warn, then emit one unknown cell as a marker."""
-    mctx.backend.warnings.warn(
+    mctx.warn(
         code=code,
         message=message,
         surface=source_text,

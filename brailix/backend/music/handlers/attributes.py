@@ -98,6 +98,23 @@ def _emit_clef(
         line = int(line_raw) if line_raw is not None else None
     except ValueError:
         line = None
+    if sign not in _CLEF_SIGN_DEFAULT:
+        # Percussion / TAB / anything outside BANA Table 4.  Emitting a
+        # treble-clef cell here (the old fallback) silently misstated
+        # the part — a drum part read as a G clef — and letting the
+        # sign linger would feed the chord-direction rule (Par. 9.2 is
+        # G / F / C only).  Warn, emit nothing, neutralise the state.
+        mctx.current_clef_sign = None
+        mctx.current_clef_line = None
+        mctx.warn(
+            code="MUSIC_UNKNOWN_CLEF",
+            message=(
+                f"unsupported clef sign {sign!r} (BANA Table 4 covers "
+                f"G / F / C) — no clef cell emitted"
+            ),
+            source="backend.music",
+        )
+        return
     # BANA Par. 9.2: remember the clef so chord emission picks the
     # written note's direction. Set even when ``show_clef`` is off — the
     # interval direction follows the clef whether or not the clef *cell*
@@ -115,7 +132,7 @@ def _emit_clef(
     # If the feature was on but the entity missing, warn so an
     # unfamiliar clef variant doesn't vanish silently.
     if not emitted and mctx.profile.feature("music.show_clef", True):
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNKNOWN_CLEF",
             message=(
                 f"no clef entry for {entity!r} "
@@ -236,14 +253,41 @@ def _emit_time(
         _emit_time_entity(cells, mctx, "alla_breve_cut_time", source="cut")
         return
 
-    beats_text = first_child_text(elem, "beats")
-    beat_type_text = first_child_text(elem, "beat-type")
-    if beats_text is None or beat_type_text is None:
+    beats_elems = elem.findall("beats")
+    beat_type_elems = elem.findall("beat-type")
+    if not beats_elems or not beat_type_elems:
+        # Genuinely empty <time> (senza-misura writes no beats at all)
+        # — nothing numeric to print, and silence is correct.
         return
+    if len(beats_elems) > 1 or len(beat_type_elems) > 1:
+        # Interchangeable / compound meter (3/4 + 3/8) writes multiple
+        # beats / beat-type groups.  Only the first group is rendered;
+        # dropping the rest silently misstated the meter.
+        mctx.warn(
+            code="MUSIC_UNSUPPORTED_NOTATION",
+            message=(
+                "compound time signature (multiple beats/beat-type "
+                "groups) — only the first group is rendered"
+            ),
+            source="backend.music",
+        )
+    beats_text = (beats_elems[0].text or "").strip()
+    beat_type_text = (beat_type_elems[0].text or "").strip()
     try:
         beats = int(beats_text)
         beat_type = int(beat_type_text)
     except ValueError:
+        # Additive meters write beats="3+2"; there is no cell mapping
+        # yet, and the old silent return left the score unmetered with
+        # no trace at all.
+        mctx.warn(
+            code="MUSIC_UNSUPPORTED_NOTATION",
+            message=(
+                f"unsupported time signature beats={beats_text!r} "
+                f"beat-type={beat_type_text!r} — no meter cells emitted"
+            ),
+            source="backend.music",
+        )
         return
 
     entity = _TIME_NUMERIC_MAP.get((beats, beat_type))
@@ -272,7 +316,7 @@ def _emit_time_entity(
         role="music_time_signature",
         source_text=source,
     ):
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNKNOWN_TIME",
             message=f"no meter entry for {entity!r}",
             source="backend.music",

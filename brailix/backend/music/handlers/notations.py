@@ -171,7 +171,7 @@ def _emit_tuplet_marker(
         elif form == "three_cell":
             entity = "triplet_three_cell"
         else:
-            mctx.backend.warnings.warn(
+            mctx.warn(
                 code="MUSIC_UNSUPPORTED_NOTATION",
                 message=(
                     f"music.tuplet_form={form!r} not implemented "
@@ -201,6 +201,8 @@ def _emit_notations_post_note(
     cells: list[BrailleCell],
     mctx: MusicBrailleContext,
     elem: ET.Element,
+    *,
+    in_chord: bool = False,
 ) -> None:
     """Emit the per-note connection / annotation markers that follow
     the note (and any dots): tie (Table 10), slur (Table 13),
@@ -210,21 +212,30 @@ def _emit_notations_post_note(
     are implicit from the next note's pairing in BANA. Multiple
     markers on the same note are emitted in tie → slur → fingering
     order so the cell stream reflects the conventional reading order.
+
+    ``in_chord=True`` (the written note of a chord run) suppresses the
+    single-note tie: a tied chord takes ONE chord-tie sign
+    (``tie_between_chords``, Table 10 / Par. 10.2), emitted by
+    ``notes._emit_chord_run`` after its interval cells — any member may
+    carry the source ``<tied>``, not just whichever note the clef
+    reorder made the written one.  Slur / ornament / fingering markers
+    still belong to the written note.
     """
     notations = elem.find("notations")
     if notations is None:
         return
 
     # Tie (Table 10) — only the start side prints a cell.
-    for tied in notations.findall("tied"):
-        if tied.attrib.get("type", "").strip().lower() == "start":
-            emit_cells_for_entity(
-                cells, mctx,
-                topic="tie", entity="tie_between_single_notes",
-                role="music_tie",
-                source_text="tie",
-            )
-            break
+    if not in_chord:
+        for tied in notations.findall("tied"):
+            if tied.attrib.get("type", "").strip().lower() == "start":
+                emit_cells_for_entity(
+                    cells, mctx,
+                    topic="tie", entity="tie_between_single_notes",
+                    role="music_tie",
+                    source_text="tie",
+                )
+                break
 
     # Slur (Table 13) — M3.5 emits ``simple_short_slur`` at start;
     # long-slur / convergent variants land in a later milestone.
@@ -270,7 +281,7 @@ def _emit_technical_signs(
             text = (fingering.text or "").strip()
             entity = _FINGERING_ENTITY.get(text)
             if entity is None:
-                mctx.backend.warnings.warn(
+                mctx.warn(
                     code="MUSIC_UNSUPPORTED_NOTATION",
                     message=(
                         f"<fingering>{text!r}</fingering> not in M3.5 "
@@ -341,7 +352,7 @@ def _emit_ornaments(
             continue
         entity = _ORNAMENT_ENTITY.get(tag)
         if entity is None:
-            mctx.backend.warnings.warn(
+            mctx.warn(
                 code="MUSIC_UNSUPPORTED_NOTATION",
                 message=(
                     f"<ornaments><{tag}/></ornaments> not in M6 ornament "
@@ -390,14 +401,14 @@ def _emit_tremolo(
     elif tremolo_type == "stop":
         return  # alternation stop side — no cell
     elif tremolo_type == "unmeasured":
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message="<tremolo type='unmeasured'/> not supported in M6",
             source="backend.music",
         )
         return
     else:
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=f"unknown tremolo type {tremolo_type!r}",
             source="backend.music",
@@ -406,7 +417,7 @@ def _emit_tremolo(
 
     entity = entity_map.get(strokes)
     if entity is None:
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=(
                 f"tremolo with {strokes} strokes not supported "
