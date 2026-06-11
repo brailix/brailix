@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.dispatch import _emit_element
 from brailix.backend.math.handlers.leaves import _emit_as_mo
+from brailix.backend.math.utils import _is_function_head, _is_typed_slash_mrow
 from brailix.ir.braille import BLANK_CELL, BrailleCell
 
 # Fence chars that delimit a matrix / determinant. The matching close char
@@ -41,9 +42,18 @@ def _emit_children_with_matrix(
     The fence delimiters wrap the WHOLE matrix in MathML but, per
     《盲文常用数学符号》§17 linear notation, each braille row carries its own
     delimiter — so we consume the flanking ``<mo>`` and apply the matched
-    delimiter per row. Non-matrix children emit normally."""
+    delimiter per row. Non-matrix children emit normally.
+
+    The walker also recognises a fraction in *function-argument*
+    position — an ``<mfrac>`` (or typed-slash ``a / b`` mrow) whose
+    immediately preceding sibling is a function head (``cos`` /
+    ``log₂`` / ``lim`` …). It raises the one-shot
+    ``mctx.fraction_is_function_arg`` flag so the fraction handler keeps
+    the compound ⠆…⠰ form: without the brackets, cos of α/a would
+    collapse into the same cells as (cos α)/a."""
     n = len(kids)
     i = 0
+    prev: ET.Element | None = None
     while i < n:
         if (
             i + 2 < n
@@ -56,9 +66,16 @@ def _emit_children_with_matrix(
                 (kids[i].text or "").strip(),
                 (kids[i + 2].text or "").strip(),
             )
+            prev = kids[i + 2]
             i += 3
             continue
-        _emit_element(cells, mctx, kids[i])
+        kid = kids[i]
+        if (
+            kid.tag == "mfrac" or _is_typed_slash_mrow(kid)
+        ) and _is_function_head(prev, mctx.profile):
+            mctx.fraction_is_function_arg = True
+        _emit_element(cells, mctx, kid)
+        prev = kid
         i += 1
 
 

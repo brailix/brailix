@@ -48,17 +48,37 @@ def _emit_mfrac(
       3. *Compound* — anything else (multi-token mrow operand, or a nested
          simple fraction operand). Output: ``fraction.open + numerator +
          blank + fraction.bar + denominator + fraction.close``.
+
+    Two function-name interactions refine the choice between 2 and 3:
+
+    * An operand that is a *function application* (``cos α``) still
+      counts as a single term, so ``\\frac{\\cos α}{a}`` keeps the simple
+      bar form (see ``_is_function_application``).
+    * A fraction in *function-argument* position (``\\cos \\frac{α}{a}``
+      — the sibling walker raised ``mctx.fraction_is_function_arg``)
+      must take the compound form even when its operands are atomic;
+      without the ⠆…⠰ brackets it would collapse into the same cells as
+      the simple form of (cos α)/a. The Antoine shape stays exempt: its
+      lower-form digit makes ⠼⠁⠆ one self-delimiting number token, so
+      ``cos`` of 1/2 is unambiguous without brackets.
     """
     kids = list(elem)
     numerator = kids[0] if len(kids) >= 1 else None
     denominator = kids[1] if len(kids) >= 2 else None
     profile = mctx.profile
+    # One-shot context flag: read and clear at entry so it never leaks
+    # into operand sub-emission (a nested fraction inside the numerator
+    # must not inherit it).
+    force_compound = mctx.fraction_is_function_arg
+    mctx.fraction_is_function_arg = False
 
     if _try_emit_antoine_fraction(cells, mctx, numerator, denominator):
         mctx.need_number_sign = True
         return
 
-    simplifiable = _fraction_simplifiable(numerator, denominator, profile)
+    simplifiable = not force_compound and _fraction_simplifiable(
+        numerator, denominator, profile
+    )
 
     if not simplifiable:
         _emit_structure(cells, mctx, "fraction.open", role="math_fraction_open")
@@ -134,12 +154,18 @@ def _emit_typed_slash_fraction(
 ) -> None:
     """Emit ``a / b`` (literal slash from a typed mrow) as if it were
     ``<mfrac>``. Lets Antoine / simplified-bar encoding fire when both
-    operands are single self-fenced structures."""
+    operands are single self-fenced structures. Honours the same
+    function-argument flag as ``_emit_mfrac`` — ``cos`` directly before
+    a typed ``a / b`` forces the compound form."""
     profile = mctx.profile
+    force_compound = mctx.fraction_is_function_arg
+    mctx.fraction_is_function_arg = False
     if _try_emit_antoine_fraction(cells, mctx, numerator, denominator):
         mctx.need_number_sign = True
         return
-    simplifiable = _fraction_simplifiable(numerator, denominator, profile)
+    simplifiable = not force_compound and _fraction_simplifiable(
+        numerator, denominator, profile
+    )
     if not simplifiable:
         _emit_structure(cells, mctx, "fraction.open", role="math_fraction_open")
         mctx.need_number_sign = True

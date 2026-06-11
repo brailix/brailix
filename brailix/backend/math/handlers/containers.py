@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.handlers.fractions import _emit_typed_slash_fraction
 from brailix.backend.math.handlers.matrices import _emit_children_with_matrix
+from brailix.backend.math.utils import _is_typed_slash_mrow
 from brailix.ir.braille import BrailleCell
 
 
@@ -52,11 +53,7 @@ def _emit_mrow(
     # as ``\frac{a}{b}`` would receive. This routing happens in-place
     # (we don't rewrite the tree) by re-dispatching the two flanking
     # children through the fraction handler.
-    if (
-        len(kids) == 3
-        and kids[1].tag == "mo"
-        and (kids[1].text or "").strip() == "/"
-    ):
+    if _is_typed_slash_mrow(elem):
         _emit_typed_slash_fraction(cells, mctx, kids[0], kids[2])
         return
     _emit_children_with_matrix(cells, mctx, kids)

@@ -144,6 +144,83 @@ _SINGLE_STRUCTURE_TAGS: frozenset[str] = frozenset({
     "munder", "mover", "munderover",
 })
 
+_SCRIPT_LIKE_TAGS: frozenset[str] = frozenset({
+    "msub", "msup", "msubsup",
+    "munder", "mover", "munderover",
+})
+
+
+def _is_typed_slash_mrow(elem: ET.Element) -> bool:
+    """The typed-slash fraction shape: an ``<mrow>`` of exactly
+    ``[X, <mo>/</mo>, Y]``. :func:`handlers.containers._emit_mrow`
+    re-dispatches it through the fraction handler so ``a / b`` gets the
+    same encoding as ``\\frac{a}{b}``."""
+    if elem.tag != "mrow":
+        return False
+    kids = list(elem)
+    return (
+        len(kids) == 3
+        and kids[1].tag == "mo"
+        and (kids[1].text or "").strip() == "/"
+    )
+
+
+def _is_function_head(elem: ET.Element | None, profile) -> bool:
+    """A node that renders as a function name (⠫ prefix + name cells):
+
+    * a multi-char ``<mi>`` — the renderer gives *every* multi-char
+      ``<mi>`` the function treatment (registered abbreviation or
+      letter-by-letter fallback), so the shape check matches that;
+    * an ``<mo>`` whose text is a registered function name — the
+      ``_emit_mo`` fallback path for latex2mathml's ``<mo>lim</mo>``;
+    * a script / limit wrapper (msub / msup / msubsup / munder / mover /
+      munderover) whose base is such a node — ``\\log_2`` / ``\\sin^2``
+      / ``\\lim_{x \\to 0}``.
+    """
+    if elem is None:
+        return False
+    if elem.tag == "mi":
+        text = (elem.text or "").strip()
+        return len(text) > 1 and not list(elem)
+    if elem.tag == "mo":
+        text = (elem.text or "").strip()
+        return len(text) > 1 and profile.math_function(text) is not None
+    if elem.tag in _SCRIPT_LIKE_TAGS:
+        kids = list(elem)
+        return bool(kids) and _is_function_head(kids[0], profile)
+    return False
+
+
+def _is_function_application(elem: ET.Element | None, profile) -> bool:
+    """An ``<mrow>`` of exactly ``[function head, argument]`` where the
+    argument is a single self-fenced structure — ``cos α``, ``sin x²``,
+    ``log₂ x``.
+
+    Per 《盲文常用数学符号》 a function applied to one operand is a single
+    term: the ⠫ function prefix opens it and the argument's own shape
+    closes it, so a fraction with such a numerator / denominator keeps
+    the simple bar form (no ⠆…⠰ brackets) — ``⠫cos α⠳a`` reads
+    unambiguously as (cos α)/a because cos-of-a-fraction is *required*
+    to take the bracketed compound form (see
+    ``MathBrailleContext.fraction_is_function_arg``).
+
+    A multi-token argument run (``cos 2α`` — three siblings) does not
+    qualify; such a numerator stays in the compound form. Invisible
+    apply-function operators never appear here — the normalizer drops
+    them before the backend runs.
+    """
+    if elem is None:
+        return False
+    while elem.tag == "mrow" and len(elem) == 1:
+        elem = elem[0]
+    if elem.tag != "mrow":
+        return False
+    kids = list(elem)
+    if len(kids) != 2:
+        return False
+    head, arg = kids
+    return _is_function_head(head, profile) and _is_self_fenced(arg, profile)
+
 
 def _is_single_structure(elem: ET.Element | None) -> bool:
     """One self-fenced MathML element.
@@ -225,12 +302,22 @@ def _fraction_simplifiable(
 ) -> bool:
     """Whether an ``<mfrac>`` with these operands renders in the simple bar
     form (``numerator bar denominator``, no brackets): both operands are
-    single *self-fenced* structures and ``math.simplify_fraction`` is on.
+    single terms — a single *self-fenced* structure or a function
+    application (``cos α``) — and ``math.simplify_fraction`` is on.
     """
     return (
-        _is_self_fenced(numerator, profile)
-        and _is_self_fenced(denominator, profile)
+        _fraction_operand_is_term(numerator, profile)
+        and _fraction_operand_is_term(denominator, profile)
         and profile.feature("math.simplify_fraction", True)
+    )
+
+
+def _fraction_operand_is_term(elem: ET.Element | None, profile) -> bool:
+    """One numerator / denominator counts as a single term for the simple
+    bar form: a self-fenced structure, or a function application whose
+    argument is one (``\\frac{\\cos α}{a}`` keeps the bare bar)."""
+    return _is_self_fenced(elem, profile) or _is_function_application(
+        elem, profile
     )
 
 

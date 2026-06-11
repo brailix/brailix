@@ -52,37 +52,65 @@ class TestUnsupported:
         assert "MATH_UNSUPPORTED_ELEMENT" not in [w.code for w in wc]
         assert not any(c.role == "unknown" for c in cells)
 
-    def test_mstyle_warns(self, profile):
+    def test_mstyle_unwrapped_by_normalizer(self, profile):
+        # latex2mathml wraps every \displaystyle formula in <mstyle>.
+        # The normalizer renames it to <mrow> so the content flows
+        # through ordinary dispatch — regression guard: the whole
+        # formula used to collapse into a single unknown cell.
         cells, wc = emit(
-            mml("<math><mstyle><mi>x</mi></mstyle></math>"), profile
+            mml(
+                "<math><mstyle displaystyle=\"true\">"
+                "<mfrac><mn>1</mn><mn>2</mn></mfrac></mstyle></math>"
+            ),
+            profile,
         )
-        assert any(w.code == "MATH_UNSUPPORTED_ELEMENT" for w in wc)
+        plain, _ = emit(
+            mml("<math><mfrac><mn>1</mn><mn>2</mn></mfrac></math>"),
+            profile,
+        )
+        assert "MATH_UNSUPPORTED_ELEMENT" not in [w.code for w in wc]
+        assert [c.dots for c in cells] == [c.dots for c in plain]
 
-    def test_mphantom_warns(self, profile):
+    def test_mphantom_removed_by_normalizer(self, profile):
+        # Phantom content occupies print space only — invisible by
+        # definition, so the normalizer drops it outright.  It used to
+        # degrade into an unknown cell plus an error-level warning.
         cells, wc = emit(
-            mml("<math><mphantom><mi>x</mi></mphantom></math>"), profile
+            mml("<math><mi>y</mi><mphantom><mi>x</mi></mphantom></math>"),
+            profile,
+        )
+        assert "MATH_UNSUPPORTED_ELEMENT" not in [w.code for w in wc]
+        assert not any(c.role == "unknown" for c in cells)
+
+    def test_unknown_element_still_warns(self, profile):
+        # Backend fallback contract: an element with no handler (and no
+        # normalizer cleanup — menclose is a real planned gap) must
+        # surface loudly rather than vanish.
+        cells, wc = emit(
+            mml("<math><menclose><mi>x</mi></menclose></math>"), profile
         )
         assert any(w.code == "MATH_UNSUPPORTED_ELEMENT" for w in wc)
+        assert any(c.role == "unknown" for c in cells)
 
     def test_unsupported_surface_truncated_for_large_subtree(self, profile):
-        # A large unsupported subtree (e.g. a big <mstyle>) must not copy its
-        # whole serialization into the warning surface — it is truncated with
+        # A large unsupported subtree must not copy its whole
+        # serialization into the warning surface — it is truncated with
         # an ellipsis so memory / log noise stays bounded.
         big = "".join(f"<mi>x{i}</mi>" for i in range(200))
         _, wc = emit(
-            mml(f"<math><mstyle>{big}</mstyle></math>"), profile
+            mml(f"<math><menclose>{big}</menclose></math>"), profile
         )
         w = next(w for w in wc if w.code == "MATH_UNSUPPORTED_ELEMENT")
         assert w.surface is not None
         assert len(w.surface) <= 201  # 200 chars + ellipsis
         assert w.surface.endswith("…")
-        assert w.surface.startswith("<mstyle")
+        assert w.surface.startswith("<menclose")
 
     def test_unsupported_surface_kept_for_small_subtree(self, profile):
         # A small unsupported element keeps its full serialization (no
         # truncation, no ellipsis) so the warning stays maximally useful.
         _, wc = emit(
-            mml("<math><mstyle><mi>x</mi></mstyle></math>"), profile
+            mml("<math><menclose><mi>x</mi></menclose></math>"), profile
         )
         w = next(w for w in wc if w.code == "MATH_UNSUPPORTED_ELEMENT")
         assert w.surface is not None

@@ -38,6 +38,14 @@ class MathBrailleContext:
       ``False`` = all-single-letter molecule (one leading ⠸, bare letters);
       ``True`` = molecule has a multi-letter element (per-element capital
       sign, no ⠸).
+    * ``fraction_is_function_arg`` — one-shot flag set by the sibling
+      walker (``handlers.matrices._emit_children_with_matrix``) just
+      before dispatching a fraction that sits in function-argument
+      position (a function head like ``cos`` is the immediately
+      preceding sibling). The fraction handlers read **and clear** it on
+      entry and force the compound ⠆…⠰ form: ``cos`` of α/a must keep
+      its brackets, otherwise it would collapse into the same cells as
+      the bracket-free (cos α)/a.
     """
 
     profile: BrailleProfile
@@ -46,3 +54,4 @@ class MathBrailleContext:
     need_number_sign: bool = True
     chem: bool = False
     chem_per_element: bool = False
+    fraction_is_function_arg: bool = False
