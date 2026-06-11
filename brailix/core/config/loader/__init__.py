@@ -24,6 +24,7 @@ any other underscore-prefixed helper) keep working unchanged.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -298,6 +299,25 @@ def iter_builtin_profiles(
     return _list_available_profiles(base, extras)
 
 
+@lru_cache(maxsize=1)
+def load_builtin_numbers_table() -> dict[str, Any]:
+    """Parse the builtin universal numbers resource:
+    ``resources/numbers.json`` resolved against the builtin
+    ``resources/cells.json`` pool — the same parse a profile that
+    references the builtin tables gets, minus the profile.
+
+    For callers below the profile layer that need the universal digit
+    cells without adopting a language — the layout paginator reads its
+    page-number cells here.  Returns the :func:`_load_numbers_table`
+    shape (``number_sign`` / ``digits`` / ``decimal_point`` /
+    ``thousands_sep``).  Cached: treat the returned dict as read-only.
+    """
+    cells_pool = _load_cells_pool(PACKAGE_ROOT, "resources/cells.json")
+    return _load_numbers_table(
+        PACKAGE_ROOT, "resources/numbers.json", cells_pool
+    )
+
+
 def _list_available_profiles(
     base: Path, extras: tuple[Path, ...] = ()
 ) -> list[str]:
@@ -319,6 +339,7 @@ __all__ = (
     "BrailleProfile",
     "PACKAGE_ROOT",
     "iter_builtin_profiles",
+    "load_builtin_numbers_table",
     "load_profile",
     # Private helpers re-exported for backward compat (tests + the
     # ``brailix.core.config`` package facade depend on these import

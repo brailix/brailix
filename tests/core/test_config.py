@@ -10,6 +10,7 @@ from brailix.core.config import (
     _entity_to_char,
     _extract_dots,
     _to_dots,
+    load_builtin_numbers_table,
     load_profile,
 )
 
@@ -315,6 +316,24 @@ class TestRichSchemaCompat:
         assert p.number_sign == (3, 4, 5, 6)
         assert p.decimal_point == (2,)
         assert p.thousands_sep == (3,)
+
+
+class TestBuiltinNumbersTable:
+    """:func:`load_builtin_numbers_table` — the profile-less entry to
+    the universal numbers resource (used by the layout paginator)."""
+
+    def test_matches_profile_parse(self):
+        """The builtin entry yields the same cells a profile referencing
+        the builtin tables resolves — one parse, two doors."""
+        table = load_builtin_numbers_table()
+        p = load_profile("cn_current")
+        assert table["number_sign"] == p.number_sign
+        assert table["digits"] == p.digits
+        assert table["decimal_point"] == p.decimal_point
+        assert table["thousands_sep"] == p.thousands_sep
+
+    def test_cached(self):
+        assert load_builtin_numbers_table() is load_builtin_numbers_table()
 
 
 class TestMathTable:

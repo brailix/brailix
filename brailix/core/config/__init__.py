@@ -83,6 +83,7 @@ from brailix.core.config.loader import (
     _symbol_spacing_dict,
     _table_ref,
     iter_builtin_profiles,
+    load_builtin_numbers_table,
     load_profile,
 )
 from brailix.core.config.profile import BrailleProfile
@@ -100,6 +101,7 @@ __all__ = (
     "BrailleProfile",
     "PACKAGE_ROOT",
     "iter_builtin_profiles",
+    "load_builtin_numbers_table",
     "load_profile",
     "validate_profile",
 )
