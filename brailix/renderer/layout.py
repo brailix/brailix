@@ -94,9 +94,9 @@ National Common Braille templates prefer this).  The four positions form
 the 2×2 grid the user picks from in Settings / toolbar.
 """
 
-# Page-number rendering uses hard-coded 6-dot digit cells; the
-# rationale ("layout sits below profile; digit cells are stable since
-# 1829") lives in :mod:`brailix.renderer._page_digits` so it's not
+# Page-number digit cells come from the builtin universal numbers
+# resource — one authority shared with the number / math backends; the
+# rationale lives in :mod:`brailix.renderer._page_digits` so it's not
 # woven through the rest of this module.
 from brailix.renderer._page_digits import (
     page_number_brf as _page_number_brf,
@@ -617,6 +617,14 @@ class LayoutRenderer:
         # than four bespoke branches.
         anchor_top = opts.page_number_position.startswith("top")
         align_right = opts.page_number_position.endswith("right")
+        if opts.show_page_numbers:
+            encoded = _reflow_page_anchor_lines(
+                encoded,
+                page_height=opts.page_height,
+                line_width=opts.line_width,
+                anchor_top=anchor_top,
+                blank=b" ",
+            )
         pages: list[bytes] = []
         for page_idx, start in enumerate(
             range(0, len(encoded), opts.page_height)
@@ -642,6 +650,14 @@ class LayoutRenderer:
             return "\n".join(encoded)
         anchor_top = opts.page_number_position.startswith("top")
         align_right = opts.page_number_position.endswith("right")
+        if opts.show_page_numbers:
+            encoded = _reflow_page_anchor_lines(
+                encoded,
+                page_height=opts.page_height,
+                line_width=opts.line_width,
+                anchor_top=anchor_top,
+                blank=dots_to_char(()),
+            )
         pages: list[str] = []
         for page_idx, start in enumerate(
             range(0, len(encoded), opts.page_height)
@@ -657,6 +673,62 @@ class LayoutRenderer:
                 )
             pages.append("\n".join(page_lines))
         return "\f".join(pages)
+
+
+def _reflow_page_anchor_lines[LineT: (str, bytes)](
+    encoded: list[LineT],
+    *,
+    page_height: int,
+    line_width: int,
+    anchor_top: bool,
+    blank: LineT,
+) -> list[LineT]:
+    """Make room for the page number on every page-anchor line — by
+    moving cells, never by dropping them.
+
+    The ``_apply_page_number_*`` helpers below can only pad or, as a
+    last resort, truncate the anchor line — and truncation silently
+    destroys braille content.  With greedy wrapping a full-width line
+    is the *common* case (Chinese prose fills lines; right-aligned
+    blocks are padded to exactly the width), so every page top could
+    lose its trailing cells.  This pass runs before pagination and
+    guarantees each anchor line fits within
+    ``line_width - page_number_width - 1``:
+
+    * a line that fits once its edge blanks are stripped is just
+      stripped — alignment padding is given up, content cells are not;
+    * otherwise the line is split (at the last word boundary that
+      fits, else hard at the limit) and the remainder is inserted as
+      the following line, pushing the rest of the document down.  Page
+      boundaries and page-number widths are recomputed as the walk
+      advances, so the page count may grow — that is the point: paper
+      is spent, content is kept.
+
+    Generic over ``str`` (Unicode braille) and ``bytes`` (BRF);
+    ``blank`` is the one-cell blank in the matching type.
+    """
+    out: list[LineT] = list(encoded)
+    pos = 0
+    page_num = 0
+    while pos < len(out):
+        page_num += 1
+        pn_w = _page_number_width(page_num)
+        avail = line_width - pn_w - 1
+        anchor = pos if anchor_top else min(pos + page_height, len(out)) - 1
+        if avail >= 0 and anchor < len(out) and len(out[anchor]) > avail:
+            line = out[anchor].strip(blank)
+            if len(line) <= avail:
+                out[anchor] = line
+            else:
+                cut = line.rfind(blank, 0, avail + 1) if avail else -1
+                if cut <= 0:
+                    head, tail = line[:avail], line[avail:]
+                else:
+                    head, tail = line[:cut], line[cut + 1 :]
+                out[anchor] = head
+                out.insert(anchor + 1, tail)
+        pos += page_height
+    return out
 
 
 def _apply_page_number_unicode(
@@ -678,8 +750,10 @@ def _apply_page_number_unicode(
     * **Page number alone fits the line** but content collides:
       truncate ``target_line`` from the colliding edge (tail when
       right-aligned, head when left-aligned) and stitch the page
-      number in.  Rare with V1 defaults (line_width=40, 1-digit page)
-      but possible at high page counts on narrow lines.
+      number in.  Backstop only: the renderer runs
+      :func:`_reflow_page_anchor_lines` first, which re-flows anchor
+      lines so this branch is unreachable from ``render()`` — it keeps
+      a well-defined (lossy) behaviour for direct callers.
     * **Page number wider than the whole line**: replace the entire
       line with the page number.  Pathological edge case
       (line_width < page_no_width), still well-defined.
