@@ -65,7 +65,7 @@ Subpackage layout
       depends on ``._ole`` + ``._xml``.
 
     ``parse_docx`` / ``parse_doc`` / ``_parse_docx_via_libreoffice`` /
-    ``_all_mtef_failed`` / ``_resolve_doc_converter`` live here together
+    ``_mtef_recovery_needed`` / ``_resolve_doc_converter`` live here together
     because they call each other as module globals — and the tests
     patch ``brailix.input.docx._resolve_doc_converter`` /
     ``brailix.input.docx.subprocess.run`` in *this* namespace, so the
@@ -80,11 +80,13 @@ import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import Any
 
 from brailix.core.defaults import DEFAULT_LANGUAGE, DEFAULT_PROFILE
 from brailix.core.errors import MissingExtraError, ParseError
 from brailix.input.docx._blocks import _iter_body_blocks
 from brailix.input.docx._ole import _build_ole_blob_map
+from brailix.input.docx._xml import _local
 from brailix.ir.document import DocumentIR
 
 __all__ = (
@@ -212,22 +214,25 @@ def parse_docx(
         blocks=blocks,
     )
 
-    if (
-        mathtype_fallback == "auto"
-        and ole_blobs
-        and _all_mtef_failed(result)
-    ):
-        try:
-            return _parse_docx_via_libreoffice(
-                p, language=language, profile=profile,
-                chem_detection=chem_detection,
-            )
-        except ParseError:
-            # LibreOffice unavailable or refused — silently keep the
-            # native-adapter result. The user explicitly asked for
-            # "auto", which means "try the safety net but don't fail
-            # if it's not there".
-            return result
+    if mathtype_fallback == "auto":
+        # Count the equation OLE objects the body actually contains —
+        # NOT "any OLE relationship exists" (charts and Excel sheets are
+        # OLE too) and NOT "ole_blobs is non-empty" (a broken
+        # relationship leaves the map empty while the equation is still
+        # sitting in the body, silently unreadable).
+        equation_oles = _count_equation_oles(body)
+        if equation_oles and _mtef_recovery_needed(result, equation_oles):
+            try:
+                return _parse_docx_via_libreoffice(
+                    p, language=language, profile=profile,
+                    chem_detection=chem_detection,
+                )
+            except ParseError:
+                # LibreOffice unavailable or refused — silently keep the
+                # native-adapter result. The user explicitly asked for
+                # "auto", which means "try the safety net but don't fail
+                # if it's not there".
+                return result
 
     return result
 
@@ -293,22 +298,46 @@ def _parse_docx_via_libreoffice(
         )
 
 
-def _all_mtef_failed(result: DocumentIR) -> bool:
-    """Return True iff every inline-math span looks like a soft failure.
+def _count_equation_oles(body: Any) -> int:
+    """Count the ``<o:OLEObject>`` elements whose ProgID marks an equation.
 
-    The MTEF adapter emits ``<merror>`` wrappers when it can't decode
-    something. If the document had OLE equations but every resulting
-    inline-math surface contains ``merror``, the native path is
-    effectively useless for this file — that's the signal for
-    ``mathtype_fallback="auto"`` to retry through LibreOffice. A
-    A document with zero inline math spans returns ``False`` — a
-    non-formula OLE (Excel / chart) produces no inline math, and the
-    native path emits a ``<merror>`` span (not silence) for an equation
-    it can't decode, so "no spans" means "no equations to recover" rather
-    than "all equations failed".
+    Same recognition rule as ``._ole._find_ole_rid`` — ProgID starting
+    with ``"Equation"`` covers MathType's ``Equation.DSMT4`` and the
+    legacy ``Equation.3``.  This is what the ``mathtype_fallback="auto"``
+    decision keys on: equation OLEs are the only thing the LibreOffice
+    retry can recover, so the body's actual equation count — not the
+    mere presence of *some* OLE relationship — is the signal.
     """
-    saw_inline = False
-    saw_ok = False
+    count = 0
+    for elem in body.iter():
+        if _local(elem.tag) != "OLEObject":
+            continue
+        progid = elem.get("ProgID") or ""
+        if progid.startswith("Equation"):
+            count += 1
+    return count
+
+
+def _mtef_recovery_needed(result: DocumentIR, equation_oles: int) -> bool:
+    """Decide whether ``mathtype_fallback="auto"`` should retry via LibreOffice.
+
+    ``equation_oles`` is the number of equation OLE objects the body
+    contains (:func:`_count_equation_oles`); callers only ask when it's
+    non-zero.  Two independent signals mean the native MTEF path failed:
+
+    * **Fewer inline-math spans than equation OLEs** — at least one
+      equation vanished without a trace.  The extraction path returns
+      ``None`` (no span, not even an ``<merror>``) for a third-party
+      ProgID variant it half-recognises, a broken relationship, a
+      corrupt CFB container, or a missing ``olefile`` — exactly the
+      silent-loss class that already shipped once in a frozen build.
+      Other math sources (native OMML, script-run clusters) can only
+      *inflate* the span count, so this check under-triggers rather
+      than over-triggers.
+    * **Spans exist but every one is an ``<merror>`` soft failure** —
+      nothing decoded successfully (the original "all failed" rule).
+    """
+    spans: list[str] = []
     for blk in result.blocks:
         text = getattr(blk, "text", None)
         if not text:
@@ -321,22 +350,11 @@ def _all_mtef_failed(result: DocumentIR) -> bool:
             end = text.find("</math>$", start)
             if end < 0:
                 break
-            span = text[start:end + len("</math>$")]
-            saw_inline = True
-            if "merror" not in span:
-                saw_ok = True
+            spans.append(text[start:end + len("</math>$")])
             idx = end + 1
-    if not saw_inline:
-        # No inline math at all.  ``_build_ole_blob_map`` collects every
-        # OLE object (embedded Excel sheets, charts, ...), not just
-        # equations, and a non-formula OLE never produces inline math — so
-        # "no inline math" most likely means "no equations here", not
-        # "equations we failed to read".  Don't pay the LibreOffice round-
-        # trip.  (A genuine equation the native path can't decode emits a
-        # ``<merror>`` span, i.e. saw_inline would be True and we fall
-        # through to ``not saw_ok``.)
-        return False
-    return not saw_ok
+    if len(spans) < equation_oles:
+        return True
+    return bool(spans) and all("merror" in s for s in spans)
 
 
 def parse_doc(

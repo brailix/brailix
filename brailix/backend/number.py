@@ -26,6 +26,7 @@ rather than growing more special cases here.
 from __future__ import annotations
 
 from brailix.backend._digits import DigitRoles, emit_digit_run
+from brailix.backend._letters import iter_letter_runs, letter_sign_repeats
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
@@ -68,12 +69,15 @@ def translate_percent(node: Percent, ctx: BackendContext, profile: BrailleProfil
 def translate_quantity(node: Quantity, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:
     """Quantity → digits + unit letters.
 
-    Unit characters (``kg``, ``cm``, ``ms``, ``Hz`` ...) are emitted
-    through the math-identifier table — the same table that already
-    knows the per-script letter prefixes (small/capital latin 56 / 6,
-    greek 46 / 456). Characters absent from that table fall back to
-    the punctuation table, and only emit an :class:`Unknown` cell
-    with a ``UNKNOWN_NUMBER_PART`` warning when both lookups miss.
+    Unit letters follow the letter-sign run rule (《盲文常用数学符号》
+    五.规则1 + 二.规则1): consecutive letters of the same script class
+    share one ``letter_prefix.*`` sign — ``47cm`` → ⠼⠙⠛⠰⠉⠍, one ⠰
+    for the whole ``cm``. A class change starts a new sign, which is
+    what keeps mixed-case units lossless (``mW`` → ⠰⠍⠠⠺); an
+    all-capital run of ≥ 2 letters doubles the capital sign (``MW`` →
+    ⠠⠠⠍⠺). Characters absent from the letter tables fall back to the
+    punctuation table, and only emit an :class:`Unknown` cell with a
+    ``UNKNOWN_NUMBER_PART`` warning when both lookups miss.
     """
     digits_part = node.number.surface if node.number else ""
     unit_part = node.unit or ""
@@ -88,20 +92,41 @@ def translate_quantity(node: Quantity, ctx: BackendContext, profile: BrailleProf
         base = node.span.start + len(digits_part)
     else:
         base = 0
-    for i, ch in enumerate(unit_part):
-        sp = Span(base + i, base + i + 1)
-        cells.extend(_unit_char_cells(ch, sp, ctx, profile))
+    pos = 0
+    for cls, run in iter_letter_runs(unit_part, profile):
+        if cls is None:
+            sp = Span(base + pos, base + pos + 1)
+            cells.extend(_unit_char_cells(run, sp, ctx, profile))
+            pos += len(run)
+            continue
+        first_sp = Span(base + pos, base + pos + 1)
+        prefix = profile.math_structure(f"letter_prefix.{cls}")
+        for _ in range(letter_sign_repeats(cls, len(run))):
+            cells.extend(
+                BrailleCell(dots=dots, role="quantity_unit", source_span=first_sp, source_text=run)
+                for dots in prefix
+            )
+        for ch in run:
+            sp = Span(base + pos, base + pos + 1)
+            bare = profile.bare_letter(ch)
+            if bare is not None:  # always true: letter_class hit this table
+                cells.append(
+                    BrailleCell(dots=bare, role="quantity_unit", source_span=sp, source_text=ch)
+                )
+            pos += 1
     return cells
 
 
 def _unit_char_cells(
     ch: str, span: Span | None, ctx: BackendContext, profile: BrailleProfile
 ) -> list[BrailleCell]:
-    """Emit one unit character (e.g. ``k`` in ``kg``) as braille cells.
+    """Emit one non-letter unit character (``°`` in ``°C``, ``/`` in
+    ``km/h``) as braille cells.
 
-    Looks up the profile's letter table first (latin/greek + caps with
-    the right script-class prefix), then the punctuation table, then
-    warns and emits a blank unknown cell.
+    Letters are handled by the run-based caller; this fallback looks up
+    the punctuation table, then warns and emits a blank unknown cell.
+    (The letter lookup stays first for callers/tests that feed a letter
+    directly.)
     """
     seq = profile.letter(ch)
     if seq is not None:

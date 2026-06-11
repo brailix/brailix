@@ -32,8 +32,8 @@
       "cases": [
         {
           "src": "用 CPU 计算",
-          "expected": "⠹⠆⠀⠠⠉⠏⠥⠀⠛⠊⠆⠎⠻⠆",
-          "note": "Chinese + CPU acronym + Chinese"
+          "expected": "⠹⠆⠀⠠⠠⠉⠏⠥⠀⠛⠊⠆⠎⠻⠆",
+          "note": "Chinese + CPU acronym (doubled ⠠⠠ for whole-word capitals) + Chinese"
         }
       ]
     },
@@ -52,7 +52,7 @@
       "cases": [
         {
           "src": "我用 CPU 算 $x^2$",
-          "expected": "⠕⠄⠹⠆⠀⠠⠉⠏⠥⠀⠎⠻⠆⠀⠰⠭⠌⠆",
+          "expected": "⠕⠄⠹⠆⠀⠠⠠⠉⠏⠥⠀⠎⠻⠆⠀⠰⠭⠌⠆",
           "note": "Chinese + acronym + Chinese + math"
         }
       ]

@@ -21,9 +21,9 @@
         {"src": "$\\sum_{k=3}^{} a_k$", "expected": "⠸⠎⠨⠡⠰⠅⠀⠶⠼⠉⠱⠨⠌⠱⠰⠁⠡⠰⠅", "note": "sum with empty sup"},
         {"src": "$\\prod_{i=1}^{n} a_i$", "expected": "⠸⠏⠨⠡⠰⠊⠀⠶⠼⠁⠱⠨⠌⠰⠝⠱⠰⠁⠡⠰⠊", "note": "prod with full limits"},
         {"src": "$\\prod_{n=1} a_n$", "expected": "⠸⠏⠨⠡⠰⠝⠀⠶⠼⠁⠱⠰⠁⠡⠰⠝", "note": "prod with sub-only"},
-        {"src": "$\\int_0^1 f(x) dx$", "expected": "⠮⠨⠡⠴⠨⠌⠂⠰⠋⠣⠰⠭⠜⠰⠙⠰⠭", "note": "integral with both bounds (atomic digits, big_op_prefix=46)"},
+        {"src": "$\\int_0^1 f(x) dx$", "expected": "⠮⠨⠡⠴⠨⠌⠂⠰⠋⠣⠰⠭⠜⠰⠙⠭", "note": "integral with both bounds (atomic digits, big_op_prefix=46); dx is one lowercase run ⠰⠙⠭ — matches the docx integral example ⠮⠰⠭⠌⠍⠱⠰⠙⠭"},
         {"src": "$\\int_a b$", "expected": "⠮⠨⠡⠰⠁⠱⠰⠃", "note": "integral with letter sub bound only"},
-        {"src": "$\\oint f dx$", "expected": "⠮⠴⠰⠋⠰⠙⠰⠭", "note": "《盲文常用数学符号》contour integral ∮ ⠮⠴ (= ∫ + 356), no sub/sup limits"},
+        {"src": "$\\oint f dx$", "expected": "⠮⠴⠰⠋⠙⠭", "note": "《盲文常用数学符号》contour integral ∮ ⠮⠴ (= ∫ + 356), no sub/sup limits; f d x are adjacent same-class letters → one ⠰ (二.规则1; the print thin-space has no braille cell)"},
         {"src": "$\\bigcup_{i=1}^{n} A_i$", "expected": "⠸⠼⠨⠡⠰⠊⠀⠶⠼⠁⠱⠨⠌⠰⠝⠱⠠⠁⠡⠰⠊", "note": "big union ⋃ with lower/upper limits carrying the 46 prefix"},
         {"src": "$\\bigcap_{i} A_i$", "expected": "⠰⠹⠨⠡⠰⠊⠱⠠⠁⠡⠰⠊", "note": "big intersection ⋂ with a lower limit carrying the 46 prefix"}
       ]

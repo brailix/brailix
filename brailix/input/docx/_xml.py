@@ -12,6 +12,8 @@ Provides:
   ``_M_PREFIX`` / ``_R_PREFIX``).
 * Tag helpers (:func:`_local`, :func:`_first`, :func:`_first_local`).
 * Serialisation helpers (:func:`_serialize`, :func:`_flatten_xml`).
+* Inline-math wrapping (:func:`_wrap_inline_math` — the one place the
+  ``$...$`` markers are produced, with inner-``$`` escaping).
 * Inline OMML→MathML conversion (:func:`_inline_math_as_text`).
 """
 
@@ -107,7 +109,23 @@ def _inline_math_as_text(omath: Element) -> str:
 
     omml_xml = _serialize(omath)
     mathml = math_source_registry.get("omml").to_mathml(omml_xml)
-    return "$" + _flatten_xml(mathml) + "$"
+    return _wrap_inline_math(mathml)
+
+
+def _wrap_inline_math(mathml: str) -> str:
+    """Wrap flattened MathML in the ``$...$`` inline-math markers.
+
+    Any literal ``$`` inside the MathML (a Word formula can carry one —
+    e.g. currency text in an ``<mo>`` / ``<mtext>``) is escaped to the
+    XML character reference ``&#36;`` first.  The frontend re-scans the
+    paragraph text for ``$...$`` pairs, and a raw inner dollar would
+    terminate the span early — corrupting the formula and leaking XML
+    fragments into the prose.  The character reference parses back to
+    the same ``$`` when the math frontend re-reads the span, so the
+    formula content is unchanged.  Every producer of the ``$<math>``
+    inline form must route through here.
+    """
+    return "$" + _flatten_xml(mathml).replace("$", "&#36;") + "$"
 
 
 def _flatten_xml(xml: str) -> str:

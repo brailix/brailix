@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
+from brailix.backend._inline import rebase_translated_cells
 from brailix.backend.music.context import MusicBrailleContext
 from brailix.backend.music.dispatch import _emit_element
 from brailix.backend.music.utils import (
@@ -72,7 +73,7 @@ def _emit_dynamics(
         return
     form = mctx.profile.feature("music.dynamics_form", "abbreviated")
     if form != "abbreviated":
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=(
                 f"music.dynamics_form={form!r} not implemented "
@@ -176,9 +177,13 @@ def _emit_words(
             # unlike lyrics (``_emit_lyrics_inline`` retags to 'music_lyric'),
             # <words> text deliberately stays tagged by its language path so
             # it reads as ordinary expression text, not a music-specific run.
-            cells.extend(translator(raw))
+            # Spans DO get rebased: the translator's cells carry
+            # throwaway-document coordinates.
+            cells.extend(
+                rebase_translated_cells(translator(raw), mctx.span)
+            )
         else:
-            mctx.backend.warnings.warn(
+            mctx.warn(
                 code="MUSIC_UNSUPPORTED_NOTATION",
                 message=(
                     f"<words>{raw!r}</words> outside the single-word ASCII "
@@ -255,7 +260,7 @@ def _emit_wedge(
         # until its ``stop``.
         return
     else:
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=f"unknown wedge type {wedge_type!r}",
             source="backend.music",

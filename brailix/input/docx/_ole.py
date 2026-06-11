@@ -18,8 +18,8 @@ from typing import Any
 from brailix.input.docx._xml import (
     _R_PREFIX,
     Element,
-    _flatten_xml,
     _local,
+    _wrap_inline_math,
 )
 
 
@@ -80,7 +80,7 @@ def _ole_object_to_inline_math(
     from brailix.frontend.math.registry import math_source_registry
 
     mathml = math_source_registry.get("mtef").to_mathml(payload)
-    return "$" + _flatten_xml(mathml) + "$"
+    return _wrap_inline_math(mathml)
 
 
 def _find_ole_rid(obj_elem: Element) -> str | None:

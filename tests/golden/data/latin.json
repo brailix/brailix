@@ -30,12 +30,12 @@
       ]
     },
     "acronym": {
-      "description": "All-caps acronym — one upper prefix + bare letters",
+      "description": "All-caps acronym — whole-word capitals double the upper prefix (⠠⠠) + bare letters; a single ⠠ means only the first letter is capital",
       "cases": [
-        {"src": "CPU", "expected": "⠠⠉⠏⠥", "note": "3-char acronym"},
-        {"src": "GPU", "expected": "⠠⠛⠏⠥", "note": "3-char acronym"},
-        {"src": "USB", "expected": "⠠⠥⠎⠃", "note": "3-char acronym"},
-        {"src": "HTTP", "expected": "⠠⠓⠞⠞⠏", "note": "4-char acronym"}
+        {"src": "CPU", "expected": "⠠⠠⠉⠏⠥", "note": "3-char acronym"},
+        {"src": "GPU", "expected": "⠠⠠⠛⠏⠥", "note": "3-char acronym"},
+        {"src": "USB", "expected": "⠠⠠⠥⠎⠃", "note": "3-char acronym"},
+        {"src": "HTTP", "expected": "⠠⠠⠓⠞⠞⠏", "note": "4-char acronym"}
       ]
     },
     "dotted_abbrev": {

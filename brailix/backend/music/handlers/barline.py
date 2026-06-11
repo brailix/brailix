@@ -102,7 +102,7 @@ def _emit_bar_style(
             source_text=f"bar:{style}",
         )
         return
-    mctx.backend.warnings.warn(
+    mctx.warn(
         code="MUSIC_UNSUPPORTED_NOTATION",
         message=(
             f"music.bar_line_print={mode!r} not implemented "
@@ -137,7 +137,7 @@ def _emit_repeat_sign(
     expansion at the part / score layer.
     """
     if mctx.profile.feature("music.expand_repeats", False):
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=(
                 "music.expand_repeats=true not implemented (M3.3 covers "
@@ -151,7 +151,7 @@ def _emit_repeat_sign(
     elif direction == "backward":
         entity = "double_bar_dots_before"
     else:
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=f"unknown repeat direction {direction!r}",
             source="backend.music",
@@ -191,7 +191,7 @@ def _emit_volta(
 
     style = mctx.profile.feature("music.volta_style", "numeric")
     if style != "numeric":
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=(
                 f"music.volta_style={style!r} not implemented "
@@ -203,7 +203,7 @@ def _emit_volta(
     number = ending_elem.attrib.get("number", "1").strip()
     entity = _VOLTA_NUMBER_ENTITY.get(number)
     if entity is None:
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=(
                 f"volta ending number={number!r} not supported "

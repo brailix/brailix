@@ -177,6 +177,11 @@ def _emit_note(
         # chord root, not as full note cells. The root has already
         # been emitted normally on the prior <note>; the chord notes
         # only add interval markers + accidental (if changed).
+        # Ties and lyrics carried by interval members are NOT dropped:
+        # _emit_chord_run collects them at the chord level (chord tie
+        # after the intervals, member lyrics after that) — the clef
+        # reorder routinely turns the source note that carries the
+        # <tied> / <lyric> into an interval member.
         _emit_note_accidental(cells, mctx, elem, curr_pitch)
         _emit_chord_interval(cells, mctx, mctx.chord_root, curr_pitch, type_name)
         # Don't reset prev_pitch (chord notes inherit root's octave
@@ -211,7 +216,7 @@ def _emit_note(
             role="music_octave",
             source_text=octave_entity,
         ):
-            mctx.backend.warnings.warn(
+            mctx.warn(
                 code="MUSIC_UNKNOWN_OCTAVE",
                 message=f"no octave entry for octave {octave}",
                 source="backend.music",
@@ -221,7 +226,7 @@ def _emit_note(
     # fallback; warn so the silent mistranslation surfaces (e.g. a
     # bogus or unsupported value). breve / 256th / etc. are all known.
     if not is_known_note_type(type_name):
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_DURATION_AMBIGUOUS",
             message=(
                 f"unknown <type>{type_name!r}</type>; falling back to "
@@ -238,7 +243,7 @@ def _emit_note(
         role="music_note",
         source_text=f"{step}{octave}",
     ):
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNKNOWN_NOTE",
             message=f"no note entry for {note_entity}",
             source="backend.music",
@@ -246,7 +251,11 @@ def _emit_note(
         cells.append(unknown_cell(mctx, role="music_unknown", source_text=step))
 
     _emit_dots(cells, mctx, elem)
-    _emit_notations_post_note(cells, mctx, elem)
+    # Inside a chord run the written note must not emit the single-note
+    # tie — the run emits ONE chord-tie sign for the whole chord.
+    _emit_notations_post_note(
+        cells, mctx, elem, in_chord=(chord_role == "root")
+    )
     _emit_lyrics(cells, mctx, elem)
 
     # S6: remember the chord root so any immediately-following
@@ -292,6 +301,15 @@ def _emit_chord_run(
     Without a clef (test fragments) or with an unreadable pitch, the
     source order is kept (first = written), exactly the pre-9.2 path — so
     clef-less input renders identically.
+
+    Chord-level data travels with the chord, not with whichever member
+    the reorder picked as written: a ``<tied>`` on ANY member emits one
+    ``tie_between_chords`` sign after the intervals (Par. 10.2 — the
+    per-note tie is suppressed inside the run), and the non-written
+    members' ``<lyric>`` children are emitted after that (the syllable
+    is usually authored on the first source note, which the reorder may
+    have demoted to an interval).  Known limitation: slurs / fingering
+    on non-written members are still not represented.
     """
     measured: list[tuple[int, ET.Element]] = []
     usable = True
@@ -323,6 +341,38 @@ def _emit_chord_run(
     _emit_note(cells, mctx, ordered[0], chord_role="root")
     for note in ordered[1:]:
         _emit_note(cells, mctx, note, chord_role="interval")
+
+    # Chord tie (Table 10 / Par. 10.2): one sign for the whole chord,
+    # after the intervals.  Any member may carry the source <tied> —
+    # the conservative trigger is "any member starts a tie"; partial
+    # chord ties (only some members tied) are a later refinement.
+    if any(_has_tie_start(note) for note in ordered):
+        emit_cells_for_entity(
+            cells, mctx,
+            topic="tie", entity="tie_between_chords",
+            role="music_tie",
+            source_text="tie(chord)",
+        )
+
+    # Lyrics attach to the chord as a whole.  The written note's own
+    # <lyric> children were already emitted by its full single-note
+    # path; collect the remaining members' here so a syllable authored
+    # on a note the reorder demoted to an interval still lands.
+    for note in ordered[1:]:
+        _emit_lyrics(cells, mctx, note)
+
+
+def _has_tie_start(elem: ET.Element) -> bool:
+    """Whether this ``<note>`` starts a tie (``<notations><tied
+    type="start">``) — mirrors the detection in
+    :func:`~.notations._emit_notations_post_note`."""
+    notations = elem.find("notations")
+    if notations is None:
+        return False
+    return any(
+        tied.attrib.get("type", "").strip().lower() == "start"
+        for tied in notations.findall("tied")
+    )
 
 
 _INTERVAL_ENTITY: dict[int, str] = {
@@ -357,7 +407,7 @@ def _emit_chord_interval(
     (caller error — a <chord/> note without a prior root note).
     """
     if root is None:
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=(
                 "<note><chord/></note> without a prior root note "
@@ -373,7 +423,7 @@ def _emit_chord_interval(
     root_pos = diatonic_position(root_step, root_oct)
     curr_pos = diatonic_position(curr_step, curr_oct)
     if root_pos is None or curr_pos is None:
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=f"unknown step name in chord interval: {root_step!r}/{curr_step!r}",
             source="backend.music",
@@ -385,7 +435,7 @@ def _emit_chord_interval(
     if diatonic == 0:
         # Doubled root — BANA has no named cell for unison; warn and
         # fall back to a second so something lands in the cell stream.
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message="chord interval of unison (doubled pitch) — emitting second cell as placeholder",
             source="backend.music",
@@ -455,7 +505,7 @@ def _emit_note_accidental(
         return
     entity = accidental_entity_name(raw)
     if entity is None:
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=f"unknown accidental {raw!r}",
             source="backend.music",
@@ -496,7 +546,7 @@ def _emit_dots(
         return
     form = mctx.profile.feature("music.dot_form", "separate")
     if form != "separate":
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=(
                 f"music.dot_form={form!r} not implemented (M3.2 covers "
@@ -535,7 +585,7 @@ def _emit_rest(
         role="music_rest",
         source_text=f"rest:{type_name}",
     ):
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNKNOWN_REST",
             message=f"no rest entry for {rest_entity}",
             source="backend.music",

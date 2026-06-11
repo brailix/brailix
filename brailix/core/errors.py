@@ -129,6 +129,14 @@ class Warning:
     span: Span | None = None
     candidates: tuple[str, ...] = ()
     source: str | None = None  # e.g. "zh_analyzer", "math.latex"
+    # Optional structural provenance for inputs that have no usable
+    # text span — domain-specific string keys.  The music backend fills
+    # ``{"part_id": ..., "measure_number": ...}`` (the same labels its
+    # ``BrailleCell.source_text`` provenance tags carry) so a frontend
+    # can navigate to the score location; normalized MusicXML elements
+    # carry no source offsets, which is why ``span`` can't serve here.
+    # ``None`` (the default) means "no structural anchor known".
+    anchor: dict[str, str] | None = None
 
     def to_dict(self) -> dict:
         d: dict = {
@@ -144,6 +152,8 @@ class Warning:
             d["candidates"] = list(self.candidates)
         if self.source is not None:
             d["source"] = self.source
+        if self.anchor:
+            d["anchor"] = dict(self.anchor)
         return d
 
 
@@ -182,6 +192,7 @@ class WarningCollector:
                 span=warning.span,
                 candidates=warning.candidates,
                 source=warning.source,
+                anchor=warning.anchor,
             )
         self.warnings.append(warning)
 
@@ -194,6 +205,7 @@ class WarningCollector:
         span: Span | None = None,
         candidates: tuple[str, ...] = (),
         source: str | None = None,
+        anchor: dict[str, str] | None = None,
     ) -> None:
         """Convenience: emit a WARN-level warning."""
         self.emit(
@@ -205,6 +217,7 @@ class WarningCollector:
                 span=span,
                 candidates=candidates,
                 source=source,
+                anchor=anchor,
             )
         )
 
@@ -217,6 +230,7 @@ class WarningCollector:
         span: Span | None = None,
         candidates: tuple[str, ...] = (),
         source: str | None = None,
+        anchor: dict[str, str] | None = None,
     ) -> None:
         """Convenience: emit an ERROR-level warning.
 
@@ -238,6 +252,7 @@ class WarningCollector:
                 span=span,
                 candidates=candidates,
                 source=source,
+                anchor=anchor,
             )
         )
 

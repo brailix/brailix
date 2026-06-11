@@ -122,6 +122,14 @@ def _char_to_mathml(
         return []
     if 0xE000 <= char_value <= 0xF8FF:
         return []
+    if 0xD800 <= char_value <= 0xDFFF:
+        # UTF-16 surrogate halves.  ``chr()`` accepts them, but a lone
+        # surrogate poisons the produced string: it serialises fine and
+        # then blows up the UTF-8 re-encode when the normalizer parses
+        # the MathML back (UnicodeEncodeError — escaping the adapter's
+        # soft-failure contract).  Only a corrupt / truncated MTEF
+        # stream produces one; drop it like the other sentinels.
+        return []
     try:
         ch = chr(char_value)
     except ValueError:

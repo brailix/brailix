@@ -144,6 +144,104 @@ _SINGLE_STRUCTURE_TAGS: frozenset[str] = frozenset({
     "munder", "mover", "munderover",
 })
 
+_SCRIPT_LIKE_TAGS: frozenset[str] = frozenset({
+    "msub", "msup", "msubsup",
+    "munder", "mover", "munderover",
+})
+
+
+def _is_typed_slash_mrow(elem: ET.Element) -> bool:
+    """The typed-slash fraction shape: an ``<mrow>`` of exactly
+    ``[X, <mo>/</mo>, Y]``. :func:`handlers.containers._emit_mrow`
+    re-dispatches it through the fraction handler so ``a / b`` gets the
+    same encoding as ``\\frac{a}{b}``."""
+    if elem.tag != "mrow":
+        return False
+    kids = list(elem)
+    return (
+        len(kids) == 3
+        and kids[1].tag == "mo"
+        and (kids[1].text or "").strip() == "/"
+    )
+
+
+def _mi_routes_to_function(text: str, profile) -> bool:
+    """Whether a multi-char ``<mi>`` takes the function path (⠫ prefix +
+    abbreviation or spelled-out name).
+
+    True for registered function names (``sin`` / ``Tr`` — backslash
+    stripped first, matching the lookup in ``_emit_function_name``), and
+    for content that isn't a pure letter run (a literal ``\\foo`` from an
+    unrecognised LaTeX command). A pure letter run that isn't a
+    registered function (``ab`` / ``max``-as-``\\mathrm`` / OMML word
+    runs) is NOT a function — it renders as letters with per-class
+    letter signs instead (see ``_emit_letter_runs``).
+    """
+    if profile.math_function(text.lstrip("\\")) is not None:
+        return True
+    return any(profile.letter_class(ch) is None for ch in text)
+
+
+def _is_function_head(elem: ET.Element | None, profile) -> bool:
+    """A node that renders as a function name (⠫ prefix + name cells):
+
+    * a multi-char ``<mi>`` that routes to the function path (registered
+      abbreviation, or non-letter content spelled behind ⠫) — a plain
+      multi-letter run (``ab``) is a letter word, not a function;
+    * an ``<mo>`` whose text is a registered function name — the
+      ``_emit_mo`` fallback path for latex2mathml's ``<mo>lim</mo>``;
+    * a script / limit wrapper (msub / msup / msubsup / munder / mover /
+      munderover) whose base is such a node — ``\\log_2`` / ``\\sin^2``
+      / ``\\lim_{x \\to 0}``.
+    """
+    if elem is None:
+        return False
+    if elem.tag == "mi":
+        text = (elem.text or "").strip()
+        return (
+            len(text) > 1
+            and not list(elem)
+            and _mi_routes_to_function(text, profile)
+        )
+    if elem.tag == "mo":
+        text = (elem.text or "").strip()
+        return len(text) > 1 and profile.math_function(text) is not None
+    if elem.tag in _SCRIPT_LIKE_TAGS:
+        kids = list(elem)
+        return bool(kids) and _is_function_head(kids[0], profile)
+    return False
+
+
+def _is_function_application(elem: ET.Element | None, profile) -> bool:
+    """An ``<mrow>`` of exactly ``[function head, argument]`` where the
+    argument is a single self-fenced structure — ``cos α``, ``sin x²``,
+    ``log₂ x``.
+
+    Per 《盲文常用数学符号》 a function applied to one operand is a single
+    term: the ⠫ function prefix opens it and the argument's own shape
+    closes it, so a fraction with such a numerator / denominator keeps
+    the simple bar form (no ⠆…⠰ brackets) — ``⠫cos α⠳a`` reads
+    unambiguously as (cos α)/a because cos-of-a-fraction is *required*
+    to take the bracketed compound form (see
+    ``MathBrailleContext.fraction_is_function_arg``).
+
+    A multi-token argument run (``cos 2α`` — three siblings) does not
+    qualify; such a numerator stays in the compound form. Invisible
+    apply-function operators never appear here — the normalizer drops
+    them before the backend runs.
+    """
+    if elem is None:
+        return False
+    while elem.tag == "mrow" and len(elem) == 1:
+        elem = elem[0]
+    if elem.tag != "mrow":
+        return False
+    kids = list(elem)
+    if len(kids) != 2:
+        return False
+    head, arg = kids
+    return _is_function_head(head, profile) and _is_self_fenced(arg, profile)
+
 
 def _is_single_structure(elem: ET.Element | None) -> bool:
     """One self-fenced MathML element.
@@ -225,12 +323,22 @@ def _fraction_simplifiable(
 ) -> bool:
     """Whether an ``<mfrac>`` with these operands renders in the simple bar
     form (``numerator bar denominator``, no brackets): both operands are
-    single *self-fenced* structures and ``math.simplify_fraction`` is on.
+    single terms — a single *self-fenced* structure or a function
+    application (``cos α``) — and ``math.simplify_fraction`` is on.
     """
     return (
-        _is_self_fenced(numerator, profile)
-        and _is_self_fenced(denominator, profile)
+        _fraction_operand_is_term(numerator, profile)
+        and _fraction_operand_is_term(denominator, profile)
         and profile.feature("math.simplify_fraction", True)
+    )
+
+
+def _fraction_operand_is_term(elem: ET.Element | None, profile) -> bool:
+    """One numerator / denominator counts as a single term for the simple
+    bar form: a self-fenced structure, or a function application whose
+    argument is one (``\\frac{\\cos α}{a}`` keeps the bare bar)."""
+    return _is_self_fenced(elem, profile) or _is_function_application(
+        elem, profile
     )
 
 
@@ -343,19 +451,36 @@ def _is_single_char_mi(elem: ET.Element) -> bool:
     return len(text) == 1
 
 
-def _coalesce_function_names(elem: ET.Element, profile) -> ET.Element:
-    """Return ``elem`` with consecutive single-char ``<mi>`` runs whose
-    concatenation matches a registered function name merged into one
-    ``<mi>``.
+# Containers whose children form a *linear sequence* — the only places
+# where adjacent siblings may be coalesced into runs. Positional
+# containers (msub / msup / mfrac / mroot / munder / ...) give each child
+# slot a distinct structural meaning, so merging across their direct
+# children would swallow structure: ``l_n`` must stay l-sub-n, never
+# become the function ``ln``; ``T_r`` must not become ``Tr``.
+_SEQUENCE_CONTAINER_TAGS: frozenset[str] = frozenset(
+    {"math", "mrow", "msqrt", "mtd"}
+)
+
+
+def _coalesce_identifier_runs(elem: ET.Element, profile) -> ET.Element:
+    """Return ``elem`` with consecutive single-char ``<mi>`` runs merged:
+    first runs spelling a registered function name into one function
+    ``<mi>`` (greedy longest match), then remaining adjacent letters into
+    one letter-word ``<mi>`` so the letter-sign rule sees whole runs.
+
+    Both merges apply only to the children of *sequence* containers
+    (:data:`_SEQUENCE_CONTAINER_TAGS`); the children of positional
+    containers are distinct slots and are never merged with each other
+    (recursion still descends into them).
 
     **Does not mutate the input tree.** When nothing changes at this
     element or below, the original element is returned unchanged — so the
-    common "no function-name run" case allocates nothing and subtrees are
-    shared. Otherwise a fresh element is built along the path that
-    changed. The math IR (``MathInline.math``) is consumed read-only by
-    the backend and is cached in the pipeline / serialized into the
-    proofread JSON (see ``ARCHITECTURE.md``), so coalescing
-    must never edit it in place.
+    common "no run" case allocates nothing and subtrees are shared.
+    Otherwise a fresh element is built along the path that changed. The
+    math IR (``MathInline.math``) is consumed read-only by the backend
+    and is cached in the pipeline / serialized into the proofread JSON
+    (see ``ARCHITECTURE.md``), so coalescing must never edit
+    it in place.
 
     MTEF stores each character of ``cos`` / ``sin`` / ``arcsin`` as its
     own record, so the math frontend emits one ``<mi>`` per letter and
@@ -371,11 +496,15 @@ def _coalesce_function_names(elem: ET.Element, profile) -> ET.Element:
     if elem.get("data-bk-chem") is not None:
         return elem
     original = list(elem)
-    new_children = [_coalesce_function_names(child, profile) for child in original]
+    new_children = [_coalesce_identifier_runs(child, profile) for child in original]
     changed = any(nc is not oc for nc, oc in zip(new_children, original, strict=True))
 
-    if len(new_children) >= 2:
+    if elem.tag in _SEQUENCE_CONTAINER_TAGS and len(new_children) >= 2:
         merged = _merge_function_name_runs(new_children, profile)
+        if merged is not new_children:
+            new_children = merged
+            changed = True
+        merged = _merge_letter_word_runs(new_children, profile)
         if merged is not new_children:
             new_children = merged
             changed = True
@@ -431,5 +560,83 @@ def _merge_function_name_runs(
             else:
                 out.append(children[k])
                 k += 1
+        i = run_end
+    return out if merged_any else children
+
+
+def _is_letter_run_mi(elem: ET.Element, profile) -> bool:
+    """A bare single-letter ``<mi>`` eligible for letter-run merging.
+
+    Wider than :func:`_is_single_char_mi` (the function-name predicate):
+    the letter must be in one of the profile's letter tables, and the
+    upright/italic ``mathvariant`` values plus ``data-bk-span`` are
+    allowed — ``\\mathrm{ABC}`` letters are exactly the words this rule
+    exists for. Other ``mathvariant`` values (bold / script / fraktur /
+    double-struck) are semantically distinct symbols and stay per-char.
+    """
+    if elem.tag != "mi" or list(elem):
+        return False
+    text = elem.text or ""
+    if len(text) != 1 or profile.letter_class(text) is None:
+        return False
+    for key, value in elem.attrib.items():
+        if key == "data-bk-span":
+            continue
+        if key == "mathvariant" and value in ("normal", "italic"):
+            continue
+        return False
+    return True
+
+
+def _merge_letter_word_runs(
+    children: list[ET.Element], profile
+) -> list[ET.Element]:
+    """Merge adjacent single-letter ``<mi>`` siblings (two or more) into
+    one multi-letter ``<mi>`` so the letter-sign rule (《盲文常用数学符号》
+    二.（一）规则1) can see the whole run — one sign per same-class
+    stretch instead of one per letter. Runs that span class changes
+    (``mW`` / ``πr``) still merge; the emitter re-partitions by class.
+
+    Returns the *same list object* when no merge applies (so callers can
+    detect "unchanged" by identity), otherwise a new list.
+
+    ``data-bk-span`` provenance: when every member of a run carries a
+    parseable span the merged ``<mi>`` gets their union (min start, max
+    end); when none do the attribute is omitted. A mixed run is left
+    unmerged — collapsing it would mis-attribute cells to the spanned
+    subset.
+    """
+    out: list[ET.Element] = []
+    i = 0
+    n = len(children)
+    merged_any = False
+    while i < n:
+        if not _is_letter_run_mi(children[i], profile):
+            out.append(children[i])
+            i += 1
+            continue
+        run_end = i + 1
+        while run_end < n and _is_letter_run_mi(children[run_end], profile):
+            run_end += 1
+        run = children[i:run_end]
+        if len(run) < 2:
+            out.append(children[i])
+            i = run_end
+            continue
+        spans = [_parse_bk_span(c.get("data-bk-span")) for c in run]
+        present = [s for s in spans if s is not None]
+        if present and len(present) != len(run):
+            out.extend(run)
+            i = run_end
+            continue
+        merged = ET.Element("mi")
+        merged.text = "".join(c.text or "" for c in run)
+        if present:
+            merged.set(
+                "data-bk-span",
+                f"{min(s.start for s in present)},{max(s.end for s in present)}",
+            )
+        out.append(merged)
+        merged_any = True
         i = run_end
     return out if merged_any else children

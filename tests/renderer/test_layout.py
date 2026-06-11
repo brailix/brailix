@@ -480,9 +480,12 @@ class TestPageNumbers:
         # 3 content cells + N blank cells + 2 page-number cells = 10.
         assert len(first_line) == 10
 
-    def test_truncates_content_when_collision(self):
-        """A top line that already fills the width must give up cells
-        for the page number — content gets truncated, page number wins."""
+    def test_collision_reflows_instead_of_truncating(self):
+        """A top line that already fills the width must NOT lose cells
+        to the page number: the anchor line is re-flowed — the cells
+        that no longer fit move to the next line, pushing the document
+        down.  (The old behaviour silently truncated braille content,
+        and a full line is the COMMON case under greedy wrapping.)"""
         doc = BrailleDocument(blocks=[
             BrailleBlock(cells=_word(10)),  # exactly line_width
             BrailleBlock(cells=_word(3)),
@@ -491,11 +494,19 @@ class TestPageNumbers:
             paragraph_indent=0, line_width=10,
             page_height=2, show_page_numbers=True,
         )).render(doc)
-        first_line = out.split("\n")[0]
         from brailix.renderer.layout import _page_number_chars
 
-        assert first_line.endswith(_page_number_chars(1))
-        assert len(first_line) == 10
+        blank = dots_to_char(())
+        lines = out.replace("\f", "\n").split("\n")
+        assert lines[0].endswith(_page_number_chars(1))
+        assert len(lines[0]) == 10
+        assert all(len(line) <= 10 for line in lines)
+        # Conservation: all 13 content cells survive; the only non-blank
+        # additions are the page numbers themselves.
+        pages = out.count("\f") + 1
+        pn_cells = sum(len(_page_number_chars(i + 1)) for i in range(pages))
+        content = sum(1 for ch in out if ch not in (blank, "\n", "\f"))
+        assert content == 13 + pn_cells
 
     def test_no_pagination_skips_page_numbers(self):
         """``show_page_numbers`` is a no-op when ``page_height`` is
@@ -583,9 +594,10 @@ class TestPageNumberPosition:
         # 2 page-number cells + 1 blank gap + content cells, padded to 10.
         assert len(lines[0]) == 10
 
-    def test_top_left_truncates_content_when_collision(self):
-        """Top line that already fills width: page number wins, content
-        loses its leading cells."""
+    def test_top_left_collision_reflows_instead_of_truncating(self):
+        """Top line that already fills the width: the page number takes
+        the left edge and the overflowing content cells move down —
+        none are dropped."""
         doc = BrailleDocument(blocks=[
             BrailleBlock(cells=_word(10)),  # fills the line
             BrailleBlock(cells=_word(3)),
@@ -597,9 +609,15 @@ class TestPageNumberPosition:
         )).render(doc)
         from brailix.renderer.layout import _page_number_chars
 
-        first_line = out.split("\n")[0]
-        assert first_line.startswith(_page_number_chars(1))
-        assert len(first_line) == 10
+        blank = dots_to_char(())
+        lines = out.replace("\f", "\n").split("\n")
+        assert lines[0].startswith(_page_number_chars(1))
+        assert len(lines[0]) == 10
+        assert all(len(line) <= 10 for line in lines)
+        pages = out.count("\f") + 1
+        pn_cells = sum(len(_page_number_chars(i + 1)) for i in range(pages))
+        content = sum(1 for ch in out if ch not in (blank, "\n", "\f"))
+        assert content == 13 + pn_cells
 
     def test_left_align_no_overflow_when_page_number_fills_line(self):
         """Regression: when the page number + its blank gap exactly fill
@@ -647,6 +665,7 @@ class TestPageNumberPosition:
         last_line = out.split(b"\r\n")[-1]
         assert last_line.endswith(b"#A")
 
+
     # --- bottom-left --------------------------------------------------
 
     def test_bottom_left_anchors_last_line_left(self):
@@ -690,6 +709,54 @@ class TestPageNumberPosition:
         # Each page's last line ends with its number.
         assert pages[0].split("\n")[-1].endswith(_page_number_chars(1))
         assert pages[1].split("\n")[-1].endswith(_page_number_chars(2))
+
+
+class TestPageNumberConservation:
+    """Property: enabling page numbers never destroys content cells.
+
+    For a grid of positions / widths / heights: the non-blank cell
+    count with numbers on equals the numbers-off count plus exactly
+    the page-number cells, and no line ever exceeds ``line_width``.
+    This is the invariant the old truncating collision branch broke —
+    a full-width line at a page anchor silently lost its tail."""
+
+    def test_no_content_lost_across_positions_and_widths(self):
+        from brailix.renderer.layout import _page_number_chars
+
+        blank = dots_to_char(())
+
+        def content(s: str) -> int:
+            return sum(1 for ch in s if ch not in (blank, "\n", "\f"))
+
+        for position in (
+            "top-right", "top-left", "bottom-right", "bottom-left"
+        ):
+            for line_width, page_height in ((10, 2), (8, 3), (12, 4)):
+                blocks = [
+                    BrailleBlock(cells=_word(n))
+                    for n in (
+                        line_width, 3, line_width, line_width - 1,
+                        5, line_width,
+                    )
+                ]
+                doc = BrailleDocument(blocks=blocks)
+                plain = LayoutRenderer(options=LayoutOptions(
+                    paragraph_indent=0, line_width=line_width,
+                    page_height=page_height, show_page_numbers=False,
+                )).render(doc)
+                out = LayoutRenderer(options=LayoutOptions(
+                    paragraph_indent=0, line_width=line_width,
+                    page_height=page_height, show_page_numbers=True,
+                    page_number_position=position,
+                )).render(doc)
+                pages = out.count("\f") + 1
+                pn_cells = sum(
+                    len(_page_number_chars(i + 1)) for i in range(pages)
+                )
+                label = f"{position} w={line_width} h={page_height}"
+                assert content(out) == content(plain) + pn_cells, label
+                for line in out.replace("\f", "\n").split("\n"):
+                    assert len(line) <= line_width, label
 
 
 class TestAtomicWrap:

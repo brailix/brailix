@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 from brailix.core.context import MathContext
 from brailix.core.errors import MissingExtraError
 from brailix.frontend.math.normalizer import normalize
+from brailix.frontend.math.utils import merror_wrap
 
 
 def parse_math_tree(
@@ -33,6 +34,11 @@ def parse_math_tree(
     via ``ctx.warnings``) when the requested source adapter is absent
     or its optional dependency isn't installed; the pipeline keeps
     running.
+
+    Soft-failure backstop: an adapter (or the normalizer) that raises
+    anyway — the registry is open to third-party adapters — degrades to
+    the standard ``<merror>`` tree instead of crashing the caller; the
+    backend renders an unknown cell plus a ``MATH_ERROR`` warning.
     """
     from brailix.frontend.math.registry import math_source_registry
 
@@ -55,8 +61,29 @@ def parse_math_tree(
         )
         return None
 
-    mathml = adapter.to_mathml(formula, ctx)
-    return normalize(mathml)
+    try:
+        mathml = adapter.to_mathml(formula, ctx)
+        return normalize(mathml)
+    except Exception as e:  # noqa: BLE001 — pipeline must never crash
+        # Adapters promise soft failure (<merror> + warning) and the
+        # normalizer promises never to raise, but the registry is
+        # deliberately open and our own adapters have slipped before
+        # (a lone surrogate from a corrupt MTEF stream blew up the
+        # UTF-8 re-encode inside ET parsing).  Degrade to the standard
+        # <merror> tree — the backend renders an unknown cell with a
+        # MATH_ERROR warning and translation continues.
+        surface = formula if isinstance(formula, str) else repr(formula)
+        try:
+            return normalize(
+                merror_wrap(surface[:200], reason=f"adapter failure: {e!r}")
+            )
+        except Exception:  # pragma: no cover — double fault
+            ctx.warnings.warn(
+                code="MATH_ERROR",
+                message=f"math adapter failure: {e!r}",
+                source="frontend.math",
+            )
+            return None
 
 
 __all__ = ("parse_math_tree",)

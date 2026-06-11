@@ -325,7 +325,7 @@ def _emit_multi_voice(
     """
     form = mctx.profile.feature("music.in_accord_form", "full_measure")
     if form != "full_measure":
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=(
                 f"music.in_accord_form={form!r} not implemented "

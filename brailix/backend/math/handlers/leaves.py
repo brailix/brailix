@@ -16,12 +16,15 @@ import xml.etree.ElementTree as ET
 
 from brailix.backend._chars import nonstandard_char_hint
 from brailix.backend._digits import DigitRoles, emit_digit_run
+from brailix.backend._inline import rebase_translated_cells
+from brailix.backend._letters import iter_letter_runs, letter_sign_repeats
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.utils import (
     _NUMBER_BREAKING_ROLES,
     _ROLE_TO_CELL_ROLE,
     _emit_structure,
     _last_is_blank,
+    _mi_routes_to_function,
     _previous_suppresses_space_before,
     _unknown_cell,
 )
@@ -45,6 +48,12 @@ def _emit_mi(
 
     In chemistry mode an ``<mi>`` is an element symbol (``H``, ``Si``),
     not a variable or function — route it to the chem element emitter.
+
+    A multi-char ``<mi>`` is only a *function* when it routes there
+    (registered name, or non-letter content like a literal ``\\foo``);
+    a plain multi-letter run — an OMML/MTEF word token, ``\\mathrm{ABC}``,
+    or a run the coalescer merged — is a letter word and takes per-class
+    letter signs instead.
     """
     if mctx.chem:
         from brailix.backend.math import chem as _chem
@@ -55,7 +64,10 @@ def _emit_mi(
     if not text:
         return
     if len(text) > 1:
-        _emit_function_name(cells, mctx, text)
+        if _mi_routes_to_function(text, mctx.profile):
+            _emit_function_name(cells, mctx, text)
+        else:
+            _emit_letter_runs(cells, mctx, text)
         return
     _emit_identifier_char(cells, mctx, text)
 
@@ -118,6 +130,55 @@ def _emit_identifier_char(
     mctx.need_number_sign = True
 
 
+def _emit_letter_runs(
+    cells: list[BrailleCell], mctx: MathBrailleContext, text: str
+) -> None:
+    """Emit a stretch of letters with per-class letter signs.
+
+    《盲文常用数学符号》二.（一）规则1: the case/script sign is written
+    before the letter; consecutive letters of the SAME class share one
+    sign (only the first letter of the run takes it); a class change
+    starts a new sign — ``Abc`` → ⠠⠁⠰⠃⠉, ``πr`` → ⠨⠏⠰⠗. An
+    all-capital Latin run of two or more letters doubles the capital
+    sign (whole-word capitals): ``ABC`` → ⠠⠠⠁⠃⠉, after which the
+    letters are written bare; a single ⠠ then unambiguously means
+    "only the first letter is capital".
+
+    Characters without a letter class shouldn't reach here (callers
+    pre-check via ``letter_class``); they degrade to the per-char
+    identifier path defensively.
+    """
+    profile = mctx.profile
+    for cls, run in iter_letter_runs(text, profile):
+        if cls is None:
+            _emit_identifier_char(cells, mctx, run)
+            continue
+        prefix = profile.math_structure(f"letter_prefix.{cls}")
+        for _ in range(letter_sign_repeats(cls, len(run))):
+            cells.extend(
+                BrailleCell(
+                    dots=dots,
+                    role="math_identifier",
+                    source_span=mctx.span,
+                    source_text=run,
+                )
+                for dots in prefix
+            )
+        for ch in run:
+            bare = profile.bare_letter(ch)
+            if bare is None:  # unreachable: letter_class hit the same table
+                continue
+            cells.append(
+                BrailleCell(
+                    dots=bare,
+                    role="math_identifier",
+                    source_span=mctx.span,
+                    source_text=ch,
+                )
+            )
+    mctx.need_number_sign = True
+
+
 def _emit_function_name(
     cells: list[BrailleCell], mctx: MathBrailleContext, name: str
 ) -> None:
@@ -147,8 +208,15 @@ def _emit_function_name(
             )
             for dots in registered
         )
+    elif all(
+        mctx.profile.letter_class(ch) is not None for ch in lookup_name
+    ):
+        # Spelled fallback on the cleaned name (backslash stripped): the
+        # name is a letter run, so the letter-sign rule applies — one
+        # sign per same-class stretch, not one per letter.
+        _emit_letter_runs(cells, mctx, lookup_name)
     else:
-        # Letter-by-letter fallback on the cleaned name (backslash stripped).
+        # Per-char fallback for names with non-letter content.
         for ch in lookup_name:
             _emit_identifier_char(cells, mctx, ch)
     mctx.need_number_sign = True
@@ -371,7 +439,13 @@ def _emit_mtext(
     if text.strip() and translator is not None:
         # latex2mathml encodes a literal space inside \text as U+00A0;
         # normalise it to a real space so the text path sees a word break.
-        cells.extend(translator(text.replace("\u00a0", " ")))
+        # The translator's cells carry throwaway-document spans \u2014 rebase
+        # onto the formula's own span so proofread jumps land here.
+        cells.extend(
+            rebase_translated_cells(
+                translator(text.replace("\u00a0", " ")), mctx.span
+            )
+        )
     else:
         _emit_mtext_per_char(cells, mctx, text)
     mctx.need_number_sign = True

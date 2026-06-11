@@ -93,3 +93,41 @@ class MusicBrailleContext:
     # staff / voice boundaries (each starts a fresh reading); persists
     # across bar lines like the printed value sign itself.
     prev_value_category: str | None = None
+
+    def warn(
+        self,
+        *,
+        code: str,
+        message: str,
+        surface: str | None = None,
+        span: Span | None = None,
+        candidates: tuple[str, ...] = (),
+        source: str | None = "backend.music",
+    ) -> None:
+        """Emit a WARN-level diagnostic stamped with the score location.
+
+        Wraps ``backend.warnings.warn`` and fills :attr:`Warning.anchor`
+        from :attr:`current_part_id` / :attr:`current_measure_number` —
+        the same provenance every ``BrailleCell.source_text`` carries —
+        so a frontend can navigate from the warning to its measure.
+        Handlers must warn through this method, not the collector
+        directly; a bare collector call silently loses the location
+        (normalized MusicXML has no text offsets, so ``span`` can't
+        recover it).  Outside a part / measure both ids are ``None``
+        and the anchor is omitted, which downstream reads as "score
+        level, no narrower location".
+        """
+        anchor: dict[str, str] = {}
+        if self.current_part_id is not None:
+            anchor["part_id"] = self.current_part_id
+        if self.current_measure_number is not None:
+            anchor["measure_number"] = self.current_measure_number
+        self.backend.warnings.warn(
+            code=code,
+            message=message,
+            surface=surface,
+            span=span,
+            candidates=candidates,
+            source=source,
+            anchor=anchor or None,
+        )

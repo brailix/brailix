@@ -74,6 +74,23 @@ class TestWarningRecord:
         d = Warning(code="X", message="m").to_dict()
         assert d == {"code": "X", "level": "warn", "message": "m"}
 
+    def test_anchor_round_trips_to_dict(self):
+        """``anchor`` is the structural-provenance slot for inputs with
+        no usable text span (music: part/measure labels)."""
+        w = Warning(
+            code="MUSIC_UNKNOWN_NOTE",
+            message="m",
+            anchor={"part_id": "P1", "measure_number": "5"},
+        )
+        assert w.anchor == {"part_id": "P1", "measure_number": "5"}
+        assert w.to_dict()["anchor"] == {
+            "part_id": "P1",
+            "measure_number": "5",
+        }
+        # Default stays None and is omitted from the dict form.
+        assert Warning(code="X", message="m").anchor is None
+        assert "anchor" not in Warning(code="X", message="m").to_dict()
+
 
 class TestWarningCollectorNormal:
     def test_default_mode_is_normal(self):

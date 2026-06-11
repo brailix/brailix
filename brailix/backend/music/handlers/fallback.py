@@ -30,7 +30,7 @@ def _emit_music_error(
     warning and produce one unknown cell so the position is visible
     in the output."""
     reason = elem.attrib.get("data-reason", "unknown")
-    mctx.backend.warnings.warn(
+    mctx.warn(
         code="MUSIC_PARSE_RECOVERY",
         message=f"music adapter soft-failed: {reason}",
         surface=(elem.text or "").strip() or None,
@@ -61,7 +61,7 @@ def _emit_unsupported(
     whose ignorable children should also be visited; not visiting
     them here keeps the output count stable. M3+ can broaden this.
     """
-    mctx.backend.warnings.warn(
+    mctx.warn(
         code="MUSIC_UNSUPPORTED_NOTATION",
         message=f"no handler for music element <{elem.tag}>",
         source="backend.music",

@@ -495,6 +495,16 @@ class TestNonStandardCharsAreFlaggedNotFolded:
         assert _merror(out) is None
 
 
+class TestSoftFailureBackstop:
+    def test_pathological_nesting_degrades_to_merror(self):
+        # Hundreds of nested groups exhaust the recursive-descent
+        # parser (RecursionError).  chem was the only math adapter
+        # without an except-Exception backstop, so this escaped the
+        # "adapters never raise" contract and crashed the pipeline.
+        out = convert_ce("(" * 600 + "H" + ")" * 600)
+        assert _merror(out) is not None
+
+
 class TestUnicodeArrowsRejectedInCe:
     """``\\ce{}`` is LaTeX — only the mhchem ASCII forms are recognised. A
     literal Unicode arrow / ≡ / ↑ / ↓ is non-standard input: flagged in place

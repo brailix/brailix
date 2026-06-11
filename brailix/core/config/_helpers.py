@@ -55,8 +55,33 @@ _FEATURE_DOTTED_TO_FLAT: dict[str, str] = {
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+    """Read a JSON object from ``path``, normalising every failure mode
+    into :class:`ConfigurationError` — the ``load_profile`` contract is
+    "malformed profile or referenced table → ConfigurationError".
+
+    Three raw exceptions used to escape here and dodge the framework's
+    catch-all: ``json.JSONDecodeError`` for a syntax error (the single
+    most common hand-authoring mistake), ``FileNotFoundError`` /
+    ``OSError`` for a broken table reference, and — later, inside the
+    loaders' ``.items()`` calls — ``AttributeError`` when the top level
+    wasn't an object.  Every message carries the file path so the
+    author can jump straight to the offending file.
+    """
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError as e:
+        raise ConfigurationError(f"{path}: file not found") from e
+    except OSError as e:
+        raise ConfigurationError(f"{path}: unreadable ({e})") from e
+    except json.JSONDecodeError as e:
+        raise ConfigurationError(f"{path}: invalid JSON ({e})") from e
+    if not isinstance(data, dict):
+        raise ConfigurationError(
+            f"{path}: top level must be a JSON object, "
+            f"got {type(data).__name__}"
+        )
+    return data
 
 
 def _to_dots(value: Any) -> tuple[int, ...]:

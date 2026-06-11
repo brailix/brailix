@@ -44,7 +44,7 @@ import xml.etree.ElementTree as ET
 from brailix.backend.math import handlers as _handlers  # noqa: F401
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.dispatch import _emit_element
-from brailix.backend.math.utils import _coalesce_function_names, _fallback_surface
+from brailix.backend.math.utils import _coalesce_identifier_runs, _fallback_surface
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.ir.braille import BrailleCell
@@ -80,7 +80,7 @@ def translate(
         return _fallback_surface(node.surface, node.span)
 
     # Copy-on-write: never mutate node.math (cached + serialized as IR).
-    working_tree = _coalesce_function_names(math_tree, profile)
+    working_tree = _coalesce_identifier_runs(math_tree, profile)
     mctx = MathBrailleContext(profile=profile, backend=ctx, span=node.span)
     cells: list[BrailleCell] = []
     _emit_element(cells, mctx, working_tree)
@@ -95,7 +95,7 @@ def emit_tree(
     Equivalent to wrapping the element in a fresh :class:`MathInline`
     and calling :func:`translate`.
     """
-    working_tree = _coalesce_function_names(elem, profile)
+    working_tree = _coalesce_identifier_runs(elem, profile)
     mctx = MathBrailleContext(profile=profile, backend=ctx)
     cells: list[BrailleCell] = []
     _emit_element(cells, mctx, working_tree)

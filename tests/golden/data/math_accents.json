@@ -61,13 +61,13 @@
         },
         {
           "src": "$\\vec{AB}$",
-          "expected": "⠠⠁⠠⠃⠘⠒⠆",
+          "expected": "⠠⠠⠁⠃⠘⠒⠆",
           "warnings_exclude_prefix": "MATH_",
-          "note": "vector arrow mark, two letters ⠘ + ⠒⠆ (base 2 letters), docx §十五项2"
+          "note": "vector arrow mark, two letters ⠘ + ⠒⠆ (base 2 letters, all-capital run shares the doubled ⠠⠠), docx §十五项2"
         },
         {
           "src": "$\\overrightarrow{AB}$",
-          "expected": "⠠⠁⠠⠃⠘⠒⠆",
+          "expected": "⠠⠠⠁⠃⠘⠒⠆",
           "warnings_exclude_prefix": "MATH_",
           "note": "\\overrightarrow{AB} same as \\vec{AB} (→ over mrow(A,B))"
         },
@@ -79,9 +79,9 @@
         },
         {
           "src": "$\\overline{AB}$",
-          "expected": "⠠⠁⠠⠃⠘⠒⠒",
+          "expected": "⠠⠠⠁⠃⠘⠒⠒",
           "warnings_exclude_prefix": "MATH_",
-          "note": "bar, two letters ⠘ + ⠒⠒ (base 2 letters), docx §十五项4; compare \\overline{x} single letter ⠒"
+          "note": "bar, two letters ⠘ + ⠒⠒ (base 2 letters, doubled ⠠⠠), docx §十五项4; compare \\overline{x} single letter ⠒"
         }
       ]
     },

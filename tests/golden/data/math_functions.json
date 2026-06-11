@@ -42,6 +42,21 @@
         {"src": "$\\ln e^2$", "expected": "⠫⠇⠝⠰⠑⠌⠆", "note": "\\ln e^2 — sup atomic 2"},
         {"src": "$\\exp(x^2)$", "expected": "⠫⠑⠣⠰⠭⠌⠆⠜", "note": "\\exp(single e)(x^2)"}
       ]
+    },
+    "func_fractions": {
+      "description": "Function ↔ fraction interactions: a function application (cos α) is one term, so it keeps the simple bar form as numerator/denominator; a fraction that is a function's ARGUMENT must keep the compound ⠆…⠰ brackets, otherwise cos(α/a) and (cos α)/a would collapse into the same cells.",
+      "cases": [
+        {"src": "$\\frac{\\cos\\alpha}{a}$", "expected": "⠫⠉⠨⠁⠳⠰⠁", "note": "(cos α)/a — function-application numerator is one term: simple bar, no fraction.open/close"},
+        {"src": "$\\frac{a}{\\cos\\alpha}$", "expected": "⠰⠁⠳⠫⠉⠨⠁", "note": "a/(cos α) — function application as denominator, same rule"},
+        {"src": "$\\frac{\\sin\\alpha}{\\cos\\alpha}$", "expected": "⠫⠎⠨⠁⠳⠫⠉⠨⠁", "note": "sin α / cos α (tangent as a quotient) — both operands are function applications, still simple bar"},
+        {"src": "$\\frac{\\sin x}{x}$", "expected": "⠫⠎⠰⠭⠳⠰⠭", "note": "(sin x)/x — latin argument works the same as greek"},
+        {"src": "$\\cos\\frac{\\alpha}{a}$", "expected": "⠫⠉⠆⠨⠁⠀⠳⠰⠁⠰", "note": "cos(α/a) — fraction in function-argument position keeps compound form: ⠫c + open ⠆ + α + blank + bar + a + close ⠰"},
+        {"src": "$\\sin\\frac{x}{2}$", "expected": "⠫⠎⠆⠰⠭⠀⠳⠼⠃⠰", "note": "sin(x/2) — same forcing for letter/digit operands"},
+        {"src": "$\\log_2\\frac{x}{y}$", "expected": "⠫⠇⠡⠆⠆⠰⠭⠀⠳⠰⠽⠰", "note": "log₂(x/y) — scripted function head (msub base) still forces the brackets"},
+        {"src": "$\\cos\\frac{1}{2}$", "expected": "⠫⠉⠼⠁⠆", "note": "cos(1/2) — Antoine stays exempt: ⠼⠁⠆ is one self-delimiting number token"},
+        {"src": "$\\cos(\\frac{\\alpha}{a})$", "expected": "⠫⠉⠣⠨⠁⠳⠰⠁⠜", "note": "cos((α/a)) — explicit parens already delimit the argument, no extra fraction brackets"},
+        {"src": "$\\frac{\\cos 2\\alpha}{a}$", "expected": "⠆⠫⠉⠼⠃⠨⠁⠀⠳⠰⠁⠰", "note": "(cos 2α)/a — multi-token argument run is NOT one term; numerator keeps compound form"}
+      ]
     }
   }
 }

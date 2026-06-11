@@ -7,8 +7,8 @@
       "cases": [
         {
           "src": "$\\unknownfoo$",
-          "expected": "⠫⠰⠥⠰⠝⠰⠅⠰⠝⠰⠕⠰⠺⠰⠝⠰⠋⠰⠕⠰⠕",
-          "note": "unknown control sequence: backslash stripped + letter-by-letter spelling, no warning"
+          "expected": "⠫⠰⠥⠝⠅⠝⠕⠺⠝⠋⠕⠕",
+          "note": "unknown control sequence: backslash stripped + spelled name; the lowercase run shares one ⠰ (docx 二.规则1), no warning"
         },
         {
           "src": "$\\circ$",

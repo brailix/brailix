@@ -24,6 +24,105 @@ class TestNamespaceStripping:
         assert root[0].tag == "mi"
 
 
+class TestPresentationalWrappers:
+    """``<mstyle>`` / ``<mpadded>`` are renamed to ``<mrow>`` (typographic
+    hints only — latex2mathml wraps every ``\\displaystyle`` formula in
+    one); ``<mspace>`` / ``<mphantom>`` are removed (print-space
+    occupiers with no braille meaning).  Regression guard: these used to
+    reach the backend's unsupported-element fallback, which drops the
+    whole subtree — a ``\\displaystyle`` fraction vanished into a single
+    unknown cell."""
+
+    def test_mstyle_renamed_to_mrow_and_collapsed(self):
+        root = normalize(
+            '<math><mstyle displaystyle="true">'
+            "<mfrac><mn>1</mn><mn>2</mn></mfrac></mstyle></math>"
+        )
+        # Renamed to mrow, then collapsed as a singleton — the fraction
+        # hangs directly off <math>.
+        assert _tags(root) == ["math", "mfrac", "mn", "mn"]
+
+    def test_mstyle_with_multiple_children_becomes_mrow(self):
+        root = normalize(
+            '<math><mstyle scriptlevel="1">'
+            "<mi>x</mi><mo>+</mo><mn>1</mn></mstyle></math>"
+        )
+        assert root[0].tag == "mrow"
+        assert [c.tag for c in root[0]] == ["mi", "mo", "mn"]
+        # Presentational attributes are dropped with the rename.
+        assert "scriptlevel" not in root[0].attrib
+
+    def test_mpadded_renamed_like_mstyle(self):
+        root = normalize(
+            '<math><mpadded width="2em"><mi>x</mi></mpadded></math>'
+        )
+        assert _tags(root) == ["math", "mi"]
+
+    def test_data_bk_attributes_survive_the_rename(self):
+        root = normalize(
+            '<math><mstyle data-bk-span="1,3">'
+            "<mi>x</mi><mo>!</mo></mstyle></math>"
+        )
+        assert root[0].tag == "mrow"
+        assert root[0].get("data-bk-span") == "1,3"
+
+    def test_mspace_and_mphantom_removed(self):
+        root = normalize(
+            '<math><mi>a</mi><mspace width="1em" /><mi>b</mi>'
+            "<mphantom><mi>c</mi></mphantom></math>"
+        )
+        assert _tags(root) == ["math", "mi", "mi"]
+
+    def test_phantom_inside_style_unwraps_cleanly(self):
+        root = normalize(
+            "<math><mstyle><mphantom><mi>x</mi></mphantom>"
+            "<mi>y</mi></mstyle></math>"
+        )
+        assert _tags(root) == ["math", "mi"]
+        assert root[0].text == "y"
+
+
+class TestInvisibleOperators:
+    """An ``<mo>`` holding a Unicode invisible operator (U+2061
+    function application / U+2062 invisible times / U+2063 invisible
+    separator / U+2064 invisible plus) renders as nothing and is
+    dropped. The OMML ``m:func`` adapter emits U+2061 between a function
+    name and its argument — before this drop it degraded into an
+    unknown cell with a ``MATH_UNKNOWN_SYMBOL`` warning, and it hid the
+    name/argument adjacency the backend's function-argument fraction
+    rule keys off."""
+
+    def test_apply_function_mo_dropped(self):
+        root = normalize(
+            "<math><mrow><mi>cos</mi><mo>&#x2061;</mo><mi>x</mi></mrow></math>"
+        )
+        assert _tags(root) == ["math", "mrow", "mi", "mi"]
+
+    def test_apply_function_before_mfrac_dropped(self):
+        # The OMML m:func + fraction-argument shape: after the drop the
+        # <mfrac> is the function name's direct sibling.
+        root = normalize(
+            "<math><mrow><mi>cos</mi><mo>&#x2061;</mo>"
+            "<mfrac><mi>x</mi><mi>y</mi></mfrac></mrow></math>"
+        )
+        mrow = root[0]
+        assert [c.tag for c in mrow] == ["mi", "mfrac"]
+
+    def test_invisible_times_separator_plus_dropped(self):
+        root = normalize(
+            "<math><mrow><mn>2</mn><mo>&#x2062;</mo><mi>x</mi>"
+            "<mo>&#x2063;</mo><mi>y</mi><mo>&#x2064;</mo><mn>1</mn>"
+            "</mrow></math>"
+        )
+        assert [c.tag for c in root[0]] == ["mn", "mi", "mi", "mn"]
+
+    def test_visible_mo_kept(self):
+        root = normalize(
+            "<math><mrow><mn>2</mn><mo>+</mo><mi>x</mi></mrow></math>"
+        )
+        assert [c.tag for c in root[0]] == ["mn", "mo", "mi"]
+
+
 class TestSingletonMrowCollapse:
     def test_collapses_single_child_mrow(self):
         root = normalize("<math><mrow><mi>x</mi></mrow></math>")

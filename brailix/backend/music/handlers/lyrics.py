@@ -7,9 +7,9 @@ attached to the note element rather than appearing as siblings.
 
 from __future__ import annotations
 
-import dataclasses
 import xml.etree.ElementTree as ET
 
+from brailix.backend._inline import rebase_translated_cells
 from brailix.backend.music.context import MusicBrailleContext
 from brailix.backend.music.utils import emit_cells_for_entity
 from brailix.ir.braille import BrailleCell
@@ -38,7 +38,7 @@ def _emit_lyrics(
         _emit_lyrics_inline(cells, mctx, elem)
         return
     if form != "marker":
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=(
                 f"music.lyrics_form={form!r} needs renderer support "
@@ -100,7 +100,7 @@ def _emit_lyrics_inline(
     """
     translator = mctx.backend.inline_text_translator()
     if translator is None:
-        mctx.backend.warnings.warn(
+        mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",
             message=(
                 "music.lyrics_form='inline' needs the inline_text_translator "
@@ -114,9 +114,12 @@ def _emit_lyrics_inline(
         text = _lyric_text(lyric)
         if text is None:
             continue
+        # Retag to music_lyric AND rebase the spans — the translator's
+        # cells carry throwaway-document coordinates.
         cells.extend(
-            dataclasses.replace(cell, role="music_lyric")
-            for cell in translator(text)
+            rebase_translated_cells(
+                translator(text), mctx.span, role="music_lyric"
+            )
         )
 
 

@@ -353,6 +353,7 @@ def _emit_prose_condition(
     frontend. Falls back to the literal per-char ``<mtext>`` path (a warning
     per unknown char) when no translator was injected (e.g. a bare
     backend-only run with no pipeline)."""
+    from brailix.backend._inline import rebase_translated_cells
     from brailix.backend.math.dispatch import _emit_element
 
     text = (content.text or "").strip()
@@ -360,7 +361,9 @@ def _emit_prose_condition(
     if not text or translator is None:
         _emit_element(cells, mctx, content)
         return
-    cells.extend(translator(text))
+    # The translator's cells carry throwaway-document spans — rebase
+    # onto the formula's own span so proofread jumps land here.
+    cells.extend(rebase_translated_cells(translator(text), mctx.span))
 
 
 def _is_heat(node: ET.Element | None) -> bool:

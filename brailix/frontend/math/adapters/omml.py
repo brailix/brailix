@@ -365,7 +365,8 @@ def _convert_func(node: ET.Element) -> list[ET.Element]:
     for c in _wrap_children(fname):
         mrow.append(c)
     # Apply-function operator U+2061 keeps the name semantically distinct
-    # from the argument; the backend treats it as a no-op space.
+    # from the argument; the normalizer drops it (invisible operator)
+    # before the backend sees the tree.
     apply_op = ET.Element("mo")
     apply_op.text = "⁡"
     mrow.append(apply_op)

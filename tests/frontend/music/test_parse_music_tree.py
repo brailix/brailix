@@ -299,6 +299,81 @@ class TestNormalizer:
         tree = parse_music_tree(xml, ctx)
         assert [t.text for t in tree.iter("type")] == ["quarter"]
 
+
+# ---------------------------------------------------------------------------
+# Soft-failure backstops — nothing on this path may raise
+# ---------------------------------------------------------------------------
+
+
+def _has_music_error(tree) -> bool:
+    return tree.tag == "music-error" or any(
+        e.tag == "music-error" for e in tree.iter()
+    )
+
+
+class TestNonDecimalVoiceNumbers:
+    def test_circled_digit_voice_sorts_instead_of_raising(self):
+        # "①".isdigit() is True but int("①") raises — the voice remap
+        # used to blow a ValueError out of the normalizer's
+        # never-raises contract.  It now sorts into the non-numeric
+        # bucket and the remap proceeds.
+        xml = (
+            "<score-partwise><part id='P1'><measure number='1'>"
+            "<note><voice>①</voice></note></measure></part>"
+            "</score-partwise>"
+        )
+        ctx = MusicContext(source="musicxml")
+        tree = parse_music_tree(xml, ctx)
+        assert tree is not None
+        assert [v.text for v in tree.iter("voice")] == ["1"]
+
+
+class TestRaisingAdapterBackstop:
+    def test_raising_adapter_degrades_to_music_error(self):
+        # The registry is open to third-party adapters; one that raises
+        # must degrade to the standard <music-error> tree, never crash
+        # the pipeline.
+        from brailix.frontend.music.registry import music_source_registry
+
+        class _Boom:
+            source = "boom-raise-test"
+
+            def to_musicxml(self, src, ctx=None):
+                raise RuntimeError("boom")
+
+        music_source_registry.register("boom-raise-test", _Boom)
+        ctx = MusicContext(source="boom-raise-test")
+        tree = parse_music_tree(b"\x00", ctx)
+        assert tree is not None
+        assert _has_music_error(tree)
+
+
+class TestMxlUnreadableArchives:
+    def test_zip_runtime_error_degrades_to_music_error(self, monkeypatch):
+        # zipfile raises more than BadZipFile: RuntimeError for an
+        # encrypted entry, zlib.error for a corrupt deflate stream,
+        # NotImplementedError for an unsupported compression method.
+        # The mxl adapter's narrow except used to let all of them
+        # escape and crash the pipeline.  (``writestr`` normalises the
+        # flag bits, so a genuinely encrypted archive can't be built
+        # with stdlib alone — inject the error at the read seam the
+        # way zipfile itself would raise it.)
+        import io
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("score.xml", b"<score-partwise/>")
+
+        def _boom(self, name, pwd=None):
+            raise RuntimeError(f"File {name!r} is encrypted")
+
+        monkeypatch.setattr(zipfile.ZipFile, "read", _boom)
+        ctx = MusicContext(source="mxl")
+        tree = parse_music_tree(buf.getvalue(), ctx)
+        assert tree is not None
+        assert _has_music_error(tree)
+
     def test_ambiguous_duration_warns_and_skips(self):
         # divisions=2, duration=3 → dotted quarter: not a plain type.
         xml = (

@@ -1,11 +1,13 @@
-"""Tests for S3: chord-aware notation suppression.
+"""Tests for chord-aware notation handling.
 
 MusicXML represents chords as a series of ``<note>`` elements where
-the second and subsequent ones carry a ``<chord/>`` marker. Per BANA
-Pars. 9.1 / 10.2 / 13, ties / slurs / lyrics belong on the chord
-root (the first note), not on every interval below it. S3 makes
-``_emit_note`` skip the post-note notation / lyric emission on
-chord notes so the cell stream matches BANA conventions.
+the second and subsequent ones carry a ``<chord/>`` marker.  Per BANA
+Pars. 9.1 / 9.2 / 10.2 / 13: chord members render as interval cells
+from the written note (which the clef may reorder); a tied chord takes
+ONE chord-tie sign (``tie_between_chords``) after the intervals — any
+member may carry the source ``<tied>``; lyrics ride with the chord
+(every authored ``<lyric>`` in the run lands once, wherever the
+reorder put its note); slurs / fingering stay on the written note.
 """
 
 from __future__ import annotations
@@ -49,9 +51,10 @@ def _chord_block(notes_xml: list[str]) -> ET.Element:
 
 
 class TestChordNoteSuppression:
-    def test_chord_root_emits_tie(self, profile, ctx):
-        # C major triad: C-E-G; the root C carries the tie, chord
-        # notes E and G suppress their own tied/slur markers.
+    def test_tied_chord_uses_one_chord_tie_sign(self, profile, ctx):
+        # C major triad, every member tied: ONE chord-tie sign for the
+        # whole chord (Par. 10.2), using the Table 10 chord entity —
+        # not the single-note tie, and not one sign per tied member.
         notes = [
             "<note>"
             "<pitch><step>C</step><octave>4</octave></pitch>"
@@ -71,17 +74,18 @@ class TestChordNoteSuppression:
         ]
         tree = _chord_block(notes)
         cells = emit_tree(tree, ctx, profile)
-        # Only the root's tie cells appear — chord notes' ties are
-        # suppressed.
-        tie_count = _roles(cells).count("music_tie")
-        # tie_between_single_notes = 2 cells, one occurrence.
-        assert tie_count == 2
+        tie_cells = [c for c in cells if c.role == "music_tie"]
+        # tie_between_chords = c_46 + c_14 (Table 10).
+        assert [c.dots for c in tie_cells] == [(4, 6), (1, 4)]
 
-    def test_chord_root_emits_lyric_marker_chord_notes_dont(
+    def test_every_authored_lyric_in_the_run_lands_once(
         self, profile, ctx,
     ):
-        # Lyric on root, lyrics on chord notes should be silently
-        # dropped (BANA doesn't put lyrics on interval cells).
+        # Lyrics ride with the chord: the written note's own lyric is
+        # emitted by its single-note path, the other members' by the
+        # chord run — each authored <lyric> lands exactly once (they
+        # used to be dropped from non-written members, which after a
+        # clef reorder silently lost the syllable).
         notes = [
             "<note>"
             "<pitch><step>C</step><octave>4</octave></pitch>"
@@ -97,8 +101,8 @@ class TestChordNoteSuppression:
         tree = _chord_block(notes)
         cells = emit_tree(tree, ctx, profile)
         marker_count = _roles(cells).count("music_lyric_marker")
-        assert marker_count == 1, (
-            "expected one lyric marker (on chord root only)"
+        assert marker_count == 2, (
+            "every authored <lyric> in the chord run lands exactly once"
         )
 
     def test_chord_root_emits_slur_chord_notes_dont(self, profile, ctx):
@@ -181,3 +185,57 @@ class TestNonChordUnaffected:
         cells = emit_tree(tree, ctx, profile)
         tie_count = _roles(cells).count("music_tie")
         assert tie_count == 4  # 2 cells × 2 notes
+
+
+# ---------------------------------------------------------------------------
+# Clef reorder keeps chord-level data (regression)
+# ---------------------------------------------------------------------------
+
+
+class TestChordReorderKeepsTieAndLyric:
+    """BANA Par. 9.2 reorders the chord by clef.  The tie and the lyric
+    belong to the chord, not to whichever member became the written
+    note — regression: under a treble clef, C4(tied, lyric)-E4-G4 lost
+    both, because G4 became the written note and the C4 carrying them
+    was demoted to an interval whose notations were skipped."""
+
+    def _chord_with_clef(self, sign: str, line: int) -> ET.Element:
+        return ET.fromstring(
+            '<part id="P1"><measure number="1">'
+            "<attributes><clef>"
+            f"<sign>{sign}</sign><line>{line}</line>"
+            "</clef></attributes>"
+            "<note>"
+            "<pitch><step>C</step><octave>4</octave></pitch>"
+            "<duration>4</duration><type>quarter</type>"
+            '<notations><tied type="start"/></notations>'
+            "<lyric><text>la</text></lyric>"
+            "</note>"
+            "<note><chord/>"
+            "<pitch><step>E</step><octave>4</octave></pitch>"
+            "<duration>4</duration><type>quarter</type>"
+            "</note>"
+            "<note><chord/>"
+            "<pitch><step>G</step><octave>4</octave></pitch>"
+            "<duration>4</duration><type>quarter</type>"
+            "</note>"
+            "</measure></part>"
+        )
+
+    def test_treble_reorder_keeps_tie_and_lyric(self, profile, ctx):
+        # Treble: written note = uppermost (G4); the source C4 carrying
+        # the tie + lyric becomes an interval member.
+        tree = self._chord_with_clef("G", 2)
+        cells = emit_tree(tree, ctx, profile)
+        tie_cells = [c for c in cells if c.role == "music_tie"]
+        assert [c.dots for c in tie_cells] == [(4, 6), (1, 4)]
+        assert _roles(cells).count("music_lyric_marker") == 1
+
+    def test_bass_written_note_keeps_tie_and_lyric(self, profile, ctx):
+        # Bass: written note = lowermost (C4 itself) — the chord-level
+        # outcome is identical either way.
+        tree = self._chord_with_clef("F", 4)
+        cells = emit_tree(tree, ctx, profile)
+        tie_cells = [c for c in cells if c.role == "music_tie"]
+        assert [c.dots for c in tie_cells] == [(4, 6), (1, 4)]
+        assert _roles(cells).count("music_lyric_marker") == 1

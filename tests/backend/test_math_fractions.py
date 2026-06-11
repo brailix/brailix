@@ -212,3 +212,228 @@ class TestFractionExtras:
         assert "math_fraction_bar" in r
         assert "math_fraction_open" not in r
         assert "math_fraction_close" not in r
+
+
+# ---------------------------------------------------------------------------
+# Function ↔ fraction interactions
+# ---------------------------------------------------------------------------
+
+
+class TestFunctionFractionMarkers:
+    """《盲文常用数学符号》 function/fraction scope rules.
+
+    A function application (``cos α``) is one term, so it keeps the
+    simple bar form when it sits in a numerator / denominator. A
+    fraction that is itself a function's ARGUMENT must keep the compound
+    ⠆…⠰ brackets — without them, cos(α/a) would emit the same cells as
+    the bracket-free simple form of (cos α)/a.
+    """
+
+    def test_function_application_numerator_drops_open_close(self, profile):
+        # \frac{\cos α}{a} — numerator "cos α" is a single term.
+        cells, _ = emit(
+            mml(
+                "<math><mfrac>"
+                "<mrow><mi>cos</mi><mi>α</mi></mrow>"
+                "<mi>a</mi></mfrac></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert "math_function_prefix" in r
+        assert "math_fraction_bar" in r
+        assert "math_fraction_open" not in r
+        assert "math_fraction_close" not in r
+
+    def test_function_application_denominator_drops_open_close(self, profile):
+        # \frac{a}{\cos α} — same rule on the denominator side.
+        cells, _ = emit(
+            mml(
+                "<math><mfrac>"
+                "<mi>a</mi>"
+                "<mrow><mi>cos</mi><mi>α</mi></mrow>"
+                "</mfrac></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert "math_fraction_open" not in r
+        assert "math_fraction_close" not in r
+
+    def test_function_application_both_operands(self, profile):
+        # \frac{\sin α}{\cos α} — tangent written as a quotient.
+        cells, _ = emit(
+            mml(
+                "<math><mfrac>"
+                "<mrow><mi>sin</mi><mi>α</mi></mrow>"
+                "<mrow><mi>cos</mi><mi>α</mi></mrow>"
+                "</mfrac></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert r.count("math_function_prefix") == 2
+        assert "math_fraction_open" not in r
+        assert "math_fraction_close" not in r
+
+    def test_multi_token_function_argument_keeps_open_close(self, profile):
+        # \frac{\cos 2α}{a} — "cos 2α" is a three-sibling run, not a
+        # single term; the compound form stays.
+        cells, _ = emit(
+            mml(
+                "<math><mfrac>"
+                "<mrow><mi>cos</mi><mn>2</mn><mi>α</mi></mrow>"
+                "<mi>a</mi></mfrac></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert "math_fraction_open" in r
+        assert "math_fraction_close" in r
+
+    def test_fraction_after_function_forces_open_close(self, profile):
+        # \cos\frac{α}{a} — the fraction is cos's argument: the simple
+        # α/a must take the compound form, with the brackets emitted
+        # after the function name.
+        cells, _ = emit(
+            mml(
+                "<math><mrow><mi>cos</mi>"
+                "<mfrac><mi>α</mi><mi>a</mi></mfrac>"
+                "</mrow></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert "math_fraction_open" in r
+        assert "math_fraction_close" in r
+        assert r.index("math_function_name") < r.index("math_fraction_open")
+
+    def test_fraction_after_omml_function_shape_forces_open_close(self, profile):
+        # The OMML m:func shape carries an apply-function <mo>&#x2061;</mo>
+        # (U+2061) between name and argument; the normalizer drops it,
+        # so the same forcing applies to docx-sourced formulas.
+        cells, wc = emit(
+            mml(
+                "<math><mrow><mi>cos</mi><mo>&#x2061;</mo>"
+                "<mfrac><mi>α</mi><mi>a</mi></mfrac>"
+                "</mrow></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert "math_fraction_open" in r
+        assert "math_fraction_close" in r
+        assert "unknown" not in r
+        assert not [w for w in wc.warnings if w.code == "MATH_UNKNOWN_SYMBOL"]
+
+    def test_fraction_after_scripted_function_forces_open_close(self, profile):
+        # \log_2\frac{x}{y} — a script-wrapped head (msub base) counts.
+        cells, _ = emit(
+            mml(
+                "<math><mrow>"
+                "<msub><mi>log</mi><mn>2</mn></msub>"
+                "<mfrac><mi>x</mi><mi>y</mi></mfrac>"
+                "</mrow></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert "math_fraction_open" in r
+        assert "math_fraction_close" in r
+
+    def test_fraction_after_mo_function_forces_open_close(self, profile):
+        # latex2mathml emits \lim as <mo>lim</mo>; a registered function
+        # name arriving as <mo> is a head too.
+        cells, _ = emit(
+            mml(
+                "<math><mrow><mo>lim</mo>"
+                "<mfrac><mi>x</mi><mn>2</mn></mfrac>"
+                "</mrow></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert "math_fraction_open" in r
+        assert "math_fraction_close" in r
+
+    def test_antoine_after_function_stays_compact(self, profile):
+        # \cos\frac{1}{2} — the Antoine lower-form digit makes ⠼⠁⠆ one
+        # self-delimiting token; no brackets forced.
+        cells, _ = emit(
+            mml(
+                "<math><mrow><mi>cos</mi>"
+                "<mfrac><mn>1</mn><mn>2</mn></mfrac>"
+                "</mrow></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert "math_digit_lower" in r
+        assert "math_fraction_open" not in r
+        assert "math_fraction_close" not in r
+        assert "math_fraction_bar" not in r
+
+    def test_parenthesised_fraction_after_function_not_forced(self, profile):
+        # \cos(\frac{α}{a}) — the <mo>(</mo> sits between the function
+        # name and the fraction, and already delimits the argument.
+        cells, _ = emit(
+            mml(
+                "<math><mrow><mi>cos</mi><mo>(</mo>"
+                "<mfrac><mi>α</mi><mi>a</mi></mfrac>"
+                "<mo>)</mo></mrow></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert "math_fraction_bar" in r
+        assert "math_fraction_open" not in r
+        assert "math_fraction_close" not in r
+
+    def test_variable_before_fraction_not_forced(self, profile):
+        # a·(x/y) written as juxtaposition — a single-char <mi> is a
+        # variable, not a function head; the simple form stays.
+        cells, _ = emit(
+            mml(
+                "<math><mrow><mi>a</mi>"
+                "<mfrac><mi>x</mi><mi>y</mi></mfrac>"
+                "</mrow></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert "math_fraction_open" not in r
+        assert "math_fraction_close" not in r
+
+    def test_typed_slash_after_function_forces_open_close(self, profile):
+        # Function head directly before a typed ``x / 2`` mrow (the OMML
+        # m:func argument shape) — same forcing through the slash path.
+        cells, _ = emit(
+            mml(
+                "<math><mrow><mi>cos</mi>"
+                "<mrow><mi>x</mi><mo>/</mo><mn>2</mn></mrow>"
+                "</mrow></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert "math_fraction_open" in r
+        assert "math_fraction_close" in r
+
+    def test_flag_does_not_leak_into_nested_operands(self, profile):
+        # \cos\frac{\frac{α}{β}}{γ} — the forced compound applies to the
+        # OUTER fraction only; the nested simple α/β inside the numerator
+        # must not inherit the flag (exactly one open/close pair).
+        cells, _ = emit(
+            mml(
+                "<math><mrow><mi>cos</mi>"
+                "<mfrac>"
+                "<mfrac><mi>α</mi><mi>β</mi></mfrac>"
+                "<mi>γ</mi></mfrac>"
+                "</mrow></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert r.count("math_fraction_open") == 1
+        assert r.count("math_fraction_close") == 1
+        assert r.count("math_fraction_bar") == 2

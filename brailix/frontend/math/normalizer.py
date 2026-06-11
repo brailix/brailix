@@ -7,6 +7,17 @@ cases to handle:
 * strip leading / trailing whitespace text nodes inside element runs;
 * collapse single-child ``<mrow>`` wrappers (``<mrow><mi>x</mi></mrow>``
   → ``<mi>x</mi>``);
+* neutralise presentational wrappers: ``<mstyle>`` / ``<mpadded>``
+  (typographic hints only — latex2mathml wraps every ``\\displaystyle``
+  formula in one) are renamed to ``<mrow>`` so their content keeps
+  flowing through ordinary dispatch, and ``<mspace>`` / ``<mphantom>``
+  (print-space occupiers with no braille meaning) are removed;
+* drop invisible-operator ``<mo>`` elements (U+2061 function application
+  / U+2062 invisible times / U+2063 invisible separator / U+2064
+  invisible plus — the OMML ``m:func`` adapter emits U+2061): they
+  render as nothing in print and braille alike, and removing them keeps
+  sibling shapes uniform for the backend (a function name directly
+  precedes its argument);
 * drop the MathML XML namespace from every element tag so callers can
   match on bare local names (``mi``, ``mrow``, ...) instead of
   Clark-notation names.
@@ -43,6 +54,7 @@ def normalize(mathml: str) -> ET.Element:
     except ET.ParseError as e:
         root = ET.fromstring(merror_wrap(mathml, reason=f"parse error: {e}"))
     strip_namespace(root)
+    _drop_presentational(root)
     _collapse_singleton_mrows(root)
     strip_whitespace_text(root)
     _flag_repeated_operators(root)
@@ -52,6 +64,62 @@ def normalize(mathml: str) -> ET.Element:
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+# Unicode invisible operators: FUNCTION APPLICATION, INVISIBLE TIMES,
+# INVISIBLE SEPARATOR, INVISIBLE PLUS. Semantic-MathML markers that render
+# as nothing in print; braille likewise expresses them by juxtaposition
+# (``2x``, mixed numbers, ``sin α``), so an ``<mo>`` holding one is dropped
+# outright. The OMML ``m:func`` adapter emits U+2061 between a function
+# name and its argument.
+_INVISIBLE_OPERATORS: frozenset[str] = frozenset(
+    {"\u2061", "\u2062", "\u2063", "\u2064"}
+)
+
+
+def _is_invisible_mo(elem: ET.Element) -> bool:
+    return (
+        elem.tag == "mo"
+        and len(elem) == 0
+        and (elem.text or "").strip() in _INVISIBLE_OPERATORS
+    )
+
+
+def _drop_presentational(elem: ET.Element) -> None:
+    """In-place: neutralise presentational elements the backend has no
+    handlers for, so real content never degrades to an unknown cell.
+
+    * ``<mstyle>`` / ``<mpadded>`` carry only typographic hints
+      (``displaystyle``, padding tweaks).  They are renamed to
+      ``<mrow>`` — the wrapped content keeps its grouping and flows
+      through ordinary dispatch.  latex2mathml wraps every
+      ``\\displaystyle`` formula in ``<mstyle>``; before this rename
+      the whole formula collapsed into a single unknown cell.
+      Presentational attributes are dropped; ``data-bk-*`` provenance
+      attributes (if an adapter ever sets them here) are kept.
+    * ``<mspace>`` / ``<mphantom>`` exist to occupy *print* space —
+      braille has no use for either (operator spacing is the backend's
+      own profile-driven rule), so they are removed outright, phantom
+      content included (it is invisible by definition).
+    * an ``<mo>`` holding a Unicode invisible operator
+      (:data:`_INVISIBLE_OPERATORS`) is removed: it renders as nothing,
+      and dropping it keeps a function name directly adjacent to its
+      argument — the shape the backend's function-argument fraction
+      rule keys off.
+
+    Runs before :func:`_collapse_singleton_mrows` so a renamed
+    single-child wrapper collapses away like any other ``<mrow>``.
+    """
+    for child in list(elem):
+        if child.tag in ("mspace", "mphantom") or _is_invisible_mo(child):
+            elem.remove(child)
+            continue
+        _drop_presentational(child)
+        if child.tag in ("mstyle", "mpadded"):
+            child.tag = "mrow"
+            for key in [
+                k for k in child.attrib if not k.startswith("data-bk-")
+            ]:
+                del child.attrib[key]
 
 
 def _collapse_singleton_mrows(elem: ET.Element) -> None:
