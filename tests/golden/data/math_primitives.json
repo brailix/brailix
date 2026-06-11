@@ -82,6 +82,8 @@
         {"src": "$a \\ncong b$", "expected": "⠰⠁⠀⠈⠔⠶⠰⠃", "note": "rules §32 not congruent"},
         {"src": "$x \\in A$", "expected": "⠰⠭⠀⠐⠪⠀⠠⠁", "note": "rules §1 ∈ ⠐⠪ spaced both sides"},
         {"src": "$a \\parallel b$", "expected": "⠰⠁⠀⠇⠇⠰⠃", "note": "rules §26 parallel ∥ ⠇⠇"},
+        {"src": "$a \\mid b$", "expected": "⠰⠁⠀⠇⠰⠃", "note": "divides (整除) ∣ ⠇ — space before, none after"},
+        {"src": "$a \\nmid b$", "expected": "⠰⠁⠈⠇⠰⠃", "note": "does not divide (不整除) ∤ ⠈⠇ — no surrounding space"},
         {"src": "$A \\rightarrow B$", "expected": "⠠⠁⠀⠒⠕⠠⠃", "note": "rules §19 → ⠒⠕"},
         {"src": "$A \\leftarrow B$", "expected": "⠠⠁⠀⠪⠒⠠⠃", "note": "rules §20 ← ⠪⠒"},
         {"src": "$A \\Rightarrow B$", "expected": "⠠⠁⠀⠶⠜⠠⠃", "note": "rules §51 ⇒ implies ⠶⠜"},

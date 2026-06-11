@@ -279,7 +279,9 @@ class TestGreek:
 
 
 # ---------------------------------------------------------------------------
-# Matrices & determinants — <mtable> linear notation (《盲文常用数学符号》§十七)
+# Matrices & determinants — <mtable> row-by-row notation (《盲文常用数学符号》
+# §十七 规则1: 按照行的顺序一行接一行的书写 — every print row is one braille
+# LINE, separated by LINE_BREAK_CELL which the unicode renderer emits as \n).
 #
 # Regression lock for the "LaTeX matrix gets squished" worry: latex2mathml
 # (pinned to 3.81.0 in uv.lock) converts a ``\\`` row break into a *separate*
@@ -294,28 +296,27 @@ class TestGreek:
 
 class TestMatrices:
     def test_pmatrix_two_rows_each_parenthesised(self, pipe):
-        # Row 1 ⠣a b⠜ + Row 2 ⠣c d⠜: each row fenced with ⠣(126)…⠜(345),
-        # elements space-separated. Two ⠣…⠜ pairs ⇒ rows kept distinct.
+        # Row 1 ⠣a b⠜ / Row 2 ⠣c d⠜ on its own line: each row fenced with
+        # ⠣(126)…⠜(345), elements space-separated.
         out = render(pipe, r"$\begin{pmatrix} a & b \\ c & d \end{pmatrix}$")
-        assert out == "⠣⠰⠁⠀⠰⠃⠜⠣⠰⠉⠀⠰⠙⠜"
+        assert out == "⠣⠰⠁⠀⠰⠃⠜\n⠣⠰⠉⠀⠰⠙⠜"
 
     def test_plain_matrix_defaults_to_paren(self, pipe):
         # \begin{matrix} carries no fence of its own → parentheses by
         # default, identical to pmatrix.
         out = render(pipe, r"$\begin{matrix} a & b \\ c & d \end{matrix}$")
-        assert out == "⠣⠰⠁⠀⠰⠃⠜⠣⠰⠉⠀⠰⠙⠜"
+        assert out == "⠣⠰⠁⠀⠰⠃⠜\n⠣⠰⠉⠀⠰⠙⠜"
 
     def test_bmatrix_uses_square_brackets(self, pipe):
         # square brackets ⠷(12356)…⠾(23456); digits keep their number sign.
         out = render(pipe, r"$\begin{bmatrix} 1 & 2 \\ 3 & 4 \end{bmatrix}$")
-        assert out == "⠷⠼⠁⠀⠼⠃⠾⠷⠼⠉⠀⠼⠙⠾"
+        assert out == "⠷⠼⠁⠀⠼⠃⠾\n⠷⠼⠉⠀⠼⠙⠾"
 
     def test_vmatrix_determinant_uses_vertical_bars(self, pipe):
         # Determinant: each row fenced with the determinant vertical bar
-        # ⠸(456). Row 1's closing bar and Row 2's opening bar sit adjacent
-        # (⠸⠸).
+        # ⠸(456), one row per line.
         out = render(pipe, r"$\begin{vmatrix} a & b \\ c & d \end{vmatrix}$")
-        assert out == "⠸⠰⠁⠀⠰⠃⠸⠸⠰⠉⠀⠰⠙⠸"
+        assert out == "⠸⠰⠁⠀⠰⠃⠸\n⠸⠰⠉⠀⠰⠙⠸"
 
     def test_three_by_three_keeps_all_three_rows(self, pipe):
         out = render(
@@ -323,19 +324,107 @@ class TestMatrices:
             r"$\begin{matrix} a & b & c \\ d & e & f \\ g & h & i \end{matrix}$",
         )
         assert out == (
-            "⠣⠰⠁⠀⠰⠃⠀⠰⠉⠜⠣⠰⠙⠀⠰⠑⠀⠰⠋⠜⠣⠰⠛⠀⠰⠓⠀⠰⠊⠜"
+            "⠣⠰⠁⠀⠰⠃⠀⠰⠉⠜\n⠣⠰⠙⠀⠰⠑⠀⠰⠋⠜\n⠣⠰⠛⠀⠰⠓⠀⠰⠊⠜"
         )
 
     def test_rows_are_not_merged_structurally(self, pipe):
         # The specific anti-"squish" invariant, independent of cell
-        # encoding: each row contributes one open + one close fence, so a
-        # 3-row matrix yields 6 per-row math_delim cells (a squished single
-        # row would yield only 2).
+        # encoding: each row contributes one open + one close fence plus
+        # a line break between rows, so a 3-row matrix yields 6 per-row
+        # math_delim cells and 2 line_break sentinels (a squished single
+        # row would yield 2 and 0).
         cells = pipe.translate_text(
             r"$\begin{matrix} a & b \\ c & d \\ e & f \end{matrix}$"
         ).braille_ir.blocks[0].cells
         fences = [c for c in cells if c.role == "math_delim"]
         assert len(fences) == 6
+        breaks = [c for c in cells if c.role == "line_break"]
+        assert len(breaks) == 2
+
+
+class TestEquationSystems:
+    """Equation systems (\\begin{cases} / \\left\\{…\\right.) — a ``{``
+    prefix fence with no visible closing fence. Each print row is one
+    braille line, prefixed with the matching segment of the multi-line
+    brace — ⠎(234) first row, ⠇(123) middle rows, ⠣(126) last row — no
+    row-end marker. A bare ``\\\\`` outside a table environment
+    (latex2mathml: <mspace linebreak="newline">) is the same forced
+    line break."""
+
+    def test_cases_two_rows(self, pipe):
+        # Line 1 ⠎ x+y=1 / Line 2 ⠣ x−y=3 — one blank cell after each
+        # brace segment (they are marks, not brackets).
+        out = render(pipe, r"$\begin{cases}x+y=1 \\ x-y=3\end{cases}$")
+        assert out == "⠎⠀⠰⠭⠀⠖⠰⠽⠀⠶⠼⠁\n⠣⠀⠰⠭⠀⠤⠰⠽⠀⠶⠼⠉"
+
+    def test_left_brace_array_three_rows(self, pipe):
+        # The \left\{…\right. spelling of the same structure; three rows
+        # exercise the middle segment ⠇. \right. arrives as an
+        # empty-text postfix <mo> and is consumed silently.
+        out = render(
+            pipe,
+            r"$\left\{\begin{array}{l}x=1 \\ y=2 \\ z=3\end{array}\right.$",
+        )
+        assert out == (
+            "⠎⠀⠰⠭⠀⠶⠼⠁\n⠇⠀⠰⠽⠀⠶⠼⠃\n⠣⠀⠰⠵⠀⠶⠼⠉"
+        )
+
+    def test_linear_system_in_unknowns(self, pipe):
+        # The motivating real-world shape: a 3-equation linear system in
+        # x₁ x₂ x₃ with parenthesised coefficients — row-internal
+        # parentheses ⠣…⠜ coexist with the ⠣ last-row segment.
+        out = render(
+            pipe,
+            r"$\left\{\begin{array}{l}a x_{1}+x_{2}+x_{3}=1 \\"
+            r" x_{1}+a x_{2}+x_{3}=a \\"
+            r" 2 x_{1}+(1+a) x_{2}+(1+a) x_{3}=a(1+a)\end{array}\right.$",
+        )
+        assert out == (
+            "⠎⠀⠰⠁⠰⠭⠡⠂⠀⠖⠰⠭⠡⠆⠀⠖⠰⠭⠡⠒⠀⠶⠼⠁"
+            "\n⠇⠀⠰⠭⠡⠂⠀⠖⠰⠁⠰⠭⠡⠆⠀⠖⠰⠭⠡⠒⠀⠶⠰⠁"
+            "\n⠣⠀⠼⠃⠰⠭⠡⠂⠀⠖⠣⠼⠁⠀⠖⠰⠁⠜⠰⠭⠡⠆"
+            "⠀⠖⠣⠼⠁⠀⠖⠰⠁⠜⠰⠭⠡⠒⠀⠶⠰⠁⠣⠼⠁⠀⠖⠰⠁⠜"
+        )
+
+    def test_single_row_cases_degrades_to_plain_brace(self, pipe):
+        # A one-row "system" prints as an ordinary one-line { → the
+        # plain left brace ⠪(246), no segment markers, no line break.
+        out = render(pipe, r"$\begin{cases}x=1\end{cases}$")
+        assert out == "⠪⠰⠭⠀⠶⠼⠁"
+
+    def test_paired_braces_stay_ordinary_delimiters(self, pipe):
+        # \left\{…\right\} has a REAL closing brace — not a cases form.
+        # Current behaviour locked: brace pair around default
+        # parenthesised per-line rows.
+        out = render(
+            pipe,
+            r"$\left\{\begin{array}{l}x \\ y\end{array}\right\}$",
+        )
+        assert out == "⠪⠣⠰⠭⠜\n⠣⠰⠽⠜⠕"
+
+    def test_bare_double_backslash_line_break(self, pipe):
+        # a \\ b outside any table environment → forced line break.
+        out = render(pipe, r"$a \\ b$")
+        assert out == "⠰⠁\n⠰⠃"
+
+    def test_overwide_row_hangs_two_cells_under_layout(self, pipe):
+        # §17 规则1: a row that doesn't fit the line continues on the
+        # next, indented two cells. The third equation of the
+        # motivating system overflows 40 cells; rows 1-2 keep their own
+        # lines at the margin.
+        from brailix.renderer.layout import LayoutOptions, LayoutRenderer
+
+        result = pipe.translate_text(
+            r"$\left\{\begin{array}{l}a x_{1}+x_{2}+x_{3}=1 \\"
+            r" x_{1}+a x_{2}+x_{3}=a \\"
+            r" 2 x_{1}+(1+a) x_{2}+(1+a) x_{3}=a(1+a)\end{array}\right.$"
+        )
+        laid = LayoutRenderer(
+            options=LayoutOptions(line_width=40, paragraph_indent=0)
+        )
+        lines = laid.render(result.braille_ir).split("\n")
+        assert [line[0] for line in lines[:3]] == ["⠎", "⠇", "⠣"]
+        assert lines[3] == "⠀⠀⠶⠰⠁⠣⠼⠁⠀⠖⠰⠁⠜"
 
 
 class TestVectors:
@@ -599,5 +688,7 @@ class TestRenderedCodepoints:
         rendered = render(pipe, src)
         assert rendered  # non-empty
         for ch in rendered:
+            if ch == "\n":  # forced line break (matrix rows)
+                continue
             cp = ord(ch)
             assert 0x2800 <= cp <= 0x28FF, f"non-braille char in {src!r}: U+{cp:04X}"

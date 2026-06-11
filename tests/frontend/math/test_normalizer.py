@@ -28,10 +28,12 @@ class TestPresentationalWrappers:
     """``<mstyle>`` / ``<mpadded>`` are renamed to ``<mrow>`` (typographic
     hints only — latex2mathml wraps every ``\\displaystyle`` formula in
     one); ``<mspace>`` / ``<mphantom>`` are removed (print-space
-    occupiers with no braille meaning).  Regression guard: these used to
-    reach the backend's unsupported-element fallback, which drops the
-    whole subtree — a ``\\displaystyle`` fraction vanished into a single
-    unknown cell."""
+    occupiers with no braille meaning) — except
+    ``<mspace linebreak="newline">``, latex2mathml's output for a bare
+    ``\\\\`` line break, which separates content and is kept for the
+    backend.  Regression guard: these used to reach the backend's
+    unsupported-element fallback, which drops the whole subtree — a
+    ``\\displaystyle`` fraction vanished into a single unknown cell."""
 
     def test_mstyle_renamed_to_mrow_and_collapsed(self):
         root = normalize(
@@ -72,6 +74,18 @@ class TestPresentationalWrappers:
             "<mphantom><mi>c</mi></mphantom></math>"
         )
         assert _tags(root) == ["math", "mi", "mi"]
+
+    def test_newline_mspace_kept(self):
+        # A bare ``\\`` line break (latex2mathml: <mspace
+        # linebreak="newline">) separates content — dropping it would
+        # fuse the flanking expressions. The backend renders it as a
+        # blank-cell separator.
+        root = normalize(
+            "<math><mi>a</mi>"
+            '<mspace linebreak="newline" /><mi>b</mi></math>'
+        )
+        assert _tags(root) == ["math", "mi", "mspace", "mi"]
+        assert root[1].get("linebreak") == "newline"
 
     def test_phantom_inside_style_unwraps_cleanly(self):
         root = normalize(

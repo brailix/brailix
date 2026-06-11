@@ -16,6 +16,9 @@ from __future__ import annotations
 
 from brailix.ir.braille import (
     BLANK_CELL,
+    HANG_CLOSE_CELL,
+    HANG_OPEN_CELL,
+    LINE_BREAK_CELL,
     BrailleBlock,
     BrailleCell,
     BrailleDocument,
@@ -64,6 +67,9 @@ from brailix.ir.inline import (
 __all__ = (
     # braille
     "BLANK_CELL",
+    "HANG_CLOSE_CELL",
+    "HANG_OPEN_CELL",
+    "LINE_BREAK_CELL",
     "BrailleBlock",
     "BrailleCell",
     "BrailleDocument",

@@ -157,6 +157,15 @@ class LayoutOptions:
     # or for non-text streams (raw cell arrays in tests).
     continuation_hyphen: tuple[int, ...] | None = (3, 6)
 
+    # Hanging indent applied to WIDTH-overflow continuation lines inside
+    # a ``hang_open`` … ``hang_close`` region (the math backend brackets
+    # every matrix / determinant / equation system in those sentinels).
+    # 《盲文常用数学符号》§17 规则1: a table row that doesn't fit on one
+    # line continues on the next indented by two cells. Forced row
+    # breaks (``line_break`` cells) still start at the block's own
+    # indent — only overflow continuations hang.
+    hang_region_indent: int = 2
+
     # Block kinds we copy through verbatim (no wrap, no indent). Tables
     # rely on backend-emitted spacing; code blocks must stay exact.
     # ``score`` / ``music_block`` are deliberately NOT here — they go
@@ -434,8 +443,22 @@ class LayoutRenderer:
         lines: list[list[BrailleCell]] = []
         cur: list[BrailleCell] = [BLANK_CELL] * first_indent
         cur_indent = first_indent
+        # Depth of nested hang_open…hang_close regions (matrix /
+        # equation-system bodies). While > 0, WIDTH-overflow breaks
+        # continue at ``hang_region_indent`` instead of ``cont_indent``.
+        hang_depth = 0
 
-        def flush_line(*, with_hyphen: bool) -> None:
+        def overflow_indent() -> int | None:
+            """Continuation indent for a width-overflow break — the
+            hang region's indent inside one, the block default (None)
+            outside."""
+            return opts.hang_region_indent if hang_depth > 0 else None
+
+        def flush_line(
+            *, with_hyphen: bool, next_indent: int | None = None
+        ) -> None:
+            """Close out ``cur``; the next line starts indented by
+            ``next_indent`` (None → the block's ``cont_indent``)."""
             nonlocal cur, cur_indent
             # Strip trailing blanks for tidiness.
             while cur and cur[-1].is_blank:
@@ -443,8 +466,9 @@ class LayoutRenderer:
             if with_hyphen and hyphen_cell is not None:
                 cur.append(hyphen_cell)
             lines.append(cur)
-            cur = [BLANK_CELL] * cont_indent
-            cur_indent = cont_indent
+            indent = cont_indent if next_indent is None else next_indent
+            cur = [BLANK_CELL] * indent
+            cur_indent = indent
 
         def place_atoms(atoms: list[list[BrailleCell]]) -> None:
             """Place a run of atoms ("one word") onto the output.
@@ -467,7 +491,7 @@ class LayoutRenderer:
             # Try a fresh line — that break is at a blank-equivalent
             # boundary (whatever preceded the word), no hyphen.
             if len(cur) > cur_indent:
-                flush_line(with_hyphen=False)
+                flush_line(with_hyphen=False, next_indent=overflow_indent())
                 remaining = opts.line_width - len(cur)
                 if total <= remaining:
                     for atom in atoms:
@@ -488,7 +512,9 @@ class LayoutRenderer:
                 if placed > 0:
                     for atom in atoms[:placed]:
                         cur.extend(atom)
-                    flush_line(with_hyphen=True)
+                    flush_line(
+                        with_hyphen=True, next_indent=overflow_indent()
+                    )
                     place_atoms(atoms[placed:])
                     return
                 # Even the first atom alone doesn't fit when we
@@ -502,7 +528,9 @@ class LayoutRenderer:
                 slot_no_hyphen = opts.line_width - len(cur)
                 if len(atoms[0]) <= slot_no_hyphen:
                     cur.extend(atoms[0])
-                    flush_line(with_hyphen=False)
+                    flush_line(
+                        with_hyphen=False, next_indent=overflow_indent()
+                    )
                     place_atoms(atoms[1:])
                     return
                 # First atom truly exceeds line_width — fall through
@@ -520,7 +548,9 @@ class LayoutRenderer:
                     # is guaranteed.
                     slot = opts.line_width - len(cur)
                     if slot <= 0:
-                        flush_line(with_hyphen=False)
+                        flush_line(
+                            with_hyphen=False, next_indent=overflow_indent()
+                        )
                         slot = opts.line_width - len(cur)
                     # A continuation indent >= line_width leaves slot <= 0
                     # even on a fresh line; force at least one cell so
@@ -531,12 +561,16 @@ class LayoutRenderer:
                     take, rest_cells = rest_cells[:slot], rest_cells[slot:]
                     cur.extend(take)
                     if rest_cells:
-                        flush_line(with_hyphen=False)
+                        flush_line(
+                            with_hyphen=False, next_indent=overflow_indent()
+                        )
                     continue
                 take, rest_cells = rest_cells[:slot], rest_cells[slot:]
                 cur.extend(take)
                 if rest_cells:
-                    flush_line(with_hyphen=True)
+                    flush_line(
+                        with_hyphen=True, next_indent=overflow_indent()
+                    )
             if len(atoms) > 1:
                 place_atoms(atoms[1:])
 
@@ -566,6 +600,30 @@ class LayoutRenderer:
                 pending_word.clear()
 
         for cell in cells:
+            if cell.role == "line_break":
+                # Forced in-block break (matrix / equation-system row
+                # boundary, bare ``\\``): flush whatever is pending and
+                # start a fresh line — no continuation hyphen, the break
+                # is content, not overflow, so the next row starts at
+                # the block's own indent (NOT the hang indent). Checked
+                # before ``is_blank`` (the sentinel has no dots, so it
+                # IS blank).
+                commit_word()
+                flush_line(with_hyphen=False)
+                continue
+            if cell.role == "hang_open":
+                # Width-overflow continuations hang from here on
+                # (matrix / equation-system body). Zero-width — commit
+                # the preceding word at the old depth, print nothing.
+                commit_word()
+                hang_depth += 1
+                continue
+            if cell.role == "hang_close":
+                # Commit the table's last word while still inside the
+                # region (its overflow continuation must hang too).
+                commit_word()
+                hang_depth = max(0, hang_depth - 1)
+                continue
             if cell.is_blank:
                 commit_word()
                 # Append the blank as a separator if there's content;

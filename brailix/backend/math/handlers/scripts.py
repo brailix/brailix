@@ -136,9 +136,11 @@ def _emit_regular_script(
     sub: ET.Element | None,
     sup: ET.Element | None,
 ) -> None:
-    """Regular sub/sup: ``base + sup_marker + sup_content [+ close] + sub_marker
-    + sub_content [+ close]``. Close is skipped when the content is atomic
-    AND the ``math.simplify_script`` feature is on.
+    """Regular sub/sup: ``base + sub_marker + sub_content [+ close] +
+    sup_marker + sup_content [+ close]`` — when both scripts are present
+    the subscript is written first (x_1^2 → x ⠡⠂ ⠌⠆). Close is skipped
+    when the content is atomic AND the ``math.simplify_script`` feature
+    is on.
 
     Single-digit script content uses the Antoine lower-form digit (no
     number_sign, no close marker) when ``math.atomic_script_lower_digit``
@@ -148,11 +150,19 @@ def _emit_regular_script(
     simplify = profile.feature("math.simplify_script", True)
     if base is not None:
         _emit_element(cells, mctx, base)
+    if sub is not None:
+        _emit_structure(cells, mctx, "script.sub", role="math_subscript")
+        if not _try_emit_atomic_lower_digit(cells, mctx, sub):
+            mctx.need_number_sign = True
+            _emit_element(cells, mctx, sub)
+            if not (simplify and _is_atomic(sub)):
+                _emit_structure(cells, mctx, "script.close", role="math_script_close")
     if sup is not None:
         if _is_accent_leaf(mctx, sup):
             # Postfix mark (prime ′) — NOT an exponent: skip the indicator
             # ⠌ and close; the mark's cells carry their own upper-right mark
-            # (⠨⠔). So x' = x + ⠨⠔, not x + ⠌ + ⠨⠔.
+            # (⠨⠔). So x' = x + ⠨⠔, not x + ⠌ + ⠨⠔. Order-wise it fills
+            # the superscript slot like any sup: subscript first, mark after.
             _emit_accent_char(cells, mctx, (sup.text or "").strip())
         else:
             _emit_structure(cells, mctx, "script.sup", role="math_superscript")
@@ -161,13 +171,6 @@ def _emit_regular_script(
                 _emit_element(cells, mctx, sup)
                 if not (simplify and _is_atomic(sup)):
                     _emit_structure(cells, mctx, "script.close", role="math_script_close")
-    if sub is not None:
-        _emit_structure(cells, mctx, "script.sub", role="math_subscript")
-        if not _try_emit_atomic_lower_digit(cells, mctx, sub):
-            mctx.need_number_sign = True
-            _emit_element(cells, mctx, sub)
-            if not (simplify and _is_atomic(sub)):
-                _emit_structure(cells, mctx, "script.close", role="math_script_close")
     mctx.need_number_sign = True
 
 
