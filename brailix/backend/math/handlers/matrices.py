@@ -1,8 +1,16 @@
-"""Matrix / determinant handlers for the math backend.
+"""Matrix / determinant / equation-system handlers for the math backend.
 
-Implements 《盲文常用数学符号》§17 linear notation for ``<mtable>`` — both the
-fenced form (``<mo>(</mo><mtable/><mo>)</mo>`` and its ``[]`` / ``||``
-variants, recognised inside a child sequence) and the bare ``<mtable>``.
+Implements 《盲文常用数学符号》§17 row-by-row notation for ``<mtable>`` —
+the fenced form (``<mo>(</mo><mtable/><mo>)</mo>`` and its ``[]`` / ``||``
+variants, recognised inside a child sequence), the bare ``<mtable>``, and
+the equation-system form (``\\begin{cases}`` / ``\\left\\{…\\right.``):
+a ``{`` prefix fence with **no** closing fence, where each braille row is
+prefixed with the matching segment of the multi-line brace — ⠎ (234) first
+row, ⠇ (123) middle rows, ⠣ (126) last row — with no row-end marker.
+
+Every print row lands on its own braille line: rows are separated by
+:data:`~brailix.ir.braille.LINE_BREAK_CELL`, which the renderers turn
+into a real line break (§17 规则1 "按照行的顺序一行接一行的书写").
 
 Cross-imports :func:`_emit_as_mo` from :mod:`.leaves` to emit the per-row
 delimiters through the shared ``<mo>`` machinery.
@@ -15,8 +23,18 @@ import xml.etree.ElementTree as ET
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.dispatch import _emit_element
 from brailix.backend.math.handlers.leaves import _emit_as_mo
-from brailix.backend.math.utils import _is_function_head, _is_typed_slash_mrow
-from brailix.ir.braille import BLANK_CELL, BrailleCell
+from brailix.backend.math.utils import (
+    _emit_structure,
+    _is_function_head,
+    _is_typed_slash_mrow,
+)
+from brailix.ir.braille import (
+    BLANK_CELL,
+    HANG_CLOSE_CELL,
+    HANG_OPEN_CELL,
+    LINE_BREAK_CELL,
+    BrailleCell,
+)
 
 # Fence chars that delimit a matrix / determinant. The matching close char
 # is taken from the actual sibling <mo>, so we only need membership sets to
@@ -30,6 +48,16 @@ def _is_fence_mo(node: ET.Element | None, charset: frozenset[str]) -> bool:
         node is not None
         and node.tag == "mo"
         and (node.text or "").strip() in charset
+    )
+
+
+def _is_empty_mo(node: ET.Element | None) -> bool:
+    """A fence ``<mo>`` with no text — latex2mathml's ``\\right.``
+    placeholder (invisible right delimiter)."""
+    return (
+        node is not None
+        and node.tag == "mo"
+        and not (node.text or "").strip()
     )
 
 
@@ -69,6 +97,21 @@ def _emit_children_with_matrix(
             prev = kids[i + 2]
             i += 3
             continue
+        if (
+            i + 1 < n
+            and kids[i + 1].tag == "mtable"
+            and _is_fence_mo(kids[i], frozenset({"{"}))
+            and (i + 2 >= n or _is_empty_mo(kids[i + 2]))
+        ):
+            # Equation system (\begin{cases} / \left\{…\right.): an
+            # opening brace with no visible closing fence. latex2mathml
+            # emits no postfix <mo> for the cases environment and an
+            # empty-text postfix <mo> for \right. — consume it either way.
+            _emit_mtable_cases(cells, mctx, kids[i + 1])
+            consumed = 3 if i + 2 < n else 2
+            prev = kids[i + consumed - 1]
+            i += consumed
+            continue
         kid = kids[i]
         if (
             kid.tag == "mfrac" or _is_typed_slash_mrow(kid)
@@ -86,29 +129,92 @@ def _emit_mtable_linear(
     open_char: str,
     close_char: str,
 ) -> None:
-    """《盲文常用数学符号》§17 linear notation: write row by row, each row
-    enclosed in paired delimiters (parentheses ⠣⠜ / square brackets ⠷⠾ /
-    determinant vertical bars ⠸⠸), elements within a row separated by blank
-    cells, rows laid out in sequence (no forced line breaks — the renderer
-    wraps naturally by line width). The delimiter cells reuse the profile's
-    lpar/rpar/lbrack/rbrack/verbar symbols. Block matrices / diagonal
-    shorthand / two-dimensional layout are deferred."""
+    """《盲文常用数学符号》§17 row-by-row notation: each print row is one
+    braille line (LINE_BREAK_CELL between rows — §17 规则1 "一行接一行的
+    书写"), enclosed in paired delimiters (parentheses ⠣⠜ / square
+    brackets ⠷⠾ / determinant vertical bars ⠸⠸), elements within a row
+    separated by blank cells. The whole table is bracketed in
+    HANG_OPEN/CLOSE so a row the layout must break for width continues
+    with the hanging indent (§17 规则1: 某一行写不完，下一行空两方继续).
+    Content before the first row / after the last row stays on those
+    rows' lines (§17 规则5: trailing operators attach to the last row).
+    The delimiter cells reuse the profile's lpar/rpar/lbrack/rbrack/
+    verbar symbols. Block matrices / diagonal shorthand /
+    two-dimensional layout are deferred."""
+    cells.append(HANG_OPEN_CELL)
+    first_row = True
     for row in mtable:
         if row.tag != "mtr":
             continue
+        if not first_row:
+            cells.append(LINE_BREAK_CELL)
+        first_row = False
         _emit_as_mo(cells, mctx, open_char)
         mctx.need_number_sign = True
-        first = True
-        for tcell in row:
-            if tcell.tag != "mtd":
-                continue
-            if not first:
-                cells.append(BLANK_CELL)
-                mctx.need_number_sign = True
-            first = False
-            for child in list(tcell):
-                _emit_element(cells, mctx, child)
+        _emit_row_cells(cells, mctx, row)
         _emit_as_mo(cells, mctx, close_char)
+    cells.append(HANG_CLOSE_CELL)
+    mctx.need_number_sign = True
+
+
+def _emit_row_cells(
+    cells: list[BrailleCell], mctx: MathBrailleContext, row: ET.Element
+) -> None:
+    """Emit one ``<mtr>``'s cells: ``<mtd>`` contents in order, blank-cell
+    separated (the §17 element separator within a row)."""
+    first = True
+    for tcell in row:
+        if tcell.tag != "mtd":
+            continue
+        if not first:
+            cells.append(BLANK_CELL)
+            mctx.need_number_sign = True
+        first = False
+        for child in list(tcell):
+            _emit_element(cells, mctx, child)
+
+
+def _emit_mtable_cases(
+    cells: list[BrailleCell], mctx: MathBrailleContext, mtable: ET.Element
+) -> None:
+    """Equation system: a ``{``-fenced ``<mtable>`` with no closing fence
+    (``\\begin{cases}`` / ``\\left\\{…\\right.``).
+
+    The print brace spans every row; braille splits it into its segments,
+    one per row head — ⠎ (``cases.first``) on the first row, ⠇
+    (``cases.middle``) on each middle row, ⠣ (``cases.last``) on the
+    last, each followed by one blank cell (the segments are MARKS, not
+    brackets — written solid they would read as the letters s / l / a
+    cell shapes) — each row on its own line (LINE_BREAK_CELL between
+    rows), no row-end marker, the whole system bracketed in
+    HANG_OPEN/CLOSE so an over-wide row continues with the hanging
+    indent. A single-row table degrades to the plain left brace ⠪ (an
+    ordinary bracket — no blank after it): the print form is an
+    ordinary one-line ``{``, not a multi-line brace.
+    """
+    rows = [row for row in mtable if row.tag == "mtr"]
+    if len(rows) == 1:
+        _emit_as_mo(cells, mctx, "{")
+        mctx.need_number_sign = True
+        _emit_row_cells(cells, mctx, rows[0])
+        mctx.need_number_sign = True
+        return
+    cells.append(HANG_OPEN_CELL)
+    last = len(rows) - 1
+    for idx, row in enumerate(rows):
+        if idx:
+            cells.append(LINE_BREAK_CELL)
+        if idx == 0:
+            segment = "cases.first"
+        elif idx == last:
+            segment = "cases.last"
+        else:
+            segment = "cases.middle"
+        _emit_structure(cells, mctx, segment, role="math_delim")
+        cells.append(BLANK_CELL)
+        mctx.need_number_sign = True
+        _emit_row_cells(cells, mctx, row)
+    cells.append(HANG_CLOSE_CELL)
     mctx.need_number_sign = True
 
 

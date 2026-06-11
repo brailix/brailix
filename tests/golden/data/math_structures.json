@@ -80,6 +80,16 @@
         {"src": "$y^\\pi$", "expected": "⠰⠽⠌⠨⠏", "note": "y to pi: atomic sup is greek letter"},
         {"src": "$x_{-1}$", "expected": "⠰⠭⠡⠀⠤⠼⠁⠱", "note": "x sub minus 1: minus + 1 wrapped with close"}
       ]
+    },
+    "equation_systems": {
+      "description": "\\begin{cases} / \\left\\{…\\right. — {-fenced <mtable> with no closing fence; per-row brace segments ⠎(first)/⠇(middle)/⠣(last) each followed by one blank cell, one print row per braille line (LINE_BREAK_CELL → \\n)",
+      "cases": [
+        {"src": "$\\begin{cases}x+y=1 \\\\ x-y=3\\end{cases}$", "expected": "⠎⠀⠰⠭⠀⠖⠰⠽⠀⠶⠼⠁\n⠣⠀⠰⠭⠀⠤⠰⠽⠀⠶⠼⠉", "note": "two rows: first ⠎ + last ⠣, no middle segment, one line each, blank after each segment"},
+        {"src": "$\\left\\{\\begin{array}{l}x=1 \\\\ y=2 \\\\ z=3\\end{array}\\right.$", "expected": "⠎⠀⠰⠭⠀⠶⠼⠁\n⠇⠀⠰⠽⠀⠶⠼⠃\n⠣⠀⠰⠵⠀⠶⠼⠉", "note": "three rows exercise the middle segment ⠇; \\right. arrives as an empty postfix <mo> and is consumed"},
+        {"src": "$\\begin{cases}x=1\\end{cases}$", "expected": "⠪⠰⠭⠀⠶⠼⠁", "note": "single row degrades to the plain left brace ⠪ — print form is a one-line {"},
+        {"src": "$a \\\\ b$", "expected": "⠰⠁\n⠰⠃", "note": "bare \\\\ outside a table env (<mspace linebreak=newline>) → forced line break"},
+        {"src": "$\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$", "expected": "⠣⠰⠁⠀⠰⠃⠜\n⠣⠰⠉⠀⠰⠙⠜", "note": "matrix rows land one per line too (§17 规则1)"}
+      ]
     }
   }
 }

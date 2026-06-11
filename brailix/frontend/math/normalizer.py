@@ -99,7 +99,12 @@ def _drop_presentational(elem: ET.Element) -> None:
     * ``<mspace>`` / ``<mphantom>`` exist to occupy *print* space —
       braille has no use for either (operator spacing is the backend's
       own profile-driven rule), so they are removed outright, phantom
-      content included (it is invisible by definition).
+      content included (it is invisible by definition). The one
+      exception is ``<mspace linebreak="newline">`` — latex2mathml's
+      output for a bare ``\\\\`` line break outside a table environment.
+      That carries content-separating meaning (without it the flanking
+      expressions would fuse), so it is kept for the backend's mspace
+      handler to render as a blank-cell separator.
     * an ``<mo>`` holding a Unicode invisible operator
       (:data:`_INVISIBLE_OPERATORS`) is removed: it renders as nothing,
       and dropping it keeps a function name directly adjacent to its
@@ -110,7 +115,11 @@ def _drop_presentational(elem: ET.Element) -> None:
     single-child wrapper collapses away like any other ``<mrow>``.
     """
     for child in list(elem):
-        if child.tag in ("mspace", "mphantom") or _is_invisible_mo(child):
+        if (
+            (child.tag == "mspace" and child.get("linebreak") != "newline")
+            or child.tag == "mphantom"
+            or _is_invisible_mo(child)
+        ):
             elem.remove(child)
             continue
         _drop_presentational(child)

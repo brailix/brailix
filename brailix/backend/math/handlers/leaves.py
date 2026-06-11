@@ -2,9 +2,9 @@
 
 Covers the atomic MathML leaves — ``<mi>`` (identifier / function name),
 ``<mn>`` (number run), ``<mo>`` (operator / relation / delimiter / shape /
-big-op symbol), and ``<mtext>`` (literal text) — plus the tiny
-``_emit_as_mo`` shim that lets other paths feed a bare string through the
-``<mo>`` machinery.
+big-op symbol), ``<mspace>`` (forced line break), and ``<mtext>`` (literal
+text) — plus the tiny ``_emit_as_mo`` shim that lets other paths feed a
+bare string through the ``<mo>`` machinery.
 
 This module is a dispatch sink: it imports nothing from sibling handler
 submodules.
@@ -28,7 +28,7 @@ from brailix.backend.math.utils import (
     _previous_suppresses_space_before,
     _unknown_cell,
 )
-from brailix.ir.braille import BLANK_CELL, BrailleCell
+from brailix.ir.braille import BLANK_CELL, LINE_BREAK_CELL, BrailleCell
 
 # Math <mn> digit runs are labelled "math_digit"; the shared emitter owns
 # the number-sign / decimal / thousands / full-width-digit logic.
@@ -407,6 +407,25 @@ def _emit_mo(
         mctx.need_number_sign = True
 
 
+def _emit_mspace(
+    cells: list[BrailleCell], mctx: MathBrailleContext, elem: ET.Element
+) -> None:
+    """``<mspace linebreak="newline">`` — a forced line break (bare
+    ``\\\\`` outside a table environment).
+
+    Emits :data:`LINE_BREAK_CELL`, which the renderers turn into a real
+    line break — the same sentinel matrix / equation-system rows use.
+    Consecutive breaks collapse to one. Width-only ``<mspace>`` (print
+    spacing) is dropped by the normalizer and never reaches dispatch;
+    ignore it defensively for direct backend feeds.
+    """
+    if elem.get("linebreak") != "newline":
+        return
+    if not (cells and cells[-1].role == "line_break"):
+        cells.append(LINE_BREAK_CELL)
+    mctx.need_number_sign = True
+
+
 def _emit_mtext(
     cells: list[BrailleCell], mctx: MathBrailleContext, elem: ET.Element
 ) -> None:
@@ -496,5 +515,6 @@ _DISPATCH_PARTIAL = {
     "mi": _emit_mi,
     "mn": _emit_mn,
     "mo": _emit_mo,
+    "mspace": _emit_mspace,
     "mtext": _emit_mtext,
 }

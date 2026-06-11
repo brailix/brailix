@@ -14,11 +14,12 @@ avoid a dispatch ↔ handlers cycle.
 Subpackage map (per MathML element family):
 
 * :mod:`.containers` — ``<math>`` root / ``<mrow>`` (+ typed-slash fractions)
-* :mod:`.leaves`     — ``<mi>`` / ``<mn>`` / ``<mo>`` / ``<mtext>`` (+ the
-  ``_emit_as_mo`` shim)
+* :mod:`.leaves`     — ``<mi>`` / ``<mn>`` / ``<mo>`` / ``<mspace>`` /
+  ``<mtext>`` (+ the ``_emit_as_mo`` shim)
 * :mod:`.fractions`  — ``<mfrac>`` (+ Antoine / typed-slash fraction paths)
 * :mod:`.roots`      — ``<msqrt>`` / ``<mroot>``
-* :mod:`.matrices`   — ``<mtable>`` linear notation (fenced + bare)
+* :mod:`.matrices`   — ``<mtable>`` linear notation (fenced + bare +
+  equation-system ``{``-only form)
 * :mod:`.scripts`    — ``<msub>`` / ``<msup>`` / ``<msubsup>`` +
   ``<munder>`` / ``<mover>`` / ``<munderover>`` dispatch
 * :mod:`.accents`    — ``accent="true"`` under/over variants (no top-level tag)
