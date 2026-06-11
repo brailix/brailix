@@ -252,12 +252,26 @@ class TestScriptsExtras:
             profile,
         )
         r = roles(cells)
-        # Order in our handler: base, sup, sub.
-        sup_at = r.index("math_superscript")
+        # Subscript is written first, then the superscript (x_1^2 → x ⠡⠂ ⠌⠆).
         sub_at = r.index("math_subscript")
-        assert sup_at < sub_at
+        sup_at = r.index("math_superscript")
+        assert sub_at < sup_at
         # Both atomic so no close.
         assert "math_script_close" not in r
+
+    def test_msubsup_prime_after_subscript(self, profile):
+        # x'_1 — the prime fills the superscript slot, so the order is the
+        # same as any msubsup: subscript first, then the prime cells (⠨⠔).
+        # It is still a mark, not an exponent: no ⠌ indicator, no close.
+        cells, _ = emit(
+            mml("<math><msubsup><mi>x</mi><mn>1</mn><mo>′</mo></msubsup></math>"),
+            profile,
+        )
+        r = roles(cells)
+        assert "math_superscript" not in r
+        sub_at = r.index("math_subscript")
+        accent_at = r.index("math_accent")
+        assert sub_at < accent_at
 
     def test_msup_simplify_off_emits_close(self, profile, monkeypatch):
         # Use a non-digit (identifier) script content so the Antoine
