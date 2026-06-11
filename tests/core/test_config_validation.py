@@ -150,21 +150,27 @@ class TestProfileLookupErrors:
             load_profile("anything", root=tmp_path)
         assert "no profiles found" in str(ei.value)
 
-    def test_malformed_profile_json_raises_decode_error(self, tmp_path):
-        # Truncated / invalid JSON should fail with a clear parse error,
-        # not silently behave as if the file were empty.
+    def test_malformed_profile_json_raises_configuration_error(self, tmp_path):
+        # Truncated / invalid JSON is the single most common authoring
+        # mistake and must surface as the documented ConfigurationError
+        # carrying the file path — NOT a raw json.JSONDecodeError that
+        # dodges the framework's catch-all.  (This test used to lock the
+        # raw-exception leak in as expected behaviour.)
         (tmp_path / "profiles").mkdir()
         (tmp_path / "profiles" / "broken.json").write_text(
             "{ this isn't valid json",
             encoding="utf-8",
         )
-        with pytest.raises(json.JSONDecodeError):
+        with pytest.raises(ConfigurationError) as ei:
             load_profile("broken", root=tmp_path)
+        assert "broken.json" in str(ei.value)
 
-    def test_missing_referenced_table_file_raises(self, tmp_path):
-        # The profile references a tables file that doesn't exist on disk.
-        # The loader must surface the missing path, not silently emit
-        # an empty profile.
+    def test_missing_referenced_table_file_raises_configuration_error(
+        self, tmp_path
+    ):
+        # The profile references a tables file that doesn't exist on
+        # disk: surface the missing path as ConfigurationError, not a
+        # raw FileNotFoundError.
         prof_dir = tmp_path / "profiles"
         prof_dir.mkdir()
         (prof_dir / "demo.json").write_text(
@@ -176,8 +182,32 @@ class TestProfileLookupErrors:
             }),
             encoding="utf-8",
         )
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(ConfigurationError) as ei:
             load_profile("demo", root=tmp_path)
+        assert "cells.json" in str(ei.value)
+
+    def test_table_with_non_object_top_level_raises_configuration_error(
+        self, tmp_path
+    ):
+        # A table whose top level is a JSON array used to blow up later
+        # as a bare AttributeError inside the loader's .items() walk.
+        prof_dir = tmp_path / "profiles"
+        prof_dir.mkdir()
+        (prof_dir / "demo.json").write_text(
+            json.dumps({
+                "name": "demo",
+                "tables": {
+                    "cells": "resources/cells.json",
+                },
+            }),
+            encoding="utf-8",
+        )
+        res_dir = tmp_path / "resources"
+        res_dir.mkdir()
+        (res_dir / "cells.json").write_text("[]", encoding="utf-8")
+        with pytest.raises(ConfigurationError) as ei:
+            load_profile("demo", root=tmp_path)
+        assert "object" in str(ei.value)
 
 
 # ---------------------------------------------------------------------------
