@@ -59,15 +59,37 @@ class TestLatinLetterLookup:
         assert cells[1].source_text == "H"    # H bare cell
         assert cells[2].source_text == "i"    # i bare cell
 
-    def test_acronym_one_upper_prefix_for_whole_word(self, ctx, profile):
-        # "CPU" → latin_upper prefix + C + P + U (4 cells total).
+    def test_acronym_doubled_upper_prefix_for_all_caps_word(self, ctx, profile):
+        # "CPU" → ⠠⠠ (whole-word capitals doubles the sign) + C + P + U
+        # (5 cells total). A single ⠠ now unambiguously means "first
+        # letter only is capital", so CPU and Cpu stay distinguishable.
         cells = translate_latin(LatinAcronym(surface="CPU"), ctx, profile)
-        assert len(cells) == 4
-        assert cells[0].dots == (6,)          # latin_upper prefix
+        assert len(cells) == 5
+        assert cells[0].dots == (6,)          # doubled latin_upper prefix
+        assert cells[1].dots == (6,)
         assert cells[0].source_text == "C"
-        assert cells[1].source_text == "C"
-        assert cells[2].source_text == "P"
-        assert cells[3].source_text == "U"
+        assert cells[2].source_text == "C"
+        assert cells[3].source_text == "P"
+        assert cells[4].source_text == "U"
+
+    def test_all_caps_latin_word_also_doubles_prefix(self, ctx, profile):
+        # The doubling keys off the surface being all-capitals, not off
+        # the LatinAcronym node type — an all-caps LatinWord doubles too.
+        cells = translate_latin(
+            LatinWord(surface="NVDA", span=Span(0, 4)), ctx, profile
+        )
+        assert len(cells) == 6
+        assert cells[0].dots == (6,)
+        assert cells[1].dots == (6,)
+
+    def test_two_letter_all_caps_doubles_but_single_capital_does_not(
+        self, ctx, profile
+    ):
+        # "AB" → ⠠⠠⠁⠃; a lone "A" keeps the single ⠠.
+        ab = translate_latin(LatinWord(surface="AB", span=Span(0, 2)), ctx, profile)
+        assert [c.dots for c in ab] == [(6,), (6,), (1,), (1, 2)]
+        a = translate_latin(LatinWord(surface="A", span=Span(0, 1)), ctx, profile)
+        assert [c.dots for c in a] == [(6,), (1,)]
 
     def test_mid_word_capital_emits_bare_no_extra_prefix(self, ctx, profile):
         # "McDonald" → upper prefix + M + c + D + o + n + a + l + d

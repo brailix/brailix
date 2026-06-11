@@ -979,15 +979,18 @@ class TestFunctionNameCoalesce:
         name_cells = [c for c in cells if c.role == "math_function_name"]
         assert [c.dots for c in name_cells] == [(2, 3, 4), (1, 2, 5)]
 
-    def test_unknown_letters_left_alone(self, profile):
-        # x + y + z  →  no function match, stays letter-by-letter
+    def test_unknown_letters_merge_into_one_letter_run(self, profile):
+        # x + y + z  →  no function match; the adjacent letters merge
+        # into one run sharing a single latin-lower sign
+        # (《盲文常用数学符号》二.规则1): ⠰ + x + y + z.
         cells, _ = emit(
             mml("<math><mi>x</mi><mi>y</mi><mi>z</mi></math>"), profile
         )
         roles = [c.role for c in cells]
         assert "math_function_prefix" not in roles
-        # Each letter brings its own latin-lower prefix.
-        assert roles.count("math_identifier") == 6
+        assert [c.dots for c in cells] == [
+            (5, 6), (1, 3, 4, 6), (1, 3, 4, 5, 6), (1, 3, 5, 6),
+        ]
 
     def test_partial_match_consumes_only_function_letters(self, profile):
         # s + i + n + x  →  sin (function) + x (variable)
@@ -1053,3 +1056,107 @@ class TestFunctionNameCoalesce:
         before = ET.tostring(tree, encoding="unicode")
         emit(tree, profile)
         assert ET.tostring(tree, encoding="unicode") == before
+
+
+# ---------------------------------------------------------------------------
+# Letter-word coalescing + positional-slot gating — adjacent letters that
+# don't spell a function merge into one letter run (one sign per same-class
+# stretch, 《盲文常用数学符号》二.规则1); the children of positional
+# containers (msub / mfrac / ...) are distinct slots and never merge.
+# ---------------------------------------------------------------------------
+
+
+class TestLetterRunCoalesce:
+    def test_all_caps_run_doubles_capital_sign(self, profile):
+        # A + B → whole-word capitals ⠠⠠ + bare letters.
+        cells, _ = emit(mml("<math><mi>A</mi><mi>B</mi></math>"), profile)
+        assert [c.dots for c in cells] == [(6,), (6,), (1,), (1, 2)]
+
+    def test_mathvariant_normal_letters_merge(self, profile):
+        # \mathrm{AB} arrives as mathvariant="normal" letters — upright
+        # words are exactly what the letter-run rule is for.
+        cells, _ = emit(
+            mml(
+                '<math><mi mathvariant="normal">A</mi>'
+                '<mi mathvariant="normal">B</mi></math>'
+            ),
+            profile,
+        )
+        assert [c.dots for c in cells] == [(6,), (6,), (1,), (1, 2)]
+
+    def test_msub_slots_never_merge_to_function(self, profile):
+        # l_n: base and subscript are SLOTS, not a sequence — they must
+        # not coalesce into the function "ln". The subscript structure
+        # (⠡) survives.
+        cells, _ = emit(
+            mml("<math><msub><mi>l</mi><mi>n</mi></msub></math>"), profile
+        )
+        roles = [c.role for c in cells]
+        assert "math_function_prefix" not in roles
+        assert "math_subscript" in roles
+
+    def test_msub_slots_never_merge_to_letter_word(self, profile):
+        # T_r: same gating for the letter-word merge — T stays the base
+        # (single ⠠, not ⠠⠠) and r stays a subscript.
+        cells, _ = emit(
+            mml("<math><msub><mi>T</mi><mi>r</mi></msub></math>"), profile
+        )
+        roles = [c.role for c in cells]
+        assert "math_function_prefix" not in roles
+        assert "math_subscript" in roles
+        assert [c.dots for c in cells][:2] == [(6,), (2, 3, 4, 5)]
+
+    def test_script_content_mrow_still_merges(self, profile):
+        # x_{ab}: the mrow INSIDE the slot is a sequence — a and b share
+        # one lowercase sign, and the script close marker stays (a
+        # two-letter word is not atomic).
+        cells, _ = emit(
+            mml(
+                "<math><msub><mi>x</mi>"
+                "<mrow><mi>a</mi><mi>b</mi></mrow></msub></math>"
+            ),
+            profile,
+        )
+        dots = [c.dots for c in cells]
+        # x(56+1346) + sub(16) + ⠰ab(56, 1, 12) + close(156)
+        assert dots == [
+            (5, 6), (1, 3, 4, 6), (1, 6), (5, 6), (1,), (1, 2), (1, 5, 6),
+        ]
+
+    def test_function_match_wins_over_letter_word(self, profile):
+        # m + a + x in a sequence container still coalesces to the
+        # registered function (⠫ + abbreviation), not a letter word.
+        cells, _ = emit(
+            mml(
+                "<math><msub><mi>x</mi>"
+                "<mrow><mi>m</mi><mi>a</mi><mi>x</mi></mrow></msub></math>"
+            ),
+            profile,
+        )
+        assert "math_function_prefix" in [c.role for c in cells]
+
+    def test_merged_run_unions_data_bk_spans(self, profile):
+        # When every member of a run carries a data-bk-span the merged
+        # word's cells land on the union span (proofread jumps select
+        # the whole word).
+        cells, _ = emit(
+            mml(
+                '<math><mi data-bk-span="3,4">a</mi>'
+                '<mi data-bk-span="4,5">b</mi></math>'
+            ),
+            profile,
+        )
+        spans = {(c.source_span.start, c.source_span.end) for c in cells if c.source_span}
+        assert spans == {(3, 5)}
+        assert [c.dots for c in cells] == [(5, 6), (1,), (1, 2)]
+
+    def test_mixed_span_presence_blocks_merge(self, profile):
+        # One spanned + one unspanned letter: merging would mis-attribute
+        # cells, so the run stays per-letter (two ⠰ signs).
+        cells, _ = emit(
+            mml(
+                '<math><mi data-bk-span="3,4">a</mi><mi>b</mi></math>'
+            ),
+            profile,
+        )
+        assert [c.dots for c in cells] == [(5, 6), (1,), (5, 6), (1, 2)]

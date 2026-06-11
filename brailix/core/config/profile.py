@@ -281,14 +281,38 @@ class BrailleProfile:
         tables as :meth:`letter`. Returns ``None`` when the character
         isn't in any letter table.
         """
-        for case in ("lower", "upper"):
-            cells = self.latin_letters.get(case, {}).get(ch)
-            if cells is not None:
-                return cells
-            cells = self.greek_letters.get(case, {}).get(ch)
+        for _key, letters in self._letter_buckets():
+            cells = letters.get(ch)
             if cells is not None:
                 return cells
         return None
+
+    def letter_class(self, ch: str) -> str | None:
+        """Return the script-class bucket key for a letter character —
+        ``"latin_lower"`` / ``"latin_upper"`` / ``"greek_lower"`` /
+        ``"greek_upper"`` — or ``None`` when the character isn't in any
+        letter table.
+
+        This is the key the letter-sign rule (《盲文常用数学符号》二.规则1)
+        partitions on: consecutive letters of the same class share one
+        ``letter_prefix.{class}`` sign; a class change starts a new sign.
+        """
+        for key, letters in self._letter_buckets():
+            if ch in letters:
+                return key
+        return None
+
+    def _letter_buckets(
+        self,
+    ) -> tuple[tuple[str, dict[str, tuple[int, ...]]], ...]:
+        """The four (script, case) letter tables, keyed by the
+        ``letter_prefix.*`` class name each maps to."""
+        return (
+            ("latin_lower", self.latin_letters.get("lower", {})),
+            ("latin_upper", self.latin_letters.get("upper", {})),
+            ("greek_lower", self.greek_letters.get("lower", {})),
+            ("greek_upper", self.greek_letters.get("upper", {})),
+        )
 
     def _compose_letter(
         self, ch: str
@@ -300,13 +324,7 @@ class BrailleProfile:
         in math_structures, and returns the result. ``None`` if the
         character isn't in any letter table.
         """
-        sources = (
-            ("latin_lower", self.latin_letters.get("lower", {})),
-            ("latin_upper", self.latin_letters.get("upper", {})),
-            ("greek_lower", self.greek_letters.get("lower", {})),
-            ("greek_upper", self.greek_letters.get("upper", {})),
-        )
-        for key, letters in sources:
+        for key, letters in self._letter_buckets():
             dots = letters.get(ch)
             if dots is None:
                 continue

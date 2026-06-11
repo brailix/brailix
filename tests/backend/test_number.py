@@ -138,14 +138,52 @@ class TestTranslateQuantity:
             unit_canonical="kilogram",
         )
         cells = translate_quantity(node, ctx, profile)
-        # number_sign + digit 3 + (56 + k) + (56 + g) = 6 cells.
+        # number_sign + digit 3 + (56 + k + g) = 5 cells — one lowercase
+        # sign covers the same-class run "kg" (《盲文常用数学符号》规则1;
+        # the docx unit example writes 47cm as ⠼⠙⠛⠰⠉⠍).
         assert cells[0].role == "number_sign"
         assert cells[1].role == "digit"
         unit_cells = [c for c in cells if c.role == "quantity_unit"]
-        assert len(unit_cells) == 4  # latin_lower_prefix + letter, twice
-        assert [c.source_text for c in unit_cells] == ["k", "k", "g", "g"]
-        # Unit lookup hits math_identifiers → no UNKNOWN_NUMBER_PART warnings.
+        assert len(unit_cells) == 3
+        assert [c.source_text for c in unit_cells] == ["kg", "k", "g"]
+        assert [c.dots for c in unit_cells] == [(5, 6), (1, 3), (1, 2, 4, 5)]
+        # Unit lookup hits the letter tables → no UNKNOWN_NUMBER_PART warnings.
         assert not any(w.code == "UNKNOWN_NUMBER_PART" for w in ctx.warnings)
+
+    def test_unit_case_change_starts_new_sign(self, ctx, profile):
+        # "mW" — the class change (lower → upper) starts a new sign, so
+        # mixed-case units stay lossless: ⠰⠍⠠⠺ (milliwatt ≠ megawatt).
+        node = Quantity(
+            surface="5mW",
+            span=Span(0, 3),
+            number=Number(surface="5", span=Span(0, 1)),
+            unit="mW",
+            unit_canonical=None,
+        )
+        cells = translate_quantity(node, ctx, profile)
+        unit_cells = [c for c in cells if c.role == "quantity_unit"]
+        assert [c.dots for c in unit_cells] == [
+            (5, 6), (1, 3, 4), (6,), (2, 4, 5, 6),
+        ]
+
+    def test_unit_all_caps_run_doubles_capital_sign(self, ctx, profile):
+        # "MW" — whole-run capitals double the capital sign: ⠠⠠⠍⠺.
+        node = Quantity(
+            surface="5MW",
+            span=Span(0, 3),
+            number=Number(surface="5", span=Span(0, 1)),
+            unit="MW",
+            unit_canonical=None,
+        )
+        cells = translate_quantity(node, ctx, profile)
+        unit_cells = [c for c in cells if c.role == "quantity_unit"]
+        assert [c.dots for c in unit_cells] == [
+            (6,), (6,), (1, 3, 4), (2, 4, 5, 6),
+        ]
+        # Letters keep their own source spans; the signs sit on the run's
+        # first letter.
+        assert unit_cells[0].source_span == Span(1, 2)
+        assert unit_cells[-1].source_span == Span(2, 3)
 
     def test_unit_span_derives_from_number_span_end(self, ctx, profile):
         # When the digit surface was normalized (here a thousands separator

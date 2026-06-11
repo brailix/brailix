@@ -64,17 +64,53 @@ class TestMi:
         assert name_cells[0].dots == (2, 3, 4)
         assert name_cells[0].source_text == "sin"
 
-    def test_mi_multi_char_unknown_function_falls_back_to_letter_by_letter(
+    def test_mi_multi_char_unregistered_is_letter_word_not_function(
         self, profile
     ):
-        # Three-letter name not in the table — each letter goes through
-        # the identifier path (56 + letter), totalling 6 inner cells +
-        # 1 function_prefix.
+        # Three-letter name not in the functions table — it's a letter
+        # word, not a function: no ⠫, and the same-class run shares ONE
+        # lowercase sign (《盲文常用数学符号》二.规则1): ⠰ + h + y + p.
         cells, _ = emit(mml("<math><mi>hyp</mi></math>"), profile)
+        assert all(c.role == "math_identifier" for c in cells)
+        assert [c.dots for c in cells] == [
+            (5, 6), (1, 2, 5), (1, 3, 4, 5, 6), (1, 2, 3, 4),
+        ]
+        assert [c.source_text for c in cells] == ["hyp", "h", "y", "p"]
+
+    def test_mi_all_caps_word_doubles_capital_sign(self, profile):
+        # Whole-word capitals: ⠠⠠ + bare letters (ABC → ⠠⠠⠁⠃⠉).
+        cells, _ = emit(mml("<math><mi>ABC</mi></math>"), profile)
+        assert [c.dots for c in cells] == [
+            (6,), (6,), (1,), (1, 2), (1, 4),
+        ]
+
+    def test_mi_capital_then_lower_runs_split_per_docx(self, profile):
+        # 《盲文常用数学符号》二.规则1 例1: Abc → ⠠⠁⠰⠃⠉ — the capital
+        # and the lowercase stretch each take their own sign; the
+        # lowercase sign covers its whole run.
+        cells, _ = emit(mml("<math><mi>Abc</mi></math>"), profile)
+        assert [c.dots for c in cells] == [
+            (6,), (1,), (5, 6), (1, 2), (1, 4),
+        ]
+
+    def test_mi_greek_then_latin_runs_split_per_docx(self, profile):
+        # 《盲文常用数学符号》二.规则1 例1: πr → ⠨⠏⠰⠗.
+        cells, _ = emit(mml("<math><mi>πr</mi></math>"), profile)
+        assert [c.dots for c in cells] == [
+            (4, 6), (1, 2, 3, 4), (5, 6), (1, 2, 3, 5),
+        ]
+
+    def test_mi_backslash_unknown_keeps_function_prefix_run_spelled(
+        self, profile
+    ):
+        # A literal "\foo" (unrecognised LaTeX command) still routes to
+        # the function path (⠫), but the spelled name follows the
+        # letter-sign run rule: one ⠰ for the whole lowercase run.
+        cells, _ = emit(mml("<math><mi>\\foo</mi></math>"), profile)
         assert cells[0].role == "math_function_prefix"
-        ident_cells = [c for c in cells if c.role == "math_identifier"]
-        assert [c.source_text for c in ident_cells] == [
-            "h", "h", "y", "y", "p", "p",
+        rest = cells[1:]
+        assert [c.dots for c in rest] == [
+            (5, 6), (1, 2, 4), (1, 3, 5), (1, 3, 5),
         ]
 
 
@@ -309,13 +345,13 @@ class TestMiExtras:
         assert cells == []
 
     def test_mi_letter_case_mixed_sequence(self, profile):
-        # Multi-char mi with mixed-case is a function fallback — each
-        # letter goes through identifier path with its own case prefix.
+        # Multi-char mi that isn't a registered function is a letter run,
+        # not a function — no ⠫. A case change starts a new letter sign
+        # (《盲文常用数学符号》二.规则1), which keeps mixed case lossless:
+        # Ax → (6 + A) + (56 + x).
         cells, _ = emit(mml("<math><mi>Ax</mi></math>"), profile)
-        # function_prefix + (6 + A) + (56 + x)
-        assert cells[0].role == "math_function_prefix"
-        ident_cells = [c for c in cells if c.role == "math_identifier"]
-        assert [c.dots for c in ident_cells] == [(6,), (1,), (5, 6), (1, 3, 4, 6)]
+        assert all(c.role == "math_identifier" for c in cells)
+        assert [c.dots for c in cells] == [(6,), (1,), (5, 6), (1, 3, 4, 6)]
 
     def test_mi_resets_number_sign_state(self, profile):
         # Whitespace handling: an mi after an mn run should reset the

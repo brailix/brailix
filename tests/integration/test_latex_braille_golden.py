@@ -350,18 +350,19 @@ class TestVectors:
         assert render(pipe, r"$\vec{v}$") == "⠰⠧⠘⠒⠂"
 
     def test_vec_double_letter(self, pipe):
-        # AB + over-mark ⠘ + double-letter arrow marker ⠒⠆.
-        assert render(pipe, r"$\vec{AB}$") == "⠠⠁⠠⠃⠘⠒⠆"
+        # ⠠⠠AB (whole-word capitals share the doubled sign) + over-mark ⠘
+        # + double-letter arrow marker ⠒⠆.
+        assert render(pipe, r"$\vec{AB}$") == "⠠⠠⠁⠃⠘⠒⠆"
 
     def test_overrightarrow_double_letter(self, pipe):
         # \overrightarrow{AB} has the same form as \vec{AB} (same → over
         # mrow(A,B)).
-        assert render(pipe, r"$\overrightarrow{AB}$") == "⠠⠁⠠⠃⠘⠒⠆"
+        assert render(pipe, r"$\overrightarrow{AB}$") == "⠠⠠⠁⠃⠘⠒⠆"
 
     def test_overline_single_vs_double(self, pipe):
         # short overline single-letter ⠒ vs double-letter ⠒⠒.
         assert render(pipe, r"$\overline{x}$") == "⠰⠭⠘⠒"
-        assert render(pipe, r"$\overline{AB}$") == "⠠⠁⠠⠃⠘⠒⠒"
+        assert render(pipe, r"$\overline{AB}$") == "⠠⠠⠁⠃⠘⠒⠒"
 
     def test_vector_length_single_bar(self, pipe):
         # vector length |v⃗| = single absolute-value bar ⠸ … ⠸ (docx §十五
@@ -396,18 +397,19 @@ class TestGeometry:
     (docx rule 2)."""
 
     def test_angle_with_letters(self, pipe):
-        # ∠ABC = ⠫⠪ + ABC (each with the capital sign ⠠), no space.
-        assert render(pipe, r"$\angle ABC$") == "⠫⠪⠠⠁⠠⠃⠠⠉"
+        # ∠ABC = ⠫⠪ + ⠠⠠ABC (all-capital run shares the doubled capital
+        # sign), no space.
+        assert render(pipe, r"$\angle ABC$") == "⠫⠪⠠⠠⠁⠃⠉"
 
     def test_angle_in_equation(self, pipe):
         # ∠ABC = 90: the angle symbol does not affect the following
         # relation / digits.
-        assert render(pipe, r"$\angle ABC = 90$") == "⠫⠪⠠⠁⠠⠃⠠⠉⠀⠶⠼⠊⠚"
+        assert render(pipe, r"$\angle ABC = 90$") == "⠫⠪⠠⠠⠁⠃⠉⠀⠶⠼⠊⠚"
 
     def test_triangle_with_letters(self, pipe):
-        # triangle △ABC: same as the angle, ⠫⠲ + letters (no space,
-        # letter sign added).
-        assert render(pipe, r"$\triangle ABC$") == "⠫⠲⠠⠁⠠⠃⠠⠉"
+        # triangle △ABC: same as the angle, ⠫⠲ + ⠠⠠ABC (no space,
+        # doubled capital sign for the all-capital run).
+        assert render(pipe, r"$\triangle ABC$") == "⠫⠲⠠⠠⠁⠃⠉"
 
     def test_figure_symbols(self, pipe):
         # Geometric shapes (latex2mathml path): all translated per docx as

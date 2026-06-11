@@ -49,9 +49,9 @@
     "quantity": {
       "description": "Number + unit",
       "cases": [
-        {"src": "3kg", "expected": "⠼⠉⠰⠅⠰⠛", "note": "3 kg: digits + latin_lower prefix per unit char"},
+        {"src": "3kg", "expected": "⠼⠉⠰⠅⠛", "note": "3 kg: digits + one latin_lower sign for the unit run (docx 计量单位 例1: 47cm → ⠼⠙⠛⠰⠉⠍)"},
         {"src": "5m", "expected": "⠼⠑⠰⠍", "note": "5 m"},
-        {"src": "100mg", "expected": "⠼⠁⠚⠚⠰⠍⠰⠛", "note": "100 mg"}
+        {"src": "100mg", "expected": "⠼⠁⠚⠚⠰⠍⠛", "note": "100 mg"}
       ]
     },
     "math_number": {

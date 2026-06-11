@@ -67,8 +67,9 @@ class TestDispatchPerNodeType:
         assert len(translate_node(LatinWord(surface="hi"), ctx, profile)) == 3
 
     def test_latin_acronym(self, ctx, profile):
-        # "CPU" → 1 upper prefix + 3 bare letter cells = 4 cells.
-        assert len(translate_node(LatinAcronym(surface="CPU"), ctx, profile)) == 4
+        # "CPU" → doubled upper prefix (whole-word capitals, ⠠⠠) +
+        # 3 bare letter cells = 5 cells.
+        assert len(translate_node(LatinAcronym(surface="CPU"), ctx, profile)) == 5
 
     def test_unknown(self, ctx, profile):
         cells = translate_node(Unknown(surface="?"), ctx, profile)
@@ -109,9 +110,10 @@ class TestDispatchPerNodeType:
             span=Span(0, 3),
         )
         cells = translate_node(node, ctx, profile)
-        # number_sign + 1 digit + (56 + k) + (56 + g) = 6 cells.
+        # number_sign + 1 digit + (56 + k + g) = 5 cells — one letter
+        # sign covers the same-class run "kg" (《盲文常用数学符号》规则1).
         assert cells[0].role == "number_sign"
-        assert len(cells) == 6
+        assert len(cells) == 5
         assert any(c.role == "quantity_unit" for c in cells)
 
     def test_code_inline(self, ctx, profile):
