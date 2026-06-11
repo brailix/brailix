@@ -111,6 +111,30 @@ class TestAdapterSelection:
         warnings = ctx.warnings.by_code("MATH_ADAPTER_MISSING")
         assert len(warnings) == 1
 
+
+# ---------------------------------------------------------------------------
+# Soft-failure backstop — a raising adapter must not crash the caller
+# ---------------------------------------------------------------------------
+
+
+class TestRaisingAdapterBackstop:
+    def test_raising_adapter_degrades_to_merror(self):
+        # The registry is open to third-party adapters; one that raises
+        # must degrade to the standard <merror> tree (the backend
+        # renders an unknown cell + MATH_ERROR warning), never crash
+        # the pipeline.
+        class _Boom:
+            source = "boom-raise-test"
+
+            def to_mathml(self, formula, ctx=None):
+                raise RuntimeError("boom")
+
+        math_source_registry.register("boom-raise-test", _Boom)
+        ctx = MathContext(source="boom-raise-test")
+        tree = parse_math_tree("x + 1", ctx)
+        assert tree is not None
+        assert tree.find(".//merror") is not None
+
     def test_warning_carries_source_string(self):
         ctx = MathContext(source="weird")
         parse_math_tree("x", ctx)

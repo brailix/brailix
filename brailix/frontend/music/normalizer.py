@@ -82,7 +82,13 @@ def _normalize_voice_numbers(root: ET.Element) -> None:
         if not seen:
             continue
         ordered = sorted(
-            seen, key=lambda s: (0, int(s)) if s.isdigit() else (1, 0, s)
+            seen,
+            # ``isdecimal`` matches int()'s actual domain — ``isdigit``
+            # also accepts circled / superscript digits ("①", "²") that
+            # int() rejects, so a malformed <voice> used to raise out of
+            # the normalizer's never-raises contract instead of sorting
+            # into the non-numeric bucket.
+            key=lambda s: (0, int(s), s) if s.isdecimal() else (1, 0, s),
         )
         remap = {old: str(i + 1) for i, old in enumerate(ordered)}
         if all(old == new for old, new in remap.items()):

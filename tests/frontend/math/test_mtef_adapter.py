@@ -659,6 +659,34 @@ class TestErrorHandling:
         assert "<mi>x</mi>" in out
 
 
+class TestSurrogateMtcode:
+    """A corrupt / truncated stream can carry a UTF-16 surrogate half
+    as MTCode.  ``chr()`` accepts it, so it used to flow into the
+    MathML string and blow up the UTF-8 re-encode inside the normalizer
+    (``UnicodeEncodeError``) — escaping the adapter's soft-failure
+    contract and crashing the whole pipeline."""
+
+    def test_lone_surrogates_are_dropped(self):
+        from brailix.frontend.math.adapters.mtef._mathml import (
+            _char_to_mathml,
+        )
+
+        assert _char_to_mathml(0xD800, []) == []
+        assert _char_to_mathml(0xDFFF, []) == []
+
+    def test_surrogate_payload_parses_end_to_end(self):
+        from brailix.core.context import MathContext
+        from brailix.frontend.math import parse_math_tree
+
+        payload = B.v5_prelude() + B.v5_line(B.v5_char(0xD800)) + B.v5_end()
+        ctx = MathContext(source="mtef")
+        tree = parse_math_tree(payload, ctx)  # must not raise
+        assert tree is not None
+        # The poisonous character is gone — the tree re-serialises and
+        # re-encodes cleanly.
+        ET.tostring(tree, encoding="unicode").encode("utf-8")
+
+
 # ---------------------------------------------------------------------------
 # v5 — EQN_PREFS and inline RULER (regression: MathType-emitted docs)
 # ---------------------------------------------------------------------------

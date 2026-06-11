@@ -145,6 +145,14 @@ def convert_ce(inner: str) -> str:
         body = _emit_formula(inner)
     except _ChemParseError as e:
         return merror_wrap(inner, reason=f"unsupported \\ce content: {e}")
+    except Exception as e:  # noqa: BLE001 — soft-failure contract
+        # Every other math adapter carries this backstop; chem was the
+        # one without it, and a pathological formula (hundreds of
+        # nested groups → RecursionError in the recursive-descent
+        # parser) escaped the "adapters never raise" contract and
+        # crashed the whole pipeline.  The LaTeX adapter delegates
+        # \ce{...} here too, so this guard covers both entry routes.
+        return merror_wrap(inner, reason=f"chem parser failure: {e!r}")
     return f'<math xmlns="{_MATHML_NS}" data-bk-chem="1">{body}</math>'
 
 

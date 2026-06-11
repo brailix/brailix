@@ -59,6 +59,13 @@ class MxlSourceAdapter:
                     )
         except zipfile.BadZipFile as e:
             return music_error_wrap("", reason=f"not a valid ZIP: {e}")
+        except Exception as e:  # noqa: BLE001 — soft-failure contract
+            # zipfile raises more than BadZipFile: RuntimeError for an
+            # encrypted entry, zlib.error for a corrupt deflate stream,
+            # NotImplementedError for an unsupported compression
+            # method.  Each means "this .mxl can't be read" — degrade
+            # like every other adapter instead of crashing the pipeline.
+            return music_error_wrap("", reason=f"unreadable .mxl: {e!r}")
         return MusicXMLSourceAdapter().to_musicxml(inner_bytes, ctx)
 
 
