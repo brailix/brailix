@@ -574,7 +574,18 @@ A different standard = a different profile; the library itself stays scheme-agno
 }
 ```
 
-Common codes: `LOW_CONFIDENCE_PINYIN / UNKNOWN_HANZI / MATH_PARSE_RECOVERY / UNKNOWN_LATIN_ABBR / NUMBER_AMBIGUOUS_ROLE / UNSUPPORTED_BLOCK`.
+Common codes (only names the core actually emits are listed here — consumers key quickfixes and i18n entries off the code, and the test suite guards both directions against drift): `LOW_CONFIDENCE_PINYIN / MISSING_PINYIN / UNKNOWN_PUNCT / MATH_UNKNOWN_SYMBOL / MUSIC_UNSUPPORTED_NOTATION`.
+
+Inputs with no usable text span carry **structural provenance** in `anchor` — domain-defined string key/value pairs, a public ABI (the authoritative definition is the `Warning.anchor` field comment in `brailix/core/errors.py`). Music-backend handlers always warn through `MusicBrailleContext.warn`, which fills `{"part_id": ..., "measure_number": ...}` — the same labels every braille cell's `source_text` provenance tags (`[p=,m=]`) carry: normalized MusicXML elements have no source offsets, so `span` cannot serve in a score, and a frontend (the warning panel's "locate the score measure" jump) navigates by `anchor` instead. Outside a part / measure both keys are absent and `anchor` is omitted entirely, which downstream reads as "score level, no narrower location".
+
+```json
+{
+  "code": "MUSIC_UNSUPPORTED_NOTATION",
+  "level": "warn",
+  "message": "unsupported clef sign 'TAB'",
+  "anchor": {"part_id": "P1", "measure_number": "12"}
+}
+```
 
 ### 10.3 Proofreading friendliness
 
@@ -645,12 +656,13 @@ A profile's `language` field drives the whole chain; it takes the primary subtag
 1. **Segmenter**: implement the `Segmenter` protocol, recognize the language's writing system and cut its prose into typed `Segment`s (for example, tag a Japanese kana run as `kana_text`), and register it in `frontend.segment.segmenter_registry` under the language subtag. The built-in `default` segmenter recognizes only Han characters (emitting `hanzi_text`) plus the shared categories (numbers, Latin, Greek, and so on), so a non-Han writing system plugs in at this step.
 2. **Frontend**: implement the `LanguageFrontend` protocol's `process(surface, base, ctx)`, which segments a run of the language's prose, annotates its reading, and turns it into inline IR nodes; declare which `Segment` types it consumes via `prose_types` (Chinese is `{"hanzi_text"}`, Japanese might be `{"hanzi_text", "kana_text"}`), and register it in `frontend.language_frontend_registry`. The Pipeline dispatches by `prose_types`, so the segment type stays "writing-system accurate" while routing stays "by language." The Chinese implementation `_ZhFrontend` is the worked example: it wires the zh segmenter and the pinyin resolver together.
 3. **Backend**: implement the `LanguageBackend` protocol's `translate_word` and `translate_hanzi_char`, translating prose nodes into cells by the language's braille rules, and register it in `backend.dispatch.language_backend_registry`. Language-agnostic nodes (numbers, punctuation, Latin, math, music) keep going through the shared `_DISPATCH` table — leave them alone.
-4. **Normalizer (as needed)**: the default normalizer carries Chinese structural rules (fixed readings for date markers like year/month/day). If the new language has its own structural conventions, implement the `Normalizer` protocol and register it in `frontend.normalize.normalizer_registry` under the language subtag; if not, reuse `default`.
-5. **Resources and profile**: put the language's braille rule tables under `resources/<language>/`; the shared resources (number sign, Latin, Greek, music) are already reusable at the top level. Write a profile JSON whose `language` points at the new language and whose `tables` point at those resources.
+4. **Word-boundary rules (as needed)**: whether a blank cell lands between two adjacent inline nodes is the language's orthography (Chinese writes word-by-word, Japanese uses 分かち書き), not a backend braille rule. Implement a `BoundaryHandler` (takes the two neighbouring inline nodes, returns whether to insert a blank cell) and register it in `brailix.frontend.boundary_registry` under the language subtag; the zh and ja handlers are the worked examples.
+5. **Normalizer (as needed)**: the default normalizer carries Chinese structural rules (fixed readings for date markers like year/month/day). If the new language has its own structural conventions, implement the `Normalizer` protocol and register it in `frontend.normalize.normalizer_registry` under the language subtag; if not, reuse `default`.
+6. **Resources and profile**: put the language's braille rule tables under `resources/<language>/`; the shared resources (number sign, Latin, Greek, music) are already reusable at the top level. Write a profile JSON whose `language` points at the new language and whose `tables` point at those resources. A profile's `tables.<language subtag>` group is the **generic language table slot**: the loader maps it into `BrailleProfile.lang_tables[<subtag>]` and the backend reads it via `profile.lang_table(lang, name)` (for example `lang_tables["ja"]["kana"]`) — a new language's tables need no new field on the profile dataclass.
 
 The existing IR node set suffices. `Word`, `HanziChar`, and `HanziMarker`, plus the language-neutral `reading` field (a phonetic annotation that works equally for Hanyu Pinyin and Japanese kana), are enough to carry an ideographic or a phonetic language; this is the "the IR's existing nodes are enough, only generalize the front and back ends" point in action.
 
-**The line between infrastructure and implementation.** All five seams above are registration seams, and the orchestrator stays language-agnostic — adding a language is purely additive. The *built-in implementations* are still tuned for Chinese: the `default` segmenter recognizes only Han characters, and the `default` normalizer understands only Chinese date markers. These are default implementations awaiting replacement — a new language overrides them by registering its own segmenter and normalizer. In other words, the infrastructure (the four subsystems' language selection plus the generic routing by `prose_types`) is already in place; what remains for any given language is writing its concrete recognition and rules on top of unchanged architecture.
+**The line between infrastructure and implementation.** All six seams above are registration seams, and the orchestrator stays language-agnostic — adding a language is purely additive. The *built-in implementations* are still tuned for Chinese: the `default` segmenter recognizes only Han characters, and the `default` normalizer understands only Chinese date markers. These are default implementations awaiting replacement — a new language overrides them by registering its own segmenter and normalizer. In other words, the infrastructure (each subsystem's language selection plus the generic routing by `prose_types`) is already in place; what remains for any given language is writing its concrete recognition and rules on top of unchanged architecture. Japanese (kana braille) has landed through all six steps and is the second in-library language after Chinese.
 
 ---
 

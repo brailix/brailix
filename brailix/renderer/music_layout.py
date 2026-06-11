@@ -17,11 +17,12 @@ Schemes (BANA 2015):
   a segment begins at the margin, run-over lines indent to the third
   cell (§24.1.1).  Implemented here.
 * ``bar_over_bar`` — **§28 / §29 / §33** keyboard / ensemble.  Parts are
-  stacked into *parallels* with measures aligned vertically.  Needs the
-  backend to mark part boundaries + per-part measure cells, so it is not
-  registered yet (falls back to ``single_line``).
+  stacked into *parallels* with measures aligned vertically.
+  Implemented here as :class:`BarOverBarScheme` (first increment — see
+  its docstring for the deliberate omissions), splitting on the
+  backend's ``music_part_sep`` / ``music_measure_sep`` boundary cells.
 * ``line_by_line`` — **§35** vocal music: a word (lyric) line paired with
-  the music line below it.  Needs lyric pairing, also not registered yet.
+  the music line below it.  Needs lyric pairing, not registered yet.
 
 The orthogonal page knobs (``line_width`` = cells per line,
 ``page_height`` = lines per page) are *not* part of the scheme — they
@@ -66,9 +67,9 @@ def register_scheme(scheme: MusicLayoutScheme) -> None:
 
 def get_scheme(name: str | None) -> MusicLayoutScheme:
     """Look up a scheme by name, falling back to ``single_line`` for an
-    unknown / unimplemented name (e.g. ``bar_over_bar`` before its
-    backend support lands) so layout never hard-fails on a stale
-    profile / setting."""
+    unknown / unimplemented name (e.g. ``line_by_line``, or a scheme
+    from a newer version in an old install) so layout never hard-fails
+    on a stale profile / setting."""
     scheme = _SCHEMES.get(name or _FALLBACK)
     if scheme is not None:
         return scheme
