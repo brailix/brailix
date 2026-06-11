@@ -61,6 +61,8 @@
     "ncong":    {"cells": ["cong"],             "role": "rel",  "space_before": true, "indicator": "negation"},
     "sim":      {"cells": ["c_35"],             "role": "rel",  "space_before": true},
     "backsim":  {"cells": ["c_35"],             "role": "rel",  "space_before": true},
+    "mid":      {"cells": ["c_123"],            "role": "rel",  "space_before": true},
+    "nmid":     {"cells": ["mid"],              "role": "rel",  "indicator": "negation"},
     "parallel": {"cells": ["c_123", "c_123"],   "role": "rel",  "space_before": true},
     "perp":     {"cells": ["c_3456", "c_3"],    "role": "rel",  "space_before": true},
     "U+27C2":   {"cells": ["c_3456", "c_3"],    "role": "rel",  "space_before": true},
