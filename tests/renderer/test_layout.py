@@ -484,6 +484,17 @@ class TestWrapEdgeCases:
         out = LayoutRenderer(options=LayoutOptions(paragraph_indent=0)).render(doc)
         assert out == ""
 
+    def test_empty_heading_emits_nothing_not_framing_blanks(self):
+        # A heading frames its content with a blank line before and after.
+        # An EMPTY heading must still yield nothing — not two stray blank
+        # rows from that framing. (The score path guarded this; the text
+        # path did not, so an empty heading rendered as "⠀\n⠀".)
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(block_type="heading", cells=[]),
+        ])
+        out = LayoutRenderer().render(doc)  # defaults frame headings
+        assert out == ""
+
     def test_non_positive_line_width_emits_single_line(self):
         # A non-positive ``line_width`` would loop forever in a naive
         # greedy wrap; the defensive branch returns the cells as one
@@ -548,6 +559,30 @@ class TestWrapEdgeCases:
         assert len(lines) == 2
         assert len(lines[0]) == 3
         assert len(lines[1]) == 6
+
+    def test_long_unbroken_word_wraps_without_recursion_error(self):
+        # A single break-point-free "word" of many distinct atoms wraps
+        # across far more lines than Python's recursion limit. The atom
+        # placer must iterate, not recurse, or this raises RecursionError
+        # — reachable in practice via a very long number / break-point-free
+        # run even at a normal line width.
+        n = 10_000
+        cells = [
+            BrailleCell(dots=(1,), source_span=Span(i, i + 1))
+            for i in range(n)
+        ]
+        doc = BrailleDocument(blocks=[BrailleBlock(cells=cells)])
+        out = LayoutRenderer(options=LayoutOptions(
+            line_width=8, paragraph_indent=0,
+        )).render(doc)
+        lines = out.split("\n")
+        # Far more continuation lines than the default recursion limit,
+        # yet no crash.
+        assert len(lines) > 1000
+        # Every source cell survives; no line exceeds the width.
+        dot1 = dots_to_char((1,))
+        assert sum(line.count(dot1) for line in lines) == n
+        assert all(len(line) <= 8 for line in lines)
 
 
 class TestPageNumbers:

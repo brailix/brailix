@@ -339,6 +339,12 @@ class LayoutRenderer:
         wrapped = self._wrap_block_cells(
             cells, first_indent=first_indent, cont_indent=cont_indent
         )
+        if not wrapped:
+            # Empty text block — emit nothing, not the framing blank lines
+            # a heading's blank_before / blank_after would otherwise
+            # surface as two stray blank rows.  Mirrors the score path's
+            # empty-block guard above.
+            return out
         if align is not None:
             wrapped = [self._align_line(line, align) for line in wrapped]
 
@@ -478,101 +484,112 @@ class LayoutRenderer:
             splitting only when a single atom alone exceeds the line
             width (the caller's source had no internal break point —
             the user sees it as a runaway line and can restructure).
+
+            Iterative, not recursive: a single break-point-free word
+            (e.g. a very long number) wraps across one line per atom-run,
+            so on a long enough word the old tail-recursion blew Python's
+            recursion limit (RecursionError) at the default line width.
+            Each branch that used to recurse on a suffix of ``atoms`` now
+            rebinds ``atoms`` and loops instead.
             """
             nonlocal cur
-            if not atoms:
-                return
-            total = sum(len(a) for a in atoms)
-            remaining = opts.line_width - len(cur)
-            if total <= remaining:
-                for atom in atoms:
-                    cur.extend(atom)
-                return
-            # Try a fresh line — that break is at a blank-equivalent
-            # boundary (whatever preceded the word), no hyphen.
-            if len(cur) > cur_indent:
-                flush_line(with_hyphen=False, next_indent=overflow_indent())
+            while atoms:
+                total = sum(len(a) for a in atoms)
                 remaining = opts.line_width - len(cur)
                 if total <= remaining:
                     for atom in atoms:
                         cur.extend(atom)
                     return
-            # Multi-atom word still too wide — split between atoms
-            # with hyphen.
-            if len(atoms) > 1:
-                slot = opts.line_width - len(cur) - hyphen_width
-                placed_len = 0
-                placed = 0
-                for atom in atoms:
-                    if placed_len + len(atom) <= slot:
-                        placed_len += len(atom)
-                        placed += 1
-                    else:
-                        break
-                if placed > 0:
-                    for atom in atoms[:placed]:
-                        cur.extend(atom)
-                    flush_line(
-                        with_hyphen=True, next_indent=overflow_indent()
-                    )
-                    place_atoms(atoms[placed:])
-                    return
-                # Even the first atom alone doesn't fit when we
-                # reserve a cell for the hyphen.  Before resorting
-                # to mid-atom split, check whether the atom would
-                # fit if we *omit* the hyphen reservation — the
-                # degenerate "atom exactly equals line_width" case.
-                # Omitting the hyphen breaks BANA strictly, but it
-                # is the lesser evil compared to slicing a syllable
-                # / first-letter-prefix that the user wanted whole.
-                slot_no_hyphen = opts.line_width - len(cur)
-                if len(atoms[0]) <= slot_no_hyphen:
-                    cur.extend(atoms[0])
+                # Try a fresh line — that break is at a blank-equivalent
+                # boundary (whatever preceded the word), no hyphen.
+                if len(cur) > cur_indent:
                     flush_line(
                         with_hyphen=False, next_indent=overflow_indent()
                     )
-                    place_atoms(atoms[1:])
-                    return
-                # First atom truly exceeds line_width — fall through
-                # to mid-atom split for it.
-            # Mid-atom split — last resort.  Take as many cells as fit
-            # (minus hyphen reservation), flush with hyphen, repeat.
-            first = atoms[0]
-            rest_cells = first
-            while rest_cells:
-                slot = opts.line_width - len(cur) - hyphen_width
-                if slot <= 0:
-                    # Pathological — line_width too small for even one
-                    # cell plus the hyphen reservation.  Drop the
-                    # reservation on this slice so forward progress
-                    # is guaranteed.
-                    slot = opts.line_width - len(cur)
-                    if slot <= 0:
+                    remaining = opts.line_width - len(cur)
+                    if total <= remaining:
+                        for atom in atoms:
+                            cur.extend(atom)
+                        return
+                # Multi-atom word still too wide — split between atoms
+                # with hyphen.
+                if len(atoms) > 1:
+                    slot = opts.line_width - len(cur) - hyphen_width
+                    placed_len = 0
+                    placed = 0
+                    for atom in atoms:
+                        if placed_len + len(atom) <= slot:
+                            placed_len += len(atom)
+                            placed += 1
+                        else:
+                            break
+                    if placed > 0:
+                        for atom in atoms[:placed]:
+                            cur.extend(atom)
+                        flush_line(
+                            with_hyphen=True, next_indent=overflow_indent()
+                        )
+                        atoms = atoms[placed:]
+                        continue
+                    # Even the first atom alone doesn't fit when we
+                    # reserve a cell for the hyphen.  Before resorting
+                    # to mid-atom split, check whether the atom would
+                    # fit if we *omit* the hyphen reservation — the
+                    # degenerate "atom exactly equals line_width" case.
+                    # Omitting the hyphen breaks BANA strictly, but it
+                    # is the lesser evil compared to slicing a syllable
+                    # / first-letter-prefix that the user wanted whole.
+                    slot_no_hyphen = opts.line_width - len(cur)
+                    if len(atoms[0]) <= slot_no_hyphen:
+                        cur.extend(atoms[0])
                         flush_line(
                             with_hyphen=False, next_indent=overflow_indent()
                         )
+                        atoms = atoms[1:]
+                        continue
+                    # First atom truly exceeds line_width — fall through
+                    # to mid-atom split for it.
+                # Mid-atom split — last resort.  Take as many cells as fit
+                # (minus hyphen reservation), flush with hyphen, repeat.
+                first = atoms[0]
+                rest_cells = first
+                while rest_cells:
+                    slot = opts.line_width - len(cur) - hyphen_width
+                    if slot <= 0:
+                        # Pathological — line_width too small for even one
+                        # cell plus the hyphen reservation.  Drop the
+                        # reservation on this slice so forward progress
+                        # is guaranteed.
                         slot = opts.line_width - len(cur)
-                    # A continuation indent >= line_width leaves slot <= 0
-                    # even on a fresh line; force at least one cell so
-                    # rest_cells strictly shrinks and we can't spin forever
-                    # (the line overflows width, which is unavoidable when
-                    # the indent alone exceeds it).
-                    slot = max(1, slot)
+                        if slot <= 0:
+                            flush_line(
+                                with_hyphen=False,
+                                next_indent=overflow_indent(),
+                            )
+                            slot = opts.line_width - len(cur)
+                        # A continuation indent >= line_width leaves slot
+                        # <= 0 even on a fresh line; force at least one
+                        # cell so rest_cells strictly shrinks and we can't
+                        # spin forever (the line overflows width, which is
+                        # unavoidable when the indent alone exceeds it).
+                        slot = max(1, slot)
+                        take, rest_cells = rest_cells[:slot], rest_cells[slot:]
+                        cur.extend(take)
+                        if rest_cells:
+                            flush_line(
+                                with_hyphen=False,
+                                next_indent=overflow_indent(),
+                            )
+                        continue
                     take, rest_cells = rest_cells[:slot], rest_cells[slot:]
                     cur.extend(take)
                     if rest_cells:
                         flush_line(
-                            with_hyphen=False, next_indent=overflow_indent()
+                            with_hyphen=True, next_indent=overflow_indent()
                         )
-                    continue
-                take, rest_cells = rest_cells[:slot], rest_cells[slot:]
-                cur.extend(take)
-                if rest_cells:
-                    flush_line(
-                        with_hyphen=True, next_indent=overflow_indent()
-                    )
-            if len(atoms) > 1:
-                place_atoms(atoms[1:])
+                # atoms[0] is now fully placed; loop on the remainder
+                # (empty -> while exits) instead of recursing.
+                atoms = atoms[1:]
 
         # --- atom-stream pass --------------------------------------
         pending_atom: list[BrailleCell] = []
