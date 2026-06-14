@@ -131,6 +131,41 @@ class TestMatrix:
         )
         assert cells[eq_idx - 1].role == "space"
 
+    def test_function_fraction_inside_cell_forces_compound(self, profile):
+        # Regression: a function applied to a fraction inside a matrix cell
+        # (\cos\frac{α}{a}) must keep the compound ⠆…⠰ form, exactly like at
+        # top level (see test_math_fractions::test_fraction_after_function_
+        # forces_open_close). The cell walker previously emitted children
+        # straight through _emit_element, bypassing the function-head
+        # detection and collapsing it into the ambiguous simple-bar form —
+        # the same cells as (cos α)/a.
+        cells, _ = emit(
+            mml(self._mtable(
+                [["<mi>cos</mi><mfrac><mi>α</mi><mi>a</mi></mfrac>"]],
+                "(", ")")),
+            profile,
+        )
+        r = [c.role for c in cells]
+        assert "math_fraction_open" in r
+        assert "math_fraction_close" in r
+        assert r.index("math_function_name") < r.index("math_fraction_open")
+
+    def test_plain_fraction_inside_cell_stays_simple(self, profile):
+        # Control for the regression above: a bare fraction in a cell with
+        # no preceding function head keeps the simple bar form. The cell
+        # walker must force compound only on function-argument fractions,
+        # not on every fraction.
+        cells, _ = emit(
+            mml(self._mtable(
+                [["<mfrac><mi>a</mi><mi>b</mi></mfrac>"]],
+                "(", ")")),
+            profile,
+        )
+        r = [c.role for c in cells]
+        assert "math_fraction_bar" in r
+        assert "math_fraction_open" not in r
+        assert "math_fraction_close" not in r
+
 
 class TestEquationSystem:
     """``{``-fenced <mtable> with no closing fence — \\begin{cases} /

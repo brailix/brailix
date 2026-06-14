@@ -161,7 +161,17 @@ def _emit_row_cells(
     cells: list[BrailleCell], mctx: MathBrailleContext, row: ET.Element
 ) -> None:
     """Emit one ``<mtr>``'s cells: ``<mtd>`` contents in order, blank-cell
-    separated (the §17 element separator within a row)."""
+    separated (the §17 element separator within a row).
+
+    Each ``<mtd>``'s children go through :func:`_emit_children_with_matrix`
+    — the same walker the top-level mrow uses — so a function applied to a
+    fraction inside a cell (``\\cos\\frac{a}{b}``) still raises
+    ``fraction_is_function_arg`` and keeps the disambiguating compound
+    ⠆…⠰ form. Emitting each child straight through ``_emit_element`` would
+    bypass that detection and collapse it into the same cells as the simple
+    bar form of ``(cos a)/b``. It also lets a cell carry its own nested
+    fenced matrix.
+    """
     first = True
     for tcell in row:
         if tcell.tag != "mtd":
@@ -170,8 +180,7 @@ def _emit_row_cells(
             cells.append(BLANK_CELL)
             mctx.need_number_sign = True
         first = False
-        for child in list(tcell):
-            _emit_element(cells, mctx, child)
+        _emit_children_with_matrix(cells, mctx, list(tcell))
 
 
 def _emit_mtable_cases(
