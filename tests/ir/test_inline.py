@@ -5,6 +5,8 @@ import pytest
 from brailix.core.span import Span
 from brailix.ir.inline import (
     ChineseToken,
+    CodeInline,
+    Connector,
     Date,
     HanziChar,
     HanziMarker,
@@ -430,6 +432,8 @@ class TestAllTypesRoundTrip:
             LatinWord(surface="hello"),
             LatinAcronym(surface="CPU"),
             Space(surface=" "),
+            Connector(surface=""),
+            CodeInline(surface="x = 1"),
             Unknown(surface="??", reason="bad"),
             MathInline(surface="x^2", source="latex"),
             MusicInline(surface="do re mi", source="plain"),
