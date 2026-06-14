@@ -151,10 +151,18 @@ def _infer_missing_note_types(
     for part in root.findall("part"):
         divisions: int | None = None
         for measure in part.findall("measure"):
-            div_text = measure.findtext("attributes/divisions")
-            if div_text and div_text.strip().isdigit():
-                divisions = int(div_text.strip())
-            for note in measure.findall("note"):
+            # Walk children in document order so a mid-measure
+            # <attributes>/<divisions> re-declaration governs the notes that
+            # follow it. ``findtext`` would only ever see the first one.
+            for child in measure:
+                if child.tag == "attributes":
+                    div_text = child.findtext("divisions")
+                    if div_text and div_text.strip().isdigit():
+                        divisions = int(div_text.strip())
+                    continue
+                if child.tag != "note":
+                    continue
+                note = child
                 if note.find("type") is not None:
                     continue
                 dur_text = note.findtext("duration")
