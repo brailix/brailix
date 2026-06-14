@@ -157,6 +157,76 @@ class TestStructuralBlocks:
         assert [c.text for c in rows[0].cells] == ["甲", "乙"]
         assert [c.text for c in rows[1].cells] == ["丙", "丁"]
 
+    def test_nested_table_cell_content_preserved(self, tmp_path: Path) -> None:
+        # A table nested inside a cell must not vanish — its inner cells'
+        # text is folded into the parent cell text (old code skipped any
+        # non-``p`` child, dropping the whole nested grid).
+        path, doc = _make_docx(tmp_path)
+        table = doc.add_table(rows=1, cols=1)
+        cell = table.cell(0, 0)
+        cell.paragraphs[0].add_run("外层")
+        nested = cell.add_table(rows=1, cols=2)
+        nested.cell(0, 0).text = "内甲"
+        nested.cell(0, 1).text = "内乙"
+        doc.save(path)
+
+        result = parse_docx(path)
+        tables = [b for b in result.blocks if isinstance(b, Table)]
+        assert len(tables) == 1
+        cell_text = tables[0].rows[0].cells[0].text or ""
+        assert "外层" in cell_text
+        assert "内甲" in cell_text
+        assert "内乙" in cell_text
+
+
+# ---------------------------------------------------------------------------
+# List level (``w:numPr/w:ilvl``) parsing robustness
+# ---------------------------------------------------------------------------
+
+
+class TestNumPrLevel:
+    """``w:numPr/w:ilvl`` level parsing tolerates malformed values instead
+    of crashing — the old ``int(ilvl_elem.get(...))`` raised on a missing
+    or unprefixed ``val``."""
+
+    def _list_para(self, ilvl_xml: str):
+        p_xml = (
+            f'<w:p xmlns:w="{_W_NS}">'
+            f'<w:pPr><w:numPr>{ilvl_xml}'
+            f'<w:numId w:val="1"/></w:numPr></w:pPr>'
+            f'<w:r><w:t>项</w:t></w:r>'
+            f'</w:p>'
+        )
+        return etree.fromstring(p_xml)
+
+    def test_missing_val_defaults_to_level_zero(self) -> None:
+        # <w:ilvl/> with no val must not crash (old code did int(None)).
+        from brailix.input.docx._blocks import _paragraph_list_info
+
+        assert _paragraph_list_info(self._list_para("<w:ilvl/>")) == (0, False)
+
+    def test_bare_val_without_prefix_is_read(self) -> None:
+        # Some emitters write a bare ``val`` with no ``w:`` prefix.
+        from brailix.input.docx._blocks import _paragraph_list_info
+
+        assert _paragraph_list_info(
+            self._list_para('<w:ilvl val="2"/>')
+        ) == (2, False)
+
+    def test_normal_namespaced_val(self) -> None:
+        from brailix.input.docx._blocks import _paragraph_list_info
+
+        assert _paragraph_list_info(
+            self._list_para('<w:ilvl w:val="1"/>')
+        ) == (1, False)
+
+    def test_non_integer_val_defaults_to_zero(self) -> None:
+        from brailix.input.docx._blocks import _paragraph_list_info
+
+        assert _paragraph_list_info(
+            self._list_para('<w:ilvl w:val="x"/>')
+        ) == (0, False)
+
 
 # ---------------------------------------------------------------------------
 # Paragraph alignment (``w:jc`` → Block.align)
@@ -533,6 +603,26 @@ class TestMathTypeOLE:
         assert len(non_empty) == 1
         assert non_empty[0].text == "纯文本"
 
+    def test_external_ole_relationship_does_not_crash(
+        self, tmp_path: Path
+    ) -> None:
+        # A *linked* (not embedded) OLE object is an external relationship.
+        # python-docx raises ValueError — NOT AttributeError — when such a
+        # relationship is asked for its ``target_part``; the blob-map builder
+        # must skip it rather than let that escape and crash the whole parse.
+        from docx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        from brailix.input.docx import _build_ole_blob_map
+
+        _, doc = _make_docx(tmp_path)
+        doc.add_paragraph("链接对象")
+        rid = doc.part.relate_to(
+            "file:///C:/linked/equation.bin", RT.OLE_OBJECT, is_external=True
+        )
+        # Must not raise; the external rel contributes no blob (no local part).
+        blob_map = _build_ole_blob_map(doc)
+        assert rid not in blob_map
+
 
 # ---------------------------------------------------------------------------
 # Word EQ field (legacy ``eq \\f(...)`` style equations)
@@ -812,6 +902,54 @@ class TestMathTypeFallback:
         assert _mtef_recovery_needed(doc_with(f"前 {bad}"), 1) is True
         # As many spans as equations, at least one decoded → no retry.
         assert _mtef_recovery_needed(doc_with(f"前 {ok} 后 {bad}"), 2) is False
+
+    def test_recovery_counts_spans_nested_in_table_and_list(self) -> None:
+        # An equation living in a table cell (or list item) must count
+        # toward the span total exactly like a top-level one. The span
+        # lives on the *child* block's text, so a flat result.blocks walk
+        # missed it — making "auto" read the native decode as a silent loss
+        # and do a needless LibreOffice round-trip.
+        from brailix.input.docx import _mtef_recovery_needed
+        from brailix.ir.document import DocumentIR, TableCell, TableRow
+
+        ok = "$<math><mi>x</mi></math>$"
+        in_table = DocumentIR(
+            blocks=[Table(rows=[TableRow(cells=[TableCell(text=f"前 {ok}")])])]
+        )
+        in_list = DocumentIR(blocks=[List(items=[ListItem(text=f"项 {ok}")])])
+        # One equation OLE, one decoded span (nested) → no retry needed.
+        assert _mtef_recovery_needed(in_table, 1) is False
+        assert _mtef_recovery_needed(in_list, 1) is False
+
+    def test_auto_mode_no_retry_for_decoded_table_equation(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # End-to-end: a MathType OLE the native MTEF adapter decodes fine,
+        # sitting in a table cell, must NOT drag "auto" into a LibreOffice
+        # round-trip just because the span lives one level down.
+        def fake_run(*args, **kwargs):
+            raise AssertionError("LibreOffice should not be invoked")
+
+        monkeypatch.setattr(
+            "brailix.input.docx._resolve_doc_converter",
+            lambda override: "soffice",
+        )
+        monkeypatch.setattr("brailix.input.docx.subprocess.run", fake_run)
+
+        path, doc = _make_docx(tmp_path)
+        table = doc.add_table(rows=1, cols=1)
+        para = table.cell(0, 0).paragraphs[0]
+        para.add_run("公式 ")
+        _embed_ole_equation(
+            doc, para, _eqnolehdr_wrapped(_mtef_sample_payload())
+        )
+        doc.save(path)
+
+        result = parse_docx(path, mathtype_fallback="auto")
+        tables = [b for b in result.blocks if isinstance(b, Table)]
+        assert tables
+        cell_text = tables[0].rows[0].cells[0].text or ""
+        assert "<msup>" in cell_text
 
     def test_auto_mode_retries_when_all_mtef_failed(
         self, tmp_path: Path, monkeypatch

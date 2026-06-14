@@ -44,6 +44,13 @@ def _build_ole_blob_map(document: Any) -> dict[str, bytes]:
     for rid, rel in document.part.rels.items():
         if rel.reltype != RT.OLE_OBJECT:
             continue
+        # A linked (non-embedded) OLE object is an *external* relationship
+        # with no local part. python-docx raises ``ValueError`` — not
+        # ``AttributeError`` — from ``target_part`` for those, so skip them
+        # up front; letting that escape would crash the whole parse on an
+        # otherwise-readable document.
+        if rel.is_external:
+            continue
         try:
             blob = rel.target_part.blob
         except AttributeError:
@@ -83,6 +90,21 @@ def _ole_object_to_inline_math(
     return _wrap_inline_math(mathml)
 
 
+def _is_equation_ole(elem: Element) -> bool:
+    """True if ``elem`` is an ``<o:OLEObject>`` whose ProgID marks a math
+    equation — ``Equation.DSMT4`` (MathType 4-7) or ``Equation.3`` (the
+    legacy Microsoft Equation Editor).
+
+    The single recognition rule, shared by the per-object resolver
+    (:func:`_find_ole_rid`) and the document-wide counter
+    (``_count_equation_oles`` in the package ``__init__``) so the two
+    can't drift apart.
+    """
+    if _local(elem.tag) != "OLEObject":
+        return False
+    return (elem.get("ProgID") or "").startswith("Equation")
+
+
 def _find_ole_rid(obj_elem: Element) -> str | None:
     """Return the ``r:id`` of the ``<o:OLEObject>`` child, if it's a math one.
 
@@ -92,10 +114,7 @@ def _find_ole_rid(obj_elem: Element) -> str | None:
     ignore those.
     """
     for child in obj_elem:
-        if _local(child.tag) != "OLEObject":
-            continue
-        progid = child.get("ProgID") or ""
-        if not progid.startswith("Equation"):
+        if not _is_equation_ole(child):
             continue
         # ``r:id`` lives in the relationships namespace; some emitters
         # also write it without a prefix. Try both forms.

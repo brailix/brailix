@@ -79,15 +79,15 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
 from brailix.core.defaults import DEFAULT_LANGUAGE, DEFAULT_PROFILE
 from brailix.core.errors import MissingExtraError, ParseError
 from brailix.input.docx._blocks import _iter_body_blocks
-from brailix.input.docx._ole import _build_ole_blob_map
-from brailix.input.docx._xml import _local
-from brailix.ir.document import DocumentIR
+from brailix.input.docx._ole import _build_ole_blob_map, _is_equation_ole
+from brailix.ir.document import Block, DocumentIR
 
 __all__ = (
     "parse_docx",
@@ -237,6 +237,61 @@ def parse_docx(
     return result
 
 
+def _convert_via_libreoffice_and_parse(
+    p: Path,
+    exe: str,
+    *,
+    language: str,
+    profile: str,
+    chem_detection: bool,
+    prefix: str,
+    timeout_hint: str = "",
+    produce_hint: str = "",
+) -> DocumentIR:
+    """Convert ``p`` to .docx with LibreOffice in a temp dir, then parse it.
+
+    Shared by the legacy ``.doc`` entry point and the ``mathtype_fallback``
+    MathType-recovery path — both shell out to the same
+    ``soffice --headless --convert-to docx`` and re-parse the result. ``exe``
+    is the already-resolved converter; ``prefix`` names the temp dir;
+    ``timeout_hint`` / ``produce_hint`` append path-specific diagnostics to
+    the timeout / missing-output errors.
+
+    Re-parses with ``mathtype_fallback="off"`` so a conversion that fails to
+    strip OLE equations can't recurse back into LibreOffice.
+    """
+    with tempfile.TemporaryDirectory(prefix=prefix) as out_dir:
+        try:
+            subprocess.run(
+                [exe, "--headless", "--convert-to", "docx",
+                 "--outdir", out_dir, str(p)],
+                check=True,
+                capture_output=True,
+                timeout=60,
+            )
+        except subprocess.CalledProcessError as e:
+            raise ParseError(
+                f"LibreOffice failed to convert {p.name!r}: "
+                f"{e.stderr.decode('utf-8', 'replace').strip() or e}"
+            ) from e
+        except subprocess.TimeoutExpired as e:
+            raise ParseError(
+                f"LibreOffice timed out converting {p.name!r} (60s){timeout_hint}."
+            ) from e
+        converted = Path(out_dir) / (p.stem + ".docx")
+        if not converted.exists():
+            raise ParseError(
+                f"LibreOffice did not produce a .docx for {p.name!r}{produce_hint}."
+            )
+        return parse_docx(
+            converted,
+            language=language,
+            profile=profile,
+            mathtype_fallback="off",
+            chem_detection=chem_detection,
+        )
+
+
 def _parse_docx_via_libreoffice(
     p: Path,
     *,
@@ -263,59 +318,45 @@ def _parse_docx_via_libreoffice(
             "no converter found. Install LibreOffice (provides 'soffice') "
             "or use mathtype_fallback='off'."
         )
-    with tempfile.TemporaryDirectory(prefix="brailix-mtef-") as out_dir:
-        try:
-            subprocess.run(
-                [exe, "--headless", "--convert-to", "docx",
-                 "--outdir", out_dir, str(p)],
-                check=True,
-                capture_output=True,
-                timeout=60,
-            )
-        except subprocess.CalledProcessError as e:
-            raise ParseError(
-                f"LibreOffice failed to convert {p.name!r}: "
-                f"{e.stderr.decode('utf-8', 'replace').strip() or e}"
-            ) from e
-        except subprocess.TimeoutExpired as e:
-            raise ParseError(
-                f"LibreOffice timed out converting {p.name!r} (60s)."
-            ) from e
-        converted = Path(out_dir) / (p.stem + ".docx")
-        if not converted.exists():
-            raise ParseError(
-                f"LibreOffice did not produce a .docx for {p.name!r}."
-            )
-        # Re-parse the converted file with fallback OFF so we don't
-        # recurse infinitely if the conversion failed to remove OLE
-        # equations.
-        return parse_docx(
-            converted,
-            language=language,
-            profile=profile,
-            mathtype_fallback="off",
-            chem_detection=chem_detection,
-        )
+    return _convert_via_libreoffice_and_parse(
+        p, exe, language=language, profile=profile,
+        chem_detection=chem_detection, prefix="brailix-mtef-",
+    )
 
 
 def _count_equation_oles(body: Any) -> int:
     """Count the ``<o:OLEObject>`` elements whose ProgID marks an equation.
 
-    Same recognition rule as ``._ole._find_ole_rid`` — ProgID starting
-    with ``"Equation"`` covers MathType's ``Equation.DSMT4`` and the
-    legacy ``Equation.3``.  This is what the ``mathtype_fallback="auto"``
-    decision keys on: equation OLEs are the only thing the LibreOffice
-    retry can recover, so the body's actual equation count — not the
-    mere presence of *some* OLE relationship — is the signal.
+    Shares its recognition rule with the per-object resolver via
+    ``._ole._is_equation_ole`` — ProgID starting with ``"Equation"`` covers
+    MathType's ``Equation.DSMT4`` and the legacy ``Equation.3``.  This is
+    what the ``mathtype_fallback="auto"`` decision keys on: equation OLEs
+    are the only thing the LibreOffice retry can recover, so the body's
+    actual equation count — not the mere presence of *some* OLE
+    relationship — is the signal.
     """
-    count = 0
-    for elem in body.iter():
-        if _local(elem.tag) != "OLEObject":
-            continue
-        progid = elem.get("ProgID") or ""
-        if progid.startswith("Equation"):
-            count += 1
-    return count
+    return sum(1 for elem in body.iter() if _is_equation_ole(elem))
+
+
+def _iter_block_texts(blocks: Iterable[Block]) -> Iterator[str]:
+    """Yield the raw ``text`` of every block, descending into container
+    blocks (``List.items``, ``Table.rows`` / ``TableRow.cells``).
+
+    Inline math nested in a list item or table cell lives in a *child*
+    block's ``text``, not on a top-level block, so a flat ``result.blocks``
+    walk would miss it — which is exactly what made the
+    ``mathtype_fallback="auto"`` span count under-count equations sitting in
+    a table and trigger a needless LibreOffice round-trip even when the
+    native MTEF decode had succeeded.
+    """
+    for blk in blocks:
+        text = getattr(blk, "text", None)
+        if text:
+            yield text
+        for attr in ("items", "cells", "rows"):
+            nested = getattr(blk, attr, None)
+            if nested:
+                yield from _iter_block_texts(nested)
 
 
 def _mtef_recovery_needed(result: DocumentIR, equation_oles: int) -> bool:
@@ -338,10 +379,7 @@ def _mtef_recovery_needed(result: DocumentIR, equation_oles: int) -> bool:
       nothing decoded successfully (the original "all failed" rule).
     """
     spans: list[str] = []
-    for blk in result.blocks:
-        text = getattr(blk, "text", None)
-        if not text:
-            continue
+    for text in _iter_block_texts(result.blocks):
         idx = 0
         while True:
             start = text.find("$<math", idx)
@@ -396,36 +434,12 @@ def parse_doc(
             "as .docx in Word first."
         )
 
-    with tempfile.TemporaryDirectory(prefix="brailix-doc-") as out_dir:
-        try:
-            subprocess.run(
-                [exe, "--headless", "--convert-to", "docx",
-                 "--outdir", out_dir, str(p)],
-                check=True,
-                capture_output=True,
-                timeout=60,
-            )
-        except subprocess.CalledProcessError as e:
-            raise ParseError(
-                f"LibreOffice failed to convert {p.name!r}: "
-                f"{e.stderr.decode('utf-8', 'replace').strip() or e}"
-            ) from e
-        except subprocess.TimeoutExpired as e:
-            raise ParseError(
-                f"LibreOffice timed out converting {p.name!r} "
-                "(60s); the file may be corrupt or password-protected."
-            ) from e
-
-        converted = Path(out_dir) / (p.stem + ".docx")
-        if not converted.exists():
-            raise ParseError(
-                f"LibreOffice did not produce a .docx for {p.name!r}; "
-                "the file may be unreadable."
-            )
-        return parse_docx(
-            converted, language=language, profile=profile,
-            chem_detection=chem_detection,
-        )
+    return _convert_via_libreoffice_and_parse(
+        p, exe, language=language, profile=profile,
+        chem_detection=chem_detection, prefix="brailix-doc-",
+        timeout_hint="; the file may be corrupt or password-protected",
+        produce_hint="; the file may be unreadable",
+    )
 
 
 def _resolve_doc_converter(override: str | None) -> str | None:

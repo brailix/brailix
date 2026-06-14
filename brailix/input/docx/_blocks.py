@@ -659,9 +659,9 @@ def _has_chem_signature(linear: str) -> bool:
     """True when the linearised cluster shows evidence it's really chemistry
     and not a coincidental single element letter: a multi-letter element, two
     or more elements, a charge (``^``), or a physical-state label."""
-    from brailix.frontend.math.adapters.chem import _ELEMENT_RE
+    from brailix.frontend.math.adapters.chem import find_elements
 
-    elements = _ELEMENT_RE.findall(linear)
+    elements = find_elements(linear)
     if any(len(e) >= 2 for e in elements):
         return True
     if len(elements) >= 2:
@@ -939,6 +939,26 @@ def _paragraph_alignment(p: Element) -> str | None:
     return _JC_ALIGN.get((val or "").lower())
 
 
+def _ilvl_value(ilvl_elem: Element | None) -> int:
+    """Parse ``w:ilvl@w:val`` to a 0-based list level, defaulting to 0.
+
+    Tolerates a missing element, a missing / blank ``val`` (some emitters
+    write a bare ``val`` with no ``w:`` prefix — mirror the ``or .get("val")``
+    fallback used elsewhere here), and a non-integer value. None of those
+    should crash list detection; the old ``int(ilvl_elem.get(...))`` raised
+    ``TypeError`` on a missing or bare ``val``.
+    """
+    if ilvl_elem is None:
+        return 0
+    raw = ilvl_elem.get(_W_PREFIX + "val") or ilvl_elem.get("val")
+    if not raw:
+        return 0
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 0
+
+
 def _paragraph_list_info(
     p: Element, *, style: str | None = None
 ) -> tuple[int, bool] | None:
@@ -969,11 +989,7 @@ def _paragraph_list_info(
         numPr = _first(pPr, _W_PREFIX + "numPr")
         if numPr is not None:
             ilvl_elem = _first(numPr, _W_PREFIX + "ilvl")
-            ilvl = (
-                int(ilvl_elem.get(_W_PREFIX + "val"))
-                if ilvl_elem is not None else 0
-            )
-            return ilvl, False
+            return _ilvl_value(ilvl_elem), False
     if style:
         m = _LIST_STYLE_RE.match(style)
         if m:
@@ -1023,24 +1039,37 @@ def _convert_table_cell(
 
     The braille table renderer expects flat cell text (no nested
     paragraphs); we join paragraph contents with a newline so a
-    multi-paragraph cell still preserves the visual break.
+    multi-paragraph cell still preserves the visual break. A nested
+    table inside the cell is flattened the same way — its inner cells'
+    text is folded in rather than dropped.
     """
     parts: list[str] = []
     for child in tc:
-        if _local(child.tag) != "p":
-            continue
-        paragraph_blocks = _convert_paragraph(
-            child, ole_blobs=ole_blobs, chem_detection=chem_detection
-        )
-        for blk in paragraph_blocks:
-            if isinstance(blk, MathBlock):
-                # Surface OMML as inline math by round-tripping through
-                # the same ``$<math>...</math>$`` form used for inline
-                # equations. Tables are visually constrained — display
-                # math doesn't fit anyway.
-                from brailix.frontend.math.registry import math_source_registry
-                mathml = math_source_registry.get("omml").to_mathml(blk.text or "")
-                parts.append(_wrap_inline_math(mathml))
-            else:
-                parts.append(blk.text or "")
+        tag = _local(child.tag)
+        if tag == "p":
+            paragraph_blocks = _convert_paragraph(
+                child, ole_blobs=ole_blobs, chem_detection=chem_detection
+            )
+            for blk in paragraph_blocks:
+                if isinstance(blk, MathBlock):
+                    # Surface OMML as inline math by round-tripping through
+                    # the same ``$<math>...</math>$`` form used for inline
+                    # equations. Tables are visually constrained — display
+                    # math doesn't fit anyway.
+                    from brailix.frontend.math.registry import math_source_registry
+                    mathml = math_source_registry.get("omml").to_mathml(blk.text or "")
+                    parts.append(_wrap_inline_math(mathml))
+                else:
+                    parts.append(blk.text or "")
+        elif tag == "tbl":
+            # Nested table: the braille cell renderer wants flat text, so
+            # fold the inner grid's cells into this cell (each inner cell
+            # is one newline-separated chunk) instead of dropping them.
+            nested = _convert_table(
+                child, ole_blobs=ole_blobs, chem_detection=chem_detection
+            )
+            for row in nested.rows:
+                for inner_cell in row.cells:
+                    if inner_cell.text:
+                        parts.append(inner_cell.text)
     return TableCell(text="\n".join(p for p in parts if p))
