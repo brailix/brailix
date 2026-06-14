@@ -120,6 +120,34 @@ class TestCharacterClasses:
         assert _types(s) == ["greek_text"]
 
 
+class TestDigitClassification:
+    """``_is_digit`` accepts ONLY ASCII and fullwidth digits, not every
+    ``str.isdigit()`` codepoint. Superscripts, circled digits and other
+    scripts' decimals must not fold into a number run."""
+
+    def test_superscript_not_folded_into_number(self):
+        # 5² must split into digit_run "5" + punct "²". A misclassified ²
+        # gets swallowed into Number("5²"), which the backend cannot render.
+        s = _segs("5²")
+        assert _types(s) == ["digit_run", "punct"]
+        assert _surfaces(s) == ["5", "²"]
+
+    def test_circled_digit_is_not_a_digit_run(self):
+        # ① (U+2460) satisfies str.isdigit() but is not a numeral.
+        assert _types(_segs("①")) == ["punct"]
+
+    def test_other_script_decimal_is_not_a_digit_run(self):
+        # Arabic-Indic ٢ (U+0662) satisfies str.isdigit()/isdecimal() but is
+        # neither ASCII nor fullwidth, so it must not take the number path.
+        assert _types(_segs("٢")) == ["punct"]
+
+    def test_fullwidth_digits_still_classify(self):
+        # Regression guard: fullwidth ０-９ remain a digit_run.
+        s = _segs("２０２６")
+        assert _types(s) == ["digit_run"]
+        assert s[0].surface == "２０２６"
+
+
 class TestDecimalNumbers:
     def test_simple_decimal(self):
         s = _segs("3.5")
