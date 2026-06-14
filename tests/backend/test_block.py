@@ -292,15 +292,15 @@ class TestMathBlock:
         # Pipeline._populate_math_block catches it, records a
         # ``MATH_BLOCK_PARSE_FAILED`` warning, and populates per-char
         # Unknown nodes so the backend emits one cell per source char
-        # (layout stays stable). Pipeline uses a lazy import of
-        # ``parse_math_tree`` so this monkeypatch is observed at the
-        # call site.
-        import brailix.frontend as frontend_mod
+        # (layout stays stable). _populate_math_block parses via the
+        # module-level ``_frontend_parse_math_tree`` alias, so patch
+        # it there.
+        import brailix.pipeline as pipeline_mod
 
         def _boom(*_a, **_kw):
             raise RuntimeError("synthetic adapter crash")
 
-        monkeypatch.setattr(frontend_mod, "parse_math_tree", _boom)
+        monkeypatch.setattr(pipeline_mod, "_frontend_parse_math_tree", _boom)
 
         mb = MathBlock(source="latex", text="abc", span=Span(0, 3))
         out = pipe.translate_block(mb)
@@ -321,12 +321,12 @@ class TestMathBlock:
     ):
         # When the source block has no span, fallback Unknown nodes
         # also have no span — preserved through to per-cell source_span.
-        import brailix.frontend as frontend_mod
+        import brailix.pipeline as pipeline_mod
 
         def _boom(*_a, **_kw):
             raise RuntimeError("boom")
 
-        monkeypatch.setattr(frontend_mod, "parse_math_tree", _boom)
+        monkeypatch.setattr(pipeline_mod, "_frontend_parse_math_tree", _boom)
 
         mb = MathBlock(source="latex", text="xy", span=None)
         out = pipe.translate_block(mb)

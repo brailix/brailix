@@ -9,12 +9,17 @@ module stays focused on the :class:`Pipeline` class.  Re-exported from
 from __future__ import annotations
 
 import hashlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from brailix.core.registry import Registry
 from brailix.core.span import Span
 from brailix.frontend import language_frontend_registry
 from brailix.ir.document import Block
+
+if TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
+
+    from brailix.pipeline._results import TreeSubcache
 
 
 def _resolve_language_adapter(
@@ -117,3 +122,38 @@ def block_hash(block: Block, profile_name: str) -> str:
     h.update(b"|")
     h.update(profile_name.encode("utf-8"))
     return h.hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Parsed-tree reuse pool (shared math / music incremental cache)
+# ---------------------------------------------------------------------------
+
+
+def cache_lookup(
+    tree_in: TreeSubcache | None, key: tuple[str, str, str]
+) -> ET.Element | None:
+    """Return the cached parsed tree for ``key``, or ``None`` on a miss.
+
+    A ``None`` reuse pool — the non-incremental call paths that pass no
+    ``tree_subcache`` — reads as a miss. Shared by the math / music
+    populate paths and :meth:`Pipeline._attach_math` so all three keep
+    identical lookup semantics; see :meth:`Pipeline.translate_block` for
+    the pool contract.
+    """
+    return tree_in.get(key) if tree_in is not None else None
+
+
+def cache_record(
+    tree_out: TreeSubcache | None,
+    key: tuple[str, str, str],
+    tree: ET.Element | None,
+) -> None:
+    """Record ``tree`` under ``key`` in the output reuse pool.
+
+    No-op when there is no output pool, or when nothing parsed
+    (``tree is None``) — so a failed parse never poisons the pool with a
+    ``None`` a later compile would mistake for a hit. The single writer
+    behind all three tree-caching call sites.
+    """
+    if tree is not None and tree_out is not None:
+        tree_out[key] = tree

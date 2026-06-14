@@ -97,6 +97,8 @@ from brailix.pipeline._helpers import (
     _ensure_block_span,
     _resolve_language_adapter,
     block_hash,
+    cache_lookup,
+    cache_record,
 )
 from brailix.pipeline._results import (
     CompiledBlock,
@@ -329,6 +331,13 @@ class Pipeline:
         cost.
         """
         warnings, ctx, backend_ctx = self._fresh_contexts()
+        # Stamp the pipeline's identity onto the (possibly hand-built) doc
+        # so the result is self-describing the same way translate_text /
+        # parse_* leave it.  The backend reads ``self._profile`` directly,
+        # so this is for the IR metadata's consumers, not the translation;
+        # other caller metadata keys are preserved.
+        doc.metadata["language"] = self._profile.language
+        doc.metadata["profile"] = self.profile
         for block in doc.blocks:
             self._populate_block(block, ctx)
         braille_doc = translate_document(doc, backend_ctx, self._profile)
@@ -510,15 +519,12 @@ class Pipeline:
         should compose ``source_hash`` with their own override-list
         salt at the caller layer.
         """
-        warnings, _ctx, _backend_ctx = self._fresh_contexts()
+        # One fresh collector + matching contexts for this block.  The
+        # backend context is stamped with this block's type up front — the
+        # only difference from the translate_text / translate_document
+        # setup — so expand_block sees the right block_type without a rebuild.
+        warnings, ctx, backend_ctx = self._fresh_contexts(block_type=block.type)
 
-        # Frontend: populate inline children if needed.
-        ctx = FrontendContext(
-            profile=self.profile,
-            mode=self.mode,
-            warnings=warnings,
-            options=self._frontend_options(),
-        )
         # Parsed-tree sub-cache is threaded through the populate path as
         # a mutable pair: ``tree_in`` is read-only (caller-provided
         # reuse pool), ``tree_out`` accumulates trees from this
@@ -539,13 +545,6 @@ class Pipeline:
 
         # Backend: expand into one or more BrailleBlocks (composites
         # like List / Table expand to N elements; simple blocks to 1).
-        backend_ctx = BackendContext(
-            profile=self.profile,
-            mode=self.mode,
-            block_type=block.type,
-            warnings=warnings,
-            options={INLINE_TEXT_TRANSLATOR_KEY: self._translate_inline_text},
-        )
         braille_blocks = expand_block(block, backend_ctx, self._profile)
 
         # Stable cache key: textual surface + profile.  Callers who
@@ -565,7 +564,9 @@ class Pipeline:
 
     # --- Internal: shared per-translate setup -----------------------
 
-    def _fresh_contexts(self) -> tuple[WarningCollector, FrontendContext, BackendContext]:
+    def _fresh_contexts(
+        self, *, block_type: str = "paragraph"
+    ) -> tuple[WarningCollector, FrontendContext, BackendContext]:
         warnings = WarningCollector(mode=self.mode)
         ctx = FrontendContext(
             profile=self.profile,
@@ -576,6 +577,7 @@ class Pipeline:
         backend_ctx = BackendContext(
             profile=self.profile,
             mode=self.mode,
+            block_type=block_type,
             warnings=warnings,
             options={INLINE_TEXT_TRANSLATOR_KEY: self._translate_inline_text},
         )
@@ -604,6 +606,12 @@ class Pipeline:
         Both keep the Frontend → IR → Backend layering pure: this
         method is the one place that runs frontend, and the backend
         only ever sees populated children.
+
+        Every text-bearing block also lands a ``span``: the math / music
+        populate helpers set theirs, and a shared tail synthesises one
+        from the text length for the remaining kinds — including a
+        pre-populated block that arrives with ``text`` but no span (all
+        kinds handled the same way, no per-kind drift).
 
         ``tree_in`` / ``tree_out`` are the parsed-tree reuse / record
         pools — see :meth:`translate_block`.  Threaded as keyword
@@ -634,39 +642,39 @@ class Pipeline:
                         cell, ctx, tree_in=tree_in, tree_out=tree_out
                     )
             return
-        if isinstance(block, MathBlock):
-            if block.text and not block.children:
+        # Leaf block.  Populate children from raw ``text`` only when it's
+        # present and nothing has filled them yet; the per-kind branches
+        # below differ only in *how* they populate.
+        if block.text and not block.children:
+            if isinstance(block, MathBlock):
                 self._populate_math_block(
                     block, ctx, tree_in=tree_in, tree_out=tree_out
                 )
-            elif block.span is None and block.text:
-                block.span = Span(0, len(block.text))
-            return
-        if isinstance(block, (ScoreBlock, MusicBlock)):
-            if block.text and not block.children:
+                return
+            if isinstance(block, (ScoreBlock, MusicBlock)):
                 self._populate_music_block(
                     block, ctx, tree_in=tree_in, tree_out=tree_out
                 )
-            elif block.span is None and block.text:
-                block.span = Span(0, len(block.text))
-            return
-        if isinstance(block, CodeBlock):
-            if block.text and not block.children:
-                if block.span is None:
-                    block.span = Span(0, len(block.text))
-                block.children = [
-                    CodeInline(surface=block.text, span=block.span)
-                ]
-            elif block.span is None and block.text:
-                block.span = Span(0, len(block.text))
-            return
-        text = getattr(block, "text", None)
-        if text and not block.children:
+                return
+            if isinstance(block, CodeBlock):
+                # No language frontend — wrap the verbatim text as one
+                # CodeInline so the backend's punct path emits one cell
+                # per source char.
+                text, span, _ = _ensure_block_span(block)
+                block.children = [CodeInline(surface=text, span=span)]
+                return
+            text, span, _ = _ensure_block_span(block)
             block.children = self._run_frontend(
                 text, ctx, tree_in=tree_in, tree_out=tree_out
             )
-            if block.span is None:
-                block.span = Span(0, len(text))
+            return
+
+        # Already populated (or no text): a text-bearing block still lands
+        # a span.  Single rule for every block kind — math / score / code /
+        # prose alike — so the pre-populated "text + children, no span"
+        # case can't drift per kind.
+        if block.span is None and block.text:
+            block.span = Span(0, len(block.text))
 
     def _populate_music_block(
         self,
@@ -702,7 +710,7 @@ class Pipeline:
         text, span, _had_span = _ensure_block_span(block)
 
         cache_key = ("music", block.source, text)
-        cached_tree = tree_in.get(cache_key) if tree_in is not None else None
+        cached_tree = cache_lookup(tree_in, cache_key)
         if cached_tree is not None:
             tree: ET.Element | None = cached_tree
         else:
@@ -725,8 +733,7 @@ class Pipeline:
                 )
                 tree = None
 
-        if tree is not None and tree_out is not None:
-            tree_out[cache_key] = tree
+        cache_record(tree_out, cache_key, tree)
 
         block.children = [
             MusicInline(
@@ -757,12 +764,11 @@ class Pipeline:
         and slightly more precise than the legacy single-warning
         behavior (each char is genuinely an unknown to the backend).
 
-        Lazy import of ``parse_math_tree`` so monkeypatching
-        ``brailix.frontend.parse_math_tree`` in tests is observed at
-        each call (necessary for fault injection).
+        Parsing goes through the module-level ``_frontend_parse_math_tree``
+        alias — the same call site inline math (:meth:`_attach_math`) and
+        music (:meth:`_populate_music_block`) use — so a test injects a
+        fault by monkeypatching ``brailix.pipeline._frontend_parse_math_tree``.
         """
-        from brailix.frontend import parse_math_tree
-
         # Remember whether the caller-supplied block had a span. The
         # per-char Unknown fallback below matches the legacy behavior
         # in backend.block._unknown_cells_for: if the source block has
@@ -771,9 +777,7 @@ class Pipeline:
         text, span, had_original_span = _ensure_block_span(block)
 
         cache_key = ("math", block.source, text)
-        cached_tree: ET.Element | None = (
-            tree_in.get(cache_key) if tree_in is not None else None
-        )
+        cached_tree = cache_lookup(tree_in, cache_key)
         if cached_tree is not None:
             tree: ET.Element | None = cached_tree
         else:
@@ -785,7 +789,7 @@ class Pipeline:
                 options=dict(ctx.options),
             )
             try:
-                tree = parse_math_tree(text, math_ctx)
+                tree = _frontend_parse_math_tree(text, math_ctx)
             except Exception as exc:  # noqa: BLE001 — adapter errors are wide
                 ctx.warnings.error(
                     code="MATH_BLOCK_PARSE_FAILED",
@@ -806,8 +810,7 @@ class Pipeline:
                 ]
                 return
 
-        if tree is not None and tree_out is not None:
-            tree_out[cache_key] = tree
+        cache_record(tree_out, cache_key, tree)
 
         block.children = [
             MathInline(
@@ -918,23 +921,20 @@ class Pipeline:
         tree_in: TreeSubcache | None = None,
         tree_out: TreeSubcache | None = None,
     ) -> None:
+        cache_key = ("math", node.source, node.surface)
         if node.math is not None:
             # Already parsed (frontend ran twice, or caller pre-populated).
             # Still record in tree_out so the caller's per-block cache
             # snapshot is complete — otherwise a re-parse that hits this
             # short-circuit path would silently drop the formula from
             # the next compile's reuse pool.
-            if tree_out is not None:
-                tree_out[("math", node.source, node.surface)] = node.math
+            cache_record(tree_out, cache_key, node.math)
             return
-        cache_key = ("math", node.source, node.surface)
-        if tree_in is not None:
-            cached = tree_in.get(cache_key)
-            if cached is not None:
-                node.math = cached
-                if tree_out is not None:
-                    tree_out[cache_key] = cached
-                return
+        cached = cache_lookup(tree_in, cache_key)
+        if cached is not None:
+            node.math = cached
+            cache_record(tree_out, cache_key, cached)
+            return
         math_ctx = MathContext(
             source=node.source,
             mode="inline",
@@ -959,8 +959,7 @@ class Pipeline:
             node.math = None
             return
         node.math = tree
-        if tree is not None and tree_out is not None:
-            tree_out[cache_key] = tree
+        cache_record(tree_out, cache_key, tree)
 
     def _translate_inline_text(self, text: str) -> list[BrailleCell]:
         """Translate a run of text to braille cells via the zh / latin
