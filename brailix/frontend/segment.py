@@ -112,7 +112,11 @@ def _is_hanzi(ch: str) -> bool:
 
 
 def _is_digit(ch: str) -> bool:
-    return ch.isdigit()  # accepts fullwidth digits too
+    # ASCII 0-9 or fullwidth ０-９ only. Deliberately NOT ``str.isdigit()``,
+    # which also returns True for superscripts (``²``), circled digits
+    # (``①``) and other scripts' decimals — none of which may fold into a
+    # number run (the docstring contract is "ASCII or fullwidth digit").
+    return ("0" <= ch <= "9") or ("０" <= ch <= "９")
 
 
 def _is_latin(ch: str) -> bool:

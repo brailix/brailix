@@ -9,6 +9,8 @@ lazily prefers ``g2pw`` → ``pypinyin`` → ``null``).
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from brailix.core.context import FrontendContext
 from brailix.ir.inline import ChineseToken
 
@@ -89,17 +91,21 @@ def _apply_user_dict(
     Multi-character surfaces only: single characters are too
     context-dependent to force globally (the polyphone trap — the same
     character legitimately reads differently sentence to sentence), so
-    the dictionary never stores them and we double-guard here.  Mutates
-    ``tokens`` in place; :class:`ChineseToken` is a mutable slots
-    dataclass and the resolver contract only forbids changing
-    surface / span, which we don't touch.
+    the dictionary never stores them and we double-guard here.
+
+    Replaces overridden entries in ``tokens`` with fresh
+    :class:`ChineseToken` objects rather than mutating in place: the
+    ``null`` resolver returns the caller's own token objects (only the
+    list is copied), so an in-place write would leak back into the
+    caller's input. We touch only ``pinyin`` — surface / span are
+    preserved by :func:`dataclasses.replace`.
     """
-    for tok in tokens:
+    for i, tok in enumerate(tokens):
         if len(tok.surface) <= 1:
             continue
         reading = user_dict.get(tok.surface)
-        if reading:
-            tok.pinyin = reading
+        if reading and reading != tok.pinyin:
+            tokens[i] = replace(tok, pinyin=reading)
 
 
 __all__ = ("annotate", "list_resolvers")

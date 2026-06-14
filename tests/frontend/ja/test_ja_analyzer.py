@@ -140,6 +140,17 @@ class TestJanome:
         assert dots == [(2, 3, 4, 5), (2, 5), (4,), (2, 4, 6), (2, 5)]  # トーキョー
         assert [w.code for w in r.warnings] == []
 
+    def test_spans_align_to_source_with_whitespace(self):
+        # Regression: janome drops boundary whitespace, so a length-sum
+        # span drifted (東京 was reported at the leading spaces). Each span
+        # must slice back to its own surface in the source text.
+        pytest.importorskip("janome")
+        ana = analyzer_registry.get("janome")
+        text = "  東京"
+        toks = ana.analyze(text)
+        assert toks
+        assert all(text[t.span.start : t.span.end] == t.surface for t in toks)
+
 
 class TestSudachi:
     def test_reads_kanji(self):
@@ -160,3 +171,15 @@ class TestFugashi:
         toks = ana.analyze("東京")
         # UniDic pron gives the 発音形 (長音); assert it at least read it.
         assert any(t.reading and "キョ" in t.reading for t in toks)
+
+    def test_spans_align_to_source_with_whitespace(self):
+        # Regression: MeCab drops inter-token whitespace, so a length-sum
+        # span drifted (every token after a space was off). Each span must
+        # slice back to its own surface in the source text.
+        pytest.importorskip("fugashi")
+        pytest.importorskip("unidic_lite")
+        ana = analyzer_registry.get("fugashi")
+        text = "私 は 本"
+        toks = ana.analyze(text)
+        assert toks
+        assert all(text[t.span.start : t.span.end] == t.surface for t in toks)

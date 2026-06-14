@@ -26,20 +26,26 @@ class JanomeJapaneseAnalyzer:
         self, text: str, ctx: FrontendContext | None = None
     ) -> list[JapaneseToken]:
         out: list[JapaneseToken] = []
-        offset = 0
+        cursor = 0
         for tok in self.tokenizer.tokenize(text):
             surface = tok.surface
             phonetic = tok.phonetic
             reading = phonetic if phonetic and phonetic != "*" else None
+            # janome drops whitespace between tokens, so a running length
+            # sum drifts from the real source offsets. Re-locate each
+            # surface from the cursor (find skips the dropped gap).
+            start = text.find(surface, cursor)
+            if start < 0:
+                start = cursor
+            cursor = start + len(surface)
             out.append(
                 JapaneseToken(
                     surface=surface,
                     reading=reading,
                     pos=tok.part_of_speech,
-                    span=Span(offset, offset + len(surface)),
+                    span=Span(start, cursor),
                 )
             )
-            offset += len(surface)
         return out
 
 

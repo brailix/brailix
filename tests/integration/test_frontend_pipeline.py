@@ -180,9 +180,30 @@ class TestAdapterSwap:
     def test_pinyin_adapter_swap_preserves_structure(self):
         text = "我在重庆。"
         a, _ = _run_frontend(text, pinyin="null")
-        # Re-run with a fake pinyin adapter (also returns no pinyin).
-        # Using the registry's null is enough — the assertion is just that
-        # the node shape is identical.
-        b, _ = _run_frontend(text, pinyin="null")
+
+        # Re-run with a DIFFERENT resolver that actually sets a (dummy)
+        # reading, so the two runs genuinely differ in pinyin — the contract
+        # is that the node structure (types + surfaces) is identical
+        # regardless of which resolver ran. (Re-running null vs null only
+        # proved a deterministic call equals itself.)
+        from dataclasses import replace
+
+        class _StubResolver:
+            name = "stub-swap-test"
+
+            def resolve(self, tokens, ctx=None):
+                return [replace(t, pinyin="xx") for t in tokens]
+
+        resolver_registry.register("stub-swap-test", _StubResolver)
+        try:
+            b, _ = _run_frontend(text, pinyin="stub-swap-test")
+        finally:
+            resolver_registry.unregister("stub-swap-test")
+
+        # Structure invariant across the swap...
         assert [type(x).__name__ for x in a] == [type(x).__name__ for x in b]
         assert [x.surface for x in a] == [x.surface for x in b]
+        # ...while the readings genuinely differed (proves a real swap).
+        a_readings = [getattr(x, "reading", None) for x in a]
+        b_readings = [getattr(x, "reading", None) for x in b]
+        assert a_readings != b_readings

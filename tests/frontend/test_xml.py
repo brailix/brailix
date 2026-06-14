@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from brailix.frontend._xml import strip_xml_invalid_chars
+from brailix.frontend._xml import (
+    local_name,
+    strip_namespace,
+    strip_whitespace_text,
+    strip_xml_invalid_chars,
+)
 
 
 class TestStripXmlInvalidChars:
@@ -27,3 +32,39 @@ class TestStripXmlInvalidChars:
         doc = f"<r>{escape(strip_xml_invalid_chars(dirty))}</r>"
         root = ET.fromstring(doc)  # must not raise
         assert root.text == "before<after> & more"
+
+
+class TestStripNamespace:
+    def test_strips_clark_prefix_recursively(self) -> None:
+        root = ET.fromstring('<m:math xmlns:m="urn:x"><m:mi>x</m:mi></m:math>')
+        strip_namespace(root)
+        assert root.tag == "math"
+        assert [c.tag for c in root] == ["mi"]
+
+    def test_leaves_bare_tags_untouched(self) -> None:
+        root = ET.fromstring("<math><mi>x</mi></math>")
+        strip_namespace(root)
+        assert root.tag == "math"
+        assert root[0].tag == "mi"
+
+
+class TestStripWhitespaceText:
+    def test_nulls_pure_whitespace_text_and_tail(self) -> None:
+        root = ET.fromstring("<r>\n  <a>x</a>\n  <b>y</b>\n</r>")
+        strip_whitespace_text(root)
+        assert root.text is None  # was "\n  "
+        assert root[0].tail is None  # was "\n  "
+        assert root[0].text == "x"  # real text preserved
+
+    def test_keeps_meaningful_text(self) -> None:
+        root = ET.fromstring("<r> keep <a>x</a></r>")
+        strip_whitespace_text(root)
+        assert root.text == " keep "  # not pure whitespace → kept
+
+
+class TestLocalName:
+    def test_strips_clark_prefix(self) -> None:
+        assert local_name("{urn:x}math") == "math"
+
+    def test_bare_tag_unchanged(self) -> None:
+        assert local_name("math") == "math"

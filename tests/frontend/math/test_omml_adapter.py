@@ -248,8 +248,9 @@ class TestErrorRecovery:
             "<m:r><m:t>blob</m:t></m:r>"
             "</m:mysteryConstruct>"
         ))
-        # No exceptions — and the inner content survives somewhere.
-        assert "<math" in out
+        # No exceptions — and the inner text survives as <mtext>, not just
+        # "the root is <math>" (which holds for any parseable input).
+        assert "<mtext>blob</mtext>" in out
 
 
 class TestEndToEndThroughParseMathTree:
@@ -447,6 +448,18 @@ class TestNaryOptions:
         ))
         assert "<msubsup>" in out
         assert "<munderover>" not in out
+
+    def test_nary_empty_chr_defaults_to_integral(self):
+        # An explicit empty <m:chr m:val=""/> must fall back to the default
+        # integral (∫), not emit an empty <mo/>.
+        out = OmmlMathSourceAdapter().to_mathml(_omml(
+            "<m:nary>"
+            "<m:naryPr><m:chr m:val=\"\"/></m:naryPr>"
+            "<m:e><m:r><m:t>x</m:t></m:r></m:e>"
+            "</m:nary>"
+        ))
+        assert "∫" in out
+        assert "<mi>x</mi>" in out
 
 
 # ---------------------------------------------------------------------------

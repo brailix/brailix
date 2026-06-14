@@ -130,10 +130,15 @@ class TestRaisingAdapterBackstop:
                 raise RuntimeError("boom")
 
         math_source_registry.register("boom-raise-test", _Boom)
-        ctx = MathContext(source="boom-raise-test")
-        tree = parse_math_tree("x + 1", ctx)
-        assert tree is not None
-        assert tree.find(".//merror") is not None
+        try:
+            ctx = MathContext(source="boom-raise-test")
+            tree = parse_math_tree("x + 1", ctx)
+            assert tree is not None
+            assert tree.find(".//merror") is not None
+        finally:
+            # Don't leak the test adapter into the process-wide registry;
+            # clear_cache() keeps registered loaders.
+            math_source_registry.unregister("boom-raise-test")
 
     def test_warning_carries_source_string(self):
         ctx = MathContext(source="weird")

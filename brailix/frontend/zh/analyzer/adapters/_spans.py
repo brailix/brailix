@@ -75,7 +75,9 @@ def recover_spans_by_cursor(
                 span=Span(cursor, start),
                 source=source,
             )
-        end = start + len(word)
+        # Clamp: a not-found synthetic span (start=cursor) could otherwise
+        # run past the end of the source.
+        end = min(start + len(word), len(text))
         tokens.append(ChineseToken(surface=word, pos=pos, span=Span(start, end)))
         cursor = end
     return tokens

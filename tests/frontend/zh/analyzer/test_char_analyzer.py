@@ -2,6 +2,7 @@ from brailix.core.context import FrontendContext
 from brailix.core.span import Span
 from brailix.frontend.zh.analyzer.adapters.char import CharChineseAnalyzer
 from brailix.frontend.zh.analyzer.registry import analyzer_registry
+from brailix.ir.inline import ChineseToken
 
 
 class TestCharAnalyzer:
@@ -40,9 +41,10 @@ class TestRegistry:
     def test_char_is_zero_dependency(self):
         # Calling the loader must not raise — pure stdlib.
         inst = analyzer_registry.get("char")
-        assert inst.analyze("好") == [
-            type(inst.analyze("好")[0])(surface="好", span=Span(0, 1))
-        ]
+        toks = inst.analyze("好")
+        assert len(toks) == 1
+        assert isinstance(toks[0], ChineseToken)
+        assert (toks[0].surface, toks[0].span) == ("好", Span(0, 1))
 
     def test_hanlp_registered_with_extra(self):
         assert analyzer_registry.has("hanlp")

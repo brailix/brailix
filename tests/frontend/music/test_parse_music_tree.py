@@ -302,6 +302,22 @@ class TestNormalizer:
         tree = parse_music_tree(xml, ctx)
         assert [t.text for t in tree.iter("type")] == ["quarter"]
 
+    def test_mid_measure_divisions_redeclaration_applies_to_later_notes(self):
+        # A second <divisions> declared mid-measure must govern the notes
+        # after it. duration=2 @ divisions=2 is a quarter; the stale first
+        # divisions=1 would otherwise mis-infer it as a half.
+        xml = (
+            "<score-partwise><part id='P1'><measure number='1'>"
+            "<attributes><divisions>1</divisions></attributes>"
+            "<note><duration>1</duration></note>"
+            "<attributes><divisions>2</divisions></attributes>"
+            "<note><duration>2</duration></note>"
+            "</measure></part></score-partwise>"
+        )
+        ctx = MusicContext(source="musicxml")
+        tree = parse_music_tree(xml, ctx)
+        assert [t.text for t in tree.iter("type")] == ["quarter", "quarter"]
+
 
 # ---------------------------------------------------------------------------
 # Soft-failure backstops — nothing on this path may raise

@@ -50,6 +50,16 @@ class TestApplyUserDict:
         _apply_user_dict(tokens, {"重庆": "chong2 qing4"})
         assert [t.pinyin for t in tokens] == ["wo3", "chong2 qing4", "ren2"]
 
+    def test_does_not_mutate_caller_token_objects(self) -> None:
+        # The override replaces the list entry with a fresh token rather than
+        # writing into the caller's object — the null resolver hands back the
+        # caller's own objects, so an in-place write would leak upstream.
+        original = ChineseToken(surface="重庆", pinyin=None)
+        tokens = [original]
+        _apply_user_dict(tokens, {"重庆": "chong2 qing4"})
+        assert tokens[0].pinyin == "chong2 qing4"  # list entry updated
+        assert original.pinyin is None  # caller's object untouched
+
 
 class TestAnnotateIntegration:
     """End-to-end through :func:`annotate` with the null resolver."""
@@ -76,6 +86,20 @@ class TestAnnotateIntegration:
         )
         out = annotate([ChineseToken(surface="重庆")], ctx)
         assert out[0].pinyin is None
+
+    def test_null_resolver_with_dict_does_not_mutate_caller(self) -> None:
+        # null returns the caller's own token objects; the dict override
+        # must not leak back into the caller's input list.
+        original = ChineseToken(surface="重庆", pinyin=None)
+        ctx = FrontendContext(
+            options={
+                "pinyin_resolver": "null",
+                "user_pinyin_dict": {"重庆": "chong2 qing4"},
+            }
+        )
+        out = annotate([original], ctx)
+        assert out[0].pinyin == "chong2 qing4"
+        assert original.pinyin is None
 
 
 class TestLowConfidenceSuppression:

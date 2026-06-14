@@ -115,8 +115,9 @@ class TestV5BasicChars:
         out = _to_mathml(payload)
         assert "<mi>a</mi>" in out
         assert "<mi>b</mi>" in out
-        # No raw PUA codepoint leaks into the MathML
-        assert "" not in out
+        # No raw PUA codepoint leaks into the MathML (U+EF04 spelled
+        # via chr() so the literal stays visible to readers).
+        assert chr(0xEF04) not in out
 
     def test_pua_boundary_codepoints_dropped(self):
         # Boundary cases: U+E000 (PUA start) and U+F8FF (PUA end).
@@ -760,6 +761,18 @@ class TestV5EqnPrefsAndInlineRuler:
         assert "<mi>b</mi>" in out
         assert "merror" not in out
 
+    def test_inline_ruler_with_seven_stops_keeps_body(self):
+        # Regression: an inline ruler whose stop COUNT is exactly 7 has a
+        # leading byte equal to the RULER tag (0x07). The parser used to
+        # mistake that count for a tag, desync, and silently drop the whole
+        # line body with no <merror>. It must keep the body now (the body
+        # parse falls back to the tagged reading only when inline fails).
+        body = B.v5_char(_ord("z"))
+        line = B.v5_inline_ruler_line(body, stops=[(0, i) for i in range(7)])
+        out = _to_mathml(B.v5_prelude() + line)
+        assert "<mi>z</mi>" in out
+        assert "merror" not in out
+
     def test_color_def_inside_tmpl_slot(self):
         # COLOR_DEF (0x10) can appear anywhere — including inside a TMPL
         # slot list — because definitions need only precede first use.
@@ -865,11 +878,15 @@ class TestV5StylingRecordSkips:
         assert "merror" not in out
 
     def test_size_records_all_three_flavours(self):
-        # 101 → u16 point size, >=100 → signed 16-bit delta, else → one
-        # biased byte. All three must consume exactly their own bytes.
+        # Per the WIRIS MTEF spec (v3 and v5 share this encoding):
+        #   101 → explicit point size (16-bit);
+        #   100 → large delta: lsize typesize byte, then 16-bit dsize;
+        #   else → small delta: the byte is lsize, then dsize+128.
+        # All three must consume exactly their own bytes (the 100 case is
+        # 4 bytes after the tag, NOT 3 — omitting the lsize byte desyncs).
         sizes = (
             bytes([0x09, 101]) + B.u16_le(240)
-            + bytes([0x09, 100]) + B.u16_le(0xFFF6)
+            + bytes([0x09, 100, 3]) + B.u16_le(0xFFF6)
             + bytes([0x09, 50, 130])
         )
         payload = B.v5_prelude() + sizes + B.v5_simple_char_line(_ord("x"))
@@ -1052,6 +1069,22 @@ class TestV5PileVariants:
         out = _to_mathml(B.v5_prelude() + pile)
         assert "<mtable>" in out
         assert "<mi>a</mi>" in out
+        assert "merror" not in out
+
+    def test_pile_inline_ruler_with_seven_stops_keeps_body(self):
+        # The same 7-stop / RULER-tag (0x07) collision on the PILE ruler
+        # path — the body must survive, not be silently dropped.
+        pile = (
+            bytes([0x04, 0x02])  # PILE, opts = ruler
+            + bytes([1, 0])  # halign, valign
+            + bytes([7])  # inline ruler, seven stops (== RULER tag 0x07)
+            + b"".join(bytes([0]) + B.u16_le(i) for i in range(7))
+            + B.v5_line(B.v5_char(_ord("q")))
+            + B.v5_end()
+        )
+        out = _to_mathml(B.v5_prelude() + pile)
+        assert "<mtable>" in out
+        assert "<mi>q</mi>" in out
         assert "merror" not in out
 
     def test_pile_inside_tmpl_slot(self):

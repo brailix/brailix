@@ -45,6 +45,14 @@ class TestEntryPoint:
         out = _mathml("")
         assert "<merror" in out
 
+    def test_prefix_or_switch_only_field_yields_merror(self):
+        # A field that is only the eq prefix and/or general switches becomes
+        # empty only AFTER stripping (past the early empty guard) — it must
+        # still soft-fail to <merror>, not emit an empty <math/>.
+        for field in ("eq", "eq \\* MERGEFORMAT"):
+            out = _mathml(field)
+            assert "<merror" in out, field
+
     def test_unknown_switch_does_not_crash(self):
         # \z is not a real switch — should still produce valid MathML
         # with a placeholder rather than blowing up.
@@ -201,8 +209,9 @@ class TestPiecewise:
         # Two rows of one column each.
         assert "<mtable" in out
         assert out.count("<mtr>") == 2
-        # Branch contents survived.
-        assert "<mi>sin</mi>" in out or "<mi>s</mi>" in out  # tokenization
+        # Branch contents survived; the identifier run must coalesce to a
+        # single <mi>sin</mi>, not split into per-char <mi>s</mi>...
+        assert "<mi>sin</mi>" in out
         assert "<mi>x</mi>" in out
 
 

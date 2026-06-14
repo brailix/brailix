@@ -26,9 +26,12 @@ from dataclasses import dataclass
 
 from brailix.core.context import MathContext
 from brailix.frontend.math.adapters._atoms import tokenize_math_text
-from brailix.frontend.math.utils import merror_wrap
-
-_MATHML_NS: str = "http://www.w3.org/1998/Math/MathML"
+from brailix.frontend.math.utils import (
+    _MATHML_NS,
+    merror_wrap,
+    mrow_wrap,
+    mtext,
+)
 
 # Word *general field* switches that can trail an EQ instruction but are
 # document-field formatting, not EQ math syntax: ``\* MERGEFORMAT`` /
@@ -168,6 +171,11 @@ class EqFieldMathSourceAdapter:
         # Drop Word general field switches (\* MERGEFORMAT, \!, \# / \@
         # pictures) before tokenizing — see _GENERAL_FIELD_SWITCH_RE.
         text = _GENERAL_FIELD_SWITCH_RE.sub("", text).strip()
+        if not text:
+            # A field that is only the ``eq`` prefix and/or general field
+            # switches (e.g. ``eq \* MERGEFORMAT``) becomes empty here, not
+            # at the early guard above — soft-fail like any empty input.
+            return merror_wrap("", reason="empty input")
         try:
             tokens = _tokenize(text)
             parser = _Parser(tokens)
@@ -740,13 +748,7 @@ def _emit_sequence(nodes: list[Node]) -> list[ET.Element]:
 
 def _emit_mrow(nodes: list[Node]) -> ET.Element:
     """Wrap ``nodes`` in an ``<mrow>`` (or unwrap if exactly one child)."""
-    children = _emit_sequence(nodes)
-    if len(children) == 1:
-        return children[0]
-    mrow = ET.Element("mrow")
-    for c in children:
-        mrow.append(c)
-    return mrow
+    return mrow_wrap(_emit_sequence(nodes))
 
 
 def _emit(node: Node) -> list[ET.Element]:
@@ -824,9 +826,7 @@ def _emit(node: Node) -> list[ET.Element]:
     if isinstance(node, _Unknown):
         # Emit a placeholder so the user sees that something was
         # dropped instead of silently missing content.
-        mtext = ET.Element("mtext")
-        mtext.text = "\\" + node.name
-        return [mtext]
+        return [mtext("\\" + node.name)]
     raise _EqParseError(f"unhandled node: {type(node).__name__}")
 
 

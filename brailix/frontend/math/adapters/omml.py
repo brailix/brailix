@@ -30,17 +30,18 @@ from typing import Any
 from brailix.core.context import MathContext
 from brailix.frontend._xml import local_name
 from brailix.frontend.math.adapters._atoms import tokenize_math_text
-from brailix.frontend.math.utils import merror_wrap
+from brailix.frontend.math.utils import (
+    _MATHML_NS,
+    merror_wrap,
+    mrow_wrap,
+    mtext,
+)
 
 # OMML elements live under this namespace. We accept both the Clark-
 # notation form (``{ns}tag``) that ElementTree emits and the bare local
 # name so callers can hand us either.
 _OMML_NS: str = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 _OMML_PREFIX: str = "{" + _OMML_NS + "}"
-
-# Standard MathML namespace — emitted on the root element so downstream
-# normalisers see a well-formed document.
-_MATHML_NS: str = "http://www.w3.org/1998/Math/MathML"
 
 
 @dataclass(slots=True)
@@ -145,7 +146,7 @@ def _convert(node: ET.Element) -> list[ET.Element]:
         text = "".join(node.itertext()).strip()
         if not text:
             return []
-        return [_mtext(text)]
+        return [mtext(text)]
     return handler(node)
 
 
@@ -168,13 +169,7 @@ def _mrow_of(node: ET.Element) -> ET.Element:
     Used for sub-expressions like fraction numerators where MathML
     requires a single child element.
     """
-    children = _wrap_children(node)
-    if len(children) == 1:
-        return children[0]
-    mrow = ET.Element("mrow")
-    for c in children:
-        mrow.append(c)
-    return mrow
+    return mrow_wrap(_wrap_children(node))
 
 
 def _convert_run(node: ET.Element) -> list[ET.Element]:
@@ -201,7 +196,7 @@ def _convert_fraction(node: ET.Element) -> list[ET.Element]:
     num = _first_child(node, "num")
     den = _first_child(node, "den")
     if num is None or den is None:
-        return [_mtext("(invalid fraction)")]
+        return [mtext("(invalid fraction)")]
     mfrac = ET.Element("mfrac")
     mfrac.append(_mrow_of(num))
     mfrac.append(_mrow_of(den))
@@ -215,7 +210,7 @@ def _convert_ssub(node: ET.Element) -> list[ET.Element]:
     base = _first_child(node, "e")
     sub = _first_child(node, "sub")
     if base is None or sub is None:
-        return [_mtext("(invalid sub)")]
+        return [mtext("(invalid sub)")]
     elem = ET.Element("msub")
     elem.append(_mrow_of(base))
     elem.append(_mrow_of(sub))
@@ -226,7 +221,7 @@ def _convert_ssup(node: ET.Element) -> list[ET.Element]:
     base = _first_child(node, "e")
     sup = _first_child(node, "sup")
     if base is None or sup is None:
-        return [_mtext("(invalid sup)")]
+        return [mtext("(invalid sup)")]
     elem = ET.Element("msup")
     elem.append(_mrow_of(base))
     elem.append(_mrow_of(sup))
@@ -238,7 +233,7 @@ def _convert_ssubsup(node: ET.Element) -> list[ET.Element]:
     sub = _first_child(node, "sub")
     sup = _first_child(node, "sup")
     if base is None or sub is None or sup is None:
-        return [_mtext("(invalid subsup)")]
+        return [mtext("(invalid subsup)")]
     elem = ET.Element("msubsup")
     elem.append(_mrow_of(base))
     elem.append(_mrow_of(sub))
@@ -253,7 +248,7 @@ def _convert_spre(node: ET.Element) -> list[ET.Element]:
     sub = _first_child(node, "sub")
     sup = _first_child(node, "sup")
     if base is None or sub is None or sup is None:
-        return [_mtext("(invalid sPre)")]
+        return [mtext("(invalid sPre)")]
     elem = ET.Element("mmultiscripts")
     elem.append(_mrow_of(base))
     # Trailing (post) scripts: none.
@@ -277,7 +272,7 @@ def _convert_radical(node: ET.Element) -> list[ET.Element]:
     deg = _first_child(node, "deg")
     radicand = _first_child(node, "e")
     if radicand is None:
-        return [_mtext("(invalid radical)")]
+        return [mtext("(invalid radical)")]
     hide_deg = _math_property(node, "radPr", "degHide") == "on"
     if deg is None or hide_deg or not list(deg):
         msqrt = ET.Element("msqrt")
@@ -299,8 +294,8 @@ def _convert_nary(node: ET.Element) -> list[ET.Element]:
     """
     pr = _first_child(node, "naryPr")
     op_char = _math_property_of(pr, "chr") if pr is not None else None
-    if op_char is None:
-        op_char = "∫"  # default integral, per Word
+    if not op_char:
+        op_char = "∫"  # default integral, per Word (also when chr="")
     lim_loc = _math_property_of(pr, "limLoc") if pr is not None else None
     sub_hide = _math_property_of(pr, "subHide") == "on" if pr is not None else False
     sup_hide = _math_property_of(pr, "supHide") == "on" if pr is not None else False
@@ -360,7 +355,7 @@ def _convert_func(node: ET.Element) -> list[ET.Element]:
     fname = _first_child(node, "fName")
     arg = _first_child(node, "e")
     if fname is None or arg is None:
-        return [_mtext("(invalid func)")]
+        return [mtext("(invalid func)")]
     mrow = ET.Element("mrow")
     for c in _wrap_children(fname):
         mrow.append(c)
@@ -447,7 +442,7 @@ def _convert_limit(node: ET.Element, mathml_tag: str) -> list[ET.Element]:
     base = _first_child(node, "e")
     lim = _first_child(node, "lim")
     if base is None or lim is None:
-        return [_mtext("(invalid limit)")]
+        return [mtext("(invalid limit)")]
     elem = ET.Element(mathml_tag)
     elem.append(_mrow_of(base))
     elem.append(_mrow_of(lim))
@@ -462,7 +457,7 @@ def _convert_group_chr(node: ET.Element) -> list[ET.Element]:
     chr_val = chr_val if chr_val is not None else "⏟"  # default underbrace
     base = _first_child(node, "e")
     if base is None:
-        return [_mtext("(invalid groupChr)")]
+        return [mtext("(invalid groupChr)")]
     container = ET.Element("mover" if pos == "top" else "munder")
     container.append(_mrow_of(base))
     op = ET.Element("mo")
@@ -476,7 +471,7 @@ def _convert_bar(node: ET.Element) -> list[ET.Element]:
     pos = _math_property_of(pr, "pos") if pr is not None else None
     base = _first_child(node, "e")
     if base is None:
-        return [_mtext("(invalid bar)")]
+        return [mtext("(invalid bar)")]
     container = ET.Element("munder" if pos == "bot" else "mover")
     container.append(_mrow_of(base))
     op = ET.Element("mo")
@@ -491,7 +486,7 @@ def _convert_acc(node: ET.Element) -> list[ET.Element]:
     chr_val = chr_val if chr_val is not None else "̂"  # combining circumflex
     base = _first_child(node, "e")
     if base is None:
-        return [_mtext("(invalid acc)")]
+        return [mtext("(invalid acc)")]
     container = ET.Element("mover")
     container.append(_mrow_of(base))
     op = ET.Element("mo")
@@ -559,13 +554,6 @@ def _math_property_of(pr: ET.Element, child_name: str) -> str | None:
     if value is None:
         value = child.get("val")
     return value
-
-
-def _mtext(text: str) -> ET.Element:
-    """Build a single ``<mtext>`` element."""
-    elem = ET.Element("mtext")
-    elem.text = text
-    return elem
 
 
 # ---------------------------------------------------------------------------

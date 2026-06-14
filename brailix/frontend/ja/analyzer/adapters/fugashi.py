@@ -35,18 +35,24 @@ class FugashiJapaneseAnalyzer:
         self, text: str, ctx: FrontendContext | None = None
     ) -> list[JapaneseToken]:
         out: list[JapaneseToken] = []
-        offset = 0
+        cursor = 0
         for word in self.tagger(text):
             surface = word.surface
+            # MeCab drops inter-token whitespace, so a running length sum
+            # drifts from the real source offsets. Re-locate each surface
+            # from the cursor (find skips the dropped gap).
+            start = text.find(surface, cursor)
+            if start < 0:
+                start = cursor
+            cursor = start + len(surface)
             out.append(
                 JapaneseToken(
                     surface=surface,
                     reading=_feature(word, "pron", "kana", "reading"),
                     pos=_feature(word, "pos1"),
-                    span=Span(offset, offset + len(surface)),
+                    span=Span(start, cursor),
                 )
             )
-            offset += len(surface)
         return out
 
 

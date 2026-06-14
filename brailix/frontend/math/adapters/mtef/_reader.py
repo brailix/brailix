@@ -8,7 +8,9 @@ format overview.
 
 from __future__ import annotations
 
-_MATHML_NS: str = "http://www.w3.org/1998/Math/MathML"
+# Re-exported from the shared util so the constant has a single source;
+# _v3 / _v5 import it from here.
+from brailix.frontend.math.utils import _MATHML_NS as _MATHML_NS
 
 # ---------------------------------------------------------------------------
 # Record type constants (shared by v3 and v5; v5 adds 8/15-19)

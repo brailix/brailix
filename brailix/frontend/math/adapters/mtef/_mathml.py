@@ -15,16 +15,11 @@ from typing import Any
 
 from brailix.frontend.math.adapters._atoms import classify_math_token
 from brailix.frontend.math.adapters.mtef._reader import _MtefParseError
+from brailix.frontend.math.utils import mrow_wrap, mtext
 
 # ---------------------------------------------------------------------------
 # Common helpers — building MathML
 # ---------------------------------------------------------------------------
-
-
-def _mtext(text: str) -> ET.Element:
-    el = ET.Element("mtext")
-    el.text = text
-    return el
 
 
 def _mo(text: str, **attrs: str) -> ET.Element:
@@ -33,16 +28,6 @@ def _mo(text: str, **attrs: str) -> ET.Element:
     for k, v in attrs.items():
         el.set(k, v)
     return el
-
-
-def _mrow_wrap(children: list[ET.Element]) -> ET.Element:
-    """Wrap children in ``<mrow>`` unless there is exactly one."""
-    if len(children) == 1:
-        return children[0]
-    mrow = ET.Element("mrow")
-    for c in children:
-        mrow.append(c)
-    return mrow
 
 
 def _classify_token(text: str) -> str:
@@ -133,7 +118,7 @@ def _char_to_mathml(
     try:
         ch = chr(char_value)
     except ValueError:
-        return [_mtext(f"\\u{char_value:04x}")]
+        return [mtext(f"\\u{char_value:04x}")]
     if not ch or ch.isspace():
         return []
     tag = _classify_token(ch)
@@ -243,7 +228,7 @@ def _slot(slots: list[list[ET.Element]], i: int) -> ET.Element:
     children = slots[i]
     if not children:
         return ET.Element("mrow")
-    return _mrow_wrap(list(children))
+    return mrow_wrap(list(children))
 
 
 # ---- Fence builders (shared) ----

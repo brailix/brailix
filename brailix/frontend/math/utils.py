@@ -10,6 +10,7 @@ don't reverse-import into one specific adapter module.
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape, quoteattr
 
 from brailix.frontend._xml import strip_xml_invalid_chars
@@ -48,3 +49,29 @@ def merror_wrap(surface: str, *, reason: str) -> str:
         f"<merror data-reason={escaped_reason}><mtext>{escaped}</mtext></merror>"
         f"</math>"
     )
+
+
+def mtext(text: str) -> ET.Element:
+    """Build a single ``<mtext>`` element carrying ``text``.
+
+    Shared by the OMML / EQ-field / MTEF MathML builders.
+    """
+    el = ET.Element("mtext")
+    el.text = text
+    return el
+
+
+def mrow_wrap(children: list[ET.Element]) -> ET.Element:
+    """Return ``children`` as one MathML element: a lone child is unwrapped,
+    otherwise they are wrapped in an ``<mrow>``.
+
+    Shared by the OMML / EQ-field / MTEF builders, which each build a child
+    list and then need exactly one element (fraction numerator, script
+    base, ...).
+    """
+    if len(children) == 1:
+        return children[0]
+    mrow = ET.Element("mrow")
+    for c in children:
+        mrow.append(c)
+    return mrow

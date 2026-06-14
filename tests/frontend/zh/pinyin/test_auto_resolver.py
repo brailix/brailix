@@ -112,7 +112,9 @@ def test_auto_skips_self_name_in_preferred():
     out = resolver.resolve([ChineseToken(surface="\u6211")], FrontendContext())
     # The null resolver leaves pinyin as None \u2014 that's how we know we
     # reached it instead of looping back into auto.
-    assert out == [ChineseToken(surface="\u6211")] or out[0].pinyin is None
+    assert len(out) == 1
+    assert out[0].surface == "我"
+    assert out[0].pinyin is None  # null ran (the auto self-entry was skipped)
 
 
 def test_auto_raises_keyerror_when_no_candidates():

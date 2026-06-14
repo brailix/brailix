@@ -11,6 +11,7 @@ construction to :mod:`brailix.frontend.math.adapters.mtef._mathml`.
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 
 from brailix.frontend.math.adapters.mtef._mathml import (
     _attach_preceding_base,
@@ -140,13 +141,20 @@ def _read_line_v5(
         _read_nudge_v5(r)
     if opts & 0x04:
         r.u16()  # line spacing
-    if opts & 0x02:
-        _consume_ruler_v5(r)
     if opts & 0x01:
+        # Null line — no object list. Still consume the ruler if flagged.
+        if opts & 0x02:
+            _consume_ruler_v5(r)
         return []
-    children: list[ET.Element] = []
-    _read_object_list_v5(r, children, depth=depth)
-    return children
+
+    def _body() -> list[ET.Element]:
+        children: list[ET.Element] = []
+        _read_object_list_v5(r, children, depth=depth)
+        return children
+
+    if opts & 0x02:
+        return _read_ruler_then_v5(r, _body)
+    return _body()
 
 
 def _read_char_v5(r: _Reader, opts: int, depth: int) -> list[ET.Element]:
@@ -286,27 +294,31 @@ def _read_pile_v5(r: _Reader, opts: int, depth: int) -> ET.Element:
         _read_nudge_v5(r)
     r.u8()  # halign
     r.u8()  # valign
+
+    def _rows() -> ET.Element:
+        mtable = ET.Element("mtable")
+        while r.remaining() > 0:
+            rec = r.u8()
+            if rec == _REC_END:
+                break
+            if rec == _REC_LINE:
+                line_opts = r.u8()
+                row_children = _read_line_v5(r, line_opts, depth + 1)
+                mtr = ET.Element("mtr")
+                mtd = ET.Element("mtd")
+                for c in row_children:
+                    mtd.append(c)
+                mtr.append(mtd)
+                mtable.append(mtr)
+            else:
+                raise _MtefParseError(
+                    f"unexpected record 0x{rec:02x} in v5 pile"
+                )
+        return mtable
+
     if opts & 0x02:
-        _consume_ruler_v5(r)
-    mtable = ET.Element("mtable")
-    while r.remaining() > 0:
-        rec = r.u8()
-        if rec == _REC_END:
-            break
-        if rec == _REC_LINE:
-            line_opts = r.u8()
-            row_children = _read_line_v5(r, line_opts, depth + 1)
-            mtr = ET.Element("mtr")
-            mtd = ET.Element("mtd")
-            for c in row_children:
-                mtd.append(c)
-            mtr.append(mtd)
-            mtable.append(mtr)
-        else:
-            raise _MtefParseError(
-                f"unexpected record 0x{rec:02x} in v5 pile"
-            )
-    return mtable
+        return _read_ruler_then_v5(r, _rows)
+    return _rows()
 
 
 def _read_matrix_v5(r: _Reader, opts: int, depth: int) -> ET.Element:
@@ -359,11 +371,17 @@ def _read_nudge_v5(r: _Reader) -> None:
 
 
 def _skip_size_v5(r: _Reader) -> None:
-    """v5 SIZE comes in three flavours, distinguished by the second byte."""
+    """v5 SIZE payload — three encodings keyed by the first byte (WIRIS
+    MTEF spec, lsize/dsize): 101 = explicit point size (16-bit); 100 =
+    large delta (lsize typesize byte, then 16-bit dsize); otherwise the
+    byte is the lsize typesize of a small delta (then dsize+128). Matches
+    ``_skip_size_v3`` — v3 and v5 share this encoding.
+    """
     b = r.u8()
     if b == 101:
         r.u16()  # -point_size
-    elif b >= 100:
+    elif b == 100:
+        r.u8()  # lsize (typesize)
         r.i16()  # dsize
     else:
         r.u8()  # dsize+128
@@ -428,13 +446,44 @@ def _skip_nibble_streams(r: _Reader, n: int) -> None:
 
 
 def _consume_ruler_v5(r: _Reader) -> None:
-    """Consume a ruler payload after a v5 LINE/PILE opts=0x02 flag.
+    """Consume a ruler payload when there is no following body to validate.
 
-    The spec calls for a separate RULER record (tag 0x07) at this point,
-    but MathType 6+ frequently emits the ruler data inline without the
-    leading tag byte. Handle both: consume the tag if present, then read
-    ``count + count×(type + u16 offset)``.
+    Used for null lines, which carry a ruler but no object list to
+    disambiguate against. The ruler is normally inline (``count`` +
+    stops); a leading ``0x07`` is taken as the spec RULER tag. When an
+    inline ``count`` is exactly 7 this is genuinely ambiguous, but a null
+    line offers no signal to resolve it — non-null lines / piles use
+    :func:`_read_ruler_then_v5` instead.
     """
     if r.remaining() > 0 and r.peek() == _REC_RULER:
         r.u8()  # consume RULER tag
     _skip_ruler(r)
+
+
+def _read_ruler_then_v5[T](r: _Reader, body: Callable[[], T]) -> T:
+    """Consume the opts=0x02 ruler, then parse the body via ``body``.
+
+    The ruler is written either inline (``count`` + stops, what MathType
+    6+ emits) or as a tagged RULER record (``0x07`` + ``count`` + stops,
+    the WIRIS spec form). The two are byte-identical when the inline
+    ``count`` equals the RULER tag value (``0x07`` == 7), so they cannot
+    be distinguished locally. Resolve at runtime: try the inline reading
+    first and fall back to the tagged reading when the body then fails to
+    parse. (Previously a leading ``0x07`` was always taken as the tag,
+    which silently dropped the body of any 7-stop inline ruler.)
+
+    ``body`` must build and return a fresh result on each call — it is
+    retried into a new structure when the inline attempt desyncs.
+    """
+    if r.remaining() > 0 and r.peek() == _REC_RULER:
+        start = r.pos
+        try:
+            _skip_ruler(r)  # inline: the 0x07 is a stop count of 7
+            return body()
+        except _MtefParseError:
+            r.pos = start
+            r.u8()  # the 0x07 was the RULER tag after all
+            _skip_ruler(r)
+            return body()
+    _skip_ruler(r)  # unambiguous inline count (first byte != 0x07)
+    return body()
