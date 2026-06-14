@@ -10,6 +10,7 @@ from brailix.frontend.math.adapters.chem import (
     ChemMathSourceAdapter,
     convert_ce,
     extract_ce_inner,
+    find_elements,
 )
 from brailix.frontend.math.adapters.latex import LatexMathSourceAdapter
 
@@ -18,6 +19,22 @@ _NS = "{http://www.w3.org/1998/Math/MathML}"
 
 def _merror(out: str) -> ET.Element | None:
     return ET.fromstring(out).find(f".//{_NS}merror")
+
+
+class TestFindElements:
+    @pytest.mark.parametrize(
+        "formula,expected",
+        [
+            ("H2O", ["H", "O"]),
+            ("NaCl", ["Na", "Cl"]),
+            ("CO2", ["C", "O"]),
+            ("Fe^{3+}", ["Fe"]),
+            ("123", []),
+            ("", []),
+        ],
+    )
+    def test_finds_element_symbols(self, formula, expected):
+        assert find_elements(formula) == expected
 
 
 # ---------------------------------------------------------------------------

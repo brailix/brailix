@@ -98,6 +98,17 @@ class ChemMathSourceAdapter:
         return convert_ce(inner)
 
 
+def find_elements(formula: str) -> list[str]:
+    """Return the element symbols (``H``, ``Na``, ...) matched in ``formula``.
+
+    Exposed so callers can reason about a formula's element content — e.g.
+    the docx chem-detection heuristic checking for a multi-letter element or
+    two-or-more distinct elements — without reaching into this adapter's
+    private element regex.
+    """
+    return _ELEMENT_RE.findall(formula)
+
+
 def extract_ce_inner(text: str) -> str | None:
     r"""Return the inner content of a top-level ``\ce{...}``, or ``None``.
 
