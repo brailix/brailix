@@ -46,6 +46,18 @@ _NABCC: str = (
 )
 
 
+def dots_to_brf(dots: tuple[int, ...] | list[int]) -> str:
+    """BRF (NABCC) char for a bare dot tuple, without a Cell wrapper.
+
+    Dots 7 and 8 are dropped; only dots 1..6 contribute to the mask.
+    """
+    mask = 0
+    for d in dots:
+        if 1 <= d <= 6:
+            mask |= 1 << (d - 1)
+    return _NABCC[mask]
+
+
 def cell_to_brf(cell: BrailleCell) -> str:
     """Encode one cell as a single NABCC ASCII character.
 
@@ -53,20 +65,7 @@ def cell_to_brf(cell: BrailleCell) -> str:
     For pure 6-dot pipelines this is a no-op; for 8-dot input it gives
     a best-effort approximation suitable for embossing.
     """
-    mask = 0
-    for d in cell.dots:
-        if 1 <= d <= 6:
-            mask |= 1 << (d - 1)
-    return _NABCC[mask]
-
-
-def dots_to_brf(dots: tuple[int, ...] | list[int]) -> str:
-    """Convenience: BRF char for a bare dot tuple, without a Cell wrapper."""
-    mask = 0
-    for d in dots:
-        if 1 <= d <= 6:
-            mask |= 1 << (d - 1)
-    return _NABCC[mask]
+    return dots_to_brf(cell.dots)
 
 
 def brf_to_dots(ch: str) -> tuple[int, ...]:

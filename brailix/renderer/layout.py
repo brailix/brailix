@@ -358,17 +358,26 @@ class LayoutRenderer:
     def _effective_align(self, block: BrailleBlock) -> str | None:
         """The alignment to apply to ``block``'s wrapped lines, or ``None``.
 
-        A source-declared :attr:`BrailleBlock.align` (``"center"`` /
-        ``"right"``) wins. Absent that, a level-1 heading still centres by
-        default (:attr:`LayoutOptions.heading_center_level_1`) — the
-        historical behaviour, now expressed as one alignment rule rather
-        than a heading-only special case. Everything else stays flush left.
-        Because source alignment is honoured for any block kind, a Word
-        paragraph the author centred renders centred, and a centred level-2
-        heading (which the default rule leaves alone) is centred too.
+        A source-declared :attr:`BrailleBlock.align` always wins:
+        ``"center"`` / ``"right"`` select that alignment, and any other
+        explicit value (e.g. ``"left"``) suppresses the default centring,
+        leaving the block flush left. Only when the source declares *no*
+        alignment does a level-1 heading still centre by default
+        (:attr:`LayoutOptions.heading_center_level_1`) — the historical
+        behaviour, expressed as one alignment rule rather than a
+        heading-only special case. Because source alignment is honoured
+        for any block kind, a Word paragraph the author centred renders
+        centred, a centred level-2 heading is centred too, and an
+        explicitly left-aligned level-1 heading is *not* force-centred.
         """
         if block.align in ("center", "right"):
             return block.align
+        if block.align is not None:
+            # An explicit alignment we don't pad for (e.g. "left") still
+            # counts as the source taking a position — honour it as
+            # "flush left" rather than letting a level-1 heading fall
+            # through to the default centring below.
+            return None
         if (
             block.block_type == "heading"
             and block.heading_level == 1
@@ -779,6 +788,14 @@ def _reflow_page_anchor_lines[LineT: (str, bytes)](
       advances, so the page count may grow — that is the point: paper
       is spent, content is kept.
 
+    The "content is kept" guarantee holds only while the page number
+    leaves room for at least one content cell, i.e. ``line_width >
+    page_number_width``.  On a degenerate line too narrow to hold even
+    the page number plus its gap (``avail < 0``) this pass is skipped
+    (see the ``avail >= 0`` guard) and ``_apply_page_number_*`` falls
+    back to its lossy replace / truncate branch: with no room for both,
+    the anchor line's content gives way to the number.
+
     Generic over ``str`` (Unicode braille) and ``bytes`` (BRF);
     ``blank`` is the one-cell blank in the matching type.
     """
@@ -825,10 +842,13 @@ def _apply_page_number_unicode(
     * **Page number alone fits the line** but content collides:
       truncate ``target_line`` from the colliding edge (tail when
       right-aligned, head when left-aligned) and stitch the page
-      number in.  Backstop only: the renderer runs
+      number in.  Mostly a backstop: the renderer runs
       :func:`_reflow_page_anchor_lines` first, which re-flows anchor
-      lines so this branch is unreachable from ``render()`` — it keeps
-      a well-defined (lossy) behaviour for direct callers.
+      lines so this branch is normally unreachable from ``render()``.
+      It *is* reached when ``line_width <= page_number_width`` (reflow
+      skips those degenerate widths) — content then gives way, by
+      design, since the number can't share the line.  Kept well-defined
+      (if lossy) for direct callers too.
     * **Page number wider than the whole line**: replace the entire
       line with the page number.  Pathological edge case
       (line_width < page_no_width), still well-defined.

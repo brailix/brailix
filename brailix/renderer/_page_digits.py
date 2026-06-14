@@ -25,7 +25,9 @@ reads through ``layout.py``.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from functools import lru_cache
+from types import MappingProxyType
 
 from brailix.core.config import load_builtin_numbers_table
 from brailix.renderer.brf import dots_to_brf
@@ -33,15 +35,20 @@ from brailix.renderer.unicode_braille import dots_to_char
 
 
 @lru_cache(maxsize=1)
-def _page_cells() -> tuple[tuple[int, ...], dict[str, tuple[int, ...]]]:
+def _page_cells() -> tuple[tuple[int, ...], Mapping[str, tuple[int, ...]]]:
     """``(number_sign_dots, digit_dots_by_char)`` from the builtin
-    numbers resource, loaded once."""
+    numbers resource, loaded once.
+
+    The digit map is returned read-only (``MappingProxyType``): it's a
+    cached singleton shared by every caller, so a stray in-place edit
+    would corrupt the table for the whole process.
+    """
     table = load_builtin_numbers_table()
     sign: tuple[int, ...] = tuple(table["number_sign"])
     digits: dict[str, tuple[int, ...]] = {
         ch: tuple(dots) for ch, dots in table["digits"].items()
     }
-    return sign, digits
+    return sign, MappingProxyType(digits)
 
 
 def page_number_chars(page_num: int) -> str:

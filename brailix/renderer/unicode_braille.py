@@ -31,20 +31,17 @@ from brailix.ir.braille import BrailleCell, BrailleDocument, BrailleSequence
 BRAILLE_BASE = 0x2800
 
 
-def cell_to_char(cell: BrailleCell) -> str:
-    """Encode one cell as a single Unicode braille code point."""
-    mask = 0
-    for d in cell.dots:
-        mask |= 1 << (d - 1)
-    return chr(BRAILLE_BASE + mask)
-
-
 def dots_to_char(dots: tuple[int, ...] | list[int]) -> str:
-    """Convenience: encode a bare dot tuple without constructing a cell."""
+    """Encode a bare dot tuple as a single Unicode braille code point."""
     mask = 0
     for d in dots:
         mask |= 1 << (d - 1)
     return chr(BRAILLE_BASE + mask)
+
+
+def cell_to_char(cell: BrailleCell) -> str:
+    """Encode one cell as a single Unicode braille code point."""
+    return dots_to_char(cell.dots)
 
 
 def char_to_dots(ch: str) -> tuple[int, ...]:

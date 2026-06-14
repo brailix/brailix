@@ -404,6 +404,22 @@ class TestBlockAlignment:
         assert content
         assert content[0].startswith(dots_to_char(()) * 8)
 
+    def test_explicit_left_align_overrides_heading_default_centering(self):
+        # A level-1 heading centres by default, but an explicit source
+        # align of "left" must suppress that — the author asked for flush
+        # left, and any explicit alignment wins over the heading default.
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(
+                block_type="heading", heading_level=1,
+                align="left", cells=_word(5),
+            ),
+        ])
+        out = LayoutRenderer(options=LayoutOptions(line_width=21)).render(doc)
+        content = self._content_lines(out)
+        assert content
+        # First content cell is the word itself, not centring padding.
+        assert not content[0].startswith(dots_to_char(()))
+
     def test_content_at_line_width_is_not_padded(self):
         # A line already filling the width gets no padding (never widened
         # past line_width).
