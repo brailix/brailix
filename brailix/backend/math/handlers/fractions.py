@@ -65,10 +65,26 @@ def _emit_mfrac(
     kids = list(elem)
     numerator = kids[0] if len(kids) >= 1 else None
     denominator = kids[1] if len(kids) >= 2 else None
+    _emit_fraction(cells, mctx, numerator, denominator)
+
+
+def _emit_fraction(
+    cells: list[BrailleCell],
+    mctx: MathBrailleContext,
+    numerator: ET.Element | None,
+    denominator: ET.Element | None,
+) -> None:
+    """Shared fraction emission for ``<mfrac>`` and the typed-slash mrow.
+
+    Reads and clears the one-shot ``fraction_is_function_arg`` flag at
+    entry (so it never leaks into operand sub-emission — a nested fraction
+    in the numerator must not inherit it), tries the Antoine compact form,
+    then emits either the simplified-bar form (each operand carries its own
+    fence) or the compound ``fraction.open … fraction.close`` form. A
+    ``None`` operand (a malformed ``<mfrac>`` missing a child) simply emits
+    nothing in its slot.
+    """
     profile = mctx.profile
-    # One-shot context flag: read and clear at entry so it never leaks
-    # into operand sub-emission (a nested fraction inside the numerator
-    # must not inherit it).
     force_compound = mctx.fraction_is_function_arg
     mctx.fraction_is_function_arg = False
 
@@ -157,27 +173,7 @@ def _emit_typed_slash_fraction(
     operands are single self-fenced structures. Honours the same
     function-argument flag as ``_emit_mfrac`` — ``cos`` directly before
     a typed ``a / b`` forces the compound form."""
-    profile = mctx.profile
-    force_compound = mctx.fraction_is_function_arg
-    mctx.fraction_is_function_arg = False
-    if _try_emit_antoine_fraction(cells, mctx, numerator, denominator):
-        mctx.need_number_sign = True
-        return
-    simplifiable = not force_compound and _fraction_simplifiable(
-        numerator, denominator, profile
-    )
-    if not simplifiable:
-        _emit_structure(cells, mctx, "fraction.open", role="math_fraction_open")
-        mctx.need_number_sign = True
-    _emit_element(cells, mctx, numerator)
-    if not simplifiable and not _last_is_blank(cells):
-        cells.append(BLANK_CELL)
-    _emit_structure(cells, mctx, "fraction.bar", role="math_fraction_bar")
-    mctx.need_number_sign = True
-    _emit_element(cells, mctx, denominator)
-    if not simplifiable:
-        _emit_structure(cells, mctx, "fraction.close", role="math_fraction_close")
-    mctx.need_number_sign = True
+    _emit_fraction(cells, mctx, numerator, denominator)
 
 
 _DISPATCH_PARTIAL = {
