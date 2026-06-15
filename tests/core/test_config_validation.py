@@ -277,6 +277,51 @@ class TestMathSymbolAccentMark:
         assert isinstance(p, BrailleProfile)
 
 
+class TestMathSymbolIndicator:
+    # Class markers (⠫ symbol / ⠰ operation / ⠈ negation) emitted by the
+    # backend from structures.indicator.*; a symbol's ``indicator`` must
+    # name one of these kinds.
+    _STRUCT = {"indicator": {
+        "symbol": ["c_15"], "operation": ["c_56"], "negation": ["c_4"]
+    }}
+
+    def test_unknown_indicator_kind_rejected(self, tmp_path):
+        # indicator must name a kind declared in structures.json
+        # (indicator.*); a typo would otherwise load and silently emit no
+        # class marker (math_structure returns () → _emit_mo skips it).
+        name = _write_profile(
+            tmp_path,
+            symbols={"cup": {
+                "role": "op", "indicator": "opration", "cells": ["c_36"]
+            }},
+            structures=self._STRUCT,
+        )
+        with pytest.raises(ConfigurationError, match="indicator"):
+            load_profile(name, root=tmp_path)
+
+    def test_known_indicator_kind_accepted(self, tmp_path):
+        name = _write_profile(
+            tmp_path,
+            symbols={"cup": {
+                "role": "op", "indicator": "operation", "cells": ["c_36"]
+            }},
+            structures=self._STRUCT,
+        )
+        p = load_profile(name, root=tmp_path)
+        assert isinstance(p, BrailleProfile)
+
+    def test_empty_indicator_string_rejected(self, tmp_path):
+        name = _write_profile(
+            tmp_path,
+            symbols={"cup": {
+                "role": "op", "indicator": "", "cells": ["c_36"]
+            }},
+            structures=self._STRUCT,
+        )
+        with pytest.raises(ConfigurationError, match="indicator"):
+            load_profile(name, root=tmp_path)
+
+
 # ---------------------------------------------------------------------------
 # symbols.json: entity-key validation
 # ---------------------------------------------------------------------------

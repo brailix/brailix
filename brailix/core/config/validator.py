@@ -278,6 +278,26 @@ def _accent_mark_kinds(base: Path, structures_relative: str | None) -> set[str]:
     return set(mark.keys()) if isinstance(mark, dict) else set()
 
 
+def _indicator_kinds(base: Path, structures_relative: str | None) -> set[str]:
+    """Class-marker indicator kinds declared in structures.json
+    (``indicator.*`` — e.g. ``symbol`` / ``operation`` / ``negation``).
+
+    An ``indicator`` field in symbols.json must name one of these. We
+    derive the valid set from the resource (rather than hardcode the three
+    shipped kinds) so a profile that adds a new indicator is accepted
+    automatically, while a typo is rejected at load instead of silently
+    emitting no marker — ``math_structure('indicator.<typo>')`` returns an
+    empty tuple, which the backend's ``_emit_mo`` skips, so the symbol would
+    lose its class marker with no diagnostic.
+    """
+    if not structures_relative:
+        return set()
+    payload = _read_json(base / structures_relative)
+    structures = payload.get("structures") if isinstance(payload, dict) else None
+    indicator = structures.get("indicator") if isinstance(structures, dict) else None
+    return set(indicator.keys()) if isinstance(indicator, dict) else set()
+
+
 def _validate_math_symbols(
     base: Path, relative: str | None, structures_relative: str | None = None
 ) -> None:
@@ -289,9 +309,11 @@ def _validate_math_symbols(
     if not isinstance(symbols, dict):
         # Empty / absent symbols section is fine (no entries to check).
         return
-    # ``accent_mark`` values are checked against the kinds declared in
-    # structures.json (accent.mark.*), loaded lazily on first use.
+    # ``accent_mark`` / ``indicator`` values are checked against the kinds
+    # declared in structures.json (accent.mark.* / indicator.*), loaded
+    # lazily on first use.
     valid_accent_kinds: set[str] | None = None
+    valid_indicator_kinds: set[str] | None = None
     for raw_key, spec in symbols.items():
         if _is_metadata_key(raw_key):
             continue
@@ -319,12 +341,22 @@ def _validate_math_symbols(
         _check_bool_flag(spec, "script_prefix", raw_key, relative)
         _check_bool_flag(spec, "provisional", raw_key, relative)
         indicator = spec.get("indicator")
-        if indicator is not None and not isinstance(indicator, str):
-            raise ConfigurationError(
-                f"{relative}: entry {raw_key!r} has non-string 'indicator': "
-                f"{indicator!r} (expected a marker name like 'symbol' / "
-                f"'operation' / 'negation')"
-            )
+        if indicator is not None:
+            if not isinstance(indicator, str) or not indicator:
+                raise ConfigurationError(
+                    f"{relative}: entry {raw_key!r} has non-string/empty "
+                    f"'indicator': {indicator!r} (expected a marker name like "
+                    f"'symbol' / 'operation' / 'negation')"
+                )
+            if valid_indicator_kinds is None:
+                valid_indicator_kinds = _indicator_kinds(base, structures_relative)
+            if indicator not in valid_indicator_kinds:
+                raise ConfigurationError(
+                    f"{relative}: entry {raw_key!r} has indicator {indicator!r} "
+                    f"with no matching indicator.{indicator} in structures.json; "
+                    f"known kinds: "
+                    + ("/".join(sorted(valid_indicator_kinds)) or "(none)")
+                )
         accent_mark = spec.get("accent_mark")
         if accent_mark is not None:
             if not isinstance(accent_mark, str) or not accent_mark:

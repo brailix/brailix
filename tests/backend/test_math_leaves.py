@@ -260,6 +260,54 @@ class TestMo:
         assert [c.dots for c in big] == [(4, 5, 6), (2, 3, 4)]
 
 
+class TestMoIndicator:
+    """Class-marker indicators (⠰ operation / ⠈ negation) are emitted by the
+    backend from ``structures.indicator.<name>`` BEFORE the symbol's own
+    cells — the symbol table stays bare (just the distinguishing cells, or a
+    reference to the base symbol). This is the same backend pathway the ⠫
+    symbol marker uses; before this, only the ⠫/symbol path had backend
+    coverage (operation and negation were tested at the lookup layer only).
+
+    All assertions compare against profile-derived values
+    (``math_structure`` / ``math_symbol``) rather than hard-coded dots, so
+    they track the resource tables and catch a missing, wrong, doubled, or
+    mis-ordered indicator.
+    """
+
+    def test_operation_indicator_prefixes_symbol(self, profile):
+        # ∪ (cup): the operation indicator (⠰) precedes the union cell, both
+        # tagged math_op. space_before can't fire on a leading symbol (no
+        # preceding cell), so a lone ∪ is exactly indicator + symbol.
+        cells, wc = emit(mml("<math><mo>∪</mo></math>"), profile)
+        indicator = profile.math_structure("indicator.operation")
+        symbol = profile.math_symbol("∪")
+        assert [c.dots for c in cells] == list(indicator) + list(symbol)
+        assert all(c.role == "math_op" for c in cells)
+        assert not any(w.code == "MATH_UNKNOWN_SYMBOL" for w in wc)
+
+    def test_negation_indicator_prefixes_base_symbol(self, profile):
+        # ≠ (ne): the negation indicator (⠈) precedes the equals cell. The
+        # symbol table references "equals" instead of baking the marker in,
+        # so the backend composes ⠈ + the equals cell here.
+        cells, wc = emit(mml("<math><mo>≠</mo></math>"), profile)
+        indicator = profile.math_structure("indicator.negation")
+        symbol = profile.math_symbol("≠")
+        non_blank = [c.dots for c in cells if not c.is_blank]
+        assert non_blank == list(indicator) + list(symbol)
+        assert not any(w.code == "MATH_UNKNOWN_SYMBOL" for w in wc)
+
+    def test_operation_marker_is_not_the_symbol_marker(self, profile):
+        # ∪ leads with the operation indicator (⠰), which is a different cell
+        # from the ⠫ symbol marker used by shapes / functions — the
+        # indicator name drives which marker the backend emits, it is not
+        # cosmetic. A regression that emitted ⠫ for an operation would fail.
+        op_cells, _ = emit(mml("<math><mo>∪</mo></math>"), profile)
+        op_marker = profile.math_structure("indicator.operation")[0]
+        symbol_marker = profile.math_structure("indicator.symbol")[0]
+        assert op_cells[0].dots == op_marker
+        assert op_marker != symbol_marker
+
+
 # ---------------------------------------------------------------------------
 # 34-36: <mtext>
 # ---------------------------------------------------------------------------
