@@ -173,3 +173,75 @@ class TestMetadataPropagation:
         doc = parse_file(path, language="en", profile="ueb")
         assert doc.metadata["language"] == "en"
         assert doc.metadata["profile"] == "ueb"
+
+
+class TestDocDispatch:
+    def test_doc_suffix_routes_to_parse_doc(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # ``.doc`` dispatches to parse_doc (legacy binary), not the plain
+        # reader. With no converter available parse_doc raises ParseError
+        # naming the format — proof the dispatch reached it (the plain reader
+        # would instead UTF-8-decode the binary and raise UnicodeDecodeError).
+        from brailix.core.errors import ParseError
+
+        monkeypatch.setattr(
+            "brailix.input.docx._resolve_doc_converter", lambda override: None
+        )
+        path = tmp_path / "legacy.doc"
+        path.write_bytes(b"\xd0\xcf\x11\xe0")  # OLE magic bytes
+        with pytest.raises(ParseError) as exc:
+            parse_file(path)
+        assert ".doc" in str(exc.value)
+
+
+class TestMathtypeFallbackForwarding:
+    """``mathtype_fallback`` reaches ``parse_docx`` through ``parse_file``, and
+    ``Pipeline.parse_file`` drives it from the ``input.docx.mathtype_fallback``
+    profile feature (mirroring how ``detect_chemistry`` is wired)."""
+
+    def test_parse_file_forwards_mathtype_fallback_to_parse_docx(
+        self, tmp_path: Path
+    ) -> None:
+        # An invalid value is rejected by parse_docx's validation, which runs
+        # before the file is opened — proof the kwarg reached parse_docx rather
+        # than being dropped (a dropped kwarg would surface FileNotFoundError
+        # for the missing .docx instead). No python-docx needed: validation
+        # precedes the docx import.
+        with pytest.raises(ValueError, match="mathtype_fallback"):
+            parse_file(tmp_path / "missing.docx", mathtype_fallback="bogus")
+
+    def test_pipeline_parse_file_reads_profile_feature(self, monkeypatch) -> None:
+        # Pipeline.parse_file forwards the input.docx.mathtype_fallback profile
+        # feature to brailix.input.parse_file. cn_current ships no value, so the
+        # "off" default reaches the call. Spy on the module-level _parse_file so
+        # the assertion doesn't depend on a real document or the docx extra.
+        import brailix.pipeline as pipeline_mod
+        from brailix.ir.document import DocumentIR
+        from brailix.pipeline import Pipeline
+
+        captured: dict = {}
+
+        def spy(path, **kwargs):
+            captured.update(kwargs)
+            return DocumentIR()
+
+        monkeypatch.setattr(pipeline_mod, "_parse_file", spy)
+        Pipeline(profile="cn_current").parse_file("ignored.docx")
+        assert captured["mathtype_fallback"] == "off"
+        # The existing chem feature is still forwarded alongside it.
+        assert "chem_detection" in captured
+
+
+class TestRouteTable:
+    def test_format_routes_have_disjoint_suffixes(self) -> None:
+        # The flattened suffix→handler lookup in parse_file assumes the route
+        # suffix sets don't overlap (otherwise the last one silently wins).
+        # Lock that invariant so a new format reusing a suffix fails loudly.
+        from brailix.input import _FORMAT_ROUTES
+
+        seen: set[str] = set()
+        for suffixes, _handler in _FORMAT_ROUTES:
+            overlap = suffixes & seen
+            assert not overlap, f"suffix claimed by two routes: {overlap}"
+            seen |= suffixes

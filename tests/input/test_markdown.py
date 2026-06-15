@@ -259,6 +259,22 @@ class TestTable:
         assert [c.text for c in t.rows[2].cells] == ["-", "-"]
 
 
+class TestTableParagraphInteraction:
+    def test_table_immediately_after_paragraph_is_absorbed(self):
+        # Known limitation: _starts_block deliberately omits the table prefix
+        # (a stray "|" in prose shouldn't end a paragraph), so a table line
+        # directly after a paragraph line — no blank line between — joins into
+        # the paragraph instead of starting a Table.
+        doc = parse_markdown("正文一段\n| A | B |\n| 1 | 2 |")
+        assert len(doc.blocks) == 1
+        assert isinstance(doc.blocks[0], Paragraph)
+
+    def test_blank_line_before_table_is_recognised(self):
+        # With the blank line, the table is its own block.
+        doc = parse_markdown("正文一段\n\n| A | B |\n| 1 | 2 |")
+        assert [type(b).__name__ for b in doc.blocks] == ["Paragraph", "Table"]
+
+
 class TestMixedDocument:
     def test_kitchen_sink(self):
         src = """# 大标题

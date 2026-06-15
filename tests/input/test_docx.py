@@ -34,6 +34,7 @@ _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _M_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 _O_NS = "urn:schemas-microsoft-com:office:office"
 _R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 
 
 class TestResolveDocConverter:
@@ -442,6 +443,35 @@ def _embed_ole_equation(
     return rid
 
 
+def _relate_ole_blob(
+    doc: Document, blob: bytes, *, progid: str = "Equation.DSMT4"
+) -> str:
+    """Create an OLE part for ``blob`` + an OLE_OBJECT relationship; return its rId.
+
+    Same part / relationship bookkeeping as :func:`_embed_ole_equation` but
+    *without* inserting the in-paragraph ``<w:object>`` markup — the caller
+    places the reference itself (e.g. inside an ``<mc:AlternateContent>``
+    Fallback branch). ``progid`` is unused for the part itself (the ProgID
+    lives on the caller's ``<o:OLEObject>``) but kept for call-site symmetry.
+    """
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    from docx.opc.packuri import PackURI
+    from docx.opc.part import Part
+
+    existing = [
+        n for n in doc.part.package.iter_parts()
+        if "/word/embeddings/oleObject" in n.partname
+    ]
+    idx = len(existing) + 1
+    ole_part = Part(
+        partname=PackURI(f"/word/embeddings/oleObject{idx}.bin"),
+        content_type="application/vnd.openxmlformats-officedocument.oleObject",
+        blob=blob,
+        package=doc.part.package,
+    )
+    return doc.part.relate_to(ole_part, RT.OLE_OBJECT)
+
+
 def _mtef_sample_payload() -> bytes:
     """Hand-crafted MTEF v5 payload encoding ``x²``.
 
@@ -622,6 +652,91 @@ class TestMathTypeOLE:
         # Must not raise; the external rel contributes no blob (no local part).
         blob_map = _build_ole_blob_map(doc)
         assert rid not in blob_map
+
+
+# ---------------------------------------------------------------------------
+# mc:AlternateContent (Word offers a modern Choice + legacy Fallback)
+# ---------------------------------------------------------------------------
+
+
+class TestAlternateContent:
+    """Word wraps an OLE object in ``<mc:AlternateContent>`` when it can also
+    offer a modern (Choice) representation. The adapter prefers the Fallback's
+    legacy ``<w:object>`` OLE equation — that's the one it can read — and only
+    descends into Choice when Fallback yields nothing. The whole recursive
+    ``_walk_alternate_content`` / ``_walk_alt_subtree`` path was previously
+    untested."""
+
+    def test_fallback_ole_equation_is_extracted(self, tmp_path: Path) -> None:
+        # Fallback holds the MathType OLE; Choice holds a preview we can't read.
+        # The OLE must surface as inline math and the Choice preview must NOT
+        # leak into the text (Fallback is preferred and short-circuits Choice).
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("前 ")
+        rid = _relate_ole_blob(doc, _eqnolehdr_wrapped(_mtef_sample_payload()))
+        alt_xml = (
+            f'<mc:AlternateContent xmlns:mc="{_MC_NS}" xmlns:w="{_W_NS}" '
+            f'xmlns:o="{_O_NS}" xmlns:r="{_R_NS}">'
+            f'<mc:Choice Requires="wps"><w:r><w:t>预览图</w:t></w:r></mc:Choice>'
+            f'<mc:Fallback><w:r><w:object>'
+            f'<o:OLEObject Type="Embed" ProgID="Equation.DSMT4" r:id="{rid}"/>'
+            f'</w:object></w:r></mc:Fallback>'
+            f'</mc:AlternateContent>'
+        )
+        para._p.append(etree.fromstring(alt_xml))
+        doc.save(path)
+
+        text = _para_text(parse_docx(path))
+        assert "前" in text
+        assert "$<math" in text and "</math>$" in text
+        assert "<msup>" in text
+        assert "<mi>x</mi>" in text and "<mn>2</mn>" in text
+        # Choice preview is dropped — Fallback won, so we never walked it.
+        assert "预览图" not in text
+
+    def test_fallback_object_direct_child_also_extracted(
+        self, tmp_path: Path
+    ) -> None:
+        # Some emitters put the ``<w:object>`` directly under Fallback with no
+        # wrapping ``<w:r>`` — the subtree walker must still find it.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        rid = _relate_ole_blob(doc, _eqnolehdr_wrapped(_mtef_sample_payload()))
+        alt_xml = (
+            f'<mc:AlternateContent xmlns:mc="{_MC_NS}" xmlns:w="{_W_NS}" '
+            f'xmlns:o="{_O_NS}" xmlns:r="{_R_NS}">'
+            f'<mc:Fallback><w:object>'
+            f'<o:OLEObject Type="Embed" ProgID="Equation.3" r:id="{rid}"/>'
+            f'</w:object></mc:Fallback>'
+            f'</mc:AlternateContent>'
+        )
+        para._p.append(etree.fromstring(alt_xml))
+        doc.save(path)
+
+        assert "<msup>" in _para_text(parse_docx(path))
+
+    def test_choice_only_omml_is_extracted(self, tmp_path: Path) -> None:
+        # No Fallback at all → the adapter descends into Choice and surfaces
+        # its inline OMML as math (the Choice branch of _walk_alternate_content).
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("式 ")
+        alt_xml = (
+            f'<mc:AlternateContent xmlns:mc="{_MC_NS}" xmlns:w="{_W_NS}" '
+            f'xmlns:m="{_M_NS}">'
+            f'<mc:Choice Requires="wps">'
+            f'<m:oMath><m:sSup>'
+            f'<m:e><m:r><m:t>x</m:t></m:r></m:e>'
+            f'<m:sup><m:r><m:t>2</m:t></m:r></m:sup>'
+            f'</m:sSup></m:oMath>'
+            f'</mc:Choice>'
+            f'</mc:AlternateContent>'
+        )
+        para._p.append(etree.fromstring(alt_xml))
+        doc.save(path)
+
+        text = _para_text(parse_docx(path))
+        assert "式" in text
+        assert "$<math" in text and "<msup>" in text
 
 
 # ---------------------------------------------------------------------------
@@ -1447,3 +1562,98 @@ class TestVertAlignChemistry:
         doc.save(path)
         result = Pipeline(profile="cn_current").translate_file(path)
         assert "⠸⠓⠆⠕" in result.render("unicode")
+
+
+# ---------------------------------------------------------------------------
+# w:jc relative spellings (Word 2013+ writes start / end, not left / right)
+# ---------------------------------------------------------------------------
+
+
+class TestJcAlignmentValues:
+    """``_paragraph_alignment`` maps the LTR-relative ``w:jc`` spellings Word
+    2013+ emits. python-docx's alignment enum only round-trips
+    left / right / center / both, so the ``start`` / ``end`` branch needs raw
+    XML to reach."""
+
+    def _para(self, jc_val: str) -> etree._Element:
+        return etree.fromstring(
+            f'<w:p xmlns:w="{_W_NS}"><w:pPr>'
+            f'<w:jc w:val="{jc_val}"/></w:pPr></w:p>'
+        )
+
+    def test_end_maps_to_right(self) -> None:
+        from brailix.input.docx._blocks import _paragraph_alignment
+
+        assert _paragraph_alignment(self._para("end")) == "right"
+
+    def test_start_has_no_align(self) -> None:
+        # ``start`` is the LTR default (flush-left) — no braille marker.
+        from brailix.input.docx._blocks import _paragraph_alignment
+
+        assert _paragraph_alignment(self._para("start")) is None
+
+    def test_bare_val_without_prefix_is_read(self) -> None:
+        # Some emitters drop the ``w:`` prefix; the value must still resolve
+        # (exercises the _ns_attr bare-name fallback on w:jc).
+        from brailix.input.docx._blocks import _paragraph_alignment
+
+        p = etree.fromstring(
+            f'<w:p xmlns:w="{_W_NS}"><w:pPr><w:jc val="center"/></w:pPr></w:p>'
+        )
+        assert _paragraph_alignment(p) == "center"
+
+
+# ---------------------------------------------------------------------------
+# Run-level <w:br> / <w:tab> and hyperlink-wrapped content
+# ---------------------------------------------------------------------------
+
+
+class TestRunBreaksAndHyperlink:
+    def test_break_and_tab_in_run(self, tmp_path: Path) -> None:
+        # <w:br> contributes a newline, <w:tab> a space, inside paragraph text.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        runs_xml = (
+            f'<w:r xmlns:w="{_W_NS}"><w:t>甲</w:t><w:br/><w:t>乙</w:t></w:r>'
+            f'<w:r xmlns:w="{_W_NS}"><w:t>丙</w:t><w:tab/><w:t>丁</w:t></w:r>'
+        )
+        wrapper = etree.fromstring(f'<root xmlns:w="{_W_NS}">{runs_xml}</root>')
+        for r in list(wrapper):
+            para._p.append(r)
+        doc.save(path)
+
+        text = _para_text(parse_docx(path))
+        assert "甲\n乙" in text   # <w:br> → newline
+        assert "丙 丁" in text     # <w:tab> → space
+
+    def test_hyperlink_wrapped_run_text_surfaces(self, tmp_path: Path) -> None:
+        # A <w:hyperlink> wraps runs; their text must reach the paragraph.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("看 ")
+        hyper_xml = (
+            f'<w:hyperlink xmlns:w="{_W_NS}"><w:r><w:t>链接文字</w:t></w:r>'
+            f'</w:hyperlink>'
+        )
+        para._p.append(etree.fromstring(hyper_xml))
+        doc.save(path)
+
+        text = _para_text(parse_docx(path))
+        assert "看" in text and "链接文字" in text
+
+    def test_hyperlink_wrapped_math_surfaces(self, tmp_path: Path) -> None:
+        # Inline OMML inside a hyperlink is still extracted as inline math.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        hyper_xml = (
+            f'<w:hyperlink xmlns:w="{_W_NS}" xmlns:m="{_M_NS}">'
+            f'<m:oMath><m:sSup>'
+            f'<m:e><m:r><m:t>x</m:t></m:r></m:e>'
+            f'<m:sup><m:r><m:t>2</m:t></m:r></m:sup>'
+            f'</m:sSup></m:oMath>'
+            f'</w:hyperlink>'
+        )
+        para._p.append(etree.fromstring(hyper_xml))
+        doc.save(path)
+
+        text = _para_text(parse_docx(path))
+        assert "$<math" in text and "<msup>" in text
