@@ -316,9 +316,11 @@ def _emit_parsed(
             # stripped down to a bare initial. This is a degenerate
             # reading such as the syllabic nasal 呣 ``m`` that has no
             # conventional braille syllable (嗯 ``n`` and 哼 ``hng`` are
-            # aliased to en / heng in the parser). Warn so the dropped rime
-            # is visible to the proofreader instead of silently vanishing;
-            # add a placeholder cell only when no initial cell is already
+            # aliased to en / heng in the parser), or a bare retroflex
+            # ``r`` (a degenerate erhua reading like ``r5``) — an initial
+            # with no spellable rime. Warn so the dropped rime is visible
+            # to the proofreader instead of silently vanishing; add a
+            # placeholder cell only when no initial cell is already
             # standing in for the syllable.
             ctx.warnings.warn(
                 code="MISSING_FINAL",

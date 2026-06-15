@@ -39,12 +39,14 @@ class BasicTonePolicy:
         next_parsed: ParsedPinyin | None = None,
     ) -> bool:
         del syllable, next_syllable, next_parsed  # pure flag logic
-        # Use the legacy flat ``"tone"`` key so test code that
-        # monkeypatches ``profile.features["tone"] = False`` is
-        # honoured — the flat alias walks the features dict's top
-        # level, while the dotted form would resolve via the nested
-        # ``features.zh.tone`` entry set by JSON loading and bypass
-        # the override.
+        # Read the master switch via the legacy flat ``"tone"`` key, not
+        # the dotted ``"zh.tone"``: ``feature()`` tries the literal key
+        # first, so a test that sets a top-level
+        # ``profile.features["tone"] = False`` is honoured. Normally there
+        # is no top-level ``tone`` and the lookup falls through the
+        # ``tone → zh.tone`` alias to the nested JSON value (the two agree);
+        # ``feature("zh.tone")`` would resolve that nested value first and
+        # never see the top-level test override.
         if not self.profile.feature("tone", True):
             return False
         if not parsed.tone:
