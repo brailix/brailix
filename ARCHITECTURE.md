@@ -213,7 +213,7 @@ Four IRs, from coarse to fine. The first three describe the document; the last i
 }
 ```
 
-Block types: `heading / paragraph / list / list_item / table / table_row / table_cell / quote / footnote / code_block / math_block / image_alt`.
+Block types: `heading / paragraph / list / list_item / table / table_row / table_cell / quote / footnote / code_block / math_block / score / music_block / image_alt`.
 
 ### 5.2 InlineIR (inline tokens)
 
@@ -221,7 +221,7 @@ Block types: `heading / paragraph / list / list_item / table / table_row / table
 {
   "type": "word",
   "surface": "重庆",
-  "pinyin": "chong2 qing4",
+  "reading": "chong2 qing4",
   "confidence": 0.99,
   "span": [15, 17]
 }
@@ -230,9 +230,9 @@ Block types: `heading / paragraph / list / list_item / table / table_row / table
 Inline token types:
 
 ```
-word / hanzi_char / number / date / time / quantity / percent /
+word / hanzi_char / number / hanzi_marker / date / quantity / percent /
 punct / latin_word / latin_acronym /
-code_inline / math_inline / space / unknown
+code_inline / math_inline / music_inline / space / connector / unknown
 ```
 
 > `hanzi_char` is the single-character fallback when segmentation fails; `unknown` keeps the pipeline running on anything else.
@@ -259,12 +259,11 @@ The full math and music subsystems are described in §7 and §8.
 ### 5.4 BrailleIR (cell sequence)
 
 ```python
-@dataclass
+@dataclass(slots=True, frozen=True)
 class BrailleCell:
-    dots: tuple[int, ...]      # e.g. (1, 2, 4)
-    unicode: str | None = None # ⠋
-    role: str | None = None    # 'number_sign' / 'zh_syllable' / 'math_op' ...
-    source_span: tuple[int, int] | None = None
+    dots: tuple[int, ...] = ()  # e.g. (1, 2, 4); normalised to ascending order in __post_init__
+    role: str | None = None     # 'number_sign' / 'zh_initial' / 'math_op' ...
+    source_span: Span | None = None  # serialised as [start, end]
     source_text: str | None = None
 ```
 
@@ -272,8 +271,8 @@ class BrailleCell:
 {
   "type": "braille_document",
   "blocks": [
-    {"type": "braille_paragraph", "cells": [
-      {"role": "zh_syllable", "source_text": "我", "dots": [/*...*/]},
+    {"type": "braille_block", "block_type": "paragraph", "cells": [
+      {"role": "zh_initial", "source_text": "我", "dots": [/*...*/]},
       {"role": "number_sign", "dots": [3, 4, 5, 6]},
       {"role": "number",      "source_text": "2026", "dots": [/*...*/]}
     ]}
@@ -281,7 +280,7 @@ class BrailleCell:
 }
 ```
 
-What BrailleIR buys you: easy debugging, traceability, line-wrapping, BRF generation, and proofreading.
+What BrailleIR buys you: easy debugging, traceability, line-wrapping, BRF generation, and proofreading. (The unicode character is not stored on a cell — it is derived from `dots` and computed by the renderer; see the renderer's role in §1.)
 
 ---
 
