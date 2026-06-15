@@ -3,6 +3,9 @@ import pytest
 from brailix.core.span import Span
 from brailix.ir.braille import (
     BLANK_CELL,
+    HANG_CLOSE_CELL,
+    HANG_OPEN_CELL,
+    LINE_BREAK_CELL,
     BrailleBlock,
     BrailleCell,
     BrailleDocument,
@@ -53,6 +56,16 @@ class TestBrailleCellConstruction:
         # Frozen dataclasses with equal fields hash and compare equal.
         assert c1 == c2
         assert hash(c1) == hash(c2)
+
+    def test_dots_normalized_to_ascending(self):
+        # A cell's identity is its dot set: unordered input canonicalises so
+        # equality / hashing match the order-free unicode rendering.
+        assert BrailleCell(dots=(2, 1)).dots == (1, 2)
+        assert BrailleCell(dots=(4, 1, 2)).dots == (1, 2, 4)
+
+    def test_unordered_dots_compare_equal(self):
+        assert BrailleCell(dots=(2, 1)) == BrailleCell(dots=(1, 2))
+        assert hash(BrailleCell(dots=(2, 1))) == hash(BrailleCell(dots=(1, 2)))
 
 
 class TestBrailleCellSerialization:
@@ -178,6 +191,27 @@ class TestBlankCell:
     def test_blank_cell_constant(self):
         assert BLANK_CELL.is_blank
         assert BLANK_CELL.role == "space"
+
+
+class TestSentinelCells:
+    """The non-blank zero-width sentinels (forced line break, hang-region
+    brackets) are ``is_blank`` True but distinguished by ``role``; wrap /
+    render logic keys on ``role``, so it must survive a round-trip."""
+
+    @pytest.mark.parametrize(
+        "cell, role",
+        [
+            (LINE_BREAK_CELL, "line_break"),
+            (HANG_OPEN_CELL, "hang_open"),
+            (HANG_CLOSE_CELL, "hang_close"),
+        ],
+    )
+    def test_role_and_round_trip(self, cell, role):
+        assert cell.is_blank  # zero-width...
+        assert cell.role == role  # ...but distinguished by role
+        restored = BrailleCell.from_dict(cell.to_dict())
+        assert restored == cell
+        assert restored.role == role
 
 
 class TestMalformedSourceSpan:

@@ -23,6 +23,7 @@ from brailix.ir.inline import (
     Space,
     Unknown,
     Word,
+    _deserialize_value,
     _serialize_value,
     from_dict,
     inline_node_for,
@@ -156,6 +157,7 @@ class TestSerializationComposite:
         restored = from_dict(q.to_dict())
         assert isinstance(restored, Quantity)
         assert restored.number.surface == "3.5"
+        assert restored.unit == "kg"
         assert restored.unit_canonical == "kilogram"
 
 
@@ -198,6 +200,16 @@ class TestSerializationMathInline:
                 "type": "math_inline",
                 "surface": "x",
                 "math": {"kind": "identifier", "value": "x"},
+            })
+
+    def test_from_dict_rejects_malformed_xml_string(self):
+        # A non-well-formed XML string surfaces as ValueError at the IR
+        # boundary (ET.ParseError is re-raised), not a raw ParseError.
+        with pytest.raises(ValueError):
+            from_dict({
+                "type": "math_inline",
+                "surface": "x",
+                "math": "<math><mo>+</mo>",  # unclosed <math>
             })
 
     def test_from_dict_accepts_explicit_none_math_value(self):
@@ -537,3 +549,32 @@ class TestMalformedSpan:
         # An explicit null span is allowed (to_dict omits it, from_dict keeps None).
         node = from_dict({"type": "number", "surface": "1", "span": None})
         assert node.span is None
+
+
+class TestDeserializeGuard:
+    """``from_dict`` dispatches on field name, but serialization is type-driven.
+    A nested IR payload (a ``dict`` / list of ``dict``) reaching the
+    deserializer fall-through means an IR-node field nobody registered — it must
+    raise, not silently round-trip as raw dicts. The from_dict-side mirror of
+    ``TestBaseToDictSelfConsistency`` in test_document.py."""
+
+    def test_unregistered_dict_field_raises(self):
+        with pytest.raises(ValueError, match="nested IR payload"):
+            _deserialize_value("kid", {"type": "number", "surface": "1"})
+
+    def test_unregistered_list_of_dict_field_raises(self):
+        with pytest.raises(ValueError, match="nested IR payload"):
+            _deserialize_value("kids", [{"type": "number", "surface": "1"}])
+
+    def test_scalar_field_passes_through(self):
+        assert _deserialize_value("confidence", 0.9) == 0.9
+        assert _deserialize_value("reason", "bad") == "bad"
+
+    def test_list_of_scalars_passes_through(self):
+        # A future list-of-str field carries no dicts → must not trip the guard.
+        assert _deserialize_value("tags", ["a", "b"]) == ["a", "b"]
+
+    def test_registered_branches_run_before_guard(self):
+        # The guard sits after the real branches: span / parts still deserialize.
+        assert _deserialize_value("span", [0, 2]) == Span(0, 2)
+        assert _deserialize_value("parts", []) == []

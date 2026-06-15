@@ -205,6 +205,13 @@ class TestStructureKey:
             != Table(rows=[TableRow(), TableRow()]).structure_key()
         )
 
+    def test_nested_container_shape_in_key(self):
+        # Row count alone can't tell a 2-column row from a 1-column row; the
+        # key recurses into nested blocks so column shape is captured too.
+        two_cols = Table(rows=[TableRow(cells=[TableCell(), TableCell()])])
+        one_col = Table(rows=[TableRow(cells=[TableCell()])])
+        assert two_cols.structure_key() != one_col.structure_key()
+
     def test_align_and_source_in_key(self):
         assert (
             Paragraph(text="x").structure_key()
@@ -458,3 +465,33 @@ class TestRegistry:
         # length raises rather than being stored raw as a list.
         with pytest.raises(ValueError):
             block_from_dict({"type": "paragraph", "text": "x", "span": [0, 1, 2]})
+
+
+class TestDeserializeBlockGuard:
+    """Block deserialization dispatches on field name; a nested IR payload
+    (``dict`` / list of ``dict``) with no branch must raise rather than
+    silently round-trip as raw dicts — the from_dict-side mirror of
+    :class:`TestBaseToDictSelfConsistency`."""
+
+    def test_unregistered_list_of_dict_field_raises(self):
+        from brailix.ir.document import _deserialize_block_value
+
+        with pytest.raises(ValueError, match="nested IR payload"):
+            _deserialize_block_value(Paragraph, "kids", [{"type": "paragraph"}])
+
+    def test_unregistered_dict_field_raises(self):
+        from brailix.ir.document import _deserialize_block_value
+
+        with pytest.raises(ValueError, match="nested IR payload"):
+            _deserialize_block_value(Paragraph, "kid", {"type": "paragraph"})
+
+    def test_scalar_field_passes_through(self):
+        from brailix.ir.document import _deserialize_block_value
+
+        assert _deserialize_block_value(Heading, "level", 3) == 3
+
+    def test_registered_structural_field_still_works(self):
+        from brailix.ir.document import _deserialize_block_value
+
+        rows = _deserialize_block_value(Table, "rows", [{"type": "table_row"}])
+        assert isinstance(rows[0], TableRow)

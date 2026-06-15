@@ -30,8 +30,11 @@ from brailix.core.span import Span
 class BrailleCell:
     """One braille cell.
 
-    ``dots`` is a tuple of dot positions (1..8) — frozen so cells are
-    hashable and safe to share between sequences. ``role`` is a short
+    ``dots`` is a tuple of dot positions (1..8), normalised to ascending
+    order in :meth:`__post_init__` so a cell's identity is its dot *set*:
+    ``(2, 1)`` and ``(1, 2)`` compare equal and hash alike, matching the
+    order-free unicode rendering. Frozen so cells are hashable and safe to
+    share between sequences. ``role`` is a short
     tag describing what the cell represents (``number_sign``,
     ``zh_initial``, ``zh_final``, ``tone``, ``punct``, ``math_op``,
     ...). ``source_span`` and ``source_text`` enable back-tracing for
@@ -50,6 +53,13 @@ class BrailleCell:
                 raise ValueError(f"invalid dot {d}; must be 1..8")
         if len(set(self.dots)) != len(self.dots):
             raise ValueError(f"duplicate dots in {self.dots!r}")
+        # Canonicalise dot order so equality / hashing match the cell's
+        # rendering semantics: a cell *is* its dot set (the unicode renderer
+        # OR-s the bits, order-free), so (2, 1) and (1, 2) must compare equal
+        # and share a hash. frozen=True → write through object.__setattr__.
+        ordered = tuple(sorted(self.dots))
+        if ordered != self.dots:
+            object.__setattr__(self, "dots", ordered)
 
     @property
     def is_blank(self) -> bool:

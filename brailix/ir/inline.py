@@ -403,20 +403,53 @@ def _deserialize_xml_tree(key: str, value: Any) -> ET.Element | None:
 
     Accepts ``None`` (kept), a serialized XML string (re-parsed and namespace-
     stripped at the IR boundary), or a pre-parsed :class:`ET.Element` (passed
-    through unchanged). Anything else raises :class:`ValueError` so a malformed
-    payload fails loudly instead of silently storing junk.
+    through unchanged). A wrong type — or a string that isn't well-formed XML
+    (``ET.ParseError`` is re-raised as :class:`ValueError`) — fails loudly at
+    the IR boundary as a :class:`ValueError` instead of silently storing junk.
     """
     if value is None:
         return None
+    field_label, fmt = _XML_TREE_FIELDS[key]
     if isinstance(value, str):
-        return _strip_xml_namespace(ET.fromstring(value))
+        try:
+            parsed = ET.fromstring(value)
+        except ET.ParseError as e:
+            raise ValueError(f"{field_label} is not well-formed {fmt}: {e}") from e
+        return _strip_xml_namespace(parsed)
     if isinstance(value, ET.Element):
         return value
-    field_label, fmt = _XML_TREE_FIELDS[key]
     raise ValueError(
         f"{field_label} must be None, a {fmt} string, or an ET.Element; "
         f"got {type(value).__name__}"
     )
+
+
+def _reject_unhandled_nested_payload(key: str, value: Any) -> None:
+    """Guard the deserializer fall-through against an IR payload nobody rebuilt.
+
+    Serialization is type-driven — :func:`_serialize_value` recurses into any
+    :class:`InlineNode` automatically. Deserialization dispatches on field
+    *name*, so a newly added IR-node-valued field serializes correctly yet
+    would fall through here and be stored as a raw ``dict`` (or list of
+    ``dict``): a silent round-trip corruption no per-type test catches.
+
+    A serialized IR node is always a ``dict`` and a list of them a list of
+    ``dict``; every scalar / span / XML-tree field deserializes from something
+    else (a span is a 2-int list, ``math`` / ``score`` a string). So a
+    fall-through ``dict`` or list-of-``dict`` means exactly "an IR-payload
+    field nobody registered" — raise so the omission surfaces at its source
+    instead of corrupting the tree. Mirrors the loud-drop guard on the
+    ``to_dict`` side (:func:`brailix.ir.document._is_ir_payload`).
+    """
+    if isinstance(value, dict) or (
+        isinstance(value, list) and any(isinstance(v, dict) for v in value)
+    ):
+        raise ValueError(
+            f"field {key!r} carries a nested IR payload but has no "
+            f"deserialization branch; register it in the deserializer — "
+            f"serialization is type-driven while deserialization dispatches "
+            f"on field name, so the two must be kept in sync"
+        )
 
 
 def _deserialize_value(key: str, value: Any) -> Any:
@@ -428,4 +461,5 @@ def _deserialize_value(key: str, value: Any) -> Any:
         return from_dict(value)
     if key in ("math", "score"):
         return _deserialize_xml_tree(key, value)
+    _reject_unhandled_nested_payload(key, value)
     return value

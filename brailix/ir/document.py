@@ -13,7 +13,11 @@ from dataclasses import dataclass, field, fields
 from typing import Any, ClassVar
 
 from brailix.core.span import Span
-from brailix.ir.inline import InlineNode, _is_omittable
+from brailix.ir.inline import (
+    InlineNode,
+    _is_omittable,
+    _reject_unhandled_nested_payload,
+)
 from brailix.ir.inline import from_dict as inline_from_dict
 
 # ---------------------------------------------------------------------------
@@ -85,11 +89,13 @@ class Block:
 
         Derived generically from :func:`~dataclasses.fields` so every
         layout-affecting scalar (heading ``level``, list ``ordered``,
-        ``align``, math / music ``source``, ...) and the shape (length) of
-        structural containers (``items`` / ``rows`` / ``cells``) is captured
-        automatically — a new structural field on any subclass is covered
-        without editing this method or the cache key.  ``children`` and
-        ``text`` are excluded (the surface hash covers them); ``id`` and
+        ``align``, math / music ``source``, ...) and the shape of structural
+        containers (``items`` / ``rows`` / ``cells`` — their length plus,
+        recursively, the structure of any nested block, so a ``Table``'s
+        per-row column counts are captured, not just its row count) is
+        captured automatically — a new structural field on any subclass is
+        covered without editing this method or the cache key.  ``children``
+        and ``text`` are excluded (the surface hash covers them); ``id`` and
         ``span`` too (an edit elsewhere shifts ``span`` but must not
         invalidate this block's cache entry).
         """
@@ -99,9 +105,16 @@ class Block:
                 continue
             value = getattr(self, f.name)
             if isinstance(value, (list, tuple)):
-                # Structural container: its length is the identity that
-                # matters; element text is already in the surface hash.
+                # Structural container: its length matters, plus the shape of
+                # any Block element — a Table's row count alone can't tell a
+                # 2-column grid from a 1-then-3 one, so recurse into nested
+                # blocks (element *text* stays the surface hash's job).
                 parts.append(f"{f.name}#{len(value)}")
+                parts.extend(
+                    elem.structure_key()
+                    for elem in value
+                    if isinstance(elem, Block)
+                )
             else:
                 parts.append(f"{f.name}={value!r}")
         return "|".join(parts)
@@ -158,9 +171,9 @@ class List(Block):
     items: list[ListItem] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        # ``ordered`` (a plain bool) is already emitted by the base loop; only
+        # ``items`` (an IR payload the base loop skips) needs an override.
         d = Block.to_dict(self)
-        if self.ordered:
-            d["ordered"] = True
         if self.items:
             d["items"] = [it.to_dict() for it in self.items]
         return d
@@ -351,6 +364,7 @@ def _deserialize_block_value(cls: type[Block], key: str, value: Any) -> Any:
         return [_typed_child(cls, key, v, TableCell) for v in value]
     if key == "rows" and isinstance(value, list):
         return [_typed_child(cls, key, v, TableRow) for v in value]
+    _reject_unhandled_nested_payload(key, value)
     return value
 
 
