@@ -347,6 +347,48 @@ class TestNonDecimalVoiceNumbers:
         assert [v.text for v in tree.iter("voice")] == ["1"]
 
 
+class TestNonDecimalNoteValues:
+    """``<divisions>`` / ``<duration>`` carrying a non-decimal numeric
+    (superscript ``²``, circled ``①``) must not raise out of the
+    normalizer's type inference. ``"②".isdigit()`` is True but ``int("②")``
+    raises — the same trap _normalize_voice_numbers was hardened against.
+    Inference simply skips the unusable value; the whole score survives
+    rather than degrading to <music-error>.
+    """
+
+    def test_nondecimal_divisions_does_not_degrade_score(self):
+        xml = (
+            "<score-partwise><part id='P1'><measure number='1'>"
+            "<attributes><divisions>²</divisions></attributes>"
+            "<note><pitch><step>C</step><octave>4</octave></pitch>"
+            "<duration>4</duration></note>"
+            "</measure></part></score-partwise>"
+        )
+        ctx = MusicContext(source="musicxml")
+        tree = parse_music_tree(xml, ctx)
+        assert tree is not None
+        # The score is NOT degraded — before the isdecimal fix the ValueError
+        # was caught by parse_music_tree and the entire score became a
+        # <music-error>, losing everything.
+        assert not _has_music_error(tree)
+        # No usable <divisions>, so no <type> can be inferred (but no crash).
+        assert tree.find(".//note/type") is None
+
+    def test_nondecimal_duration_does_not_degrade_score(self):
+        xml = (
+            "<score-partwise><part id='P1'><measure number='1'>"
+            "<attributes><divisions>4</divisions></attributes>"
+            "<note><pitch><step>C</step><octave>4</octave></pitch>"
+            "<duration>②</duration></note>"
+            "</measure></part></score-partwise>"
+        )
+        ctx = MusicContext(source="musicxml")
+        tree = parse_music_tree(xml, ctx)
+        assert tree is not None
+        assert not _has_music_error(tree)
+        assert tree.find(".//note/type") is None
+
+
 class TestRaisingAdapterBackstop:
     def test_raising_adapter_degrades_to_music_error(self):
         # The registry is open to third-party adapters; one that raises

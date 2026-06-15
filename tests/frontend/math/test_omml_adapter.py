@@ -796,3 +796,61 @@ class TestNamespacedEmptyDelimiterValue:
         ))
         assert "(" not in out
         assert '<mo fence="true">)</mo>' in out
+
+
+class TestNamespacePrefixIndependence:
+    """OMML is resolved by namespace *URI*, never by the literal ``m:``
+    prefix. A re-serialiser may bind the OMML namespace to any prefix, or
+    make it the default namespace. Every other test in this file uses ``m:``,
+    so a regression that hardcoded ``"m:"`` (in a tag or, worse, in the
+    ``m:val`` attribute lookup) would pass the whole suite yet mistranslate
+    such documents. These pin URI-based resolution end to end.
+    """
+
+    @staticmethod
+    def _nary_sum(*, prefix: str | None) -> str:
+        """Same Σ-from-i=1-to-n n-ary, with the OMML namespace bound to
+        ``prefix`` — or as the default namespace when ``prefix`` is None.
+
+        XML rule: a default namespace does NOT apply to unprefixed
+        attributes, so in that case ``val`` is written bare (no namespace) —
+        exactly how real default-namespace OMML looks, and precisely what the
+        adapter's bare-``val`` fallback exists to handle.
+        """
+        if prefix is None:
+            p, a, ns = "", "", f' xmlns="{_M_NS}"'
+        else:
+            p = a = f"{prefix}:"
+            ns = f' xmlns:{prefix}="{_M_NS}"'
+        return (
+            f"<{p}oMath{ns}>"
+            f"<{p}nary>"
+            f'<{p}naryPr><{p}chr {a}val="∑"/>'
+            f'<{p}limLoc {a}val="undOvr"/></{p}naryPr>'
+            f"<{p}sub><{p}r><{p}t>i=1</{p}t></{p}r></{p}sub>"
+            f"<{p}sup><{p}r><{p}t>n</{p}t></{p}r></{p}sup>"
+            f"<{p}e><{p}r><{p}t>i</{p}t></{p}r></{p}e>"
+            f"</{p}nary></{p}oMath>"
+        )
+
+    def test_alternate_prefix_matches_m_prefix(self):
+        adapter = OmmlMathSourceAdapter()
+        out_m = _mathml_dump(adapter.to_mathml(self._nary_sum(prefix="m")))
+        out_x = _mathml_dump(adapter.to_mathml(self._nary_sum(prefix="x")))
+        assert out_x == out_m
+
+    def test_default_namespace_matches_m_prefix(self):
+        adapter = OmmlMathSourceAdapter()
+        out_m = _mathml_dump(adapter.to_mathml(self._nary_sum(prefix="m")))
+        out_def = _mathml_dump(adapter.to_mathml(self._nary_sum(prefix=None)))
+        assert out_def == out_m
+
+    def test_default_namespace_preserves_chr_attribute(self):
+        # Under a default namespace the operator char comes from a bare
+        # <chr val="∑"> (unprefixed attribute = no namespace). Only the
+        # adapter's bare-``val`` fallback recovers it; drop that fallback and
+        # the n-ary degrades to the default ∫. Pin the actual glyph so the
+        # fallback can't silently rot.
+        out = OmmlMathSourceAdapter().to_mathml(self._nary_sum(prefix=None))
+        assert "∑" in out  # ∑ recovered via the bare-val fallback
+        assert "∫" not in out  # did not degrade to the ∫ default

@@ -329,6 +329,24 @@ class _Parser:
             return t.value
         return ""
 
+    def _peek_option_switch(self) -> str | None:
+        """Name of a leading ``[options]`` switch, without consuming it.
+
+        Returns the switch's name (``"co"`` / ``"lc"`` / ...) when the next
+        token — after skipping whitespace — is a ``switch``, else ``None``.
+        Every construct handler shares the same ``[options]`` preamble: it
+        loops ``while (opt := p._peek_option_switch()) is not None`` and
+        consumes only the options it recognises, ``break``-ing on the first
+        it does not so that token is left for the outer parser (the
+        historical behaviour — an unknown switch becomes a sibling node, not
+        an error). Peeking (not consuming) here is what preserves that.
+        """
+        self._skip_ws()
+        t = self._peek()
+        if t is None or t.type != "switch":
+            return None
+        return t.value
+
     # --- argument list ------------------------------------------------------
 
     def _parse_arg_list(self) -> list[list[Node]]:
@@ -450,12 +468,7 @@ def _handle_brackets(p: _Parser) -> Node:
     """
     has_lc = has_rc = False
     left = right = ""
-    while True:
-        p._skip_ws()
-        t = p._peek()
-        if t is None or t.type != "switch":
-            break
-        opt = t.value
+    while (opt := p._peek_option_switch()) is not None:
         if opt == "lc":
             p._consume()
             left = p._read_bracket_char()
@@ -489,12 +502,7 @@ def _handle_array(p: _Parser) -> Node:
     """
     cols = 1
     align = "c"
-    while True:
-        p._skip_ws()
-        t = p._peek()
-        if t is None or t.type != "switch":
-            break
-        opt = t.value
+    while (opt := p._peek_option_switch()) is not None:
         if opt == "co":
             p._consume()
             val = p._read_int()
@@ -533,12 +541,7 @@ def _handle_integral(p: _Parser) -> Node:
     """
     op = "∫"
     limits_above = False
-    while True:
-        p._skip_ws()
-        t = p._peek()
-        if t is None or t.type != "switch":
-            break
-        opt = t.value
+    while (opt := p._peek_option_switch()) is not None:
         if opt == "su":
             p._consume()
             op = "∑"
@@ -574,12 +577,7 @@ def _handle_script(p: _Parser) -> Node:
     the same optional point count and do not alter the kind.
     """
     kind = "sup"  # default if no direction switch given
-    while True:
-        p._skip_ws()
-        t = p._peek()
-        if t is None or t.type != "switch":
-            break
-        opt = t.value
+    while (opt := p._peek_option_switch()) is not None:
         if opt == "up":
             p._consume()
             p._read_int()
@@ -605,12 +603,7 @@ def _handle_box(p: _Parser) -> Node:
     those sides.
     """
     sides: set[str] = set()
-    while True:
-        p._skip_ws()
-        t = p._peek()
-        if t is None or t.type != "switch":
-            break
-        opt = t.value
+    while (opt := p._peek_option_switch()) is not None:
         if opt == "to":
             p._consume()
             sides.add("top")
@@ -636,12 +629,7 @@ def _handle_overstrike(p: _Parser) -> Node:
     composite glyphs, accents.
     """
     align = "c"
-    while True:
-        p._skip_ws()
-        t = p._peek()
-        if t is None or t.type != "switch":
-            break
-        opt = t.value
+    while (opt := p._peek_option_switch()) is not None:
         if opt == "al":
             p._consume()
             align = "l"
@@ -665,12 +653,7 @@ def _handle_displace(p: _Parser) -> Node:
     Takes no parenthesized argument.
     """
     points = 0
-    while True:
-        p._skip_ws()
-        t = p._peek()
-        if t is None or t.type != "switch":
-            break
-        opt = t.value
+    while (opt := p._peek_option_switch()) is not None:
         if opt == "fo":
             p._consume()
             n = p._read_int()

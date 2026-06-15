@@ -60,6 +60,14 @@ def tokenize_math_text(text: str, *, comma_in_number: bool = True) -> list[ET.El
         if ch.isspace():
             i += 1
             continue
+        # ``isdigit`` here is deliberately broader than the segmenter's strict
+        # ASCII+fullwidth ``_is_digit``: a math source run (OMML <m:t>, MTEF / EQ
+        # char stream) must let a fullwidth digit reach <mn> so the *backend*
+        # warns on it (emit_digit_run fold_nonascii=False) rather than the
+        # frontend silently dropping it. The wider net also folds a stray
+        # superscript / circled digit into <mn>, an accepted harmless edge in an
+        # already-known-math run. (The prose segmenter is strict because there a
+        # superscript must split off; see segment._is_digit.)
         if ch.isdigit() or (ch in number_seps and i + 1 < n and text[i + 1].isdigit()):
             j = i
             while j < n and (

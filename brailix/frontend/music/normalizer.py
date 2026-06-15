@@ -157,7 +157,12 @@ def _infer_missing_note_types(
             for child in measure:
                 if child.tag == "attributes":
                     div_text = child.findtext("divisions")
-                    if div_text and div_text.strip().isdigit():
+                    # isdecimal, not isdigit: isdigit also accepts circled /
+                    # superscript digits ("①", "²") that int() rejects, which
+                    # would raise ValueError straight out of the normalizer's
+                    # never-raises contract and degrade the whole score. Matches
+                    # the isdecimal guard in _normalize_voice_numbers.
+                    if div_text and div_text.strip().isdecimal():
                         divisions = int(div_text.strip())
                     continue
                 if child.tag != "note":
@@ -166,7 +171,10 @@ def _infer_missing_note_types(
                 if note.find("type") is not None:
                     continue
                 dur_text = note.findtext("duration")
-                if not (dur_text and dur_text.strip().isdigit()):
+                # isdecimal, not isdigit — see the divisions note above; a
+                # non-decimal numeric (superscript / circled digit) must skip
+                # inference rather than raise out of the never-raises contract.
+                if not (dur_text and dur_text.strip().isdecimal()):
                     continue  # grace note / malformed — nothing to infer
                 if divisions is None:
                     continue  # no unit yet

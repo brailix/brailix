@@ -33,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   effect. The built-in Markdown reader is pure-stdlib and needs no extra; an
   ASCIIMath or pkuseg adapter can still be added later under the same name.
 
+### Fixed
+
+- A MusicXML score whose `<divisions>` or `<duration>` carries a non-decimal
+  numeral (for example a superscript or circled digit from a malformed export) no
+  longer collapses the whole score to an error placeholder. Note-type inference
+  skips the unusable value and the rest of the score compiles.
+
 ## [0.1.0] - 2026-06-04
 
 Initial public release.

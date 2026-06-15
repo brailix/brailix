@@ -252,6 +252,67 @@ def _build_fence(
     return [mrow]
 
 
+# ---- Shared selectors (version-agnostic — identical MathML for v3 & v5) ----
+# These build pure presentation MathML from already-parsed slots; the v3 and
+# v5 reader walks differ (byte layout) but produce the same slot lists, so the
+# selector handlers below are shared. Both _V3_TMPL and _V5_TMPL point here
+# under their own (version-specific) selector numbers.
+
+
+def _radical(variation, slots):
+    if len(slots) >= 2 and slots[1]:
+        mroot = ET.Element("mroot")
+        mroot.append(_slot(slots, 0))
+        mroot.append(_slot(slots, 1))
+        return [mroot]
+    msqrt = ET.Element("msqrt")
+    msqrt.append(_slot(slots, 0))
+    return [msqrt]
+
+
+def _fraction(variation, slots):
+    mfrac = ET.Element("mfrac")
+    mfrac.append(_slot(slots, 0))
+    mfrac.append(_slot(slots, 1))
+    return [mfrac]
+
+
+def _limits(variation, slots):
+    """Limit template (lim_{x→0}, ...): slot 0 base, slot 1 under-script."""
+    container = ET.Element("munder")
+    container.append(_slot(slots, 0))
+    container.append(_slot(slots, 1))
+    return [container]
+
+
+def _underbar(variation, slots):
+    container = ET.Element("munder")
+    container.append(_slot(slots, 0))
+    container.append(_mo("¯"))
+    return [container]
+
+
+def _overbar(variation, slots):
+    container = ET.Element("mover")
+    container.append(_slot(slots, 0))
+    container.append(_mo("¯"))
+    return [container]
+
+
+def _hbrace_under(variation, slots):
+    container = ET.Element("munder")
+    container.append(_slot(slots, 0))
+    container.append(_mo("⏟"))
+    return [container]
+
+
+def _hbrace_over(variation, slots):
+    container = ET.Element("mover")
+    container.append(_slot(slots, 0))
+    container.append(_mo("⏞"))
+    return [container]
+
+
 # ---- v5 selectors ----
 
 
@@ -298,38 +359,6 @@ def _fence_char_from_slot(slots, idx):
     return text or None
 
 
-def _v5_radical(variation, slots):
-    if len(slots) >= 2 and slots[1]:
-        mroot = ET.Element("mroot")
-        mroot.append(_slot(slots, 0))
-        mroot.append(_slot(slots, 1))
-        return [mroot]
-    msqrt = ET.Element("msqrt")
-    msqrt.append(_slot(slots, 0))
-    return [msqrt]
-
-
-def _v5_fraction(variation, slots):
-    mfrac = ET.Element("mfrac")
-    mfrac.append(_slot(slots, 0))
-    mfrac.append(_slot(slots, 1))
-    return [mfrac]
-
-
-def _v5_underbar(variation, slots):
-    container = ET.Element("munder")
-    container.append(_slot(slots, 0))
-    container.append(_mo("¯"))
-    return [container]
-
-
-def _v5_overbar(variation, slots):
-    container = ET.Element("mover")
-    container.append(_slot(slots, 0))
-    container.append(_mo("¯"))
-    return [container]
-
-
 def _v5_arrow(variation, slots):
     container = ET.Element("mover")
     container.append(_slot(slots, 0))
@@ -364,32 +393,6 @@ def _v5_bigop(op: str):
             mrow.append(c)
         return [mrow]
     return handler
-
-
-def _v5_limits(variation, slots):
-    """selector 23 — Word's Limit template (lim_{x→0}, etc.).
-
-    Slot 0 is the base (typically the word "lim"), slot 1 is the
-    under-script.
-    """
-    container = ET.Element("munder")
-    container.append(_slot(slots, 0))
-    container.append(_slot(slots, 1))
-    return [container]
-
-
-def _v5_hbrace_under(variation, slots):
-    container = ET.Element("munder")
-    container.append(_slot(slots, 0))
-    container.append(_mo("⏟"))
-    return [container]
-
-
-def _v5_hbrace_over(variation, slots):
-    container = ET.Element("mover")
-    container.append(_slot(slots, 0))
-    container.append(_mo("⏞"))
-    return [container]
 
 
 def _v5_subscript(variation, slots):
@@ -434,10 +437,10 @@ _V5_TMPL: dict[int, Callable[..., Any]] = {
     7: _v5_paren_class(7),
     8: _v5_custom_fence,
     9: _v5_custom_fence,
-    10: _v5_radical,
-    11: _v5_fraction,
-    12: _v5_underbar,
-    13: _v5_overbar,
+    10: _radical,
+    11: _fraction,
+    12: _underbar,
+    13: _overbar,
     14: _v5_arrow,
     15: _v5_bigop("∫"),  # integral
     16: _v5_bigop("∑"),  # sum
@@ -447,9 +450,9 @@ _V5_TMPL: dict[int, Callable[..., Any]] = {
     20: _v5_bigop("⋂"),  # intersection
     21: _v5_bigop("∫"),  # integral-style
     22: _v5_bigop("∑"),  # summation-style
-    23: _v5_limits,
-    24: _v5_hbrace_over,
-    25: _v5_hbrace_under,
+    23: _limits,
+    24: _hbrace_over,
+    25: _hbrace_under,
     27: _v5_subscript,
     28: _v5_superscript,
     29: _v5_subsup,
@@ -468,24 +471,6 @@ def _v3_paren(open_ch: str, close_ch: str):
         body = slots[0] if slots else []
         return _build_fence(open_ch, close_ch, body)
     return handler
-
-
-def _v3_radical(variation, slots):
-    if len(slots) >= 2 and slots[1]:
-        mroot = ET.Element("mroot")
-        mroot.append(_slot(slots, 0))
-        mroot.append(_slot(slots, 1))
-        return [mroot]
-    msqrt = ET.Element("msqrt")
-    msqrt.append(_slot(slots, 0))
-    return [msqrt]
-
-
-def _v3_fraction(variation, slots):
-    mfrac = ET.Element("mfrac")
-    mfrac.append(_slot(slots, 0))
-    mfrac.append(_slot(slots, 1))
-    return [mfrac]
 
 
 def _v3_slash_fraction(variation, slots):
@@ -523,14 +508,6 @@ def _v3_scripts(variation, slots):
     return [_slot(slots, 0)]
 
 
-def _v3_underbar(variation, slots):
-    return [_munder_with(_slot(slots, 0), "¯")]
-
-
-def _v3_overbar(variation, slots):
-    return [_mover_with(_slot(slots, 0), "¯")]
-
-
 def _v3_bigop(op: str):
     def handler(variation, slots):
         has_sub = bool(variation & 0x01)
@@ -563,21 +540,6 @@ def _v3_bigop(op: str):
     return handler
 
 
-def _v3_limits(variation, slots):
-    container = ET.Element("munder")
-    container.append(_slot(slots, 0))
-    container.append(_slot(slots, 1))
-    return [container]
-
-
-def _v3_hbrace_under(variation, slots):
-    return [_munder_with(_slot(slots, 0), "⏟")]
-
-
-def _v3_hbrace_over(variation, slots):
-    return [_mover_with(_slot(slots, 0), "⏞")]
-
-
 def _v3_left_sub_sup(variation, slots):
     """selector 44 — leading subscript/superscript (Word's pre-scripts).
 
@@ -591,20 +553,6 @@ def _v3_left_sub_sup(variation, slots):
     elem.append(_slot(slots, 1))
     elem.append(_slot(slots, 2))
     return [elem]
-
-
-def _munder_with(base: ET.Element, sym: str) -> ET.Element:
-    el = ET.Element("munder")
-    el.append(base)
-    el.append(_mo(sym))
-    return el
-
-
-def _mover_with(base: ET.Element, sym: str) -> ET.Element:
-    el = ET.Element("mover")
-    el.append(base)
-    el.append(_mo(sym))
-    return el
 
 
 _V3_TMPL: dict[int, Callable[..., Any]] = {
@@ -621,19 +569,19 @@ _V3_TMPL: dict[int, Callable[..., Any]] = {
     10: _v3_paren("}", "{"),
     11: _v3_paren("(", "}"),
     12: _v3_paren("(", "}"),
-    13: _v3_radical,
-    14: _v3_fraction,
+    13: _radical,
+    14: _fraction,
     15: _v3_scripts,
-    16: _v3_underbar,
-    17: _v3_overbar,
+    16: _underbar,
+    17: _overbar,
     21: _v3_bigop("∫"),
     22: _v3_bigop("∬"),  # double integral
     23: _v3_bigop("∭"),  # triple integral
     24: _v3_bigop("∫"),
     25: _v3_bigop("∬"),
     26: _v3_bigop("∭"),
-    27: _v3_hbrace_over,
-    28: _v3_hbrace_under,
+    27: _hbrace_over,
+    28: _hbrace_under,
     29: _v3_bigop("∑"),
     30: _v3_bigop("∑"),
     31: _v3_bigop("∏"),
@@ -644,7 +592,7 @@ _V3_TMPL: dict[int, Callable[..., Any]] = {
     36: _v3_bigop("⋃"),
     37: _v3_bigop("⋂"),
     38: _v3_bigop("⋂"),
-    39: _v3_limits,
+    39: _limits,
     41: _v3_slash_fraction,
     44: _v3_left_sub_sup,
 }
