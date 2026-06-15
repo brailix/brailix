@@ -8,7 +8,7 @@ analyzer when none is installed. Selection happens once, on first use.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from brailix.core.context import FrontendContext
@@ -35,7 +35,11 @@ def _pick() -> JapaneseAnalyzer:
 @dataclass(slots=True)
 class AutoJapaneseAnalyzer:
     name: str = "auto"
-    _delegate: JapaneseAnalyzer | None = None
+    # init=False/repr=False: the resolved delegate is internal cache state, not
+    # a constructor argument (mirrors AutoChineseAnalyzer / AutoPinyinResolver).
+    _delegate: JapaneseAnalyzer | None = field(
+        default=None, init=False, repr=False
+    )
 
     def analyze(
         self, text: str, ctx: FrontendContext | None = None
