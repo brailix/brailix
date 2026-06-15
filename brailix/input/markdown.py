@@ -468,6 +468,12 @@ def _starts_block(line: str, stripped: str) -> bool:
     raw ``line`` (they sit at column 0); the rest match the ``stripped``
     form. Kept as one predicate so the paragraph terminator and the block
     dispatcher can't fall out of sync.
+
+    Table is deliberately *not* here even though :func:`_iter_blocks`
+    recognises one: a lone ``|`` in prose (``Ctrl|Alt``) must not end a
+    paragraph. The cost is that a table directly after a paragraph line,
+    with no blank line between, gets absorbed into the paragraph — a blank
+    line before the table is required to get a :class:`Table` block.
     """
     return bool(
         _HEADING_RE.match(stripped)
