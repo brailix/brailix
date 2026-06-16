@@ -58,9 +58,12 @@ If a single atom itself is wider than the line we still mid-atom break
 as a last resort (silently — the user would already see the runaway
 output and can restructure the source).
 
-Pagination: if ``page_height`` is set, every ``page_height`` rendered
-lines emit a form feed character. Blank-line separators count toward
-the page budget. ``None`` (default) means single continuous output.
+Pagination: if ``page_height`` is set, the rendered lines are split into
+pages of ``page_height`` lines, joined by a form feed character; blank-
+line separators count toward that budget. ``None`` (default) means single
+continuous output. With ``show_page_numbers`` on, each page additionally
+carries the page number on its OWN line (a numbered page is ``page_height``
+content lines + 1) — never sharing or shrinking a content line.
 """
 
 from __future__ import annotations
@@ -86,12 +89,12 @@ PageNumberPosition = Literal[
 ]
 """Where the page number sits on a paginated page.
 
-``top-X`` anchors the number on the page's first rendered line;
-``bottom-X`` on the last.  ``-right`` right-aligns within the line
-(BANA / Current Chinese Braille default — see
-:data:`LayoutOptions.page_number_position`); ``-left`` left-aligns (some
-National Common Braille templates prefer this).  The four positions form
-the 2×2 grid the user picks from in Settings / toolbar.
+``top-X`` puts the page number's own line first on the page; ``bottom-X``
+last.  ``-right`` right-aligns the number within that line (pads to the
+full width — Current Chinese Braille default; see
+:data:`LayoutOptions.page_number_position`); ``-left`` puts it at column 0
+(some National Common Braille templates prefer this).  The four positions
+form the 2×2 grid the user picks from in Settings / toolbar.
 """
 
 # Page-number digit cells come from the builtin universal numbers
@@ -103,9 +106,6 @@ from brailix.renderer._page_digits import (
 )
 from brailix.renderer._page_digits import (
     page_number_chars as _page_number_chars,
-)
-from brailix.renderer._page_digits import (
-    page_number_width as _page_number_width,
 )
 
 # ---------------------------------------------------------------------------
@@ -565,23 +565,27 @@ class LayoutRenderer:
                 while rest_cells:
                     slot = opts.line_width - len(cur) - hyphen_width
                     if slot <= 0:
-                        # Pathological — line_width too small for even one
-                        # cell plus the hyphen reservation.  Drop the
-                        # reservation on this slice so forward progress
-                        # is guaranteed.
+                        # Not enough room for even one cell plus the
+                        # hyphen reservation.  Drop the reservation first.
                         slot = opts.line_width - len(cur)
                         if slot <= 0:
-                            flush_line(
-                                with_hyphen=False,
-                                next_indent=overflow_indent(),
-                            )
-                            slot = opts.line_width - len(cur)
-                        # A continuation indent >= line_width leaves slot
-                        # <= 0 even on a fresh line; force at least one
-                        # cell so rest_cells strictly shrinks and we can't
-                        # spin forever (the line overflows width, which is
-                        # unavoidable when the indent alone exceeds it).
-                        slot = max(1, slot)
+                            # Still no room.  If the line already holds
+                            # content, close it and retry on a fresh line.
+                            if len(cur) > cur_indent:
+                                flush_line(
+                                    with_hyphen=False,
+                                    next_indent=overflow_indent(),
+                                )
+                                continue
+                            # Otherwise the continuation indent alone is
+                            # >= line_width: flushing this indent-only
+                            # line would emit a stray blank line (one per
+                            # cell — the old double-flush bug), so force a
+                            # single cell onto this over-wide line
+                            # instead.  The width overflow is unavoidable
+                            # when the indent exceeds it, but rest_cells
+                            # still shrinks so we can't spin forever.
+                            slot = 1
                         take, rest_cells = rest_cells[:slot], rest_cells[slot:]
                         cur.extend(take)
                         if rest_cells:
@@ -688,6 +692,12 @@ class LayoutRenderer:
         return self._encode_unicode(lines)
 
     def _encode_brf(self, lines: list[list[BrailleCell]]) -> bytes:
+        # BRF mandates CR/LF between lines and a form feed between pages.
+        # The layout path fixes both per the spec — unlike the raw
+        # BrfRenderer, whose line_terminator is configurable for the rare
+        # reader that only accepts LF.  Publishing-grade output follows
+        # the standard; a caller needing a non-standard terminator uses
+        # BrfRenderer (no layout) instead.
         opts = self.options
         encoded = [
             "".join(cell_to_brf(c) for c in line).encode("ascii")
@@ -695,32 +705,28 @@ class LayoutRenderer:
         ]
         if opts.page_height is None or opts.page_height <= 0:
             return b"\r\n".join(encoded)
-        # Top vs bottom decides which line the page number lands on;
-        # right vs left is the alignment within that line.  Splitting
-        # the two axes here keeps the four positions a 2×2 pick rather
-        # than four bespoke branches.
+        # The page number is its OWN line, ADDED to each page (height + 1) —
+        # it never shares or reflows a content line, so the page holds a
+        # full ``page_height`` content lines.  Top vs bottom picks which end
+        # the number line sits at; right vs left aligns it within that line.
         anchor_top = opts.page_number_position.startswith("top")
         align_right = opts.page_number_position.endswith("right")
-        if opts.show_page_numbers:
-            encoded = _reflow_page_anchor_lines(
-                encoded,
-                page_height=opts.page_height,
-                line_width=opts.line_width,
-                anchor_top=anchor_top,
-                blank=b" ",
-            )
         pages: list[bytes] = []
         for page_idx, start in enumerate(
             range(0, len(encoded), opts.page_height)
         ):
             page_lines = list(encoded[start : start + opts.page_height])
-            if opts.show_page_numbers and page_lines:
-                idx = 0 if anchor_top else len(page_lines) - 1
-                page_lines[idx] = _apply_page_number_brf(
-                    page_lines[idx],
-                    page_idx + 1,
+            if opts.show_page_numbers:
+                num_line = _page_number_line(
+                    _page_number_brf(page_idx + 1),
                     opts.line_width,
                     align_right=align_right,
+                    blank=b" ",
+                )
+                page_lines = (
+                    [num_line, *page_lines]
+                    if anchor_top
+                    else [*page_lines, num_line]
                 )
             pages.append(b"\r\n".join(page_lines))
         return b"\f".join(pages)
@@ -732,177 +738,54 @@ class LayoutRenderer:
         ]
         if opts.page_height is None or opts.page_height <= 0:
             return "\n".join(encoded)
+        # See :meth:`_encode_brf` — the page number is its own ADDED line
+        # (height + 1), never sharing or reflowing a content line.
         anchor_top = opts.page_number_position.startswith("top")
         align_right = opts.page_number_position.endswith("right")
-        if opts.show_page_numbers:
-            encoded = _reflow_page_anchor_lines(
-                encoded,
-                page_height=opts.page_height,
-                line_width=opts.line_width,
-                anchor_top=anchor_top,
-                blank=dots_to_char(()),
-            )
         pages: list[str] = []
         for page_idx, start in enumerate(
             range(0, len(encoded), opts.page_height)
         ):
             page_lines = list(encoded[start : start + opts.page_height])
-            if opts.show_page_numbers and page_lines:
-                idx = 0 if anchor_top else len(page_lines) - 1
-                page_lines[idx] = _apply_page_number_unicode(
-                    page_lines[idx],
-                    page_idx + 1,
+            if opts.show_page_numbers:
+                num_line = _page_number_line(
+                    _page_number_chars(page_idx + 1),
                     opts.line_width,
                     align_right=align_right,
+                    blank=dots_to_char(()),
+                )
+                page_lines = (
+                    [num_line, *page_lines]
+                    if anchor_top
+                    else [*page_lines, num_line]
                 )
             pages.append("\n".join(page_lines))
         return "\f".join(pages)
 
 
-def _reflow_page_anchor_lines[LineT: (str, bytes)](
-    encoded: list[LineT],
-    *,
-    page_height: int,
+def _page_number_line[LineT: (str, bytes)](
+    pn: LineT,
     line_width: int,
-    anchor_top: bool,
+    *,
+    align_right: bool,
     blank: LineT,
-) -> list[LineT]:
-    """Make room for the page number on every page-anchor line — by
-    moving cells, never by dropping them.
+) -> LineT:
+    """The page number on a line of its OWN — placed at the left or right
+    edge of an otherwise-blank ``line_width``-cell line.
 
-    The ``_apply_page_number_*`` helpers below can only pad or, as a
-    last resort, truncate the anchor line — and truncation silently
-    destroys braille content.  With greedy wrapping a full-width line
-    is the *common* case (Chinese prose fills lines; right-aligned
-    blocks are padded to exactly the width), so every page top could
-    lose its trailing cells.  This pass runs before pagination and
-    guarantees each anchor line fits within
-    ``line_width - page_number_width - 1``:
+    Right-aligned: blanks then the number, so it ends at the right edge.
+    Left-aligned: the number at column 0 (no trailing blanks — a braille
+    line carries no meaning past its last cell).  The number is never
+    dropped: on a line too narrow to hold it (pathological ``line_width <
+    page_number_width``) it simply overflows.
 
-    * a line that fits once its edge blanks are stripped is just
-      stripped — alignment padding is given up, content cells are not;
-    * otherwise the line is split (at the last word boundary that
-      fits, else hard at the limit) and the remainder is inserted as
-      the following line, pushing the rest of the document down.  Page
-      boundaries and page-number widths are recomputed as the walk
-      advances, so the page count may grow — that is the point: paper
-      is spent, content is kept.
-
-    The "content is kept" guarantee holds only while the page number
-    leaves room for at least one content cell, i.e. ``line_width >
-    page_number_width``.  On a degenerate line too narrow to hold even
-    the page number plus its gap (``avail < 0``) this pass is skipped
-    (see the ``avail >= 0`` guard) and ``_apply_page_number_*`` falls
-    back to its lossy replace / truncate branch: with no room for both,
-    the anchor line's content gives way to the number.
-
-    Generic over ``str`` (Unicode braille) and ``bytes`` (BRF);
-    ``blank`` is the one-cell blank in the matching type.
+    Generic over ``str`` (Unicode braille) and ``bytes`` (BRF); ``blank``
+    is the one-cell blank in the matching type.
     """
-    out: list[LineT] = list(encoded)
-    pos = 0
-    page_num = 0
-    while pos < len(out):
-        page_num += 1
-        pn_w = _page_number_width(page_num)
-        avail = line_width - pn_w - 1
-        anchor = pos if anchor_top else min(pos + page_height, len(out)) - 1
-        if avail >= 0 and anchor < len(out) and len(out[anchor]) > avail:
-            line = out[anchor].strip(blank)
-            if len(line) <= avail:
-                out[anchor] = line
-            else:
-                cut = line.rfind(blank, 0, avail + 1) if avail else -1
-                if cut <= 0:
-                    head, tail = line[:avail], line[avail:]
-                else:
-                    head, tail = line[:cut], line[cut + 1 :]
-                out[anchor] = head
-                out.insert(anchor + 1, tail)
-        pos += page_height
-    return out
-
-
-def _apply_page_number_unicode(
-    target_line: str,
-    page_num: int,
-    line_width: int,
-    *,
-    align_right: bool = True,
-) -> str:
-    """Inject the page number into ``target_line`` (Unicode flavour).
-
-    Three cases depending on how much room the content left:
-
-    * **Fits with a blank-cell gap** (content + 1 blank + page_no <=
-      line_width): pad the content with blank braille cells so the
-      whole row reaches ``line_width`` with the page number anchored
-      at the chosen edge.  BANA layout — content on one side, page
-      number on the opposite end, gap of at least one blank cell.
-    * **Page number alone fits the line** but content collides:
-      truncate ``target_line`` from the colliding edge (tail when
-      right-aligned, head when left-aligned) and stitch the page
-      number in.  Mostly a backstop: the renderer runs
-      :func:`_reflow_page_anchor_lines` first, which re-flows anchor
-      lines so this branch is normally unreachable from ``render()``.
-      It *is* reached when ``line_width <= page_number_width`` (reflow
-      skips those degenerate widths) — content then gives way, by
-      design, since the number can't share the line.  Kept well-defined
-      (if lossy) for direct callers too.
-    * **Page number wider than the whole line**: replace the entire
-      line with the page number.  Pathological edge case
-      (line_width < page_no_width), still well-defined.
-
-    ``align_right=False`` mirrors the layout horizontally — page
-    number flush left, content flush right.
-    """
-    blank = dots_to_char(())
-    pn = _page_number_chars(page_num)
-    pn_w = _page_number_width(page_num)
-    if pn_w >= line_width:
-        return pn[-line_width:] if pn_w > line_width else pn
-    avail = line_width - pn_w - 1
-    if len(target_line) <= avail:
-        padding = blank * (line_width - len(target_line) - pn_w)
-        if align_right:
-            return target_line + padding + pn
-        return pn + padding + target_line
-    # Collision — give up cells from the side the page number sits on.
-    # ``avail`` can be 0 (page number + gap exactly fills the line); guard
-    # the left-aligned tail because ``target_line[-0:]`` is the whole line,
-    # not an empty slice, which would overflow the width.
-    if align_right:
-        return target_line[:avail] + blank + pn
-    return pn + blank + (target_line[-avail:] if avail else target_line[:0])
-
-
-def _apply_page_number_brf(
-    target_line: bytes,
-    page_num: int,
-    line_width: int,
-    *,
-    align_right: bool = True,
-) -> bytes:
-    """ASCII / NABCC equivalent of :func:`_apply_page_number_unicode`.
-
-    BRF blanks are encoded as ASCII space (0x20) per the NABCC table.
-    Same three branches; structure mirrored so a future BANA-template
-    refactor can keep them in lock-step.
-    """
-    pn = _page_number_brf(page_num)
-    pn_w = _page_number_width(page_num)
-    if pn_w >= line_width:
-        return pn[-line_width:] if pn_w > line_width else pn
-    avail = line_width - pn_w - 1
-    if len(target_line) <= avail:
-        padding = b" " * (line_width - len(target_line) - pn_w)
-        if align_right:
-            return target_line + padding + pn
-        return pn + padding + target_line
-    if align_right:
-        return target_line[:avail] + b" " + pn
-    # ``avail == 0`` guard: ``target_line[-0:]`` is the whole line, not empty.
-    return pn + b" " + (target_line[-avail:] if avail else target_line[:0])
+    pad = line_width - len(pn)
+    if pad <= 0:
+        return pn
+    return blank * pad + pn if align_right else pn
 
 
 def _load() -> LayoutRenderer:

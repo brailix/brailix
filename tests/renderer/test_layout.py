@@ -561,6 +561,16 @@ class TestWrapEdgeCases:
                 1 for ch in result["out"] if ch not in (dots_to_char(()), "\n")
             )
             assert content == 8
+            # And no stray blank lines: the old double-flush in the
+            # mid-atom split emitted one empty line per content cell when
+            # the indent alone was >= line_width.  Every line now carries
+            # content (it overflows the width — unavoidable when the
+            # indent exceeds it — but is never blank).
+            lines = result["out"].split("\n")
+            assert all(ln != "" for ln in lines), (
+                f"stray blank line at line_width={line_width}, "
+                f"quote_indent={quote_indent}: {lines!r}"
+            )
 
     def test_word_longer_than_remaining_but_fits_after_wrap(self):
         # Three cells already on the line + a 6-cell word, line width 8.
@@ -602,8 +612,10 @@ class TestWrapEdgeCases:
 
 
 class TestPageNumbers:
-    """``show_page_numbers=True`` adds ⠼ + digit cells to each page's
-    top-right corner.  Only takes effect when ``page_height`` is set."""
+    """``show_page_numbers=True`` adds the page number on its OWN line
+    (the page becomes ``page_height`` content lines + 1 number line),
+    positioned per ``page_number_position``.  Only takes effect when
+    ``page_height`` is set."""
 
     def _multi_line_doc(self, line_count: int, cells_per_line: int = 6) -> BrailleDocument:
         # One block per line so each line is exactly ``cells_per_line``
@@ -650,27 +662,27 @@ class TestPageNumbers:
         first_line = out.split(b"\r\n")[0]
         assert first_line.endswith(b"#A")
 
-    def test_page_number_pads_to_line_width(self):
-        """A short top line should be padded with blanks so the page
-        number sits flush right at ``line_width``."""
+    def test_page_number_line_padded_to_width_when_right(self):
+        """The (separate) page-number line is padded with blank cells so
+        the number sits flush right at ``line_width``."""
         doc = BrailleDocument(blocks=[
-            BrailleBlock(cells=_word(3)),  # one short line
-            BrailleBlock(cells=_word(3)),  # second line so page has 2 rows
+            BrailleBlock(cells=_word(3)),
+            BrailleBlock(cells=_word(3)),
         ])
         out = LayoutRenderer(options=LayoutOptions(
             paragraph_indent=0, line_width=10,
             page_height=2, show_page_numbers=True,
         )).render(doc)
-        first_line = out.split("\n")[0]
-        # 3 content cells + N blank cells + 2 page-number cells = 10.
+        from brailix.renderer.layout import _page_number_chars
+
+        first_line = out.split("\n")[0]  # top-right default → number line
+        assert first_line.endswith(_page_number_chars(1))
         assert len(first_line) == 10
 
-    def test_collision_reflows_instead_of_truncating(self):
-        """A top line that already fills the width must NOT lose cells
-        to the page number: the anchor line is re-flowed — the cells
-        that no longer fit move to the next line, pushing the document
-        down.  (The old behaviour silently truncated braille content,
-        and a full line is the COMMON case under greedy wrapping.)"""
+    def test_full_content_line_kept_with_separate_number_line(self):
+        """The page number is its OWN added line, so a content line that
+        already fills the width keeps every cell — never truncated, never
+        reflowed onto the next line."""
         doc = BrailleDocument(blocks=[
             BrailleBlock(cells=_word(10)),  # exactly line_width
             BrailleBlock(cells=_word(3)),
@@ -682,16 +694,32 @@ class TestPageNumbers:
         from brailix.renderer.layout import _page_number_chars
 
         blank = dots_to_char(())
-        lines = out.replace("\f", "\n").split("\n")
+        lines = out.split("\n")
+        # 2 content lines + 1 separate number line (top-right default).
+        assert len(lines) == 3
         assert lines[0].endswith(_page_number_chars(1))
-        assert len(lines[0]) == 10
+        assert len(lines[1]) == 10  # full content line, intact
+        assert len(lines[2]) == 3
         assert all(len(line) <= 10 for line in lines)
-        # Conservation: all 13 content cells survive; the only non-blank
-        # additions are the page numbers themselves.
-        pages = out.count("\f") + 1
-        pn_cells = sum(len(_page_number_chars(i + 1)) for i in range(pages))
+        # Conservation: all 13 content cells survive + the page number.
         content = sum(1 for ch in out if ch not in (blank, "\n", "\f"))
-        assert content == 13 + pn_cells
+        assert content == 13 + len(_page_number_chars(1))
+
+    def test_page_is_height_plus_one_lines_with_number(self):
+        """Additive: a numbered page is ``page_height`` CONTENT lines PLUS
+        its own number line (height + 1), so page numbers never steal
+        content capacity."""
+        doc = self._multi_line_doc(line_count=2, cells_per_line=3)
+        numbered = LayoutRenderer(options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=True,
+        )).render(doc)
+        plain = LayoutRenderer(options=LayoutOptions(
+            paragraph_indent=0, line_width=10,
+            page_height=2, show_page_numbers=False,
+        )).render(doc)
+        assert len(numbered.split("\n")) == 3  # 2 content + 1 number
+        assert len(plain.split("\n")) == 2  # 2 content only
 
     def test_no_pagination_skips_page_numbers(self):
         """``show_page_numbers`` is a no-op when ``page_height`` is
@@ -708,11 +736,11 @@ class TestPageNumbers:
 
 
 class TestPageNumberPosition:
-    """``page_number_position`` picks which corner of the page carries
-    the page number.  Four choices: top-right (default / BANA), top-left,
-    bottom-right, bottom-left.  Top-X anchors on the page's first line,
-    Bottom-X on the page's last line; -right / -left picks the
-    alignment within that line."""
+    """``page_number_position`` picks where the (separate) page-number
+    line sits.  Four choices: top-right (default), top-left, bottom-right,
+    bottom-left.  Top-X puts the number line first on the page, Bottom-X
+    last; -right / -left aligns the number within that line (right pads to
+    full width; left sits at column 0)."""
 
     def _two_line_doc(self) -> BrailleDocument:
         # Each block becomes one line of 3 cells under line_width=10 +
@@ -766,23 +794,24 @@ class TestPageNumberPosition:
         first_line = out.split(b"\r\n")[0]
         assert first_line.startswith(b"#A")
 
-    def test_top_left_pads_short_content_to_width(self):
-        """Page number flush left, blank-cell gap, content right of it,
-        total line width preserved."""
+    def test_top_left_number_line_is_bare_number_at_left(self):
+        """Top-left: the number is its own first line, flush left, with no
+        padding (a braille line stops at its last cell)."""
         doc = self._two_line_doc()
         out = LayoutRenderer(options=LayoutOptions(
             paragraph_indent=0, line_width=10,
             page_height=2, show_page_numbers=True,
             page_number_position="top-left",
         )).render(doc)
-        lines = out.split("\n")
-        # 2 page-number cells + 1 blank gap + content cells, padded to 10.
-        assert len(lines[0]) == 10
+        from brailix.renderer.layout import _page_number_chars
 
-    def test_top_left_collision_reflows_instead_of_truncating(self):
-        """Top line that already fills the width: the page number takes
-        the left edge and the overflowing content cells move down —
-        none are dropped."""
+        lines = out.split("\n")
+        assert lines[0] == _page_number_chars(1)
+        assert len(lines) == 3  # number line + 2 content lines
+
+    def test_top_left_keeps_full_content_line(self):
+        """Top-left with a width-filling content line: the number is its
+        own line, so content is never reflowed or truncated."""
         doc = BrailleDocument(blocks=[
             BrailleBlock(cells=_word(10)),  # fills the line
             BrailleBlock(cells=_word(3)),
@@ -794,34 +823,30 @@ class TestPageNumberPosition:
         )).render(doc)
         from brailix.renderer.layout import _page_number_chars
 
-        blank = dots_to_char(())
-        lines = out.replace("\f", "\n").split("\n")
-        assert lines[0].startswith(_page_number_chars(1))
-        assert len(lines[0]) == 10
-        assert all(len(line) <= 10 for line in lines)
-        pages = out.count("\f") + 1
-        pn_cells = sum(len(_page_number_chars(i + 1)) for i in range(pages))
-        content = sum(1 for ch in out if ch not in (blank, "\n", "\f"))
-        assert content == 13 + pn_cells
+        lines = out.split("\n")
+        assert lines[0] == _page_number_chars(1)  # number line, no padding
+        assert len(lines) == 3
+        assert len(lines[1]) == 10  # full content line, intact
+        assert len(lines[2]) == 3
 
-    def test_left_align_no_overflow_when_page_number_fills_line(self):
-        """Regression: when the page number + its blank gap exactly fill
-        the line (avail == 0), the left-aligned content tail must be empty
-        — ``target_line[-0:]`` is the WHOLE line, which overflowed width."""
+    def test_page_number_line_alignment_helper(self):
+        """``_page_number_line``: left-aligned is the bare number; right-
+        aligned pads to full width; an over-narrow line never drops it."""
         from brailix.renderer.layout import (
-            _apply_page_number_brf,
-            _apply_page_number_unicode,
-            _page_number_width,
+            _page_number_chars,
+            _page_number_line,
         )
 
-        # page 99 -> number-sign + two digits = 3 cells; line_width 4
-        # leaves avail = 4 - 3 - 1 = 0.
-        assert _page_number_width(99) == 3
-        content = dots_to_char((1,)) * 4
-        uni = _apply_page_number_unicode(content, 99, 4, align_right=False)
-        assert len(uni) == 4
-        brf = _apply_page_number_brf(b"ABCD", 99, 4, align_right=False)
-        assert len(brf) == 4
+        blank = dots_to_char(())
+        pn = _page_number_chars(7)
+        left = _page_number_line(pn, 10, align_right=False, blank=blank)
+        assert left == pn
+        right = _page_number_line(pn, 10, align_right=True, blank=blank)
+        assert right.endswith(pn)
+        assert len(right) == 10
+        # Pathological: number wider than the line overflows, never dropped.
+        big = _page_number_chars(999)
+        assert big in _page_number_line(big, 2, align_right=True, blank=blank)
 
     # --- bottom-right -------------------------------------------------
 
@@ -835,10 +860,12 @@ class TestPageNumberPosition:
         from brailix.renderer.layout import _page_number_chars
 
         lines = out.split("\n")
-        # Page-number off the top row.
+        # Number is its own last line, after the 2 content lines.
+        assert len(lines) == 3
         assert _page_number_chars(1) not in lines[0]
-        # Page-number flush right on the bottom row.
-        assert lines[1].endswith(_page_number_chars(1))
+        assert _page_number_chars(1) not in lines[1]
+        assert lines[-1].endswith(_page_number_chars(1))
+        assert len(lines[-1]) == 10  # right-aligned, padded to width
 
     def test_bottom_right_brf_uses_hash_a_at_end_of_last_line(self):
         doc = self._two_line_doc()
@@ -863,8 +890,11 @@ class TestPageNumberPosition:
         from brailix.renderer.layout import _page_number_chars
 
         lines = out.split("\n")
+        # Number is its own last line, flush left (bare number).
+        assert len(lines) == 3
         assert _page_number_chars(1) not in lines[0]
-        assert lines[1].startswith(_page_number_chars(1))
+        assert _page_number_chars(1) not in lines[1]
+        assert lines[-1] == _page_number_chars(1)
 
     def test_bottom_left_brf_at_start_of_last_line(self):
         doc = self._two_line_doc()

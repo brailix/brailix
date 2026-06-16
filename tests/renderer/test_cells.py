@@ -92,6 +92,57 @@ class TestDocument:
         assert out["blocks"][0]["cells"] == []
 
 
+class TestStructuralSentinels:
+    """Structural sentinels (line_break / hang_open / hang_close) are raw
+    entries in the cells output — the cells renderer does NOT interpret
+    them the way unicode/brf do. ``include_blanks=False`` drops them along
+    with spaces, since every sentinel is dots-empty."""
+
+    def test_sentinels_kept_verbatim_by_default(self):
+        from brailix.ir.braille import (
+            HANG_CLOSE_CELL,
+            HANG_OPEN_CELL,
+            LINE_BREAK_CELL,
+        )
+
+        seq = BrailleSequence(cells=[
+            HANG_OPEN_CELL,
+            BrailleCell(dots=(1,), role="math", source_span=Span(0, 1)),
+            LINE_BREAK_CELL,
+            BrailleCell(dots=(1, 2), role="math", source_span=Span(1, 2)),
+            HANG_CLOSE_CELL,
+        ])
+        out = CellsRenderer().render(seq)
+        # All five cells survive in order, sentinels included.
+        assert [c["role"] for c in out] == [
+            "hang_open", "math", "line_break", "math", "hang_close",
+        ]
+        # Each sentinel is a raw dots-empty entry carrying only its role —
+        # no source_span, so span-based highlight logic skips it.
+        for entry in (out[0], out[2], out[4]):
+            assert entry["dots"] == []
+            assert "source_span" not in entry
+
+    def test_sentinels_dropped_with_blanks_disabled(self):
+        from brailix.ir.braille import (
+            HANG_CLOSE_CELL,
+            HANG_OPEN_CELL,
+            LINE_BREAK_CELL,
+        )
+
+        seq = BrailleSequence(cells=[
+            HANG_OPEN_CELL,
+            BrailleCell(dots=(1,), role="math"),
+            LINE_BREAK_CELL,
+            BLANK_CELL,
+            HANG_CLOSE_CELL,
+        ])
+        out = CellsRenderer(include_blanks=False).render(seq)
+        # Only the single inked cell survives; the space separator and all
+        # three sentinels (every dots-empty cell) are gone.
+        assert [c["role"] for c in out] == ["math"]
+
+
 class TestRegistration:
     def test_registered_by_name(self):
         from brailix.renderer import renderer_registry

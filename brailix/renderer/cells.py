@@ -16,6 +16,22 @@ Output shape for a :class:`BrailleSequence`::
 
 For a :class:`BrailleDocument` the result is a dict mirroring
 ``BrailleDocument.to_dict()`` but with cells expanded the same way.
+
+Structural sentinel cells pass through verbatim. The backend emits a
+few zero-width cells that carry layout meaning rather than ink: a forced
+in-block line break (``role="line_break"``, between matrix /
+equation-system rows) and the hanging-indent brackets
+(``role="hang_open"`` / ``"hang_close"`` around a matrix or equation
+system). Unlike the ``unicode`` / ``brf`` renderers — which interpret
+those sentinels into a line terminator or nothing — the cells renderer
+keeps them as raw entries (``{"dots": [], "role": "line_break"}`` and so
+on) so a proofreading tool sees the full structure and decides what to
+do by ``role``. They carry no ``source_span``, so span-based highlight /
+click-to-correct logic skips them automatically. This is the same raw
+cell stream
+:meth:`~brailix.pipeline.TranslationResult.proofread_json` exposes under
+``braille_ir``; a consumer that wants only inked content cells (no
+spaces, no sentinels) sets ``include_blanks=False``.
 """
 
 from __future__ import annotations
@@ -32,9 +48,12 @@ class CellsRenderer:
 
     Output is intentionally JSON-serialisable so the result can be
     piped straight to a web tool or written to disk. ``include_blanks``
-    controls whether dots-empty ``space`` cells are kept (default: yes)
-    — strip them only if you're feeding a tool that already inserts
-    word breaks itself.
+    controls whether dots-empty cells are kept (default: yes). Setting it
+    to ``False`` drops *every* dots-empty cell — the ``space`` separators
+    and the zero-width structural sentinels alike (``line_break`` /
+    ``hang_open`` / ``hang_close``; see the module docstring) — leaving
+    only inked content cells. Strip them only if you're feeding a tool
+    that inserts its own word breaks and ignores layout structure.
     """
 
     name: str = "cells"
