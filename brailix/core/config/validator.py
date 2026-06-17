@@ -33,25 +33,12 @@ _VALID_SYMBOL_ROLES: frozenset[str] = frozenset({
     "op", "rel", "delim", "punct", "shape", "big_op", "accent",
 })
 
-# Default language subtag the loader assumes when a profile omits
-# ``language`` (mirrors ``loader.DEFAULT_LANGUAGE`` so the validator
-# resolves the same ``tables.<lang>`` slot the loader would).
-_DEFAULT_LANGUAGE: str = "zh-CN"
-
-# Per-language ``tables.<lang>`` groups that must be present and non-empty.
-# Keyed by language subtag; the loader silently drops a missing / mistyped
-# group, so we require the ones a backend actually reads. Languages absent
-# from this map are allowed any (or no) groups — new languages opt in here.
-_REQUIRED_LANG_GROUPS: dict[str, tuple[str, ...]] = {
-    "ja": ("kana",),
-}
-
-
-# Required top-level keys on a profile JSON. ``name`` / ``tables`` must
-# always be present. ``language`` / ``cell`` / ``features`` are optional
-# (loader fills sensible defaults) but must be the right *type* when
-# present.
-_REQUIRED_PROFILE_KEYS: tuple[str, ...] = ("name", "tables")
+# Required top-level keys on a profile JSON. ``name`` / ``language`` /
+# ``tables`` must always be present — there is no built-in default
+# language, so every profile declares its own (e.g. ``zh-CN`` / ``ja-JP``).
+# ``cell`` / ``features`` are optional (loader fills sensible defaults).
+# All typed keys are checked for shape when present.
+_REQUIRED_PROFILE_KEYS: tuple[str, ...] = ("name", "language", "tables")
 _TYPED_OPTIONAL_KEYS: dict[str, type | tuple[type, ...]] = {
     "language": str,
     "cell": str,
@@ -66,8 +53,9 @@ def _validate_profile_shape(payload: dict[str, Any], file: str) -> None:
     top-level fields. This catches the most common typos / broken
     profiles before we descend into table files.
 
-    Required keys: ``name`` and ``tables``. Optional keys (``language``,
-    ``cell``, ``features``) get type-checked when present; the loader
+    Required keys: ``name``, ``language``, and ``tables`` — there is no
+    built-in default language, so every profile declares its own. Optional
+    keys (``cell``, ``features``) get type-checked when present; the loader
     supplies sensible defaults if they're absent.
     """
     if not isinstance(payload, dict):
@@ -143,7 +131,7 @@ def validate_profile(
     # Per-language cell-table slot (§7.6). The loader resolves the slot
     # named by the profile's language subtag (``ja-JP`` -> ``ja``); zh
     # keeps its welded loaders, so it's exempt from this generic check.
-    lang_subtag = str(payload.get("language", _DEFAULT_LANGUAGE)).split("-")[0]
+    lang_subtag = str(payload["language"]).split("-")[0]
     if lang_subtag != "zh":
         _validate_lang_tables(base, tables.get(lang_subtag), lang_subtag, profile_file)
 
@@ -173,27 +161,35 @@ def _validate_lang_tables(
 
       * the slot, when present, must be a dict;
       * every group ref must be a non-empty string;
-      * required groups (``_REQUIRED_LANG_GROUPS[lang]``, e.g. ``kana``)
-        must be present;
+      * the groups the **profile itself declares required** via the
+        ``_required`` metadata key (e.g. ``["kana"]``) must be present;
       * each referenced cell table must hold a non-empty group of
         well-shaped cell entries.
 
-    A profile that simply omits the slot is allowed (a language may have
-    no cell tables); only a *present-but-broken* slot, or one missing a
-    required group, is an error.
+    Which groups are mandatory is **data, not code** — it comes from the
+    profile's own ``tables.<lang>._required`` list, so the validator stays
+    language-agnostic (§7.6) and a new language opts in by declaring
+    ``_required`` in its resource, not by editing this module. A profile
+    that omits the slot — or declares no ``_required`` — is allowed; only a
+    *present-but-broken* slot, or one missing a self-declared required
+    group, is an error.
     """
-    required = _REQUIRED_LANG_GROUPS.get(lang, ())
     if lang_section is None:
-        if required:
-            raise ConfigurationError(
-                f"{profile_file}: language is {lang!r} but 'tables.{lang}' is "
-                f"missing; expected group(s) " + "/".join(required)
-            )
+        # No slot → nothing declared, nothing to enforce (a language may
+        # ship no cell tables; the requirement is self-declared per profile).
         return
     if not isinstance(lang_section, dict):
         raise ConfigurationError(
             f"{profile_file}: 'tables.{lang}' must be an object mapping group "
             f"name to resource ref, got {type(lang_section).__name__}"
+        )
+    required = lang_section.get("_required", [])
+    if not isinstance(required, list) or not all(
+        isinstance(g, str) for g in required
+    ):
+        raise ConfigurationError(
+            f"{profile_file}: 'tables.{lang}._required' must be a list of "
+            f"group names, got {required!r}"
         )
     for group in required:
         if group not in lang_section:

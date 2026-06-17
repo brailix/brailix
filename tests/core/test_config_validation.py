@@ -176,6 +176,7 @@ class TestProfileLookupErrors:
         (prof_dir / "demo.json").write_text(
             json.dumps({
                 "name": "demo",
+                "language": "zh-CN",
                 "tables": {
                     "cells": "resources/cells.json",  # never created
                 },
@@ -196,6 +197,7 @@ class TestProfileLookupErrors:
         (prof_dir / "demo.json").write_text(
             json.dumps({
                 "name": "demo",
+                "language": "zh-CN",
                 "tables": {
                     "cells": "resources/cells.json",
                 },
@@ -538,7 +540,7 @@ class TestProfileShape:
         prof = tmp_path / "profiles" / "bad_tables.json"
         prof.parent.mkdir(parents=True, exist_ok=True)
         prof.write_text(
-            json.dumps({"name": "bad_tables", "tables": "wrong"}),
+            json.dumps({"name": "bad_tables", "language": "zh-CN", "tables": "wrong"}),
             encoding="utf-8",
         )
         with pytest.raises(ConfigurationError) as ei:
@@ -605,6 +607,7 @@ def _write_raw_structures(tmp_path: Path, name: str, raw_payload: Any) -> str:
     prof.write_text(
         json.dumps({
             "name": name,
+            "language": "zh-CN",
             "tables": {
                 "cells": "resources/cells.json",
                 "math":  {"structures": "resources/math/structures.json"},
@@ -703,6 +706,7 @@ def _write_raw_symbols(tmp_path: Path, name: str, raw_payload: Any) -> str:
     prof.write_text(
         json.dumps({
             "name": name,
+            "language": "zh-CN",
             "tables": {
                 "cells": "resources/cells.json",
                 "math": {"symbols": "resources/math/symbols.json"},
@@ -726,6 +730,7 @@ def _write_raw_functions(tmp_path: Path, name: str, raw_payload: Any) -> str:
     prof.write_text(
         json.dumps({
             "name": name,
+            "language": "zh-CN",
             "tables": {
                 "cells": "resources/cells.json",
                 "math": {"functions": "resources/math/functions.json"},
@@ -1129,7 +1134,10 @@ def _write_ja_profile(
     )
 
     if ja_section == "__default__":
-        ja_section = {"kana": "resources/ja/kana.json"}
+        # A well-formed ja slot self-declares its required group(s) via the
+        # ``_required`` metadata key — the validator derives the requirement
+        # from data, not a hardcoded per-language table.
+        ja_section = {"_required": ["kana"], "kana": "resources/ja/kana.json"}
 
     tables: dict[str, Any] = {"cells": "resources/cells.json"}
     if ja_section is not None:
@@ -1161,14 +1169,15 @@ class TestLangTablesValidation:
         p = load_profile(name, root=tmp_path)
         assert p.lang_tables["ja"]["kana"]["ア"] == ((1,),)
 
-    def test_missing_ja_slot_raises(self, tmp_path):
-        # language is ja but tables.ja is absent → required group missing.
+    def test_missing_ja_slot_is_permissive(self, tmp_path):
+        # A profile that omits tables.ja declares no ``_required`` groups, so
+        # there is nothing to enforce — which groups are mandatory is the
+        # profile's own data (``tables.<lang>._required``), keeping the
+        # validator language-agnostic (§7.6). It loads with no ja cell tables
+        # (the backend would warn at translation if such a profile were used).
         name = _write_ja_profile(tmp_path, ja_section=None)
-        with pytest.raises(ConfigurationError) as ei:
-            load_profile(name, root=tmp_path)
-        msg = str(ei.value)
-        assert "tables.ja" in msg
-        assert "kana" in msg
+        p = load_profile(name, root=tmp_path)
+        assert "ja" not in p.lang_tables
 
     def test_ja_slot_not_dict_raises(self, tmp_path):
         name = _write_ja_profile(tmp_path, ja_section="resources/ja/kana.json")
@@ -1179,15 +1188,57 @@ class TestLangTablesValidation:
         assert "object" in msg or "dict" in msg.lower()
 
     def test_missing_required_kana_group_raises(self, tmp_path):
-        # tables.ja present but missing the required ``kana`` group.
+        # tables.ja declares ``kana`` required (via _required) but omits it.
         name = _write_ja_profile(
-            tmp_path, ja_section={"punct": "resources/ja/kana.json"}
+            tmp_path,
+            ja_section={"_required": ["kana"], "punct": "resources/ja/kana.json"},
         )
         with pytest.raises(ConfigurationError) as ei:
             load_profile(name, root=tmp_path)
         msg = str(ei.value)
         assert "tables.ja" in msg
         assert "kana" in msg
+
+    def test_required_groups_are_language_agnostic(self, tmp_path):
+        # Guard: the validator derives required groups from the profile's own
+        # ``tables.<lang>._required`` — no language is hardcoded — so an
+        # arbitrary new language is checked exactly the way ja is.
+        _write_cells_pool(tmp_path)
+        (tmp_path / "profiles").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "profiles" / "xx.json").write_text(
+            json.dumps({
+                "name": "xx",
+                "language": "xx-XX",
+                "tables": {
+                    "cells": "resources/cells.json",
+                    "xx": {"_required": ["foo"]},  # declares foo, omits it
+                },
+            }),
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigurationError) as ei:
+            load_profile("xx", root=tmp_path)
+        msg = str(ei.value)
+        assert "tables.xx" in msg
+        assert "foo" in msg
+
+    def test_required_must_be_a_list(self, tmp_path):
+        name = _write_ja_profile(
+            tmp_path,
+            ja_section={"_required": "kana", "kana": "resources/ja/kana.json"},
+        )
+        with pytest.raises(ConfigurationError) as ei:
+            load_profile(name, root=tmp_path)
+        assert "_required" in str(ei.value)
+
+    def test_no_hardcoded_required_groups_table(self):
+        # Guard: the per-language required-groups table must not creep back
+        # into the validator module — the requirement is profile data now.
+        import inspect
+
+        import brailix.core.config.validator as validator_mod
+
+        assert "_REQUIRED_LANG_GROUPS" not in inspect.getsource(validator_mod)
 
     def test_non_string_group_ref_raises(self, tmp_path):
         # A mistyped ref (object instead of a path string) is silently

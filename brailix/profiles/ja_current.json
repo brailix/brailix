@@ -12,6 +12,7 @@
     "punctuation": "resources/ja/current/punct.json",
     "connector": "c_36",
     "ja": {
+      "_required": ["kana"],
       "kana": "resources/ja/current/kana.json"
     }
   }
