@@ -102,8 +102,7 @@ LINE_BREAK_CELL = BrailleCell(dots=(), role="line_break")
 # Zero-width sentinels bracketing a hanging-indent region — emitted by the
 # math backend around a whole matrix / determinant / equation system.
 # Inside the region, a line the layout has to break for WIDTH (overflow)
-# continues with the region's hanging indent (《盲文常用数学符号》§17 规则1:
-# 如果矩阵的某一行在一行内写不完，则在下一行空两方后继续书写); a FORCED
+# continues with the region's hanging indent; a FORCED
 # break (LINE_BREAK_CELL — the next print row) still starts at the block's
 # own indent. Regions nest (block matrices) — the layout keeps a depth
 # count. The plain unicode / BRF renderers print nothing for them.

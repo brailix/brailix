@@ -114,7 +114,7 @@ def _translate_chinese(
             for i, ch in enumerate(surface)
         ]
 
-    # NCB Lesson 10 definite-word shorthand — look up shorthand via the
+    # NCB definite-word shorthand — look up shorthand via the
     # unified zh_exceptions container.  None when the profile didn't opt in
     # (cn_current) or no char_overrides section was defined.
     exceptions = profile.zh_exceptions
@@ -125,7 +125,7 @@ def _translate_chinese(
     # Cross-IR-node lookahead: when this is the last syllable of the
     # current Word/HanziChar and the immediately adjacent sibling is
     # another Chinese node (no Space / Punct between them), peek at
-    # its first syllable so the Lesson-9 boundary rule fires across
+    # its first syllable so the cross-syllable boundary rule fires across
     # IR-node boundaries too — not just within a single Word.
     # ``_translate_children`` in :mod:`brailix.backend.block` stashes
     # the next sibling under ``ctx.options['_next_inline_sibling']``
@@ -150,7 +150,7 @@ def _translate_chinese(
         else:
             # At the last char of this surface: fall back to the
             # cross-IR-node peek so 慈/爱 split across HanziChar nodes
-            # still triggers the boundary rule. (慈/爱 are example chars.)
+            # still triggers the boundary rule. (慈/爱 = cí/ài, example chars.)
             next_syl = cross_node_next_syl
         if char_overrides is not None:
             sh_cells = _try_shorthand(ch, next_syl, char_span, char_overrides)
@@ -198,7 +198,7 @@ def _try_shorthand(
 
     ``None`` means "no shorthand emitted, fall through to the
     standard syllable path" — the case for non-shorthand characters
-    AND for boundary-exception fall-throughs (的/么/你 followed by a
+    AND for boundary-exception fall-throughs (的/么/你 — de/me/nǐ — followed by a
     zero-initial syllable).  When ``None`` is returned,
     ``_translate_chinese`` runs the regular initial+final+tone
     emission for ``ch``.
@@ -364,7 +364,7 @@ def _emit_parsed(
     # features.zh.tone_strategy.
     #
     # The NCB profile also ships char- and word-level disambiguation
-    # overrides (Lesson 9 §8) inside its zh_exceptions resource.
+    # overrides inside its zh_exceptions resource.
     # When such an override fires for this character, we short-circuit
     # past the policy's tone-omission decision — but only if the policy
     # wasn't already going to emit.  The policy's neutral-tone

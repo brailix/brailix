@@ -2,22 +2,22 @@
 
 Wraps :class:`brailix.core.config.zh_ncb_tables.NcbToneOmission`
 (loaded by the profile loader from ``tables.zh.tone_omission``) and
-runs the multi-step decision tree from the NCB study guide, Lessons 2–9:
+runs the multi-step tone-omission decision tree:
 
 1. ``tone==""`` → no emit.
 2. ``tone=="5"`` (neutral tone) → never marked.
-3. **Boundary rule** (Lesson 9): an initial-only syllable
+3. **Boundary rule**: an initial-only syllable
    (``parsed.final == ""``, e.g. zhi/chi/shi/ri/zi/ci/si) followed
    by a zero-initial syllable (``next_parsed.initial == ""``) within the same
    word → **emit** (overrides per-initial / zero-initial omission).
-4. **Per-initial rule** (Lesson 2–7, when ``parsed.initial`` is set):
+4. **Per-initial rule** (when ``parsed.initial`` is set):
    look up ``table.by_initial[initial]``:
 
    * if syllable in ``keep_syllables`` → emit
    * elif ``parsed.tone == omit_tone`` → don't emit
    * else → emit
 
-5. **Zero-initial rule** (Lesson 8, when ``parsed.initial == ""``):
+5. **Zero-initial rule** (when ``parsed.initial == ""``):
    look up ``table.zero_initial``:
 
    * if syllable in ``keep_syllables`` → emit
@@ -66,7 +66,7 @@ class NcbOmissionPolicy:
         if parsed.tone == "5":
             return False  # neutral tone is never marked
 
-        # Boundary rule (Lesson 9): syllabic-i initial-only + next
+        # Boundary rule: syllabic-i initial-only + next
         # zero-initial → keep tone, overriding everything else.
         if (
             self.table.boundary_rule_enabled

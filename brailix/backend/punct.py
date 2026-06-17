@@ -77,7 +77,7 @@ def translate_connector(
     """Connector → one connector cell (⠤) from ``profile.connector``.
 
     A :class:`Connector` is the *synthetic* joiner the zh frontend
-    inserts inside a letter+hanzi compound word (``x轴`` / ``T恤``) — the
+    inserts inside a letter+hanzi compound word (``x轴`` / ``T恤`` — x-axis / T-shirt) — the
     counterpart of the word-boundary :class:`Space`, but rendered as the
     profile's connector cell instead of a blank. ``source_text`` is empty
     (no surface character behind it) and the span collapses to the

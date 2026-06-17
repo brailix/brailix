@@ -1,6 +1,6 @@
 """Shared letter-sign (case / script-class prefix) rule.
 
-《盲文常用数学符号》二.（一）规则1: the case/script sign is written before
+The case/script sign is written before
 the letter; consecutive letters of the SAME class (small/capital Latin,
 small/capital Greek) share one sign — only the first letter of the run
 takes it; a class change starts a new sign. So ``Abc`` → ⠠⠁⠰⠃⠉ and

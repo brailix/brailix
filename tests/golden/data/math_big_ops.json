@@ -1,15 +1,15 @@
 {
-  "description": "Big operators (∑ sum / ∏ product / ∫ integral / ∮ contour integral / ⋃ big union / ⋂ big intersection) and big functions (lim/max/min/sup/inf) with their sub/sup limits. Per 《盲文常用数学符号》, all big-operator limits use the below/above position (46-dot prefix ⠨).",
+  "description": "Big operators (∑ sum / ∏ product / ∫ integral / ∮ contour integral / ⋃ big union / ⋂ big intersection) and big functions (lim/max/min/sup/inf) with their sub/sup limits. All big-operator limits use the below/above position (46-dot prefix ⠨).",
   "regen_hint": "python -c \"from brailix import Pipeline; print(repr(Pipeline().translate_text(SRC).render()))\"",
   "groups": {
     "bare": {
       "description": "Bare big operators (no sub/sup)",
       "cases": [
-        {"src": "$\\sum$", "expected": "⠸⠎", "note": "rules §58 summation ⠸⠎"},
-        {"src": "$\\prod$", "expected": "⠸⠏", "note": "rules §59 product ⠸⠏"},
+        {"src": "$\\sum$", "expected": "⠸⠎", "note": "summation ⠸⠎"},
+        {"src": "$\\prod$", "expected": "⠸⠏", "note": "product ⠸⠏"},
         {"src": "$\\int$", "expected": "⠮", "note": "integral ⠮"},
-        {"src": "$\\bigcup$", "expected": "⠸⠼", "note": "《盲文常用数学符号》big union ⋃ ⠸⠼"},
-        {"src": "$\\bigcap$", "expected": "⠰⠹", "note": "《盲文常用数学符号》big intersection ⋂ ⠰⠹"}
+        {"src": "$\\bigcup$", "expected": "⠸⠼", "note": "big union ⋃ ⠸⠼"},
+        {"src": "$\\bigcap$", "expected": "⠰⠹", "note": "big intersection ⋂ ⠰⠹"}
       ]
     },
     "scripts": {
@@ -23,7 +23,7 @@
         {"src": "$\\prod_{n=1} a_n$", "expected": "⠸⠏⠨⠡⠰⠝⠀⠶⠼⠁⠱⠰⠁⠡⠰⠝⠱", "note": "prod with sub-only; trailing a_n closes with ⠱"},
         {"src": "$\\int_0^1 f(x) dx$", "expected": "⠮⠨⠡⠴⠨⠌⠂⠰⠋⠣⠰⠭⠜⠰⠙⠭", "note": "integral with both bounds (atomic digits, big_op_prefix=46); dx is one lowercase run ⠰⠙⠭ — matches the docx integral example ⠮⠰⠭⠌⠍⠱⠰⠙⠭"},
         {"src": "$\\int_a b$", "expected": "⠮⠨⠡⠰⠁⠱⠰⠃", "note": "integral with letter sub bound only"},
-        {"src": "$\\oint f dx$", "expected": "⠮⠴⠰⠋⠙⠭", "note": "《盲文常用数学符号》contour integral ∮ ⠮⠴ (= ∫ + 356), no sub/sup limits; f d x are adjacent same-class letters → one ⠰ (二.规则1; the print thin-space has no braille cell)"},
+        {"src": "$\\oint f dx$", "expected": "⠮⠴⠰⠋⠙⠭", "note": "contour integral ∮ ⠮⠴ (= ∫ + 356), no sub/sup limits; f d x are adjacent same-class letters → one ⠰ (the print thin-space has no braille cell)"},
         {"src": "$\\bigcup_{i=1}^{n} A_i$", "expected": "⠸⠼⠨⠡⠰⠊⠀⠶⠼⠁⠱⠨⠌⠰⠝⠱⠠⠁⠡⠰⠊⠱", "note": "big union ⋃ with lower/upper limits carrying the 46 prefix; trailing A_i closes with ⠱"},
         {"src": "$\\bigcap_{i} A_i$", "expected": "⠰⠹⠨⠡⠰⠊⠱⠠⠁⠡⠰⠊⠱", "note": "big intersection ⋂ with a lower limit carrying the 46 prefix; trailing A_i closes with ⠱"}
       ]
@@ -31,7 +31,7 @@
     "big_op_functions": {
       "description": "Big functions lim/max/min/sup/inf with sub/sup — limit markers carry the 46 prefix",
       "cases": [
-        {"src": "$\\lim_{x \\to 0} f(x)$", "expected": "⠫⠇⠍⠨⠡⠰⠭⠀⠒⠕⠼⠚⠱⠰⠋⠣⠰⠭⠜", "note": "rules §62 \\lim ⠫⠇⠍ + sub limit with prefix"},
+        {"src": "$\\lim_{x \\to 0} f(x)$", "expected": "⠫⠇⠍⠨⠡⠰⠭⠀⠒⠕⠼⠚⠱⠰⠋⠣⠰⠭⠜", "note": "\\lim ⠫⠇⠍ + sub limit with prefix"},
         {"src": "$\\max_{x} f$", "expected": "⠫⠍⠭⠨⠡⠰⠭⠱⠰⠋", "note": "max(m+x) + sub limit with the 46 prefix"},
         {"src": "$\\min_{n} a_n$", "expected": "⠫⠍⠝⠨⠡⠰⠝⠱⠰⠁⠡⠰⠝⠱", "note": "min(m+n) + sub limit; trailing a_n closes with ⠱"},
         {"src": "$\\sup_{x} f$", "expected": "⠫⠎⠥⠏⠨⠡⠰⠭⠱⠰⠋", "note": "sup(s+u+p) + sub limit"},

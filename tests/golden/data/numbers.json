@@ -42,7 +42,7 @@
     "percent": {
       "description": "Percent sign",
       "cases": [
-        {"src": "50%", "expected": "⠼⠑⠚⠨", "note": "rules §16 percent sign ⠨ after digits"},
+        {"src": "50%", "expected": "⠼⠑⠚⠨", "note": "percent sign ⠨ after digits"},
         {"src": "99.5%", "expected": "⠼⠊⠊⠂⠑⠨", "note": "decimal percentage"}
       ]
     },

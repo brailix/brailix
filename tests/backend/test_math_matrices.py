@@ -13,7 +13,7 @@ from tests.backend._math_common import emit, mml
 
 
 class TestMatrix:
-    """<mtable> linear notation (《盲文常用数学符号》 §17). These build the
+    """<mtable> linear notation. These build the
     multi-<mtr> mtable directly to unit-test the backend in isolation. The
     same shape arrives from OMML / Word import and from latex2mathml's
     \\begin{matrix} alike — its ``\\\\`` row breaks convert to separate
@@ -72,7 +72,7 @@ class TestMatrix:
     def test_table_is_bracketed_in_hang_region(self, profile):
         # The whole table sits inside hang_open … hang_close so the
         # layout hangs width-overflow continuations by two cells
-        # (§17 规则1: 某一行写不完，下一行空两方继续).
+        # (a row too wide to fit continues two cells in on the next line).
         cells, _ = emit(
             mml(self._mtable(
                 [["<mi>a</mi>"], ["<mi>b</mi>"]], "(", ")")),
@@ -295,8 +295,8 @@ class TestForcedLineBreak:
 
 
 class TestGeometryShapes:
-    """Elementary geometry symbols (《盲文常用数学符号》, geometry-symbols
-    section): ∠△□○◇▭∟ etc. are role=shape, led by ⠫(1246). latex2mathml and
+    """Elementary geometry symbols: ∠△□○◇▭∟ etc. are role=shape, led by
+    ⠫(1246). latex2mathml and
     Word / direct MathML often use different code points (\\square→◻U+25FB vs
     Word □U+25A1); both code points map — here we feed the canonical code
     points to confirm the Word/MathML path."""

@@ -22,7 +22,7 @@ Two builtins ship:
   is on and the tone is non-neutral.
 * :mod:`.ncb_omission` — registers ``"ncb_omission"``.  National Common
   Braille (NCB, GF0019-2018): tone omission grouped by initial +
-  zero-initial default + Lesson 9 cross-syllable boundary; reads the
+  zero-initial default + cross-syllable boundary rule; reads the
   table from :attr:`BrailleProfile.zh_tone_omission`.
 
 Both ship under :mod:`brailix.backend.zh.tone` so they're discovered

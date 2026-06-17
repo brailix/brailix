@@ -154,7 +154,7 @@ class TestHangRegion:
     """hang_open … hang_close — the math backend brackets every matrix /
     determinant / equation system in these zero-width sentinels. WIDTH
     overflow inside the region continues with ``hang_region_indent``
-    (《盲文常用数学符号》§17 规则1: 某一行写不完，下一行空两方继续);
+    (a row too wide to fit continues two cells in on the next line);
     FORCED row breaks and anything outside the region keep the block's
     own indent."""
 

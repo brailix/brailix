@@ -111,7 +111,7 @@ class TestDispatchPerNodeType:
         )
         cells = translate_node(node, ctx, profile)
         # number_sign + 1 digit + (56 + k + g) = 5 cells — one letter
-        # sign covers the same-class run "kg" (《盲文常用数学符号》规则1).
+        # sign covers the same-class run "kg".
         assert cells[0].role == "number_sign"
         assert len(cells) == 5
         assert any(c.role == "quantity_unit" for c in cells)
@@ -139,7 +139,7 @@ class TestTranslateBlock:
         block = translate_block(para, ctx, profile)
         assert block.block_type == "paragraph"
         # 我 (final+tone) = 2, 在 (init+final+tone) = 3, 。 (⠐⠆) = 2
-        # cells with no trailing blank (rules.txt §1).
+        # cells with no trailing blank.
         assert len(block.cells) == 2 + 3 + 2
 
     def test_heading_preserves_level(self, ctx, profile):

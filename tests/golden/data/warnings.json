@@ -8,7 +8,7 @@
         {
           "src": "$\\unknownfoo$",
           "expected": "⠫⠰⠥⠝⠅⠝⠕⠺⠝⠋⠕⠕",
-          "note": "unknown control sequence: backslash stripped + spelled name; the lowercase run shares one ⠰ (docx 二.规则1), no warning"
+          "note": "unknown control sequence: backslash stripped + spelled name; the lowercase run shares one ⠰, no warning"
         },
         {
           "src": "$\\circ$",

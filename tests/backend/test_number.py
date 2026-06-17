@@ -139,8 +139,7 @@ class TestTranslateQuantity:
         )
         cells = translate_quantity(node, ctx, profile)
         # number_sign + digit 3 + (56 + k + g) = 5 cells — one lowercase
-        # sign covers the same-class run "kg" (《盲文常用数学符号》规则1;
-        # the docx unit example writes 47cm as ⠼⠙⠛⠰⠉⠍).
+        # sign covers the same-class run "kg" (e.g. 47cm is ⠼⠙⠛⠰⠉⠍).
         assert cells[0].role == "number_sign"
         assert cells[1].role == "digit"
         unit_cells = [c for c in cells if c.role == "quantity_unit"]

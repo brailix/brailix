@@ -17,7 +17,7 @@
         {"src": "$\\frac{\\pi}{2}$", "expected": "⠨⠏⠳⠼⠃", "note": "simple: greek / digit"},
         {"src": "$\\frac{a}{\\pi}$", "expected": "⠰⠁⠳⠨⠏", "note": "simple: letter / greek"},
         {"src": "$\\frac{a+1}{b}$", "expected": "⠆⠰⠁⠀⠖⠼⠁⠀⠳⠰⠃⠰", "note": "compound: open + numerator + blank + bar + denom + close"},
-        {"src": "$\\frac{1}{x+1}$", "expected": "⠆⠼⠁⠀⠳⠰⠭⠀⠖⠼⠁⠰", "note": "rules: compound with digit/poly denom"},
+        {"src": "$\\frac{1}{x+1}$", "expected": "⠆⠼⠁⠀⠳⠰⠭⠀⠖⠼⠁⠰", "note": "compound with digit/poly denom"},
         {"src": "$\\frac{n}{n+1}$", "expected": "⠆⠰⠝⠀⠳⠰⠝⠀⠖⠼⠁⠰", "note": "compound: letter / poly"},
         {"src": "$1/2$", "expected": "⠼⠁⠆", "note": "typed slash routes through Antoine"},
         {"src": "$1/x$", "expected": "⠼⠁⠳⠰⠭", "note": "typed slash with letter denom"},

@@ -60,7 +60,7 @@ def _is_accent_mark_node(
 
 
 def _accent_base_is_multi(base: ET.Element | None) -> bool:
-    """True when the accent base spans ≥2 letters — the docx two-letter form
+    """True when the accent base spans ≥2 letters — the two-letter form
     (short bar ⠒⠒ / arrow sign ⠒⠆) vs the single-letter form (⠒ / ⠒⠂). Counts
     alphabetic characters in the base text so ``\\vec{v}`` is single and
     ``\\overrightarrow{AB}`` is double."""
@@ -79,7 +79,7 @@ def _emit_accent(
     (reached via :func:`_emit_under_over_dispatch` on ``accent="true"`` or
     a recognised ``role=accent`` over/under char).
 
-    Shape per the annotation section of 《盲文常用数学符号》: ``base`` +
+    Shape: ``base`` +
     direction marker + mark symbol. The direction marker is emitted by the
     backend — ``accent.over`` (directly above ⠘) for an over-script,
     ``accent.under`` (directly below ⠰) for an under-script — and the accent
@@ -91,7 +91,7 @@ def _emit_accent(
     if base is not None:
         _emit_element(cells, mctx, base)
     # single-letter vs two-letter form is a property of the base width,
-    # shared by both sides (docx §15).
+    # shared by both sides.
     multi = _accent_base_is_multi(base)
     _emit_accent_side(cells, mctx, under, "accent.under", multi)
     _emit_accent_side(cells, mctx, over, "accent.over", multi)

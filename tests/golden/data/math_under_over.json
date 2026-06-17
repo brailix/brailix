@@ -8,7 +8,7 @@
         {"src": "$\\dot{x}$", "expected": "⠰⠭⠘⠂", "note": "dot directly above = base + above marker ⠘ + dot ⠂"},
         {"src": "$f'$", "expected": "⠰⠋⠨⠔", "note": "prime ′ = ⠨⠔ (msup skips the superscript sign ⠌)"},
         {"src": "$x\\prime$", "expected": "⠰⠭⠨⠔", "note": "explicit \\prime as an inline op"},
-        {"src": "$\\overline{xy}$", "expected": "⠰⠭⠽⠘⠒⠒", "note": "multi-character base overline: one ⠰ covers the same-class run xy (docx 二.规则1) + above marker ⠘ + bar, two letters ⠒⠒ (docx §十五项4)"},
+        {"src": "$\\overline{xy}$", "expected": "⠰⠭⠽⠘⠒⠒", "note": "multi-character base overline: one ⠰ covers the same-class run xy + above marker ⠘ + bar, two letters ⠒⠒"},
         {"src": "$\\underline{xy}$", "expected": "⠰⠭⠽⠰⠒⠒", "note": "multi-character base underline: one ⠰ for the run xy + below marker ⠰ + bar, two letters ⠒⠒"},
         {"src": "$\\vec{x}$", "expected": "⠰⠭⠘⠒⠂", "note": "vector arrow mark, single letter: → remapped in the accent position to ⠘ + ⠒⠂ (≠ relation arrow ⠒⠕)"},
         {"src": "$\\overrightarrow{xy}$", "expected": "⠰⠭⠽⠘⠒⠆", "note": "vector arrow mark, two letters ⠘ + ⠒⠆ (base 2 letters, one ⠰ for the run)"}

@@ -39,8 +39,8 @@ _NUMBER_ROLES = DigitRoles(digit="digit")
 
 # The one date marker that writes directly against its number with no
 # connector: the NCB convention keeps the year marker 年 attached to the
-# year digits. Every other marker (月/日/号/时/分/秒) takes the
-# number→hanzi joiner the way ``10页`` / ``3个`` do; see
+# year digits. Every other marker (月/日/号/时/分/秒, i.e. month/day/day-no./hour/min/sec) takes the
+# number→hanzi joiner the way ``10页`` (10 pages) / ``3个`` (3 items) do; see
 # :func:`translate_date`.
 _DATE_CONNECTOR_EXEMPT = "年"
 
@@ -69,8 +69,8 @@ def translate_percent(node: Percent, ctx: BackendContext, profile: BrailleProfil
 def translate_quantity(node: Quantity, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:
     """Quantity → digits + unit letters.
 
-    Unit letters follow the letter-sign run rule (《盲文常用数学符号》
-    五.规则1 + 二.规则1): consecutive letters of the same script class
+    Unit letters follow the letter-sign run rule: consecutive letters of
+    the same script class
     share one ``letter_prefix.*`` sign — ``47cm`` → ⠼⠙⠛⠰⠉⠍, one ⠰
     for the whole ``cm``. A class change starts a new sign, which is
     what keeps mixed-case units lossless (``mW`` → ⠰⠍⠠⠺); an

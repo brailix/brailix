@@ -1,6 +1,6 @@
 """Matrix / determinant / equation-system handlers for the math backend.
 
-Implements 《盲文常用数学符号》§17 row-by-row notation for ``<mtable>`` —
+Implements row-by-row notation for ``<mtable>`` —
 the fenced form (``<mo>(</mo><mtable/><mo>)</mo>`` and its ``[]`` / ``||``
 variants, recognised inside a child sequence), the bare ``<mtable>``, and
 the equation-system form (``\\begin{cases}`` / ``\\left\\{…\\right.``):
@@ -10,7 +10,7 @@ row, ⠇ (123) middle rows, ⠣ (126) last row — with no row-end marker.
 
 Every print row lands on its own braille line: rows are separated by
 :data:`~brailix.ir.braille.LINE_BREAK_CELL`, which the renderers turn
-into a real line break (§17 规则1 "按照行的顺序一行接一行的书写").
+into a real line break, one row after another in row order.
 
 Cross-imports :func:`_emit_as_mo` from :mod:`.leaves` to emit the per-row
 delimiters through the shared ``<mo>`` machinery.
@@ -68,7 +68,7 @@ def _emit_children_with_matrix(
     (``<mo>(</mo><mtable/><mo>)</mo>`` and the ``[]`` / ``||`` variants).
 
     The fence delimiters wrap the WHOLE matrix in MathML but, per
-    《盲文常用数学符号》§17 linear notation, each braille row carries its own
+    the row-by-row linear notation, each braille row carries its own
     delimiter — so we consume the flanking ``<mo>`` and apply the matched
     delimiter per row. Non-matrix children emit normally.
 
@@ -129,15 +129,15 @@ def _emit_mtable_linear(
     open_char: str,
     close_char: str,
 ) -> None:
-    """《盲文常用数学符号》§17 row-by-row notation: each print row is one
-    braille line (LINE_BREAK_CELL between rows — §17 规则1 "一行接一行的
-    书写"), enclosed in paired delimiters (parentheses ⠣⠜ / square
+    """Row-by-row notation: each print row is one
+    braille line (LINE_BREAK_CELL between rows — one row after another),
+    enclosed in paired delimiters (parentheses ⠣⠜ / square
     brackets ⠷⠾ / determinant vertical bars ⠸⠸), elements within a row
     separated by blank cells. The whole table is bracketed in
     HANG_OPEN/CLOSE so a row the layout must break for width continues
-    with the hanging indent (§17 规则1: 某一行写不完，下一行空两方继续).
+    with the hanging indent (a row too wide to fit continues two cells in on the next line).
     Content before the first row / after the last row stays on those
-    rows' lines (§17 规则5: trailing operators attach to the last row).
+    rows' lines (trailing operators attach to the last row).
     The delimiter cells reuse the profile's lpar/rpar/lbrack/rbrack/
     verbar symbols. Block matrices / diagonal shorthand /
     two-dimensional layout are deferred."""
@@ -161,7 +161,7 @@ def _emit_row_cells(
     cells: list[BrailleCell], mctx: MathBrailleContext, row: ET.Element
 ) -> None:
     """Emit one ``<mtr>``'s cells: ``<mtd>`` contents in order, blank-cell
-    separated (the §17 element separator within a row).
+    separated (the element separator within a row).
 
     Each ``<mtd>``'s children go through :func:`_emit_children_with_matrix`
     — the same walker the top-level mrow uses — so a function applied to a

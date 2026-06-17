@@ -177,15 +177,15 @@ class TestFractions:
         assert "math_fraction_close" not in roles
 
     def test_rules_txt_half(self, pipe):
-        # rules.txt: 1/2 = ⠼⠁⠆
+        # 1/2 = ⠼⠁⠆
         assert render(pipe, r"$1/2$") == "⠼⠁⠆"
 
     def test_rules_txt_one_over_x(self, pipe):
-        # rules.txt: 1/x = ⠼⠁⠳⠰⠭
+        # 1/x = ⠼⠁⠳⠰⠭
         assert render(pipe, r"$1/x$") == "⠼⠁⠳⠰⠭"
 
     def test_rules_txt_compound_fraction(self, pipe):
-        # rules.txt: \frac{1}{x+1} = ⠆⠼⠁ ⠳⠰⠭ ⠖⠼⠁⠰
+        # \frac{1}{x+1} = ⠆⠼⠁ ⠳⠰⠭ ⠖⠼⠁⠰
         # The blanks in the spec are real braille blanks (⠀ U+2800).
         assert render(pipe, r"$\frac{1}{x+1}$") == "⠆⠼⠁⠀⠳⠰⠭⠀⠖⠼⠁⠰"
 
@@ -254,7 +254,7 @@ class TestFunctions:
         assert [c.dots for c in name_cells] == [(1, 2, 3), (1, 3, 4, 5)]
 
     def test_arcsin_a_plus_base_letter(self, pipe):
-        # rules §53 \arcsin = ⠫⠁⠎ = function_prefix + a + s.
+        # \arcsin = ⠫⠁⠎ = function_prefix + a + s.
         cells = pipe.translate_text(r"$\arcsin x$").braille_ir.blocks[0].cells
         name_cells = [c for c in cells if c.role == "math_function_name"]
         assert [c.dots for c in name_cells] == [(1,), (2, 3, 4)]
@@ -279,9 +279,9 @@ class TestGreek:
 
 
 # ---------------------------------------------------------------------------
-# Matrices & determinants — <mtable> row-by-row notation (《盲文常用数学符号》
-# §十七 规则1: 按照行的顺序一行接一行的书写 — every print row is one braille
-# LINE, separated by LINE_BREAK_CELL which the unicode renderer emits as \n).
+# Matrices & determinants — <mtable> row-by-row notation: rows are written one
+# after another, every print row is one braille LINE, separated by
+# LINE_BREAK_CELL which the unicode renderer emits as \n).
 #
 # Regression lock for the "LaTeX matrix gets squished" worry: latex2mathml
 # (pinned to 3.81.0 in uv.lock) converts a ``\\`` row break into a *separate*
@@ -428,7 +428,7 @@ class TestEquationSystems:
 
 
 class TestVectors:
-    """Vector markers (《盲文常用数学符号》§十五) end-to-end. latex2mathml
+    """Vector markers end-to-end. latex2mathml
     gives \\vec / \\overrightarrow an accent character of → (U+2192); the
     backend remaps that at the accent slot into the arrow marker (≠ the
     relation arrow ⠒⠕) and picks the single- vs double-letter form by
@@ -454,13 +454,13 @@ class TestVectors:
         assert render(pipe, r"$\overline{AB}$") == "⠠⠠⠁⠃⠘⠒⠒"
 
     def test_vector_length_single_bar(self, pipe):
-        # vector length |v⃗| = single absolute-value bar ⠸ … ⠸ (docx §十五
-        # item 5), reusing verbar.
+        # vector length |v⃗| = single absolute-value bar ⠸ … ⠸,
+        # reusing verbar.
         assert render(pipe, r"$|\vec{v}|$") == "⠸⠰⠧⠘⠒⠂⠸"
 
     def test_vector_norm_double_bar(self, pipe):
-        # vector magnitude / norm ‖v⃗‖ = double vertical bar ⠻ … ⠻ (docx
-        # §十五 item 6); ‖ ≠ the absolute-value |.
+        # vector magnitude / norm ‖v⃗‖ = double vertical bar ⠻ … ⠻;
+        # ‖ ≠ the absolute-value |.
         assert render(pipe, r"$\|\vec{v}\|$") == "⠻⠰⠧⠘⠒⠂⠻"
         # A bare norm also works and no longer reports MATH_UNKNOWN_SYMBOL.
         res = pipe.translate_text(r"$\|x\|$")

@@ -43,8 +43,7 @@ class TestPunct:
         assert cells[1].is_blank
 
     def test_known_period(self, ctx, profile):
-        # Chinese 。 is *two cells* (⠐⠆) per rules.txt §1, with no
-        # space on either side.
+        # Chinese 。 is *two cells* (⠐⠆) with no space on either side.
         cells = translate_punct(Punct(surface="。"), ctx, profile)
         assert len(cells) == 2
         assert cells[0].dots == (5,)
@@ -74,7 +73,7 @@ class TestPunct:
         assert cells[1].is_blank
 
     def test_chinese_question_mark_is_two_cells_no_space(self, ctx, profile):
-        # Regression for scratch_1.txt (2026-05-24): Chinese ？ must be
+        # Regression: Chinese ？ must be
         # two cells ⠐⠄ with no trailing blank — the English ⠦ glyph
         # (c_236) is wrong here. Mirrors the 。 / ！ double-cell rule.
         cells = translate_punct(Punct(surface="？"), ctx, profile)
@@ -93,8 +92,8 @@ class TestPunct:
         assert cells[1].is_blank
 
     def test_english_comma_dots_and_trailing_space(self, ctx, profile):
-        # English ``,`` is ⠂ (dot 2) with space_after=true
-        # (rules.txt §6) — distinct from Chinese ， which is dot 5.
+        # English ``,`` is ⠂ (dot 2) with space_after=true —
+        # distinct from Chinese ， which is dot 5.
         cells = translate_punct(Punct(surface=","), ctx, profile)
         assert len(cells) == 2
         assert cells[0].dots == (2,)
@@ -159,7 +158,7 @@ class TestPunct:
         assert any(c.role == "punct" for c in cells[1:])
 
     def test_chinese_round_brackets(self, ctx, profile):
-        # scratch_1.txt (2026-05-25): round brackets （）— left ⠰⠄ (56-3)
+        # Round brackets （）— left ⠰⠄ (56-3)
         # with space_before, right ⠠⠆ (6-23) with space_after. Each side is
         # two cells; the brackets are not interchangeable.
         cells_l = translate_punct(Punct(surface="（"), ctx, profile)
@@ -174,7 +173,7 @@ class TestPunct:
         assert cells_r[2].is_blank
 
     def test_chinese_square_brackets(self, ctx, profile):
-        # scratch_1.txt: square brackets 【】— both sides are ⠰⠆ (56-23),
+        # Square brackets 【】— both sides are ⠰⠆ (56-23),
         # the left/right asymmetry comes purely from spacing flags.
         cells_l = translate_punct(Punct(surface="【"), ctx, profile)
         assert len(cells_l) == 3
@@ -188,7 +187,7 @@ class TestPunct:
         assert cells_r[2].is_blank
 
     def test_double_book_title_marks(self, ctx, profile):
-        # scratch_1.txt: double book title marks 《》— left ⠐⠤ (5-36)
+        # Double book title marks 《》— left ⠐⠤ (5-36)
         # space_before, right ⠤⠂ (36-2) space_after.
         cells_l = translate_punct(Punct(surface="《"), ctx, profile)
         assert len(cells_l) == 3
@@ -202,7 +201,7 @@ class TestPunct:
         assert cells_r[2].is_blank
 
     def test_single_book_title_marks(self, ctx, profile):
-        # scratch_1.txt: single book title marks 〈〉— left ⠐⠄ (5-3)
+        # Single book title marks 〈〉— left ⠐⠄ (5-3)
         # space_before, right ⠠⠂ (6-2) space_after. The left cells (5-3)
         # collide glyphwise with ？; readers disambiguate by context.
         cells_l = translate_punct(Punct(surface="〈"), ctx, profile)
@@ -217,7 +216,7 @@ class TestPunct:
         assert cells_r[2].is_blank
 
     def test_annotation_asterisk(self, ctx, profile):
-        # scratch_1.txt annotation mark * = ⠶⠔ (2356-35), no spacing on
+        # Annotation mark * = ⠶⠔ (2356-35), no spacing on
         # either side — attaches tightly to the annotated word.
         cells = translate_punct(Punct(surface="*"), ctx, profile)
         assert len(cells) == 2

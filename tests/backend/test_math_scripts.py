@@ -17,8 +17,8 @@ from tests.backend._math_common import emit, mml, roles
 
 class TestScripts:
     def test_msup_with_big_op_sum_uses_script_prefix(self, profile):
-        # ∑^n — ∑ now takes the 46-prefix too (《盲文常用数学符号》: all
-        # big-op limits go directly above / directly below ⠨⠡/⠨⠌).
+        # ∑^n — ∑ now takes the 46-prefix too: all big-op limits go
+        # directly above / directly below ⠨⠡/⠨⠌.
         cells, _ = emit(
             mml("<math><msup><mo>∑</mo><mi>n</mi></msup></math>"), profile
         )
@@ -446,7 +446,7 @@ class TestBigOpExtras:
 
 
 class TestVectorAccent:
-    """Vector sign (《盲文常用数学符号》 §15): \\vec / \\overrightarrow render
+    """Vector sign: \\vec / \\overrightarrow render
     → / ← as the arrow sign (distinct from the relation arrow ⠒⠕), while
     \\overline uses the short bar; each picks the single- or two-letter form
     by the number of base letters. Outside the accent position the arrow-sign
@@ -480,8 +480,8 @@ class TestVectorAccent:
         assert self._accent_dots(cells) == [(4, 5), (2, 5), (2, 3)]
 
     def test_left_arrow_reuses_arrow_mark(self, profile):
-        # ← (\overleftarrow) — docx §15 has no leftward variant, so it
-        # reuses the same arrow sign.
+        # ← (\overleftarrow) — there is no separate leftward variant, so
+        # it reuses the same arrow sign.
         cells, _ = emit(
             mml("<math><mover><mi>v</mi><mo>←</mo></mover></math>"), profile
         )

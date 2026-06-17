@@ -406,7 +406,8 @@ def _emit_condition_side(
     _emit_structure(cells, mctx, indicator_struct, role=indicator_role)
     mctx.need_number_sign = True
     if content.tag == "mtext":
-        # A prose condition (Chinese 点燃 / 催化剂 / 高温 …) — translate it
+        # A prose condition (Chinese 点燃 / 催化剂 / 高温 — ignite / catalyst /
+        # high heat …) — translate it
         # through the pipeline.
         _emit_prose_condition(cells, mctx, content)
     else:

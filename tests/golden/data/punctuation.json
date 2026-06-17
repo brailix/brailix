@@ -68,7 +68,7 @@
         {
           "src": "你这个人怎么这样？",
           "expected": "⠝⠊⠄⠀⠌⠢⠆⠛⠢⠀⠚⠴⠂⠀⠵⠴⠄⠍⠢⠀⠌⠢⠆⠭⠆⠐⠄",
-          "note": "regression for ？ bug (scratch_1.txt 2026-05-24): Chinese ？ must produce ⠐⠄, not the English ⠦"
+          "note": "regression for ？ bug: Chinese ？ must produce ⠐⠄, not the English ⠦"
         }
       ]
     },
@@ -83,7 +83,7 @@
         {
           "src": "$a \\cdot b$",
           "expected": "⠰⠁⠄⠰⠃",
-          "note": "rules §2 \\dot ⠄ no spaces"
+          "note": "\\dot ⠄ no spaces"
         }
       ]
     }

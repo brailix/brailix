@@ -142,7 +142,7 @@ def _translate_children(
     Each dispatch sees the immediately-following sibling stashed under
     ``ctx.options['_next_inline_sibling']`` so backends can peek
     across IR-node boundaries (the zh backend uses this for NCB's
-    Lesson-9 boundary rule). The key is cleared after the loop so it
+    cross-syllable boundary rule). The key is cleared after the loop so it
     doesn't leak to unrelated callers that share the context.
     """
     out: list[BrailleCell] = []

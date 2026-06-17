@@ -142,8 +142,7 @@ def _emit_regular_script(
     skipped only when the content is a bare number (``<mn>``) and the
     ``math.simplify_script`` feature is on; a single *letter* keeps the
     close to bound the script (``a^n`` → ``a ⠌ ⠰n ⠱``), since unlike a
-    digit run it carries no self-delimiting number context (《盲文常用
-    数学符号》: 单字母上下标要 close 收尾，数字不要).
+    digit run it carries no self-delimiting number context.
 
     Single-digit script content uses the Antoine lower-form digit (no
     number_sign, no close marker) when ``math.atomic_script_lower_digit``

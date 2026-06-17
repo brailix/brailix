@@ -117,10 +117,9 @@ class TestBasicTonePolicy:
 class TestNcbOmissionPolicy:
     """The cn_ncb profile loads this policy through the factory.
 
-    Each test asserts the rule from a specific lesson of
-    《国家通用盲文自学辅导讲义》 (the NCB self-study guide) — cross-reference
-    the lesson number in the test name so failures point straight at the
-    source rule.
+    Cross-reference for NCB (GF0019-2018) tone rules — each test name
+    states the rule it covers so failures point straight at the source
+    rule.
     """
 
     @pytest.fixture(scope="class")
@@ -130,7 +129,7 @@ class TestNcbOmissionPolicy:
     def test_factory_returns_ncb_policy(self, policy):
         assert isinstance(policy, NcbOmissionPolicy)
 
-    # -- Lesson 2: b/p/m/f ----------------------------------------------
+    # -- b/p/m/f --------------------------------------------------------
 
     def test_lesson_2_b_omits_tone_4(self, policy):
         # ban4 → ban (b omits tone 4)
@@ -153,7 +152,7 @@ class TestNcbOmissionPolicy:
             parsed=parse_pinyin("fa1"),
         )
 
-    # -- Lesson 3: tou / le4 exceptions ---------------------------------
+    # -- tou / le4 exceptions -------------------------------------------
 
     def test_lesson_3_tou_never_omitted(self, policy):
         # tou1/tou2/tou3/tou4 all keep their tone — because toneless "tou"
@@ -162,7 +161,7 @@ class TestNcbOmissionPolicy:
             assert policy.should_emit_tone(
                 syllable=syl,
                 parsed=parse_pinyin(syl),
-            ), f"{syl} should keep its tone (Lesson 3 exception)"
+            ), f"{syl} should keep its tone (documented exception)"
 
     def test_lesson_3_other_t_syllables_follow_omit_2(self, policy):
         # tai2 (second tone) → tai (omitted)
@@ -185,7 +184,7 @@ class TestNcbOmissionPolicy:
             parsed=parse_pinyin("lu4"),
         )
 
-    # -- Lesson 7: zi4 exception ----------------------------------------
+    # -- zi4 exception --------------------------------------------------
 
     def test_lesson_7_zi4_not_omitted(self, policy):
         assert policy.should_emit_tone(
@@ -193,7 +192,7 @@ class TestNcbOmissionPolicy:
             parsed=parse_pinyin("zi4"),
         )
 
-    # -- Lesson 8: zero-initial -----------------------------------------
+    # -- zero-initial ---------------------------------------------------
 
     def test_lesson_8_zero_initial_tone_4_default_omit(self, policy):
         # ai4 → ai
@@ -224,8 +223,8 @@ class TestNcbOmissionPolicy:
 
     # -- Rule 5 reverse exception: yi4/er4/wo4/ye4/you4 ----------------
     #
-    # Per scratch_1.txt §9.5 (the syllables yī, ér, wǒ, yě, yǒu omit their
-    # tone mark; the syllables yì, èr, wò, yè, yòu do NOT omit it). Without
+    # The syllables yī, ér, wǒ, yě, yǒu omit their
+    # tone mark; the syllables yì, èr, wò, yè, yòu do NOT omit it. Without
     # these in keep, they would wrongly be omitted by
     # zero_initial.default_omit_tone=4.
 
@@ -271,7 +270,7 @@ class TestNcbOmissionPolicy:
             parsed=parse_pinyin("wo2"),
         )
 
-    # -- Lesson 9: boundary rule ----------------------------------------
+    # -- boundary rule --------------------------------------------------
 
     def test_lesson_9_boundary_keeps_syllabic_i_initial(self, policy):
         # ci2/ai4: ci2 normally would be omitted (initial c omits tone 2);
@@ -351,7 +350,7 @@ class TestEndToEnd:
         self, ctx, cn_ncb
     ):
         # Within a word, ci2/ai4: boundary rule should keep ci2's tone,
-        # omit ai4's. Confirmed against scratch_1.txt §9.7: 慈爱 → ⠉⠂⠪.
+        # omit ai4's. 慈爱 → ⠉⠂⠪.
         cells = translate_word(
             Word(surface="慈爱", reading="ci2 ai4"),
             ctx, cn_ncb,
@@ -362,7 +361,7 @@ class TestEndToEnd:
         assert tone_cells[0].dots == cn_ncb.tones["2"]
 
     def test_cn_ncb_shiye_keeps_both_tones(self, ctx, cn_ncb):
-        # 事业 shi4/ye4 — per scratch_1.txt §9.7: ⠱⠆⠑⠆.
+        # 事业 shi4/ye4 → ⠱⠆⠑⠆.
         # shi4: kept by boundary rule (syllabic-i + next zero-initial).
         # ye4: kept by rule 5 reverse exception (ye4 in keep_syllables).
         cells = translate_word(
@@ -388,8 +387,8 @@ class TestEndToEnd:
 
     def test_cross_word_boundary_two_hanzichars(self, ctx, cn_ncb):
         # Cross-IR-node boundary: 慈 + 爱 as two separate HanziChar
-        # nodes (no Space between) should also trigger the Lesson-9
-        # boundary — same outcome as the Word("慈爱") case.
+        # nodes (no Space between) should also trigger the boundary
+        # rule — same outcome as the Word("慈爱") case.
         from brailix.backend.block import translate_document
         from brailix.ir.document import DocumentIR, Paragraph
         from brailix.ir.inline import HanziChar

@@ -25,7 +25,7 @@ class TestDefaultRendering:
     def test_no_arg_uses_default_renderer(self):
         pipe = Pipeline()
         result = pipe.translate_text("。")
-        # 。 = ⠐⠆ (rules.txt §1): two cells, no space on either side.
+        # 。 = ⠐⠆: two cells, no space on either side.
         # ⠐ = U+2810 (dot 5), ⠆ = U+2806 (dots 2,3).
         assert result.render() == chr(0x2810) + chr(0x2806)
 
@@ -200,7 +200,7 @@ class TestSegmenterAndNormalizerFields:
             # actually went through our segmenter.
             result = pipe.translate_text("。")
             # Default normalizer converts punct segment → Punct node → cells.
-            # 。 = ⠐⠆ is two cells with no trailing space (rules.txt §1).
+            # 。 = ⠐⠆ is two cells with no trailing space.
             assert len(result.render()) == 2
         finally:
             segmenter_registry.unregister("all-punct-test")
@@ -382,5 +382,5 @@ class TestStandaloneResult:
         result = TranslationResult(
             text="。", ir=doc, braille_ir=braille_doc
         )
-        # 。 = ⠐⠆: two cells, no trailing blank (rules.txt §1).
+        # 。 = ⠐⠆: two cells, no trailing blank.
         assert result.render() == chr(0x2810) + chr(0x2806)

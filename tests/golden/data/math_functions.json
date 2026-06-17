@@ -5,13 +5,13 @@
     "trig": {
       "description": "Trigonometric functions and their arc / hyperbolic variants",
       "cases": [
-        {"src": "$\\sin x$", "expected": "⠫⠎⠰⠭", "note": "rules: \\sin = function_prefix(⠫) + s(⠎)"},
+        {"src": "$\\sin x$", "expected": "⠫⠎⠰⠭", "note": "\\sin = function_prefix(⠫) + s(⠎)"},
         {"src": "$\\cos x$", "expected": "⠫⠉⠰⠭", "note": "\\cos = ⠫ + c"},
         {"src": "$\\tan x$", "expected": "⠫⠞⠰⠭", "note": "\\tan = ⠫ + t"},
         {"src": "$\\cot x$", "expected": "⠫⠉⠞⠰⠭", "note": "\\cot = ⠫ + c + t"},
-        {"src": "$\\sec x$", "expected": "⠫⠎⠉⠰⠭", "note": "《盲文常用数学符号》secant \\sec = ⠫ + s + c"},
-        {"src": "$\\csc x$", "expected": "⠫⠉⠎⠰⠭", "note": "《盲文常用数学符号》cosecant \\csc = ⠫ + c + s"},
-        {"src": "$\\arcsin x$", "expected": "⠫⠁⠎⠰⠭", "note": "rules §53 \\arcsin = ⠫⠁⠎"},
+        {"src": "$\\sec x$", "expected": "⠫⠎⠉⠰⠭", "note": "secant \\sec = ⠫ + s + c"},
+        {"src": "$\\csc x$", "expected": "⠫⠉⠎⠰⠭", "note": "cosecant \\csc = ⠫ + c + s"},
+        {"src": "$\\arcsin x$", "expected": "⠫⠁⠎⠰⠭", "note": "\\arcsin = ⠫⠁⠎"},
         {"src": "$\\arccos x$", "expected": "⠫⠁⠉⠰⠭", "note": "\\arccos = ⠫ + a + cos"},
         {"src": "$\\arctan x$", "expected": "⠫⠁⠞⠰⠭", "note": "\\arctan = ⠫ + a + tan"},
         {"src": "$\\sinh x$", "expected": "⠫⠎⠓⠰⠭", "note": "\\sinh = ⠫ + sin + h"},
@@ -23,11 +23,11 @@
     "log": {
       "description": "log / exp family",
       "cases": [
-        {"src": "$\\ln x$", "expected": "⠫⠇⠝⠰⠭", "note": "rules: \\ln = ⠫ + l + n"},
-        {"src": "$\\lg x$", "expected": "⠫⠇⠛⠰⠭", "note": "rules: \\lg = ⠫ + l + g"},
-        {"src": "$\\log x$", "expected": "⠫⠇⠰⠭", "note": "rules.txt §21 + 《盲文常用数学符号》: \\log of any base = ⠫ + single letter l"},
-        {"src": "$\\log_2 x$", "expected": "⠫⠇⠡⠆⠰⠭", "note": "rules.txt §21 \\log_2{x}=⠫⠇⠡⠆…: log(single l) + subscript atom 2"},
-        {"src": "$\\exp x$", "expected": "⠫⠑⠰⠭", "note": "《盲文常用数学符号》exp exponential = ⠫ + single letter e"}
+        {"src": "$\\ln x$", "expected": "⠫⠇⠝⠰⠭", "note": "\\ln = ⠫ + l + n"},
+        {"src": "$\\lg x$", "expected": "⠫⠇⠛⠰⠭", "note": "\\lg = ⠫ + l + g"},
+        {"src": "$\\log x$", "expected": "⠫⠇⠰⠭", "note": "\\log of any base = ⠫ + single letter l"},
+        {"src": "$\\log_2 x$", "expected": "⠫⠇⠡⠆⠰⠭", "note": "\\log_2{x}=⠫⠇⠡⠆…: log(single l) + subscript atom 2"},
+        {"src": "$\\exp x$", "expected": "⠫⠑⠰⠭", "note": "exp exponential = ⠫ + single letter e"}
       ]
     },
     "func_args": {

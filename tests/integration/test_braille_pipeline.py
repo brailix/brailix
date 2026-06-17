@@ -50,7 +50,7 @@ class TestPipelineSmoke:
         assert len(result.render()) == 5
 
     def test_greek_letter_does_not_emit_unknown_punct(self):
-        # scratch_2.txt reported: the Greek letter τ didn't go through the
+        # Regression: the Greek letter τ didn't go through the
         # letter table and ended up in the punct fallback, triggering
         # UNKNOWN_PUNCT. After the fix it should go through the Latin/Greek
         # letter path, emitting the Greek lowercase sign ⠨ + the τ cell ⠞,
@@ -68,7 +68,7 @@ class TestPipelineSmoke:
         result = pipe.translate_text("。")
         payload = result.proofread_json()
         assert payload["text"] == "。"
-        # 。 = ⠐⠆ — two cells (rules.txt §1).
+        # 。 = ⠐⠆ — two cells.
         cells = payload["braille_ir"]["blocks"][0]["cells"]
         assert [c["dots"] for c in cells] == [[5], [2, 3]]
 

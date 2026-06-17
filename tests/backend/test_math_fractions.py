@@ -220,7 +220,7 @@ class TestFractionExtras:
 
 
 class TestFunctionFractionMarkers:
-    """《盲文常用数学符号》 function/fraction scope rules.
+    """Function/fraction scope rules.
 
     A function application (``cos α``) is one term, so it keeps the
     simple bar form when it sits in a numerator / denominator. A

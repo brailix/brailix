@@ -1,5 +1,5 @@
 {
-  "description": "Math accents / vector marks (prime, dot, overline, tilde, double-dot, vector arrow). Per 《盲文常用数学符号》, the annotation section + §15: base + position marker (above ⠘ / below ⠰) + the mark symbol; vectors →/← use the arrow mark, overline uses the dash, and single/double form is chosen by the base letter count. Known accents emit no warning; an unknown accent (e.g. the ^ from \\hat) triggers MATH_UNKNOWN_SYMBOL.",
+  "description": "Math accents / vector marks (prime, dot, overline, tilde, double-dot, vector arrow). The accent encoding is base + position marker (above ⠘ / below ⠰) + the mark symbol; vectors →/← use the arrow mark, overline uses the dash, and single/double form is chosen by the base letter count. Known accents emit no warning; an unknown accent (e.g. the ^ from \\hat) triggers MATH_UNKNOWN_SYMBOL.",
   "regen_hint": "python -c \"from brailix import Pipeline; print(repr(Pipeline().translate_text(SRC).render()))\"",
   "groups": {
     "known_clean": {
@@ -57,13 +57,13 @@
           "src": "$\\vec{x}$",
           "expected": "⠰⠭⠘⠒⠂",
           "warnings_exclude_prefix": "MATH_",
-          "note": "vector arrow mark, single letter: \\vec produces → U+2192, remapped in the accent position to ⠘ + arrow mark ⠒⠂ (≠ relation arrow ⠒⠕), docx §十五项1"
+          "note": "vector arrow mark, single letter: \\vec produces → U+2192, remapped in the accent position to ⠘ + arrow mark ⠒⠂ (≠ relation arrow ⠒⠕)"
         },
         {
           "src": "$\\vec{AB}$",
           "expected": "⠠⠠⠁⠃⠘⠒⠆",
           "warnings_exclude_prefix": "MATH_",
-          "note": "vector arrow mark, two letters ⠘ + ⠒⠆ (base 2 letters, all-capital run shares the doubled ⠠⠠), docx §十五项2"
+          "note": "vector arrow mark, two letters ⠘ + ⠒⠆ (base 2 letters, all-capital run shares the doubled ⠠⠠)"
         },
         {
           "src": "$\\overrightarrow{AB}$",
@@ -75,13 +75,13 @@
           "src": "$\\overleftarrow{v}$",
           "expected": "⠰⠧⠘⠒⠂",
           "warnings_exclude_prefix": "MATH_",
-          "note": "leftward arrow ← uses the same arrow mark (docx §十五 has no left variant)"
+          "note": "leftward arrow ← uses the same arrow mark (no separate left variant)"
         },
         {
           "src": "$\\overline{AB}$",
           "expected": "⠠⠠⠁⠃⠘⠒⠒",
           "warnings_exclude_prefix": "MATH_",
-          "note": "bar, two letters ⠘ + ⠒⠒ (base 2 letters, doubled ⠠⠠), docx §十五项4; compare \\overline{x} single letter ⠒"
+          "note": "bar, two letters ⠘ + ⠒⠒ (base 2 letters, doubled ⠠⠠); compare \\overline{x} single letter ⠒"
         }
       ]
     },

@@ -7,8 +7,7 @@ Two layers:
   table.  Data lives on the profile (filled by the profile loader at
   load time); there's no backend-side factory.
 * Integration tests through :func:`translate_word` checking exact
-  cell sequences match the worked examples in scratch_1.txt §9.8 +
-  §10.
+  cell sequences match the documented worked examples.
 
 These two layers used to live in three separate files
 (test_zh_tone_policy + test_zh_word_shorthand + test_zh_disambiguation)
@@ -123,12 +122,12 @@ class TestLoader:
 
 
 # ---------------------------------------------------------------------------
-# NcbCharOverrides.shorthand_cells_for — Lesson 10 + Lesson 7
+# NcbCharOverrides.shorthand_cells_for — shorthand chars + tone-omission
 # ---------------------------------------------------------------------------
 
 
 class TestShorthandLookup:
-    """Each test names the lesson-10 rule it covers."""
+    """Each test names the shorthand rule it covers."""
 
     # -- 的 (de0) ---------------------------------------------------------
 
@@ -185,7 +184,7 @@ class TestShorthandLookup:
 
     def test_ta_male_special_spelling_on_zero_initial_next(self, char_overrides):
         # 他用 — 他 followed by yong4 (zero-initial) → use boundary_spelling
-        # ⠞⠔ (t + a, tone-1 still omitted per scratch_1.txt §7).
+        # ⠞⠔ (t + a, tone-1 still omitted).
         assert char_overrides.shorthand_cells_for(
             "他", next_is_zero_initial=True
         ) == ((2, 3, 4, 5), (3, 5))
@@ -225,7 +224,7 @@ class TestShorthandLookup:
 
 
 # ---------------------------------------------------------------------------
-# NcbCharOverrides.should_force_keep_tone — Lesson 9 §8 char-level
+# NcbCharOverrides.should_force_keep_tone — char-level
 # ---------------------------------------------------------------------------
 
 
@@ -246,7 +245,7 @@ class TestCharKeepTone:
 
 
 # ---------------------------------------------------------------------------
-# NcbWordOverrides.should_force_keep_tone — Lesson 9 §8 word-level
+# NcbWordOverrides.should_force_keep_tone — word-level
 # ---------------------------------------------------------------------------
 
 
@@ -268,7 +267,7 @@ class TestWordKeepTone:
 
 
 # ---------------------------------------------------------------------------
-# End-to-end: cn_ncb + zh backend — Lesson 10 shorthand
+# End-to-end: cn_ncb + zh backend — shorthand
 # ---------------------------------------------------------------------------
 
 
@@ -295,7 +294,7 @@ class TestShorthandEndToEnd:
 
     def test_ta_yong(self, ctx, cn_ncb):
         # 他用 → ⠞⠔⠽ — 他 boundary exc fires, falls back to special
-        # spelling (t + a, tone-1 still omitted per Lesson 7).
+        # spelling (t + a, tone-1 still omitted).
         cells = translate_word(
             Word(surface="他用", reading="ta1 yong4"), ctx, cn_ncb
         )
@@ -309,12 +308,12 @@ class TestShorthandEndToEnd:
 
 
 # ---------------------------------------------------------------------------
-# End-to-end: cn_ncb + zh backend — Lesson 9 §8 disambiguation
+# End-to-end: cn_ncb + zh backend — tone disambiguation
 # ---------------------------------------------------------------------------
 
 
 class TestDisambiguationEndToEnd:
-    """scratch_1.txt §9.8 examples produce the correct cell sequences."""
+    """Worked examples produce the correct cell sequences."""
 
     def test_zai_keeps_tone(self, ctx, cn_ncb):
         # 再 zài → ⠵⠪⠆ (z + ai + tone-4 kept by char override).
@@ -343,7 +342,7 @@ class TestDisambiguationEndToEnd:
         assert _dots(cells) == [(2, 5), (2, 3)]  # uen + tone-4
 
     def test_didao_word_keeps_second_tone(self, ctx, cn_ncb):
-        # 地道 dì-dào → ⠙⠊⠙⠖⠆ per scratch_1.txt §9.8.
+        # 地道 dì-dào → ⠙⠊⠙⠖⠆.
         cells = translate_word(
             Word(surface="地道", reading="di4 dao4"), ctx, cn_ncb
         )

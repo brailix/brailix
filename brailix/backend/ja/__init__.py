@@ -1,6 +1,6 @@
 """Translate Japanese inline IR (Word / HanziChar) into braille cells.
 
-Japanese braille (仮名点字) is fully phonetic: every prose node carries a
+Japanese braille (kana braille, 仮名点字) is fully phonetic: every prose node carries a
 katakana *pronunciation form* in ``node.reading`` (long vowels already as
 ー, particle は read ワ etc.). The ja frontend fills that field; the
 backend translates a supplied reading directly, so it is testable on its
@@ -20,8 +20,9 @@ Missing reading -> ``MISSING_READING`` warning + one unknown cell per
 surface character. Unknown mora -> ``UNKNOWN_KANA`` warning + an unknown
 cell. The pipeline never crashes on data gaps (mirrors backend.zh).
 
-Word-spacing (wakachigaki), the number sign + つなぎ符, romaji 外字符 /
-大文字符, and punctuation are not handled here — they are driven by the
+Word-spacing (wakachigaki), the number sign + つなぎ符 (connector mark),
+romaji 外字符 / 大文字符 (foreign-letter / capital signs), and punctuation
+are not handled here — they are driven by the
 frontend / number / punct / latin backends.
 """
 

@@ -467,9 +467,9 @@ class TestMathTable:
         assert p.math_function("sin") == ((2, 3, 4),)
         # ln spells out two letters.
         assert p.math_function("ln") == ((1, 2, 3), (1, 3, 4, 5))
-        # arcsin per rules §53: a + s (function_prefix is added by backend).
+        # arcsin = a + s (function_prefix is added by backend).
         assert p.math_function("arcsin") == ((1,), (2, 3, 4))
-        # lim per rules §62: just l + m (no i).
+        # lim = just l + m (no i).
         assert p.math_function("lim") == ((1, 2, 3), (1, 3, 4))
         # Missing function returns None.
         assert p.math_function("frobnicate") is None
@@ -719,9 +719,8 @@ class TestMathSymbolScriptPrefix:
 
 
 class TestMathSymbolSupplement:
-    """Set-theory / logic / calculus / inequality symbols added from
-    《盲文常用数学符号》. Cells / roles / spacing are asserted directly
-    (hand-derived from the reference doc, NOT generated from it)."""
+    """Set-theory / logic / calculus / inequality symbols. Cells / roles /
+    spacing are asserted directly (hand-derived, NOT generated)."""
 
     def test_set_relations(self):
         p = load_profile("cn_current")
@@ -958,8 +957,7 @@ class TestMathFunctionFlags:
 
     def test_big_op_functions_take_script_prefix(self):
         # max/min/sup/inf now take the 46-dot script prefix too (all
-        # big-op function limits go directly below / directly above per
-        # 《盲文常用数学符号》).
+        # big-op function limits go directly below / directly above).
         p = load_profile("cn_current")
         assert p.math_function_script_prefix("max") is True
         assert p.math_function_script_prefix("min") is True
@@ -976,12 +974,11 @@ class TestMathFunctionFlags:
 
 class TestMathFunctionStandardAbbrev:
     """sec/csc/log/exp/max/min/det use the standard Chinese-braille
-    abbreviations from rules.txt §21/§60/§61 + 《盲文常用数学符号》, NOT
-    the previous self-invented full-English spellings."""
+    abbreviations, NOT the previous self-invented full-English spellings."""
 
     def test_log_exp_single_letter(self):
         p = load_profile("cn_current")
-        # log with any base = single letter l (rules.txt §21 \log_2{x}=⠫⠇…); exp = single letter e.
+        # log with any base = single letter l (\log_2{x}=⠫⠇…); exp = single letter e.
         assert p.math_function("log") == ((1, 2, 3),)
         assert p.math_function("exp") == ((1, 5),)
         # ln / lg / lb keep their second letter.
@@ -999,7 +996,7 @@ class TestMathFunctionStandardAbbrev:
 
     def test_max_min_det(self):
         p = load_profile("cn_current")
-        # rules.txt §60/61 maximum/minimum = m+x / m+n; det = d+t.
+        # maximum/minimum = m+x / m+n; det = d+t.
         assert p.math_function("max") == ((1, 3, 4), (1, 3, 4, 6))
         assert p.math_function("min") == ((1, 3, 4), (1, 3, 4, 5))
         assert p.math_function("det") == ((1, 4, 5), (2, 3, 4, 5))
@@ -1035,7 +1032,7 @@ class TestMathStructureLookup:
         p = load_profile("cn_current")
         assert p.math_structure("accent.over") == ((4, 5),)    # directly above ⠘
         assert p.math_structure("accent.under") == ((5, 6),)   # directly below ⠰
-        # Vector-mark single/double-letter cell (docx §15): arrow sign ⠒⠂/⠒⠆, short bar ⠒/⠒⠒.
+        # Vector-mark single/double-letter cell: arrow sign ⠒⠂/⠒⠆, short bar ⠒/⠒⠒.
         assert p.math_structure("accent.mark.arrow.single") == ((2, 5), (2,))
         assert p.math_structure("accent.mark.arrow.double") == ((2, 5), (2, 3))
         assert p.math_structure("accent.mark.bar.single") == ((2, 5),)

@@ -293,7 +293,7 @@ class BrailleProfile:
         ``"greek_upper"`` — or ``None`` when the character isn't in any
         letter table.
 
-        This is the key the letter-sign rule (《盲文常用数学符号》二.规则1)
+        This is the key the letter-sign rule
         partitions on: consecutive letters of the same class share one
         ``letter_prefix.{class}`` sign; a class change starts a new sign.
         """

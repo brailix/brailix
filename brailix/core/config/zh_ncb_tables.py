@@ -1,9 +1,9 @@
 """NCB (National Common Braille / GF0019-2018) profile data shape.
 
 Single :class:`NcbExceptions` container with three sub-records:
-``tone_omission`` (Lessons 2–9 per-initial tone-omission rules),
-``char_overrides`` (Lessons 7 + 10 + 9§8 character-level overrides), and
-``word_overrides`` (Lesson 9§8 word-level tone retention).  All three are
+``tone_omission`` (per-initial tone-omission rules),
+``char_overrides`` (character-level overrides), and
+``word_overrides`` (word-level tone retention).  All three are
 loaded from one resource file —
 ``resources/cn/ncb/exceptions.json`` — following the design principle that
 *all NCB-specific difference lives in one consolidated "exceptions"
@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# Tone omission section (Lessons 2–9)
+# Tone omission section
 # ---------------------------------------------------------------------------
 
 
@@ -54,9 +54,9 @@ class NcbToneOmission:
       (``_lesson`` / ``_note`` etc., ignored at runtime).
     * ``zero_initial`` — zero-initial (final forms a syllable on its own)
       rule. Carries ``default_omit_tone`` plus ``omit_syllables`` /
-      ``keep_syllables`` lists for the two-way overrides Lesson 8 lays out
+      ``keep_syllables`` lists for the two-way overrides
       (wǒ / yě / yǒu / yī / ér / o̅ omit; their tone-4 counterparts keep).
-    * ``boundary_rule_enabled`` — Lesson 9 cross-syllable rule.
+    * ``boundary_rule_enabled`` — the cross-syllable boundary rule.
     """
 
     by_initial: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -65,7 +65,7 @@ class NcbToneOmission:
 
 
 # ---------------------------------------------------------------------------
-# Character-level overrides section (Lessons 7 + 9§8 + 10)
+# Character-level overrides section
 # ---------------------------------------------------------------------------
 
 
@@ -80,7 +80,7 @@ class _Shorthand:
     shortens).  When the boundary fires:
 
     * ``boundary_spelling`` is non-None (e.g. 他=⠞⠔, 它=⠈⠞⠔ per the
-      study guide's Lesson 7 special spelling) → emit those cells in
+      special spelling) → emit those cells in
       place of the shorthand.
     * ``boundary_spelling`` is None (的/么/你) → caller falls through
       to the standard syllable path.
@@ -97,10 +97,10 @@ class _CharOverride:
 
     Each instance describes 0+ behaviors for a single Chinese character:
 
-    * ``shorthand`` (Lesson 10): a definite-word abbreviation; may
-      carry boundary-exception data (Lesson 7 special spelling when
+    * ``shorthand``: a definite-word abbreviation; may
+      carry boundary-exception data (special spelling when
       ``boundary_spelling`` is set, fall-through otherwise).
-    * ``keep_tone`` (Lesson 9 §8): forcibly keep this character's
+    * ``keep_tone``: forcibly keep this character's
       tone cell regardless of what the per-initial rule says.
 
     An entry without ``shorthand`` simply has no shorthand behavior
@@ -154,7 +154,7 @@ class NcbCharOverrides:
 
 
 # ---------------------------------------------------------------------------
-# Word-level overrides section (Lesson 9 §8)
+# Word-level overrides section
 # ---------------------------------------------------------------------------
 
 

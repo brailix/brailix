@@ -64,7 +64,7 @@ _STATE_TOKENS = frozenset({"s", "l", "g", "aq"})
 # Gas (↑) / precipitate (↓) arrows. mhchem writes a standalone ``^`` / ``v``
 # token; we also accept the literal Unicode arrows. Emitted as ``<mo>`` so
 # the backend renders them through the existing ``uarr`` / ``darr`` symbol
-# cells (《盲文常用数学符号》, arrows section: ↑ = ⠰⠌, ↓ = ⠘⠡).
+# cells (↑ = ⠰⠌, ↓ = ⠘⠡).
 _GAS = "↑"   # ↑
 _PRECIPITATE = "↓"  # ↓
 

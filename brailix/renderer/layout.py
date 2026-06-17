@@ -160,7 +160,7 @@ class LayoutOptions:
     # Hanging indent applied to WIDTH-overflow continuation lines inside
     # a ``hang_open`` … ``hang_close`` region (the math backend brackets
     # every matrix / determinant / equation system in those sentinels).
-    # 《盲文常用数学符号》§17 规则1: a table row that doesn't fit on one
+    # A table row that doesn't fit on one
     # line continues on the next indented by two cells. Forced row
     # breaks (``line_break`` cells) still start at the block's own
     # indent — only overflow continuations hang.

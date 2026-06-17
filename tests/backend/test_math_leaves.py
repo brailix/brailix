@@ -69,7 +69,7 @@ class TestMi:
     ):
         # Three-letter name not in the functions table — it's a letter
         # word, not a function: no ⠫, and the same-class run shares ONE
-        # lowercase sign (《盲文常用数学符号》二.规则1): ⠰ + h + y + p.
+        # lowercase sign: ⠰ + h + y + p.
         cells, _ = emit(mml("<math><mi>hyp</mi></math>"), profile)
         assert all(c.role == "math_identifier" for c in cells)
         assert [c.dots for c in cells] == [
@@ -85,7 +85,7 @@ class TestMi:
         ]
 
     def test_mi_capital_then_lower_runs_split_per_docx(self, profile):
-        # 《盲文常用数学符号》二.规则1 例1: Abc → ⠠⠁⠰⠃⠉ — the capital
+        # Abc → ⠠⠁⠰⠃⠉ — the capital
         # and the lowercase stretch each take their own sign; the
         # lowercase sign covers its whole run.
         cells, _ = emit(mml("<math><mi>Abc</mi></math>"), profile)
@@ -94,7 +94,7 @@ class TestMi:
         ]
 
     def test_mi_greek_then_latin_runs_split_per_docx(self, profile):
-        # 《盲文常用数学符号》二.规则1 例1: πr → ⠨⠏⠰⠗.
+        # πr → ⠨⠏⠰⠗.
         cells, _ = emit(mml("<math><mi>πr</mi></math>"), profile)
         assert [c.dots for c in cells] == [
             (4, 6), (1, 2, 3, 4), (5, 6), (1, 2, 3, 5),
@@ -394,8 +394,8 @@ class TestMiExtras:
 
     def test_mi_letter_case_mixed_sequence(self, profile):
         # Multi-char mi that isn't a registered function is a letter run,
-        # not a function — no ⠫. A case change starts a new letter sign
-        # (《盲文常用数学符号》二.规则1), which keeps mixed case lossless:
+        # not a function — no ⠫. A case change starts a new letter sign,
+        # which keeps mixed case lossless:
         # Ax → (6 + A) + (56 + x).
         cells, _ = emit(mml("<math><mi>Ax</mi></math>"), profile)
         assert all(c.role == "math_identifier" for c in cells)
@@ -595,7 +595,7 @@ class TestProfileLookups:
         assert profile.math_symbol_script_prefix("∫") is True
 
     def test_math_symbol_script_prefix_sum(self, profile):
-        # ∑ now takes the 46-dot prefix too (《盲文常用数学符号》).
+        # ∑ now takes the 46-dot prefix too.
         assert profile.math_symbol_script_prefix("∑") is True
 
     def test_math_function_big_op_lim(self, profile):

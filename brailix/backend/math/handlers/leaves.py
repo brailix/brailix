@@ -158,7 +158,7 @@ def _emit_letter_runs(
 ) -> None:
     """Emit a stretch of letters with per-class letter signs.
 
-    《盲文常用数学符号》二.（一）规则1: the case/script sign is written
+    The case/script sign is written
     before the letter; consecutive letters of the SAME class share one
     sign (only the first letter of the run takes it); a class change
     starts a new sign — ``Abc`` → ⠠⠁⠰⠃⠉, ``πr`` → ⠨⠏⠰⠗. An

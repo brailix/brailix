@@ -198,7 +198,7 @@ def _is_function_application(elem: ET.Element | None, profile) -> bool:
     argument is a single self-fenced structure — ``cos α``, ``sin x²``,
     ``log₂ x``.
 
-    Per 《盲文常用数学符号》 a function applied to one operand is a single
+    A function applied to one operand is a single
     term: the ⠫ function prefix opens it and the argument's own shape
     closes it, so a fraction with such a numerator / denominator keeps
     the simple bar form (no ⠆…⠰ brackets) — ``⠫cos α⠳a`` reads
@@ -350,8 +350,7 @@ def _is_atomic(elem: ET.Element | None) -> bool:
     Only a bare number (``<mn>``) qualifies: a digit run carries its own
     number context, so ``x_1`` / ``x^{12}`` read unambiguously without a
     close. A single *letter* (``<mi>``) does NOT — ``a^n`` / ``a_n`` keep
-    the close to bound the script (《盲文常用数学符号》: 单字母上下标要
-    close 收尾，数字不要). Used only by the regular-script close decision.
+    the close to bound the script. Used only by the regular-script close decision.
     """
     if elem is None or elem.tag != "mn":
         return False
@@ -597,8 +596,8 @@ def _merge_letter_word_runs(
     children: list[ET.Element], profile
 ) -> list[ET.Element]:
     """Merge adjacent single-letter ``<mi>`` siblings (two or more) into
-    one multi-letter ``<mi>`` so the letter-sign rule (《盲文常用数学符号》
-    二.（一）规则1) can see the whole run — one sign per same-class
+    one multi-letter ``<mi>`` so the letter-sign rule can see the whole
+    run — one sign per same-class
     stretch instead of one per letter. Runs that span class changes
     (``mW`` / ``πr``) still merge; the emitter re-partitions by class.
 

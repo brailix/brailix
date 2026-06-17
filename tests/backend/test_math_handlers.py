@@ -988,8 +988,7 @@ class TestFunctionNameCoalesce:
 
     def test_unknown_letters_merge_into_one_letter_run(self, profile):
         # x + y + z  →  no function match; the adjacent letters merge
-        # into one run sharing a single latin-lower sign
-        # (《盲文常用数学符号》二.规则1): ⠰ + x + y + z.
+        # into one run sharing a single latin-lower sign: ⠰ + x + y + z.
         cells, _ = emit(
             mml("<math><mi>x</mi><mi>y</mi><mi>z</mi></math>"), profile
         )
@@ -1068,7 +1067,7 @@ class TestFunctionNameCoalesce:
 # ---------------------------------------------------------------------------
 # Letter-word coalescing + positional-slot gating — adjacent letters that
 # don't spell a function merge into one letter run (one sign per same-class
-# stretch, 《盲文常用数学符号》二.规则1); the children of positional
+# stretch); the children of positional
 # containers (msub / mfrac / ...) are distinct slots and never merge.
 # ---------------------------------------------------------------------------
 
