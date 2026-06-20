@@ -56,8 +56,8 @@
         {"src": "$3.14$", "expected": "⠼⠉⠂⠁⠙", "note": "decimal: number_sign + 3 + decimal_point + 14"},
         {"src": "$0.5$", "expected": "⠼⠚⠂⠑", "note": "decimal less than one"},
         {"src": "$2.71828$", "expected": "⠼⠃⠂⠛⠁⠓⠃⠓", "note": "long decimal"},
-        {"src": "$1,000$", "expected": "⠼⠁⠂⠀⠚⠚⠚", "note": "thousands separator inserts blank"},
-        {"src": "$1,000,000$", "expected": "⠼⠁⠂⠀⠚⠚⠚⠂⠀⠚⠚⠚", "note": "two thousands separators"}
+        {"src": "$1,000$", "expected": "⠼⠁⠐⠚⠚⠚", "note": "thousands comma ⠐ tight, no space"},
+        {"src": "$1,000,000$", "expected": "⠼⠁⠐⠚⠚⠚⠐⠚⠚⠚", "note": "two tight thousands commas ⠐"}
       ]
     },
     "mo": {
@@ -94,7 +94,8 @@
         {"src": "$(x)$", "expected": "⠣⠰⠭⠜", "note": "paren delims"},
         {"src": "$[x]$", "expected": "⠷⠰⠭⠾", "note": "bracket delims"},
         {"src": "$\\{x\\}$", "expected": "⠪⠰⠭⠕", "note": "brace delims"},
-        {"src": "$a, b$", "expected": "⠰⠁⠂⠀⠰⠃", "note": "math comma punct with space_after"}
+        {"src": "$a, b$", "expected": "⠰⠁⠐⠀⠰⠃", "note": "math comma dot-5 ⠐ with space_after"},
+        {"src": "$(1, 2)$", "expected": "⠣⠼⠁⠐⠀⠃⠜", "note": "numeric coordinate: comma keeps its space (not a thousands group)"}
       ]
     },
     "mo_set_logic": {

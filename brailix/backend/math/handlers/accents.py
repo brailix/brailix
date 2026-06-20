@@ -18,6 +18,7 @@ from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.dispatch import _emit_element
 from brailix.backend.math.utils import (
     _emit_structure,
+    _math_prose_punct,
     _unknown_cell,
     _unpack_under_over,
 )
@@ -178,8 +179,8 @@ def _emit_accent_char(
                 )
             )
         return
-    # punctuation fallback.
-    punct_seq = profile.punctuation.get(ch)
+    # punctuation fallback (never a full-width char — see _math_prose_punct).
+    punct_seq = _math_prose_punct(profile.punctuation, ch)
     if punct_seq:
         for dots in punct_seq:
             cells.append(

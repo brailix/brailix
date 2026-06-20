@@ -23,6 +23,7 @@ from brailix.backend.math.utils import (
     _ROLE_TO_CELL_ROLE,
     _emit_structure,
     _last_is_blank,
+    _math_prose_punct,
     _mi_routes_to_function,
     _previous_suppresses_space_before,
     _unknown_cell,
@@ -134,7 +135,7 @@ def _emit_identifier_char(
     if profile.math_symbol(ch) is not None:
         _emit_as_mo(cells, mctx, ch)
         return
-    punct = profile.punctuation.get(ch)
+    punct = _math_prose_punct(profile.punctuation, ch)
     if punct:
         cells.extend(
             BrailleCell(
@@ -376,7 +377,7 @@ def _emit_mo(
             )
             mctx.need_number_sign = True
             return
-        punct = profile.punctuation.get(text)
+        punct = _math_prose_punct(profile.punctuation, text)
         if punct:
             cells.extend(
                 BrailleCell(
@@ -420,7 +421,10 @@ def _emit_mo(
         )
         for dots in sym_cells
     )
-    if spacing_enabled and space_after:
+    # ``data-bk-tight`` (set by the frontend on a thousands-grouping comma,
+    # ``1,000``) suppresses the trailing space — the comma joins one quantity
+    # rather than separating list items, so it reads tight.
+    if spacing_enabled and space_after and elem.get("data-bk-tight") is None:
         cells.append(BLANK_CELL)
     if role in _NUMBER_BREAKING_ROLES or role is None:
         mctx.need_number_sign = True

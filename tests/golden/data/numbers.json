@@ -65,7 +65,7 @@
         {"src": "$-0.5$", "expected": "⠤⠼⠚⠂⠑", "note": "math negative decimal"},
         {"src": "$-7$", "expected": "⠤⠼⠛", "note": "math negative int"},
         {"src": "$42.5$", "expected": "⠼⠙⠃⠂⠑", "note": "math 42.5"},
-        {"src": "$1,000$", "expected": "⠼⠁⠂⠀⠚⠚⠚", "note": "math thousands separator → blank cell"}
+        {"src": "$1,000$", "expected": "⠼⠁⠐⠚⠚⠚", "note": "thousands comma ⠐ reads tight (no space)"}
       ]
     }
   }

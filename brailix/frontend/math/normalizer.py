@@ -58,6 +58,7 @@ def normalize(mathml: str) -> ET.Element:
     _collapse_singleton_mrows(root)
     strip_whitespace_text(root)
     _flag_repeated_operators(root)
+    _tag_thousands_separators(root)
     return root
 
 
@@ -191,3 +192,37 @@ def _flag_repeated_operators(elem: ET.Element) -> None:
             and text == (prev.text or "").strip()
         ):
             cur.set("data-bk-warn", "repeated-operator")
+
+
+def _is_digit_run_mn(node: ET.Element) -> bool:
+    """True for an ``<mn>`` whose text is a plain ASCII digit run."""
+    text = (node.text or "").strip()
+    return node.tag == "mn" and text.isdigit() and text.isascii()
+
+
+def _tag_thousands_separators(elem: ET.Element) -> None:
+    """In-place: tag a thousands-grouping comma with ``data-bk-tight`` so the
+    backend drops its trailing space.
+
+    ``1,000`` is one quantity, not a list, so its comma must read tight
+    (``⠼⠁⠐⠚⠚⠚``) rather than spaced like a coordinate / list comma (``a, b``
+    → ``⠰⠁⠐⠀⠰⠃``). latex2mathml splits ``1,000`` into
+    ``<mn>1</mn><mo>,</mo><mn>000</mn>``; a comma counts as a thousands
+    separator when a digit run precedes it and a bare three-digit run follows.
+    A list / coordinate comma (``(x, y)``, ``(1, 2)``) is left untouched —
+    its following group isn't a three-digit number — and keeps its space.
+    """
+    for child in elem:
+        _tag_thousands_separators(child)
+    kids = list(elem)
+    for i in range(1, len(kids) - 1):
+        node = kids[i]
+        nxt = kids[i + 1]
+        if (
+            node.tag == "mo"
+            and (node.text or "").strip() == ","
+            and _is_digit_run_mn(kids[i - 1])
+            and _is_digit_run_mn(nxt)
+            and len((nxt.text or "").strip()) == 3
+        ):
+            node.set("data-bk-tight", "1")

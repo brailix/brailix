@@ -20,7 +20,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 
 from brailix.backend.math.context import MathBrailleContext
-from brailix.core.chars import nonstandard_char_hint
+from brailix.core.chars import fold_fullwidth, nonstandard_char_hint
 from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
 
@@ -426,6 +426,27 @@ def _describe_nonstandard_char(text: str) -> str:
     applies (see :func:`~brailix.core.chars.nonstandard_char_hint`), else
     a plain "unsupported character". Never rewrites the input."""
     return nonstandard_char_hint(text) or f"unsupported character {text!r}"
+
+
+def _math_prose_punct(
+    punctuation: dict[str, tuple[tuple[int, ...], ...]], text: str
+) -> tuple[tuple[int, ...], ...] | None:
+    """Prose-punctuation cells for ``text`` inside a formula, or ``None``.
+
+    The math leaf handlers fall back to the *prose* punctuation table for a
+    character their own symbol table doesn't define. That fallback must refuse
+    a full-width character: a formula requires half-width input, so a
+    full-width comma / paren / semicolon (``，（）；`` — what a Chinese IME
+    types by default) is a writing error, not a Chinese prose mark to borrow.
+    Returning ``None`` for it drops the char onto the same warn-and-mark path
+    every other full-width symbol (``＝`` ``＋`` …) already takes, telling the
+    writer to switch to the half-width form. Half-width punctuation and
+    multi-char keys (``——``) are looked up unchanged — :func:`fold_fullwidth`
+    only matches a single full-width code point.
+    """
+    if fold_fullwidth(text) is not None:
+        return None
+    return punctuation.get(text)
 
 
 def _fallback_surface(surface: str, span: Span | None) -> list[BrailleCell]:

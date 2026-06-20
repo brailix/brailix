@@ -56,6 +56,49 @@ class TestProseAndMathSurfaceTheHint:
         assert hits and "half-width" in hits[0].message
 
 
+class TestMathFullwidthPunctuation:
+    """A full-width comma / paren / semicolon (``，（）；``) typed via a Chinese
+    IME inside a formula is wrong input. The math backend must NOT borrow the
+    prose punctuation table to render it as the Chinese mark — it warns (use
+    the half-width form) and marks the spot like any other unknown symbol,
+    exactly as a full-width operator (``＝`` ``＋``) already does. Half-width
+    punctuation keeps its ordinary rendering — the gate is full-width-only."""
+
+    @staticmethod
+    def _translate(text):
+        return Pipeline(profile="cn_current").translate_text(text)
+
+    def test_fullwidth_comma_warns_and_is_not_translated(self):
+        res = self._translate("$(x，y)$")
+        hits = res.warnings.by_code("MATH_UNKNOWN_IDENTIFIER")
+        assert hits and "half-width" in hits[0].message
+        # Refused, not rendered: it must NOT produce the comma cell ⠐ (c_5)
+        # that the correctly-typed half-width comma yields.
+        assert "⠐" not in res.render()
+
+    def test_fullwidth_semicolon_and_paren_warn(self):
+        for text in ("$x；y$", "$（x）$"):
+            assert self._translate(text).warnings.by_code(
+                "MATH_UNKNOWN_IDENTIFIER"
+            ), text
+
+    def test_halfwidth_comma_renders_dot5_chinese_comma(self):
+        # The correctly-typed half-width comma resolves via the symbol table to
+        # the dot-5 Chinese comma ⠐ (c_5) — the Chinese math convention — and
+        # raises no warning. (Full-width input is what gets refused.)
+        res = self._translate("$(x,y)$")
+        assert not res.warnings.by_code("MATH_UNKNOWN_IDENTIFIER")
+        assert not res.warnings.by_code("MATH_UNKNOWN_SYMBOL")
+        assert "⠐" in res.render()  # c_5 (dot-5), not c_2
+
+    def test_halfwidth_semicolon_still_renders_via_prose_table(self):
+        # A half-width mark only the prose table defines keeps working — only
+        # full-width input is refused.
+        res = self._translate("$(x;y)$")
+        assert not res.warnings.by_code("MATH_UNKNOWN_SYMBOL")
+        assert "⠆" in res.render()  # c_23 semicolon
+
+
 class TestFoldFullwidth:
     """fold_fullwidth is the single authority for the half-width form — the
     knowledge an editor consumes so it never re-derives the FF01..FF5E offset

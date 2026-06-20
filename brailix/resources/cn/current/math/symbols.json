@@ -102,7 +102,7 @@
     "rect":     {"cells": ["c_123456"], "role": "shape", "indicator": "symbol"},
     "angrt":    {"cells": ["c_236"],    "role": "shape", "indicator": "symbol"},
 
-    "comma":    {"cells": ["c_2"],              "role": "punct", "space_after": true},
+    "comma":    {"cells": ["c_5"],              "role": "punct", "space_after": true},
     "period":   {"cells": ["c_2"],              "role": "punct"},
     "deg":      {"cells": ["c_5", "c_356"],     "role": "punct"},
     "percnt":   {"cells": ["c_3456", "c_245", "c_356"],          "role": "punct"},

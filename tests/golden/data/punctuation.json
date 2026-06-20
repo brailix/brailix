@@ -77,8 +77,8 @@
       "cases": [
         {
           "src": "$a, b$",
-          "expected": "⠰⠁⠂⠀⠰⠃",
-          "note": "math comma: ⠂ + blank (space_after)"
+          "expected": "⠰⠁⠐⠀⠰⠃",
+          "note": "math comma: dot-5 ⠐ + blank (space_after)"
         },
         {
           "src": "$a \\cdot b$",
