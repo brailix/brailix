@@ -263,7 +263,15 @@ def _spec_to_cells(
         else:
             return None
     elif isinstance(spec, dict):
-        if "cells" in spec and isinstance(spec["cells"], list):
+        if "cells" in spec:
+            if not isinstance(spec["cells"], list):
+                location = f"{file}: " if file else ""
+                raise ConfigurationError(
+                    f"{location}entry {name!r} has a non-list 'cells' value "
+                    f"{spec['cells']!r}; wrap a single ref in a list, e.g. "
+                    f'["c_235"]. (A bare string was silently dropped before, '
+                    f"leaving a symbol with a role but no braille.)"
+                )
             refs = [r for r in spec["cells"] if isinstance(r, str)]
         elif "dots" in spec:
             return _coerce_dots_field(spec["dots"])
@@ -342,10 +350,14 @@ def _resolve_dots_table(
     resolved = _resolve_table(payload, cells_pool)
     out: dict[str, tuple[int, ...]] = {}
     for k, v in resolved.items():
-        if v == ():
-            out[k] = ()
-        elif len(v) == 1:
-            out[k] = v[0]
+        if len(v) > 1:
+            raise ConfigurationError(
+                f"entry {k!r} resolved to {len(v)} cells, but this is a "
+                f"single-cell table — each entry must be one cell or empty. "
+                f"(A multi-cell entry was silently dropped before, leaving "
+                f"the slot missing.)"
+            )
+        out[k] = v[0] if v else ()
     return out
 
 
@@ -366,9 +378,12 @@ def _resolve_single(
     # otherwise it'd be filtered as metadata.
     resolved = _resolve_table({"single": spec}, cells_pool)
     seq = resolved.get("single", ())
-    if seq and len(seq) == 1:
-        return seq[0]
-    return ()
+    if len(seq) > 1:
+        raise ConfigurationError(
+            f"single-cell config value resolved to {len(seq)} cells: {spec!r} "
+            f"— a multi-cell value here was silently dropped before."
+        )
+    return seq[0] if seq else ()
 
 
 def _resolve_digits(

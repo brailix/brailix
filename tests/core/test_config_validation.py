@@ -983,15 +983,86 @@ class TestResolveSingleDefensive:
 
         assert _resolve_single(None, {}) == ()
 
-    def test_multi_cell_spec_falls_through_to_empty(self):
-        # When the spec resolves to more than one cell, the
-        # single-cell convenience wrapper returns ``()`` rather than
-        # silently picking one. Hit that branch via a multi-cell
-        # inline ``dots`` field.
-        from brailix.core.config import _resolve_single
+    def test_multi_cell_spec_raises(self):
+        # A multi-cell spec where a single cell is expected is an authoring
+        # error. It used to be silently dropped to ``()`` (leaving the slot
+        # missing — e.g. number_sign vanishing); now it fails loud at load.
+        import pytest
 
-        # Two cells inline → wrapper falls through to ``()``.
-        assert _resolve_single({"dots": [[1, 2], [3, 4]]}, {}) == ()
+        from brailix.core.config import _resolve_single
+        from brailix.core.errors import ConfigurationError
+
+        with pytest.raises(ConfigurationError):
+            _resolve_single({"dots": [[1, 2], [3, 4]]}, {})
+
+
+class TestDotValidation:
+    def test_dot_out_of_range_raises(self):
+        # dot 7 mistyped as 9 → fail loud, not render a non-braille glyph.
+        import pytest
+
+        from brailix.core.config._helpers import _to_dots
+        from brailix.core.errors import ConfigurationError
+
+        with pytest.raises(ConfigurationError):
+            _to_dots([9])
+
+    def test_duplicate_dot_raises(self):
+        import pytest
+
+        from brailix.core.config._helpers import _to_dots
+        from brailix.core.errors import ConfigurationError
+
+        with pytest.raises(ConfigurationError):
+            _to_dots([1, 1, 2])
+
+    def test_valid_and_empty_dots_pass(self):
+        from brailix.core.config._helpers import _to_dots
+
+        assert _to_dots([1, 2, 3]) == (1, 2, 3)
+        assert _to_dots([]) == ()
+        assert _to_dots(None) == ()
+
+
+class TestSymbolCellsShape:
+    def test_non_list_cells_raises(self):
+        # {"cells": "c_235"} (missing the list brackets) used to be silently
+        # dropped, leaving a symbol with a role but no braille. Now it raises.
+        import pytest
+
+        from brailix.core.config.loader._refs import _spec_to_cells
+        from brailix.core.errors import ConfigurationError
+
+        with pytest.raises(ConfigurationError):
+            _spec_to_cells(
+                {"cells": "c_235", "role": "op"}, lambda r: None, "plus"
+            )
+
+
+class TestSingleCellTableMultiCell:
+    def test_dots_table_multi_cell_entry_raises(self):
+        # A multi-cell entry in a single-cell table used to be silently
+        # dropped, leaving the slot missing; now it fails loud.
+        import pytest
+
+        from brailix.core.config.loader._refs import _resolve_dots_table
+        from brailix.core.errors import ConfigurationError
+
+        with pytest.raises(ConfigurationError):
+            _resolve_dots_table({"x": {"dots": [[1, 2], [3, 4]]}}, {})
+
+
+class TestEmptyLanguageRejected:
+    def test_empty_language_raises(self):
+        import pytest
+
+        from brailix.core.config.validator import _validate_profile_shape
+        from brailix.core.errors import ConfigurationError
+
+        with pytest.raises(ConfigurationError):
+            _validate_profile_shape(
+                {"name": "x", "language": "", "tables": {}}, "test.json"
+            )
 
 
 # ---------------------------------------------------------------------------
