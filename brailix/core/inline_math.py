@@ -30,7 +30,7 @@ Two design points make this safe:
 
 * The leading ``$`` keeps a tagged island lexically a ``$...$`` region,
   so the segmenter recognises it through its existing protected-region
-  scan (``frontend.segment._INLINE_MATH_RE``) with no new pattern. The
+  scan (``frontend.segment._iter_inline_math_spans``) with no new pattern. The
   ``US`` immediately after the ``$`` is the single discriminator between
   a *tagged* island (decoded here) and a plain user-typed ``$x^2$`` /
   ``$<math>...$`` fragment (handled by the normalizer's LaTeX/MathML

@@ -305,6 +305,20 @@ class TestProtectedRegions:
             "after",
         ]
 
+    def test_adjacent_inline_math_islands(self):
+        # Two inline-math islands with no space between them ($a$$b$) must
+        # parse as two protected regions. The old lookaround regex rejected
+        # the whole run because the $$ junction tripped its guards, silently
+        # turning both formulas into literal latin letters.
+        s = _segs("$a$$b$")
+        assert _types(s) == ["math_inline", "math_inline"]
+        assert _surfaces(s) == ["$a$", "$b$"]
+
+    def test_adjacent_inline_math_islands_in_prose(self):
+        s = _segs("看 $x^2$$y^2$ 这里")
+        math = [seg.surface for seg in s if seg.type == "math_inline"]
+        assert math == ["$x^2$", "$y^2$"]
+
 class TestRoundTripText:
     @pytest.mark.parametrize(
         "text",

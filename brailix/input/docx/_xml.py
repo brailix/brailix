@@ -160,8 +160,9 @@ def _flatten_xml(xml: str) -> str:
     """Collapse all runs of whitespace (including inside text nodes) to a
     single space so the inline-math regex matches.
 
-    The segmenter's ``_INLINE_MATH_RE`` rejects newlines inside ``$...$``;
-    collapsing them lets longer formulas live on a single text line.  This
+    The segmenter's inline-math scan (``_iter_inline_math_spans``) rejects
+    newlines inside ``$...$``; collapsing them lets longer formulas live on a
+    single text line.  This
     also folds whitespace inside ``<mtext>`` — only reachable via OMML's
     ``itertext()`` fallback for unknown constructs, and braille ignores
     such whitespace, so the MathML parse is unaffected in practice.
