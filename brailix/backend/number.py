@@ -52,7 +52,17 @@ def translate_percent(node: Percent, ctx: BackendContext, profile: BrailleProfil
         # number translators do.
         return []
     cells = _digits_to_cells(node.surface[:-1], _first_part_span(node), ctx, profile)
-    cells.extend(_punct_cells(node.surface[-1], _last_char_span(node), ctx, profile))
+    last_char = node.surface[-1]
+    last_span = _last_char_span(node)
+    tail = _punct_cells(last_char, last_span, ctx, profile)
+    if not tail:
+        # The last char is meant to be the percent sign. If it isn't in the
+        # punctuation table (a hand-rolled / round-tripped Percent whose
+        # surface doesn't end in '%'), don't drop it silently — warn and emit
+        # an unknown cell, the same fail-loud behaviour the digit pipeline
+        # gives an unknown digit.
+        tail = [_unknown_cell(last_char, last_span, ctx)]
+    cells.extend(tail)
     return cells
 
 

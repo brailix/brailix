@@ -240,29 +240,30 @@ class TestTranslateQuantity:
         assert not any(w.code == "UNKNOWN_NUMBER_PART" for w in ctx.warnings)
 
 
-class TestTranslatePercentPunctMiss:
-    """``_punct_cells`` returns ``[]`` when the trailing char is absent
-    from the punctuation table. Hit that path via a deliberately broken
-    Percent surface."""
+class TestTranslatePercentTrailingNotPercent:
+    """A Percent whose surface doesn't end in a mapped percent sign
+    (a hand-rolled / round-tripped node) must fail loud — warn + unknown
+    cell — instead of silently dropping the trailing char."""
 
-    def test_percent_with_unmapped_trailing_char_emits_no_punct_cell(
+    def test_percent_with_unmapped_trailing_char_warns_not_silent(
         self, ctx, profile
     ):
-        # Surface ends in a char (`§`) that has no punctuation mapping
-        # in cn_current. The percent helper still emits the digit
-        # cells but ``_punct_cells`` returns an empty list — no punct
-        # cell is appended.
+        # Surface ends in a char (`§`) that has no punctuation mapping in
+        # cn_current. The digit cells still render; the trailing char now
+        # surfaces as an unknown cell + warning rather than vanishing.
         node = Percent(
             surface="5§",
             span=Span(0, 2),
             number=Number(surface="5", span=Span(0, 1)),
         )
         cells = translate_percent(node, ctx, profile)
-        # Digits are still rendered (number_sign + "5").
         assert any(c.role == "number_sign" for c in cells)
         assert any(c.role == "digit" for c in cells)
-        # But no punct cell because § isn't mapped.
-        assert all(c.role != "punct" for c in cells)
+        # § isn't a percent sign — emit an unknown cell, never drop it.
+        unknowns = [c for c in cells if c.role == "unknown"]
+        assert len(unknowns) == 1
+        assert unknowns[0].source_text == "§"
+        assert "UNKNOWN_NUMBER_PART" in [w.code for w in ctx.warnings]
 
 
 class TestMissingNumberPart:
