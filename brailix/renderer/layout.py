@@ -283,9 +283,25 @@ class LayoutRenderer:
         out: list[list[BrailleCell]] = []
 
         if block_type in opts.verbatim_block_types:
-            # Don't wrap or indent — caller wants byte-for-byte.
+            # Don't soft-wrap or indent for width — but a width-verbatim block
+            # (table cell / code) is not *content*-verbatim: honour the hard
+            # structural line breaks the backend emitted (e.g. a matrix in a
+            # table cell brackets its rows with LINE_BREAK_CELL and wraps the
+            # body in hang sentinels). Split on the line break into display
+            # rows and drop the zero-width hang sentinels — the same role
+            # handling the plain renderers do. Without this the sentinels
+            # encode as blank cells and the matrix collapses to one line, and
+            # LayoutRenderer is the only production export path.
             if cells:
-                out.append(list(cells))
+                row: list[BrailleCell] = []
+                for c in cells:
+                    if c.role == "line_break":
+                        out.append(row)
+                        row = []
+                    elif c.role not in ("hang_open", "hang_close"):
+                        row.append(c)
+                if row or not out:
+                    out.append(row)
             return out
 
         if block_type in ("score", "music_block"):

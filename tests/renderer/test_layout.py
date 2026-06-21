@@ -346,6 +346,46 @@ class TestBlockTypes:
         out = LayoutRenderer(options=LayoutOptions(line_width=10)).render(doc)
         assert "\n" not in out
 
+    def test_verbatim_table_cell_keeps_matrix_row_breaks(self):
+        # A matrix in a table cell: a hang region with two rows separated by a
+        # LINE_BREAK_CELL. Verbatim skips *width* wrapping but must still honour
+        # the hard structural break — the line break becomes a real newline and
+        # the zero-width hang sentinels vanish. (Old code encoded all three
+        # sentinels as blank cells, collapsing the matrix onto one line in the
+        # only production export path.)
+        cells = (
+            [HANG_OPEN_CELL]
+            + _word(3) + [LINE_BREAK_CELL] + _word(3)
+            + [HANG_CLOSE_CELL]
+        )
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(block_type="table_row", cells=cells)
+        ])
+        out = LayoutRenderer(options=LayoutOptions(line_width=80)).render(doc)
+        lines = out.split("\n")
+        # Two rows, each exactly its 3 content cells — no stray blank from the
+        # dropped hang / line-break sentinels.
+        assert len(lines) == 2
+        assert all(len(ln) == 3 for ln in lines)
+
+    def test_verbatim_table_cell_keeps_matrix_row_breaks_brf(self):
+        # Same structure through the BRF encoder: rows separated by CRLF, not
+        # collapsed onto one line with stray 0x20 spaces from the sentinels.
+        cells = (
+            [HANG_OPEN_CELL]
+            + _word(3) + [LINE_BREAK_CELL] + _word(3)
+            + [HANG_CLOSE_CELL]
+        )
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(block_type="table_row", cells=cells)
+        ])
+        out = LayoutRenderer(
+            options=LayoutOptions(line_width=80), format="brf"
+        ).render(doc)
+        rows = out.split(b"\r\n")
+        assert len(rows) == 2
+        assert all(len(r) == 3 for r in rows)
+
 
 class TestBlockAlignment:
     """A source-declared ``BrailleBlock.align`` centres / right-aligns every
