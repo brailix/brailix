@@ -83,6 +83,12 @@ def _validate_profile_shape(payload: dict[str, Any], file: str) -> None:
                 f"{file}: {key!r} must be {type_name}, got "
                 f"{type(payload[key]).__name__}"
             )
+    language = payload.get("language")
+    if isinstance(language, str) and not language.strip():
+        raise ConfigurationError(
+            f"{file}: 'language' must be a non-empty language tag "
+            f"(e.g. 'zh-CN'), got an empty string"
+        )
 
 
 def validate_profile(

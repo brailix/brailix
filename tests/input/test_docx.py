@@ -500,6 +500,59 @@ class TestRevisionAndContentControlWrappers:
         )
         assert "内容控件中的整段文字" in joined
 
+    def test_table_row_inside_tracked_insertion_not_dropped(
+        self, tmp_path: Path
+    ) -> None:
+        # A whole table row wrapped in <w:ins> (an inserted row, common in
+        # accept-changes-first documents) must not be silently dropped — the
+        # body walker descends these wrappers, the table walker now does too.
+        path, doc = _make_docx(tmp_path)
+        tbl = etree.fromstring(
+            f'<w:tbl xmlns:w="{_W_NS}">'
+            f"<w:tr><w:tc><w:p><w:r><w:t>裸行</w:t></w:r></w:p></w:tc></w:tr>"
+            f'<w:ins w:id="9" w:author="ed" w:date="2024-01-01T00:00:00Z">'
+            f"<w:tr><w:tc><w:p><w:r><w:t>插入行</w:t></w:r></w:p></w:tc></w:tr>"
+            f"</w:ins>"
+            f"</w:tbl>"
+        )
+        doc.element.body.insert(0, tbl)
+        doc.save(path)
+
+        result = parse_docx(path, profile="cn_current", language="zh-CN")
+        tables = [b for b in result.blocks if isinstance(b, Table)]
+        assert tables
+        cell_text = "\n".join(
+            c.text or "" for row in tables[0].rows for c in row.cells
+        )
+        assert "裸行" in cell_text
+        assert "插入行" in cell_text
+
+    def test_table_cell_inside_tracked_insertion_not_dropped(
+        self, tmp_path: Path
+    ) -> None:
+        # A single cell wrapped in <w:ins> within a row must survive too.
+        path, doc = _make_docx(tmp_path)
+        tbl = etree.fromstring(
+            f'<w:tbl xmlns:w="{_W_NS}">'
+            f"<w:tr>"
+            f"<w:tc><w:p><w:r><w:t>甲</w:t></w:r></w:p></w:tc>"
+            f'<w:ins w:id="10" w:author="ed" w:date="2024-01-01T00:00:00Z">'
+            f"<w:tc><w:p><w:r><w:t>乙</w:t></w:r></w:p></w:tc>"
+            f"</w:ins>"
+            f"</w:tr>"
+            f"</w:tbl>"
+        )
+        doc.element.body.insert(0, tbl)
+        doc.save(path)
+
+        result = parse_docx(path, profile="cn_current", language="zh-CN")
+        tables = [b for b in result.blocks if isinstance(b, Table)]
+        assert tables
+        cell_text = "\n".join(
+            c.text or "" for row in tables[0].rows for c in row.cells
+        )
+        assert "甲" in cell_text and "乙" in cell_text
+
 
 # ---------------------------------------------------------------------------
 # MathType / Equation 3.0 OLE handling
@@ -930,6 +983,62 @@ class TestEqField:
         assert "<mfrac>" in mathml
         assert "<mn>1</mn>" in mathml
         assert "<mn>2</mn>" in mathml
+
+    def test_unclosed_field_does_not_eat_rest_of_paragraph(
+        self, tmp_path: Path
+    ) -> None:
+        # A field with begin+separate but NO end (truncated / corrupt / split
+        # by a revision) used to silently drop everything after `separate`.
+        # The visible-fallback text must be recovered, not eaten.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("BEFORE")
+        runs_xml = (
+            f'<w:r xmlns:w="{_W_NS}"><w:fldChar w:fldCharType="begin"/></w:r>'
+            f'<w:r xmlns:w="{_W_NS}"><w:instrText xml:space="preserve">'
+            f"eq \\f(1,2)</w:instrText></w:r>"
+            f'<w:r xmlns:w="{_W_NS}"><w:fldChar w:fldCharType="separate"/></w:r>'
+            f'<w:r xmlns:w="{_W_NS}"><w:t>RESULT</w:t></w:r>'
+        )
+        wrapper = etree.fromstring(f'<root xmlns:w="{_W_NS}">{runs_xml}</root>')
+        for run in list(wrapper):
+            para._p.append(run)
+        para.add_run("AFTER_TAIL")
+        doc.save(path)
+
+        text = _para_text(parse_docx(path, profile="cn_current", language="zh-CN"))
+        assert "BEFORE" in text
+        assert "AFTER_TAIL" in text  # no longer swallowed by the open field
+
+    def test_cross_paragraph_field_keeps_visible_text(
+        self, tmp_path: Path
+    ) -> None:
+        # A field whose begin/instr are in one paragraph and `end` in the next
+        # (complex / revision-split fields) used to drop the first paragraph's
+        # visible-fallback text entirely. It must be recovered as text.
+        path, doc = _make_docx(tmp_path)
+        p1 = doc.add_paragraph("P1HEAD")
+        runs_xml = (
+            f'<w:r xmlns:w="{_W_NS}"><w:fldChar w:fldCharType="begin"/></w:r>'
+            f'<w:r xmlns:w="{_W_NS}"><w:instrText xml:space="preserve">'
+            f"eq \\f(1,2)</w:instrText></w:r>"
+            f'<w:r xmlns:w="{_W_NS}"><w:fldChar w:fldCharType="separate"/></w:r>'
+            f'<w:r xmlns:w="{_W_NS}"><w:t>P1TAIL</w:t></w:r>'
+        )
+        wrapper = etree.fromstring(f'<root xmlns:w="{_W_NS}">{runs_xml}</root>')
+        for run in list(wrapper):
+            p1._p.append(run)
+        p2 = doc.add_paragraph("P2HEAD")
+        p2._p.append(
+            etree.fromstring(
+                f'<w:r xmlns:w="{_W_NS}"><w:fldChar w:fldCharType="end"/></w:r>'
+            )
+        )
+        doc.save(path)
+
+        text = _para_text(parse_docx(path, profile="cn_current", language="zh-CN"))
+        assert "P1HEAD" in text
+        assert "P1TAIL" in text  # first paragraph's visible text recovered
+        assert "P2HEAD" in text
 
     def test_piecewise_function_from_problem_15(self, tmp_path: Path) -> None:
         # The actual EQ field text from ``周练习6-5.4学生版.docx`` problem

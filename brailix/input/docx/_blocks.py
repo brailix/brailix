@@ -326,6 +326,15 @@ def _iter_paragraph_tokens(p: Element, ole_blobs: dict[str, bytes]):
     # so their inline math / scripts survive instead of being scraped to text.
     for child in p:
         yield from _emit_child_tokens(child, ole_blobs, field_state)
+    # A field still open at paragraph end never reached its `end`: its
+    # instruction was never assembled and its visible-fallback text was held
+    # back. Flush that text so an unclosed or cross-paragraph field doesn't
+    # silently swallow the rest of the paragraph (the formula itself can't be
+    # recovered without its `end`, but the visible text must not vanish).
+    if field_state.in_field:
+        leftover = field_state.take_unclosed_result()
+        if leftover:
+            yield ("text", leftover, None)
 
 
 # Run-container wrappers Word places around ordinary inline content. They carry
@@ -629,12 +638,16 @@ class _FieldState:
     converted (nested ones are part of the outer instruction text).
     """
 
-    __slots__ = ("depth", "after_separate", "instr_buf")
+    __slots__ = ("depth", "after_separate", "instr_buf", "result_buf")
 
     def __init__(self) -> None:
         self.depth: int = 0
         self.after_separate: bool = False
         self.instr_buf: list[str] = []
+        # Visible-fallback text buffered while in the cached-result section.
+        # Discarded on a normal `end` (so it never doubles converted math),
+        # but flushed by the paragraph walker if the field is left unclosed.
+        self.result_buf: list[str] = []
 
     @property
     def in_field(self) -> bool:
@@ -645,9 +658,16 @@ class _FieldState:
         """True iff we're inside a field but before its ``separate`` marker."""
         return self.depth > 0 and not self.after_separate
 
+    @property
+    def in_cached_result(self) -> bool:
+        """True iff inside a field's cached-result (visible-fallback) section
+        — after ``separate``, before ``end``."""
+        return self.depth > 0 and self.after_separate
+
     def begin(self) -> None:
         if self.depth == 0:
             self.instr_buf = []
+            self.result_buf = []
             self.after_separate = False
         self.depth += 1
 
@@ -664,6 +684,9 @@ class _FieldState:
         if self.depth == 0:
             instr = "".join(self.instr_buf)
             self.instr_buf = []
+            # A normally-closed field's visible fallback is discarded — the
+            # instruction (e.g. converted EQ math) is the authoritative form.
+            self.result_buf = []
             self.after_separate = False
             return instr
         return None
@@ -671,6 +694,18 @@ class _FieldState:
     def add_instr(self, text: str) -> None:
         if self.collecting_instr:
             self.instr_buf.append(text)
+
+    def add_result(self, text: str) -> None:
+        if self.in_cached_result:
+            self.result_buf.append(text)
+
+    def take_unclosed_result(self) -> str:
+        """Drain the buffered visible-fallback text of a field left open at
+        paragraph end (unclosed, or whose ``end`` lands in a later
+        paragraph), so it is recovered as text instead of silently eaten."""
+        text = "".join(self.result_buf)
+        self.result_buf = []
+        return text
 
 
 def _eq_field_to_inline_math(instr: str) -> str | None:
@@ -736,9 +771,19 @@ def _walk_run(
             if field_state is not None and field_state.collecting_instr:
                 field_state.add_instr(child.text or "")
             continue
-        if field_state is not None and field_state.in_field and not field_state.collecting_instr:
-            # Inside the field's cached-result section — drop everything
-            # so the visual fallback doesn't end up doubling the math.
+        if field_state is not None and field_state.in_cached_result:
+            # Inside the field's cached-result (visible-fallback) section.
+            # Buffer it rather than dropping outright: a normally-closing
+            # field discards this on `end` (so it never doubles the converted
+            # math), but an unclosed field — no `end`, or an `end` in a later
+            # paragraph — flushes it back at paragraph end instead of
+            # silently eating the rest of the paragraph.
+            if tag == "t":
+                field_state.add_result(child.text or "")
+            elif tag == "br":
+                field_state.add_result("\n")
+            elif tag == "tab":
+                field_state.add_result(" ")
             continue
         if tag == "t":
             parts.append(child.text or "")
@@ -952,11 +997,16 @@ def _convert_table(
     chem_detection: bool = False,
 ) -> Table:
     rows: list[TableRow] = []
-    for tr in tbl:
+    # Descend transparently through revision-tracking / content-control
+    # wrappers, the same way the body walker does — a row or cell wrapped in
+    # <w:ins> (inserted) or <w:sdt> (content control) is common in real
+    # "accept-changes-first" documents and would otherwise be silently
+    # dropped, leaving the braille table missing whole rows / cells.
+    for tr in _iter_effective_body_children(tbl):
         if _local(tr.tag) != "tr":
             continue
         cells: list[TableCell] = []
-        for tc in tr:
+        for tc in _iter_effective_body_children(tr):
             if _local(tc.tag) != "tc":
                 continue
             cells.append(
@@ -984,7 +1034,9 @@ def _convert_table_cell(
     text is folded in rather than dropped.
     """
     parts: list[str] = []
-    for child in tc:
+    # Same transparent descent as _convert_table: a paragraph or nested table
+    # wrapped in <w:ins> / <w:sdt> inside a cell must not be dropped.
+    for child in _iter_effective_body_children(tc):
         tag = _local(child.tag)
         if tag == "p":
             paragraph_blocks = _convert_paragraph(

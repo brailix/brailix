@@ -266,12 +266,22 @@ def _tokenize(s: str) -> list[_Tok]:
 # ---------------------------------------------------------------------------
 
 
+# Cap parser recursion so a pathologically deep field (\f(\f(\f(...)))) bails
+# out to flat text at this depth instead of overflowing Python's stack — the
+# broad except in `to_mathml` would otherwise catch the RecursionError and
+# collapse the WHOLE formula to a single <merror>. Capping the parser also
+# bounds the AST depth, hence the emitter's recursion. 64 matches the MTEF
+# adapter's cap and is far beyond any real Word equation.
+_MAX_PARSE_DEPTH = 64
+
+
 class _Parser:
     """Recursive-descent EQ field parser → AST node list."""
 
     def __init__(self, tokens: list[_Tok]) -> None:
         self.toks = tokens
         self.pos = 0
+        self._depth = 0
 
     # --- low-level helpers --------------------------------------------------
 
@@ -349,6 +359,37 @@ class _Parser:
 
     # --- argument list ------------------------------------------------------
 
+    def _consume_balanced(self) -> str:
+        """Consume tokens through the ``)`` matching an already-consumed
+        ``(``, returning their reconstructed literal text.
+
+        Used to bail out of pathologically deep nesting without recursing:
+        the deepest subtree degrades to flat text instead of overflowing
+        Python's stack (which the broad ``except`` in :meth:`to_mathml`
+        would otherwise turn into a single ``<merror>`` for the whole
+        formula). Iterative — never recurses itself.
+        """
+        depth = 1
+        chunks: list[str] = []
+        while depth > 0:
+            t = self._peek()
+            if t is None:
+                break
+            self._consume()
+            if t.type == "lparen":
+                depth += 1
+                chunks.append("(")
+            elif t.type == "rparen":
+                depth -= 1
+                if depth == 0:
+                    break
+                chunks.append(")")
+            elif t.type == "switch":
+                chunks.append("\\" + t.value)
+            else:
+                chunks.append(t.value)
+        return "".join(chunks)
+
     def _parse_arg_list(self) -> list[list[Node]]:
         """Parse ``(arg, arg, ...)``. Returns a list of arg-node-lists.
 
@@ -360,23 +401,33 @@ class _Parser:
         if t is None or t.type != "lparen":
             return []
         self._consume()  # (
-        args: list[list[Node]] = []
-        # Empty arg list ``()`` produces a single empty arg.
-        while True:
-            arg = self.parse_sequence(stop_on=("comma", "semi", "rparen"))
-            args.append(arg)
-            t = self._peek()
-            if t is None:
-                # EOF — soft fail, treat as if rparen.
+        if self._depth >= _MAX_PARSE_DEPTH:
+            # Too deep: stop recursing. Consume the balanced (...) as flat
+            # text so the deepest subtree degrades to text rather than
+            # overflowing the stack and collapsing the whole formula. No
+            # real Word equation nests anywhere near this far.
+            return [[_Text(self._consume_balanced())]]
+        self._depth += 1
+        try:
+            args: list[list[Node]] = []
+            # Empty arg list ``()`` produces a single empty arg.
+            while True:
+                arg = self.parse_sequence(stop_on=("comma", "semi", "rparen"))
+                args.append(arg)
+                t = self._peek()
+                if t is None:
+                    # EOF — soft fail, treat as if rparen.
+                    break
+                if t.type in ("comma", "semi"):
+                    self._consume()
+                    continue
+                if t.type == "rparen":
+                    self._consume()
+                    break
+                # Defensive — shouldn't happen since parse_sequence stops here.
                 break
-            if t.type in ("comma", "semi"):
-                self._consume()
-                continue
-            if t.type == "rparen":
-                self._consume()
-                break
-            # Defensive — shouldn't happen since parse_sequence stops here.
-            break
+        finally:
+            self._depth -= 1
         return args
 
     # --- top-level / sequence parser ---------------------------------------

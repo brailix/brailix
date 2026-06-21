@@ -87,7 +87,21 @@ def _read_json(path: Path) -> dict[str, Any]:
 def _to_dots(value: Any) -> tuple[int, ...]:
     if not value:
         return ()
-    return tuple(int(d) for d in value)
+    dots = tuple(int(d) for d in value)
+    # Validate at the single point every dot tuple is built, so a typo'd dot
+    # (dot 7 mistyped as 9) or a duplicate fails loud at load instead of
+    # rendering a non-braille glyph / crashing later in a raw dots_to_char
+    # path that bypasses BrailleCell's own check.
+    seen: set[int] = set()
+    for d in dots:
+        if not 1 <= d <= 8:
+            raise ConfigurationError(
+                f"braille dot {d} out of range (must be 1..8) in {value!r}"
+            )
+        if d in seen:
+            raise ConfigurationError(f"braille dot {d} repeated in {value!r}")
+        seen.add(d)
+    return dots
 
 
 def _extract_dots(value: Any) -> tuple[int, ...] | None:

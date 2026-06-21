@@ -208,6 +208,49 @@ class TestOctaveInferenceEndToEnd:
         note_cells = [c for c in cells if c.role != "music_part_sep"]
         assert _octave_roles(note_cells) == [True, False, True, False]
 
+    def test_pitch_memory_continues_across_normal_barline(self, profile, ctx):
+        # Default octave rule: pitch memory is NOT reset at a normal barline —
+        # octave memory carries across measures (BANA). M1 ends on E4; M2's
+        # first note F4 is a 2° from it (same octave) → it must OMIT the octave
+        # mark. A regression that reset prev_pitch every measure would wrongly
+        # re-mark each measure's first note. (Measure separators are filtered
+        # by _octave_roles, so this asserts on note cells only.)
+        tree = ET.fromstring(
+            '<score-partwise><part id="P1">'
+            '<measure number="1">'
+            "<note><pitch><step>C</step><octave>4</octave></pitch>"
+            "<duration>1</duration><type>quarter</type></note>"
+            "<note><pitch><step>E</step><octave>4</octave></pitch>"
+            "<duration>1</duration><type>quarter</type></note>"
+            "</measure>"
+            '<measure number="2">'
+            "<note><pitch><step>F</step><octave>4</octave></pitch>"
+            "<duration>1</duration><type>quarter</type></note>"
+            "</measure>"
+            "</part></score-partwise>"
+        )
+        cells = emit_tree(tree, ctx, profile)
+        # [octave, C, E(omit), F(omit across barline)]
+        assert _octave_roles(cells) == [True, False, False, False]
+
+    def test_big_leap_across_barline_still_remarks(self, profile, ctx):
+        # Contrast to the above: a ≥6° leap across the barline DOES re-mark,
+        # proving cross-barline continuity isn't just "never mark after M1".
+        tree = ET.fromstring(
+            '<score-partwise><part id="P1">'
+            '<measure number="1">'
+            "<note><pitch><step>C</step><octave>4</octave></pitch>"
+            "<duration>1</duration><type>quarter</type></note>"
+            "</measure>"
+            '<measure number="2">'
+            "<note><pitch><step>A</step><octave>5</octave></pitch>"
+            "<duration>1</duration><type>quarter</type></note>"
+            "</measure>"
+            "</part></score-partwise>"
+        )
+        cells = emit_tree(tree, ctx, profile)
+        assert _octave_roles(cells) == [True, False, True, False]
+
 
 # ---------------------------------------------------------------------------
 # ``octave_rule`` overrides

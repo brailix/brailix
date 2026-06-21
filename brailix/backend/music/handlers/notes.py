@@ -314,8 +314,10 @@ def _emit_chord_run(
     per-note tie is suppressed inside the run), and the non-written
     members' ``<lyric>`` children are emitted after that (the syllable
     is usually authored on the first source note, which the reorder may
-    have demoted to an interval).  Known limitation: slurs / fingering
-    on non-written members are still not represented.
+    have demoted to an interval).  Known limitation: slurs / fingering /
+    ornaments on non-written members are still not *represented*, but a
+    member that carries them now raises ``MUSIC_UNSUPPORTED_NOTATION`` so
+    the loss is visible to the proofreader instead of silent.
     """
     measured: list[tuple[int, ET.Element]] = []
     usable = True
@@ -366,6 +368,30 @@ def _emit_chord_run(
     # on a note the reorder demoted to an interval still lands.
     for note in ordered[1:]:
         _emit_lyrics(cells, mctx, note)
+
+    # The interval path emits only a size cell, so any <notations> a
+    # non-written member carries (slur / ornaments / articulations /
+    # technical fingering, …) are dropped — tie and lyric were recovered
+    # above, everything else is not. Warn rather than drop silently, so a
+    # slur authored on a member the clef reorder demoted is at least flagged.
+    dropped = sorted(
+        {
+            child.tag
+            for note in ordered[1:]
+            for notations in note.findall("notations")
+            for child in notations
+            if child.tag != "tied"
+        }
+    )
+    if dropped:
+        mctx.warn(
+            code="MUSIC_UNSUPPORTED_NOTATION",
+            message=(
+                "chord member(s) reordered to an interval carry notations "
+                f"not represented on intervals: {', '.join(dropped)}"
+            ),
+            source="backend.music",
+        )
 
 
 def _has_tie_start(elem: ET.Element) -> bool:

@@ -127,3 +127,28 @@ class TestClefResetsAtPartBoundary:
         # not E3 (which a leaked treble clef would pick).
         assert part2_notes[0].dots == _quarter_note_dots(profile, "C", 3)
         assert part2_notes[0].dots != _quarter_note_dots(profile, "E", 3)
+
+
+class TestChordMemberNotationWarning:
+    def test_slur_on_clef_demoted_member_warns_not_silent(self, profile, ctx):
+        # In treble clef the uppermost note is the written one; the lower
+        # member (here the source root C4) is demoted to an interval, which
+        # emits only a size cell. A slur authored on that demoted member is
+        # dropped — it must surface a MUSIC_UNSUPPORTED_NOTATION warning
+        # rather than vanish silently.
+        score = ET.fromstring(
+            '<score-partwise version="4.0"><part id="P1">'
+            '<measure number="1">'
+            "<attributes><divisions>1</divisions>"
+            "<clef><sign>G</sign><line>2</line></clef>"
+            "</attributes>"
+            # source order low (C4, carries the slur) then high (E4)
+            "<note><pitch><step>C</step><octave>4</octave></pitch>"
+            "<duration>1</duration><type>quarter</type>"
+            "<notations><slur number=\"1\" type=\"start\"/></notations></note>"
+            "<note><chord/><pitch><step>E</step><octave>4</octave></pitch>"
+            "<duration>1</duration><type>quarter</type></note>"
+            "</measure></part></score-partwise>"
+        )
+        emit_tree(score, ctx, profile)
+        assert "MUSIC_UNSUPPORTED_NOTATION" in [w.code for w in ctx.warnings]

@@ -183,15 +183,25 @@ class TestDefensive:
         assert all(not c.is_blank for c in cells)
 
     def test_op_spacing_collapses_adjacent_blanks(self, profile):
-        # Two consecutive plus signs would each want a leading blank,
-        # but the second's leading blank should collapse against the
-        # first's trailing blank (none here, but checks symmetry).
+        # '<' is spaced on BOTH sides, so two adjacent '<' put a trailing
+        # blank and a leading blank back-to-back — they must collapse to one.
+        # (The old version used '+', spaced only on its leading side, so no
+        # two blanks ever landed adjacent and the check was vacuously true,
+        # never exercising the collapse.)
         cells, _ = emit(
-            mml("<math><mrow><mi>a</mi><mo>+</mo><mo>+</mo><mi>b</mi></mrow></math>"),
+            mml(
+                "<math><mrow><mi>a</mi><mo>&lt;</mo>"
+                "<mo>&lt;</mo><mi>b</mi></mrow></math>"
+            ),
             profile,
         )
-        for i in range(len(cells) - 1):
-            assert not (cells[i].is_blank and cells[i + 1].is_blank)
+        # Spacing actually fired here (unlike the '+' case)...
+        assert any(c.is_blank for c in cells)
+        # ...and no two blanks survive adjacent — the collapse worked.
+        assert not any(
+            cells[i].is_blank and cells[i + 1].is_blank
+            for i in range(len(cells) - 1)
+        )
 
 
 # ---------------------------------------------------------------------------

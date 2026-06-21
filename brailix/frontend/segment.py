@@ -44,8 +44,7 @@ ChineseAnalyzer):
 
 from __future__ import annotations
 
-import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
 from brailix.core.context import FrontendContext
@@ -59,14 +58,13 @@ from brailix.ir.inline import Segment
 # Protected-region patterns
 # ---------------------------------------------------------------------------
 
-# Inline math wrapped in single $...$. We deliberately do not match
-# $$...$$ (display math) or \(...\) here; the input layer should mark
-# display math as a math_block.
-_INLINE_MATH_RE = re.compile(r"(?<!\$)\$(?!\$)([^$\n]+)\$(?!\$)")
-
-_PROTECTED_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("math_inline", _INLINE_MATH_RE),
-)
+# Inline math wrapped in single $...$. Detected by a paired scan
+# (:func:`_iter_inline_math_spans`) rather than a regex: the old
+# lookaround pattern ``(?<!\$)\$(?!\$)([^$\n]+)\$(?!\$)`` rejected two
+# *adjacent* islands like ``$a$$b$`` (each side of the ``$$`` junction
+# tripped the other's guard). We still do not treat ``$$...$$`` (display
+# math) as inline here; the input layer marks display math as a
+# math_block.
 
 # Half-width characters that are universally math operators / delimiters
 # in modern technical writing — semantically "half-width = math" per the
@@ -209,28 +207,49 @@ def _segment_text(
     return out
 
 
+def _iter_inline_math_spans(text: str) -> Iterator[tuple[int, int, str]]:
+    r"""Yield ``(start, end, "math_inline")`` for each ``$...$`` island.
+
+    A single ``$`` opens an island; the next ``$`` on the same line closes
+    it, and the content between must be non-empty and newline-free. Two
+    *adjacent* islands (``$a$$b$``) therefore parse as two islands — the
+    old lookaround regex rejected the whole run because each side of the
+    ``$$`` junction tripped the other's ``(?<!\$)`` / ``(?!\$)`` guard.
+
+    A *doubled* ``$$`` is treated as a display-math delimiter and skipped
+    (left as text): the input layer extracts display math as a MathBlock
+    upstream, so a ``$$`` reaching the segmenter is not an inline boundary.
+
+    Tagged inline-math islands (:mod:`brailix.core.inline_math`) carry no
+    inner ``$`` (it is escaped) and no newline, so each matches here in
+    full exactly as a user-typed ``$x^2$`` does.
+    """
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] != "$":
+            i += 1
+            continue
+        if i + 1 < n and text[i + 1] == "$":
+            # Doubled ``$$``: display-math delimiter, not an inline island.
+            i += 2
+            continue
+        close = text.find("$", i + 1)
+        if close == -1 or "\n" in text[i + 1 : close]:
+            i += 1
+            continue
+        yield (i, close + 1, "math_inline")
+        i = close + 1
+
+
 def _find_protected_regions(text: str) -> list[tuple[int, int, str]]:
     """Return non-overlapping protected regions sorted by start position.
 
-    When two patterns match overlapping spans, the earlier-starting one
-    wins; ties go to longer matches.
+    Currently the only protected region is ``$...$`` inline math, scanned
+    by :func:`_iter_inline_math_spans`, which yields disjoint, ordered
+    spans by construction.
     """
-    candidates: list[tuple[int, int, str]] = []
-    for type_name, pattern in _PROTECTED_PATTERNS:
-        for m in pattern.finditer(text):
-            candidates.append((m.start(), m.end(), type_name))
-    if not candidates:
-        return []
-    # Sort by (start, -length) so longer earlier-starting matches win.
-    candidates.sort(key=lambda x: (x[0], -(x[1] - x[0])))
-    result: list[tuple[int, int, str]] = []
-    last_end = 0
-    for start, end, type_name in candidates:
-        if start < last_end:
-            continue  # overlaps with an accepted region; drop
-        result.append((start, end, type_name))
-        last_end = end
-    return result
+    return list(_iter_inline_math_spans(text))
 
 
 def _segment_unprotected(

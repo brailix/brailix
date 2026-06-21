@@ -59,22 +59,26 @@ class TestIsTagged:
 
 class TestSegmenterContract:
     def test_island_carries_no_inner_dollar_or_newline(self) -> None:
-        # The frontend segmenter protects a ``$...$`` region with
-        # ``\$(?!\$)([^$\n]+)\$`` — it rejects an inner ``$`` or newline. A
-        # wrapped island must therefore expose neither between its wrappers,
-        # or it would be split / truncated before the normalizer sees it.
+        # The frontend segmenter's inline-math scan rejects an inner ``$``
+        # or newline inside a ``$...$`` region. A wrapped island must
+        # therefore expose neither between its wrappers, or it would be
+        # split / truncated before the normalizer sees it.
         island = inline_math.wrap("omml", "x$y\nz")
         body = island[1:-1]
         assert "$" not in body and "\n" not in body
 
     def test_island_matches_the_segmenter_pattern_whole(self) -> None:
-        # Belt-and-braces: the real segmenter regex matches a wrapped island
+        # Belt-and-braces: the real segmenter scan protects a wrapped island
         # in full, so deferred math is protected exactly like ``$x^2$``.
-        from brailix.frontend.segment import _INLINE_MATH_RE
+        from brailix.frontend.segment import _find_protected_regions
 
         island = inline_math.wrap("eq_field", r"eq \f(1,2)")
-        m = _INLINE_MATH_RE.search("前 " + island + " 后")
-        assert m is not None and m.group(0) == island
+        text = "前 " + island + " 后"
+        regions = _find_protected_regions(text)
+        assert len(regions) == 1
+        start, end, type_name = regions[0]
+        assert type_name == "math_inline"
+        assert text[start:end] == island
 
 
 class TestErrors:

@@ -54,6 +54,7 @@ def normalize(
     strip_namespace(root)
     strip_whitespace_text(root)
     _normalize_voice_numbers(root)
+    _inherit_chord_member_staff_voice(root)
     _infer_missing_note_types(root, ctx)
     return root
 
@@ -97,6 +98,49 @@ def _normalize_voice_numbers(root: ET.Element) -> None:
             key = v.text.strip() if v.text else None
             if key in remap:
                 v.text = remap[key]
+
+
+def _note_part_text(note: ET.Element, tag: str) -> str | None:
+    """Stripped text of ``note``'s direct ``<tag>`` child, or ``None`` when
+    the child is absent or empty."""
+    el = note.find(tag)
+    if el is None or el.text is None:
+        return None
+    text = el.text.strip()
+    return text or None
+
+
+def _inherit_chord_member_staff_voice(root: ET.Element) -> None:
+    """Backfill a chord member's missing ``<staff>`` / ``<voice>`` from its
+    chord root (``ARCHITECTURE.md`` vendor-dialect table).
+
+    MusicXML lets a chord member (a ``<note>`` carrying ``<chord/>``) omit
+    its own ``<staff>`` / ``<voice>`` and inherit the chord root's — Sibelius
+    / Finale / MuseScore do this in single-voice blocks. The backend routes
+    notes to staff / voice buckets by their *own* ``<staff>`` / ``<voice>``,
+    defaulting a missing one to ``"1"``; so a member that omits them while its
+    root sits on staff or voice 2 is split off into bucket ``"1"`` — silently
+    tearing the chord apart (the root left as a lone note, the member
+    orphaned with no root to attach to). Backfill per measure in document
+    order so a chord's root and members always land in the same bucket.
+    Members that already carry an explicit value are left untouched, so a
+    score that spells every member out is unaffected.
+    """
+    for part in root.findall("part"):
+        for measure in part.findall("measure"):
+            root_staff: str | None = None
+            root_voice: str | None = None
+            for note in measure.findall("note"):
+                if note.find("chord") is None:
+                    # Chord root / standalone note: remember its staff+voice
+                    # for any chord members that follow it.
+                    root_staff = _note_part_text(note, "staff")
+                    root_voice = _note_part_text(note, "voice")
+                    continue
+                if root_staff is not None and note.find("staff") is None:
+                    ET.SubElement(note, "staff").text = root_staff
+                if root_voice is not None and note.find("voice") is None:
+                    ET.SubElement(note, "voice").text = root_voice
 
 
 # MusicXML ``<type>`` → its quarter-note ratio as (numerator, denominator):

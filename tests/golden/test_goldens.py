@@ -50,6 +50,21 @@ def _load_cases() -> list[tuple[str, dict[str, Any]]]:
                     )
                 case_id = case.get("id") or case["src"]
                 test_id = f"{suite}/{group_name}/{case_id}"
+                if not any(
+                    k in case
+                    for k in (
+                        "expected",
+                        "warnings_include",
+                        "warnings_exclude",
+                        "warnings_exclude_prefix",
+                    )
+                ):
+                    raise ValueError(
+                        f"{json_path}#{group_name}: case {case_id!r} declares "
+                        f"no assertion (need one of expected / warnings_include "
+                        f"/ warnings_exclude / warnings_exclude_prefix) — it "
+                        f"would pass without checking anything"
+                    )
                 out.append((test_id, case))
     return out
 

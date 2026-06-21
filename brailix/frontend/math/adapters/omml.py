@@ -22,6 +22,7 @@ downstream normalizer sees the ``<merror>`` wrapper.
 
 from __future__ import annotations
 
+import contextvars
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -137,8 +138,30 @@ def _append_converted(parent: ET.Element, node: ET.Element) -> None:
         parent.append(converted)
 
 
+# Cap conversion recursion so a pathologically deep formula degrades its
+# *deepest* subtree to flat text instead of overflowing Python's stack — the
+# broad except in `to_mathml` would otherwise catch the RecursionError and
+# collapse the WHOLE formula to a single <merror>. Sibling math adapters
+# (MTEF _v3/_v5, chem) carry the same kind of depth backstop. 64 matches the
+# MTEF cap and is far beyond any real Word equation while leaving ample
+# headroom under CPython's ~1000-frame limit (each level costs a few frames).
+_MAX_CONVERT_DEPTH = 64
+
+# Per-context (hence per-thread-safe) nesting counter, set/reset around every
+# dispatch so it never leaks between formulas or across concurrent conversions.
+_convert_depth: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "_omml_convert_depth", default=0
+)
+
+
 def _convert(node: ET.Element) -> list[ET.Element]:
     """Translate a single OMML node into MathML elements."""
+    depth = _convert_depth.get()
+    if depth > _MAX_CONVERT_DEPTH:
+        # Too deep: localize the loss to this subtree (keep any leaf text so
+        # the reader still sees *something*) instead of failing the formula.
+        text = "".join(node.itertext()).strip()
+        return [mtext(text)] if text else []
     tag = _local(node.tag)
     handler = _HANDLERS.get(tag)
     if handler is None:
@@ -147,7 +170,11 @@ def _convert(node: ET.Element) -> list[ET.Element]:
         if not text:
             return []
         return [mtext(text)]
-    return handler(node)
+    token = _convert_depth.set(depth + 1)
+    try:
+        return handler(node)
+    finally:
+        _convert_depth.reset(token)
 
 
 # ---------------------------------------------------------------------------
