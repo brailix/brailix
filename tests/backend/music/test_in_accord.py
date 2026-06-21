@@ -210,6 +210,83 @@ class TestStateAcrossVoices:
         # Only the first voice's sharp prints.
         assert len(accidental_cells) == 1
 
+    def test_voice_boundary_resets_chord_root(self, profile, ctx):
+        # A fresh voice is a fresh reading (BANA Par. 3.2.1): an orphan
+        # <chord/> opening voice 2 must warn, not silently interval against
+        # voice 1's stale chord root.
+        m = ET.fromstring(
+            '<measure number="1">'
+            '<note><voice>1</voice>'
+            '<pitch><step>C</step><octave>4</octave></pitch>'
+            '<duration>4</duration><type>quarter</type></note>'
+            '<note><chord/><voice>1</voice>'
+            '<pitch><step>E</step><octave>4</octave></pitch>'
+            '<duration>4</duration><type>quarter</type></note>'
+            '<note><chord/><voice>2</voice>'
+            '<pitch><step>G</step><octave>4</octave></pitch>'
+            '<duration>4</duration><type>quarter</type></note>'
+            '</measure>'
+        )
+        emit_tree(m, ctx, profile)
+        msgs = [
+            w.message for w in ctx.warnings
+            if w.code == "MUSIC_UNSUPPORTED_NOTATION"
+        ]
+        assert any("without a prior root" in m for m in msgs)
+
+    def test_voice_boundary_resets_pending_hairpin(self, profile, ctx):
+        # A dangling crescendo in voice 1 must not pair with a stray stop in
+        # voice 2 — each voice is a fresh reading. The orphaned stop adds no
+        # cells, so the render is identical with or without it (the crescendo
+        # opening is emitted in both regardless).
+        def measure(with_stop: bool) -> ET.Element:
+            stop = (
+                '<direction><direction-type><wedge type="stop"/>'
+                '</direction-type></direction>'
+            ) if with_stop else ""
+            return ET.fromstring(
+                '<measure number="1">'
+                '<note><voice>1</voice>'
+                '<pitch><step>C</step><octave>4</octave></pitch>'
+                '<duration>4</duration><type>quarter</type></note>'
+                '<direction><direction-type><wedge type="crescendo"/>'
+                '</direction-type></direction>'
+                '<note><voice>2</voice>'
+                '<pitch><step>E</step><octave>4</octave></pitch>'
+                '<duration>4</duration><type>quarter</type></note>'
+                + stop +
+                '<note><voice>2</voice>'
+                '<pitch><step>F</step><octave>4</octave></pitch>'
+                '<duration>4</duration><type>quarter</type></note>'
+                '</measure>'
+            )
+        with_stop = emit_tree(measure(True), ctx, profile)
+        without_stop = emit_tree(measure(False), ctx, profile)
+        assert len(with_stop) == len(without_stop)
+
+    def test_measure_for_staff_routes_direction_to_its_staff(self):
+        # A staff-scoped <direction> (e.g. a left-hand dynamic) must go to its
+        # own staff stream only, not be copied to every staff (which sounded a
+        # one-hand dynamic on both hands). An unnumbered direction → staff 1.
+        from brailix.backend.music.handlers.containers import (
+            _measure_for_staff,
+        )
+
+        m = ET.fromstring(
+            '<measure number="1">'
+            '<direction><direction-type><dynamics><f/></dynamics>'
+            '</direction-type><staff>1</staff></direction>'
+            '<note><staff>1</staff>'
+            '<pitch><step>C</step><octave>4</octave></pitch>'
+            '<duration>4</duration><type>quarter</type></note>'
+            '<note><staff>2</staff>'
+            '<pitch><step>C</step><octave>3</octave></pitch>'
+            '<duration>4</duration><type>quarter</type></note>'
+            '</measure>'
+        )
+        assert len(_measure_for_staff(m, "1").findall("direction")) == 1
+        assert len(_measure_for_staff(m, "2").findall("direction")) == 0
+
 
 # ---------------------------------------------------------------------------
 # Feature gates

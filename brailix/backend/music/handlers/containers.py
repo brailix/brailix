@@ -87,6 +87,12 @@ def _staff_of_note(note: ET.Element) -> str:
     return first_child_text(note, "staff") or "1"
 
 
+def _staff_of_direction(direction: ET.Element) -> str:
+    """The direction's ``<staff>`` text — default ``"1"`` when absent, matching
+    the unnumbered-clef convention in :func:`_attributes_for_staff`."""
+    return first_child_text(direction, "staff") or "1"
+
+
 def _part_staves(part: ET.Element) -> list[str]:
     """Distinct staff numbers used by the part's notes, sorted.
 
@@ -121,9 +127,13 @@ def _attributes_for_staff(attrs: ET.Element, staff: str) -> ET.Element:
 
 
 def _measure_for_staff(measure: ET.Element, staff: str) -> ET.Element:
-    """A per-staff view of ``measure``: only that staff's notes and clef,
-    with the shared key / time / barline / direction copied through so the
-    staff's stream keeps full accidental + metre context."""
+    """A per-staff view of ``measure``: only that staff's notes, clef and
+    directions, with the shared key / time / barline copied through so the
+    staff's stream keeps full accidental + metre context.  A ``<direction>``
+    (dynamics / wedge / words / pedal) is routed to its own staff — an
+    unnumbered direction belongs to staff 1 — instead of copied to every
+    staff (which sounded a one-hand dynamic on both hands and re-fired a
+    single hairpin once per staff)."""
     out = ET.Element(measure.tag, measure.attrib)
     for child in measure:
         if child.tag == "note":
@@ -131,6 +141,9 @@ def _measure_for_staff(measure: ET.Element, staff: str) -> ET.Element:
                 out.append(child)
         elif child.tag == "attributes":
             out.append(_attributes_for_staff(child, staff))
+        elif child.tag == "direction":
+            if _staff_of_direction(child) == staff:
+                out.append(child)
         else:
             out.append(child)
     return out
@@ -414,6 +427,12 @@ def _emit_multi_voice(
             # shared — Par. 6.2 reads across voices within the bar.
             mctx.prev_pitch = None
             mctx.prev_value_category = None  # BANA Par. 2.4: fresh reading
+            # A fresh voice is a fresh reading: a stray <chord/> at its start
+            # must not interval against the previous voice's chord root, and a
+            # dangling crescendo must not pair with this voice's stop. Mirrors
+            # the part-boundary reset (_reset_part_reading_state).
+            mctx.chord_root = None
+            mctx.pending_hairpin = None
         _emit_note_sequence(cells, mctx, voice_notes[voice])
 
     for el in post_globals:
