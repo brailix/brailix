@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from brailix.core.context import FrontendContext
+from brailix.core.errors import MissingExtraError
 from brailix.frontend.zh.pinyin.adapters._align import resolve_by_char_alignment
 from brailix.ir.inline import ChineseToken
 
@@ -66,5 +67,22 @@ def _normalize_predictor_output(value: Any) -> tuple[list[str], list[float] | No
 def _load() -> G2pwPinyinResolver:
     import g2pw  # noqa: WPS433 — lazy by design
 
-    predictor = g2pw.G2PWConverter()
+    try:
+        predictor = g2pw.G2PWConverter()
+    except Exception as e:  # noqa: BLE001
+        # G2PWConverter downloads its model on first construction; a network /
+        # IO failure raises URLError / OSError / BadZipFile / RuntimeError, none
+        # of them the ImportError the registry maps to MissingExtraError. Raise
+        # MissingExtraError (the same convention thulac uses for a missing
+        # model) so the ``auto`` chain catches it and degrades to
+        # pypinyin / null instead of crashing the whole translation.
+        raise MissingExtraError(
+            adapter="g2pw",
+            extra="g2pw",
+            hint=(
+                "the g2pW model could not be loaded (download / IO failure); "
+                "install with pip install brailix[g2pw] and ensure the model "
+                "can be fetched on first use."
+            ),
+        ) from e
     return G2pwPinyinResolver(predictor=predictor)

@@ -72,6 +72,41 @@ def test_auto_prefers_g2pw_when_available(monkeypatch):
     assert [t.confidence for t in out] == [0.96, 0.95]
 
 
+def test_auto_falls_through_when_g2pw_model_load_fails(monkeypatch):
+    # g2pw is importable but its model fails to load on construction (network /
+    # IO failure). _load translates that into MissingExtraError, so auto must
+    # degrade to pypinyin instead of letting the raw error crash translation.
+    fake_g2pw = types.ModuleType("g2pw")
+
+    class _BoomConverter:
+        def __init__(self) -> None:
+            raise RuntimeError("model download failed")
+
+    fake_g2pw.G2PWConverter = _BoomConverter
+
+    fake_pypinyin = types.ModuleType("pypinyin")
+
+    class _Style:
+        TONE3 = "TONE3"
+
+    def fake_lazy_pinyin(text, style=None, neutral_tone_with_five=False):
+        return ["wo3", "zai4"]
+
+    fake_pypinyin.Style = _Style
+    fake_pypinyin.lazy_pinyin = fake_lazy_pinyin
+    monkeypatch.setitem(sys.modules, "g2pM", None)  # so g2pw leads the chain
+    monkeypatch.setitem(sys.modules, "g2pw", fake_g2pw)
+    monkeypatch.setitem(sys.modules, "pypinyin", fake_pypinyin)
+
+    resolver = resolver_registry.get("auto")
+    out = resolver.resolve(
+        [ChineseToken(surface="我"), ChineseToken(surface="在")],
+        FrontendContext(profile="cn_current"),
+    )
+    # g2pw skipped (model load failed → MissingExtraError); pypinyin ran.
+    assert [t.pinyin for t in out] == ["wo3", "zai4"]
+
+
 def test_auto_falls_back_to_null_when_real_backends_are_missing(monkeypatch):
     monkeypatch.setitem(sys.modules, "g2pM", None)
     monkeypatch.setitem(sys.modules, "g2pw", None)

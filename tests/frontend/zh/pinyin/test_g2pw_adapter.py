@@ -170,3 +170,24 @@ class TestLoaderWithFakeModule:
         py, conf = _normalize_predictor_output(adapter.predictor("我"))
         assert py == ["wo3"]
         assert conf == [0.95]
+
+    def test_load_wraps_model_download_failure_as_missing_extra(
+        self, monkeypatch
+    ):
+        # g2pw IS importable, but G2PWConverter fails to download / load its
+        # model on construction (network / IO error). _load must translate
+        # that into MissingExtraError so the ``auto`` chain degrades instead of
+        # crashing — not let the raw RuntimeError / URLError escape.
+        fake_module = types.ModuleType("g2pw")
+
+        class _BoomConverter:
+            def __init__(self) -> None:
+                raise RuntimeError("model download failed")
+
+        fake_module.G2PWConverter = _BoomConverter
+        monkeypatch.setitem(sys.modules, "g2pw", fake_module)
+        resolver_registry.clear_cache()
+
+        with pytest.raises(MissingExtraError) as ei:
+            resolver_registry.get("g2pw")
+        assert ei.value.extra == "g2pw"
