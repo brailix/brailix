@@ -25,7 +25,8 @@ class MathBrailleContext:
       Every cell created during the current handler call inherits this.
     * ``need_number_sign`` — set to True when the next digit run must
       start with a number-sign cell. Reset by digit emission and by
-      number-breaking roles (operators, relations, shapes, big-ops).
+      number-breaking roles (operators, relations, shapes, big-ops,
+      delimiters, in-formula punctuation).
     * ``chem`` — True while inside a ``data-bk-chem`` subtree (a chemical
       formula from the mhchem ``\\ce`` adapter). Switches the backend to
       chemistry braille rules: subscripts use the lowered digit form with

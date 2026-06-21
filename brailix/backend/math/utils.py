@@ -24,9 +24,14 @@ from brailix.core.chars import fold_fullwidth, nonstandard_char_hint
 from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
 
-# Roles that reset ``need_number_sign`` on the next digit run.
+# Roles that reset ``need_number_sign`` on the next digit run. Any structural
+# break between two digit runs — operator, relation, shape, big-op, delimiter
+# (parens / brackets / braces / bars) or in-formula punctuation (comma, etc.)
+# — means the following digits start a fresh number and must re-emit the
+# number sign. Without ``delim`` / ``punct`` a bare digit after ``(`` or ``,``
+# is read as a letter in continuous braille (3 → c, 2 → b).
 _NUMBER_BREAKING_ROLES: frozenset[str] = frozenset(
-    {"op", "rel", "shape", "big_op"}
+    {"op", "rel", "shape", "big_op", "delim", "punct"}
 )
 
 

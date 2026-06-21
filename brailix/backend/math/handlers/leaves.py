@@ -424,9 +424,16 @@ def _emit_mo(
     # ``data-bk-tight`` (set by the frontend on a thousands-grouping comma,
     # ``1,000``) suppresses the trailing space — the comma joins one quantity
     # rather than separating list items, so it reads tight.
-    if spacing_enabled and space_after and elem.get("data-bk-tight") is None:
+    tight = elem.get("data-bk-tight") is not None
+    if spacing_enabled and space_after and not tight:
         cells.append(BLANK_CELL)
-    if role in _NUMBER_BREAKING_ROLES or role is None:
+    # A tight thousands comma is part of ONE quantity, so it must NOT restart
+    # the number sign (1,000 = ⠼⠁⠐⠚⠚⠚, a single number sign). Every other
+    # number-breaking role — operators, relations, shapes, big-ops, delimiters
+    # and *spaced* punctuation (list / coordinate separators) — does.
+    if (role in _NUMBER_BREAKING_ROLES or role is None) and not (
+        role == "punct" and tight
+    ):
         mctx.need_number_sign = True
 
 

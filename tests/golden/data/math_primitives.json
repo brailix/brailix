@@ -95,7 +95,7 @@
         {"src": "$[x]$", "expected": "⠷⠰⠭⠾", "note": "bracket delims"},
         {"src": "$\\{x\\}$", "expected": "⠪⠰⠭⠕", "note": "brace delims"},
         {"src": "$a, b$", "expected": "⠰⠁⠐⠀⠰⠃", "note": "math comma dot-5 ⠐ with space_after"},
-        {"src": "$(1, 2)$", "expected": "⠣⠼⠁⠐⠀⠃⠜", "note": "numeric coordinate: comma keeps its space (not a thousands group)"}
+        {"src": "$(1, 2)$", "expected": "⠣⠼⠁⠐⠀⠼⠃⠜", "note": "numeric coordinate: each list element restarts the number sign (the 2 is a number, not the letter b); the comma keeps its space (not a thousands group)"}
       ]
     },
     "mo_set_logic": {

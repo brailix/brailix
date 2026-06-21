@@ -338,36 +338,55 @@ class TestNumberSignReset:
     # instead of △ABC). Test resurfaces when a profile registers
     # shape symbols.
 
-    def test_delim_does_not_reset(self, profile):
-        # Delim doesn't reset, but there's no easy way to keep the
-        # number-sign state across a delim because there's no mn
-        # adjacent. Let's check the inverse: a digit followed by a
-        # delim followed by another digit — both digit runs need
-        # their own number sign because... actually delim DOESN'T
-        # reset, so the second mn after `)` should not get a sign
-        # IF the state survived. But our state machine resets per
-        # mn end, so this might not be visible. Let me write the
-        # test for delim NOT resetting via mrow boundary.
+    def test_delim_resets(self, profile):
+        # A digit, a delimiter ``(``, then another digit: the second number
+        # must re-emit its number sign. A bare digit after ``(`` reads as a
+        # letter in continuous braille (2 → b), so both runs carry a sign.
         cells, _ = emit(
             mml("<math><mn>1</mn><mo>(</mo><mn>2</mn></math>"), profile
         )
-        # The 2 gets its own number-sign — but that's because <mn> ends
-        # by setting need_number_sign=False, and the delim doesn't
-        # reset it back to True. So in fact the 2 should NOT get a sign.
-        # Wait — but mn sets need_number_sign=False at the END, after
-        # the first mn finishes. So entering the second mn, the state
-        # is False — no sign. Let's see.
         ns = sum(1 for c in cells if c.role == "number_sign")
-        # Delim doesn't reset state — only ONE number_sign.
-        assert ns == 1
+        assert ns == 2
 
-    def test_punct_does_not_reset(self, profile):
-        # Same logic for punct.
+    def test_punct_resets(self, profile):
+        # In-formula punctuation (list / coordinate separator) is a number
+        # break too: ``1 , 2`` → each digit keeps its own number sign.
         cells, _ = emit(
             mml("<math><mn>1</mn><mo>,</mo><mn>2</mn></math>"), profile
         )
         ns = sum(1 for c in cells if c.role == "number_sign")
-        assert ns == 1
+        assert ns == 2
+
+    def test_digit_in_parens_after_digit_resets(self, profile):
+        # ``2(3)`` — the inner 3 after ``(`` must get its own number sign
+        # (else read as the letter c). Two number runs, two signs.
+        cells, _ = emit(
+            mml("<math><mn>2</mn><mo>(</mo><mn>3</mn><mo>)</mo></math>"),
+            profile,
+        )
+        ns = sum(1 for c in cells if c.role == "number_sign")
+        assert ns == 2
+
+    def test_digit_after_close_paren_resets(self, profile):
+        # ``(1)2`` — the trailing 2 after ``)`` gets its own sign.
+        cells, _ = emit(
+            mml("<math><mo>(</mo><mn>1</mn><mo>)</mo><mn>2</mn></math>"),
+            profile,
+        )
+        ns = sum(1 for c in cells if c.role == "number_sign")
+        assert ns == 2
+
+    def test_comma_separated_number_list_each_gets_sign(self, profile):
+        # ``(1, 2, 3)`` — every list element re-emits its number sign.
+        cells, _ = emit(
+            mml(
+                "<math><mo>(</mo><mn>1</mn><mo>,</mo><mn>2</mn>"
+                "<mo>,</mo><mn>3</mn><mo>)</mo></math>"
+            ),
+            profile,
+        )
+        ns = sum(1 for c in cells if c.role == "number_sign")
+        assert ns == 3
 
 
 # ---------------------------------------------------------------------------
