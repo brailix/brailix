@@ -536,14 +536,18 @@ class TestInputForms:
         )
         assert "<mi>x</mi>" in out
 
-    def test_pathological_nesting_degrades_to_merror(self):
-        # Nesting deep enough to blow the interpreter recursion limit
-        # must come back as a soft <merror>, not an escaping exception.
+    def test_pathological_nesting_degrades_gracefully(self):
+        # Nesting deep enough to blow the interpreter recursion limit must
+        # come back soft (no escaping exception). The depth backstop stops
+        # before the limit and degrades the deepest subtree to flat text, so
+        # the formula is NOT collapsed to a single <merror> and the leaf
+        # content still survives. (Previously this returned a whole-formula
+        # <merror>; the backstop is strictly better — outer structure lives.)
         depth = sys.getrecursionlimit() + 100
         body = "<m:e>" * depth + "<m:r><m:t>x</m:t></m:r>" + "</m:e>" * depth
         out = OmmlMathSourceAdapter().to_mathml(_omml(body))
-        assert "<merror" in out
-        assert "omml convert error" in out
+        assert "merror" not in out
+        assert "x" in out
 
 
 class TestRunAndFallbackEdges:
@@ -878,3 +882,22 @@ class TestNamespacePrefixIndependence:
         out = OmmlMathSourceAdapter().to_mathml(self._nary_sum(prefix=None))
         assert "∑" in out  # ∑ recovered via the bare-val fallback
         assert "∫" not in out  # did not degrade to the ∫ default
+
+
+class TestRecursionBackstop:
+    def test_deeply_nested_omml_degrades_subtree_not_whole_formula(self):
+        # A pathologically deep formula must not overflow Python's stack and
+        # collapse the ENTIRE formula to one <merror> (the broad except used
+        # to do exactly that). The outer fractions survive; only the deepest
+        # subtree, past the depth cap, flattens to text.
+        n = 300
+        omml = (
+            f'<m:oMath xmlns:m="{_M_NS}">'
+            + "<m:f><m:num>" * n
+            + "<m:r><m:t>x</m:t></m:r>"
+            + ("</m:num><m:den><m:r><m:t>1</m:t></m:r></m:den></m:f>" * n)
+            + "</m:oMath>"
+        )
+        out = OmmlMathSourceAdapter().to_mathml(omml)
+        assert "merror" not in out
+        assert "<mfrac" in out

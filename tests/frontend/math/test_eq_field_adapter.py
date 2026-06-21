@@ -615,3 +615,15 @@ class TestOptionScanStopsAtNextSwitch:
         out = _mathml("\\o\\f(1,2)")
         assert "<mover" not in out
         assert "<mfrac>" in out
+
+
+class TestRecursionBackstop:
+    def test_deeply_nested_eq_field_degrades_subtree_not_whole_formula(self):
+        # \f(\f(\f(...))) hundreds deep must not overflow Python's stack and
+        # collapse the whole formula to one <merror>. The parser bails to flat
+        # text past the depth cap; the outer fractions still convert.
+        n = 300
+        eq = "eq " + "\\f(" * n + "x" + ",1)" * n
+        out = _mathml(eq)
+        assert "merror" not in out
+        assert "<mfrac>" in out
