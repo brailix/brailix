@@ -161,6 +161,19 @@ class TestMn:
         ns = [c for c in cells if c.role == "number_sign"]
         assert len(ns) == 1
 
+    def test_delimiter_boundary_resets_number_sign(self, profile):
+        cells, _ = emit(
+            mml(
+                "<math><mrow>"
+                "<mo>(</mo><mn>3</mn><mi>a</mi><mo>+</mo><mn>2</mn><mo>)</mo>"
+                "<mo>(</mo><mn>2</mn><mi>b</mi><mo>-</mo><mn>1</mn><mo>)</mo>"
+                "</mrow></math>"
+            ),
+            profile,
+        )
+        ns = [c for c in cells if c.role == "number_sign"]
+        assert len(ns) == 4
+
     def test_structure_boundary_resets_number_sign(self, profile):
         # \frac{12}{34} — multi-digit numerator/denominator means
         # Antoine doesn't apply; we go through the slash/simplified

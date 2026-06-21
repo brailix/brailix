@@ -26,7 +26,7 @@ from brailix.ir.braille import BrailleCell
 
 # Roles that reset ``need_number_sign`` on the next digit run.
 _NUMBER_BREAKING_ROLES: frozenset[str] = frozenset(
-    {"op", "rel", "shape", "big_op"}
+    {"op", "rel", "delim", "shape", "big_op"}
 )
 
 
