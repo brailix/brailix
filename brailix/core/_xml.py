@@ -28,6 +28,46 @@ _XML_INVALID_CHARS = re.compile(
 )
 
 
+# An XML entity *declaration* — the billion-laughs / quadratic-blowup vector.
+# Nested ``<!ENTITY>`` definitions inside a DOCTYPE internal subset let a tiny
+# document expand to gigabytes at parse time and OOM the process. Expansion is
+# impossible without a declaration: the 5 predefined entities (lt/gt/amp/apos/
+# quot) and numeric refs are single characters and never go through one. An
+# *external* ``<!DOCTYPE ... PUBLIC ...>`` (as real MusicXML files carry) has no
+# ``<!ENTITY`` and is left to parse — expat does not fetch external DTDs by
+# default, so it can't smuggle a bomb either.
+_ENTITY_DECL_RE = re.compile(r"<!ENTITY")
+_ENTITY_DECL_RE_BYTES = re.compile(rb"<!ENTITY")
+
+
+def safe_fromstring(text: str | bytes) -> ET.Element:
+    """Parse untrusted XML, refusing entity-declaration expansion bombs.
+
+    A drop-in for :func:`xml.etree.ElementTree.fromstring` at every
+    boundary that parses externally-supplied XML (MathML / MusicXML
+    payloads, ``.mxl`` container, ``.blx`` round-trip). Raises
+    :class:`~xml.etree.ElementTree.ParseError` if the source declares any
+    ``<!ENTITY>`` — so a malformed/malicious file soft-fails the same way
+    any other parse error does, rather than exhausting memory.
+
+    Scans the raw source rather than hooking expat's entity handler:
+    ElementTree does not expose the underlying expat parser portably, and
+    a literal ``<!ENTITY`` never appears in legitimate MathML / MusicXML
+    content (only inside a DOCTYPE internal subset). A false reject would
+    at worst soft-fail an exotic document — never silently mistranslate.
+    """
+    if isinstance(text, (bytes, bytearray)):
+        has_entity_decl = _ENTITY_DECL_RE_BYTES.search(text) is not None
+    else:
+        has_entity_decl = _ENTITY_DECL_RE.search(text) is not None
+    if has_entity_decl:
+        raise ET.ParseError(
+            "XML entity declarations are not allowed "
+            "(possible billion-laughs expansion bomb)"
+        )
+    return ET.fromstring(text)
+
+
 def strip_xml_invalid_chars(text: str) -> str:
     """Drop characters illegal in XML 1.0 from ``text``.
 

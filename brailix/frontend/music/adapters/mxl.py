@@ -16,11 +16,49 @@ import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
 
+from brailix.core._xml import safe_fromstring
 from brailix.core.context import MusicContext
 from brailix.frontend.music.adapters.musicxml import (
     MusicXMLSourceAdapter,
     music_error_wrap,
 )
+
+# Cap the uncompressed size of any single member we read out of an .mxl
+# archive. A small zip can declare a member that inflates to gigabytes (a
+# "zip bomb"), exhausting memory before any parse — and the soft-failure
+# contract below only catches BadZipFile / corrupt-deflate, not a *valid*
+# but enormous member, which OOMs at the read. A real score's MusicXML is a
+# few MB; 64 MB is generous headroom while still bounding a malicious file.
+# The cap is enforced on the *actual* decompressed bytes (chunked read), not
+# ZipInfo.file_size, which a crafted archive can understate.
+_MAX_MEMBER_BYTES = 64 * 1024 * 1024
+_READ_CHUNK = 1024 * 1024
+
+
+class _MemberTooLarge(Exception):
+    """An .mxl member's decompressed size exceeds :data:`_MAX_MEMBER_BYTES`."""
+
+
+def _read_member_capped(zf: zipfile.ZipFile, name: str) -> bytes:
+    """Read one archive member, aborting if it inflates past the cap.
+
+    Raises :class:`KeyError` if ``name`` is absent (as ``ZipFile.read``
+    would) and :class:`_MemberTooLarge` once the decompressed stream
+    crosses :data:`_MAX_MEMBER_BYTES`, so a zip bomb is stopped mid-
+    inflate instead of after fully materialising in memory.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    with zf.open(name) as fh:
+        while True:
+            chunk = fh.read(_READ_CHUNK)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > _MAX_MEMBER_BYTES:
+                raise _MemberTooLarge(name)
+            chunks.append(chunk)
+    return b"".join(chunks)
 
 
 @dataclass(slots=True)
@@ -51,11 +89,20 @@ class MxlSourceAdapter:
                         ),
                     )
                 try:
-                    inner_bytes = zf.read(inner_name)
+                    inner_bytes = _read_member_capped(zf, inner_name)
                 except KeyError:
                     return music_error_wrap(
                         inner_name,
                         reason=f"rootfile {inner_name!r} missing from .mxl",
+                    )
+                except _MemberTooLarge:
+                    return music_error_wrap(
+                        "",
+                        reason=(
+                            f"rootfile {inner_name!r} exceeds the "
+                            f"{_MAX_MEMBER_BYTES // (1024 * 1024)} MB "
+                            "decompression cap (possible zip bomb)"
+                        ),
                     )
         except zipfile.BadZipFile as e:
             return music_error_wrap("", reason=f"not a valid ZIP: {e}")
@@ -83,11 +130,11 @@ def _find_rootfile(zf: zipfile.ZipFile) -> str | None:
     malformed — some tools (older Dorico exports) skip it.
     """
     try:
-        container_bytes = zf.read("META-INF/container.xml")
-    except KeyError:
+        container_bytes = _read_member_capped(zf, "META-INF/container.xml")
+    except (KeyError, _MemberTooLarge):
         return _fallback_xml_entry(zf)
     try:
-        root = ET.fromstring(container_bytes)
+        root = safe_fromstring(container_bytes)
     except ET.ParseError:
         return _fallback_xml_entry(zf)
     for rf in root.iter():

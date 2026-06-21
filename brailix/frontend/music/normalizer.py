@@ -28,7 +28,11 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
-from brailix.core._xml import strip_namespace, strip_whitespace_text
+from brailix.core._xml import (
+    safe_fromstring,
+    strip_namespace,
+    strip_whitespace_text,
+)
 from brailix.frontend.music.adapters.musicxml import music_error_wrap
 
 if TYPE_CHECKING:
@@ -46,7 +50,7 @@ def normalize(
     caller always gets a usable tree (rooted at ``<score-partwise>``).
     """
     try:
-        root = ET.fromstring(musicxml)
+        root = safe_fromstring(musicxml)
     except ET.ParseError as e:
         root = ET.fromstring(
             music_error_wrap(musicxml, reason=f"parse error: {e}")

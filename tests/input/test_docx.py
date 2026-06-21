@@ -260,6 +260,40 @@ class TestNumPrLevel:
         ) == (0, False)
 
 
+class TestParagraphStyle:
+    """``w:pStyle@val`` reads the qualified form first, bare ``val`` as a
+    fallback — some emitters drop the prefix, and reading only the qualified
+    form silently lost heading / style-only list detection (the style name
+    came back None, so the paragraph degraded to plain body text)."""
+
+    def _styled_para(self, pstyle_xml: str):
+        p_xml = (
+            f'<w:p xmlns:w="{_W_NS}">'
+            f"<w:pPr>{pstyle_xml}</w:pPr>"
+            f"<w:r><w:t>标题</w:t></w:r>"
+            f"</w:p>"
+        )
+        return etree.fromstring(p_xml)
+
+    def test_normal_namespaced_val(self) -> None:
+        from brailix.input.docx._blocks import _paragraph_style
+
+        assert (
+            _paragraph_style(self._styled_para('<w:pStyle w:val="Heading1"/>'))
+            == "Heading1"
+        )
+
+    def test_bare_val_without_prefix_is_read(self) -> None:
+        # Regression: a bare-val pStyle returned None, so heading / list-by-
+        # style detection silently failed and the paragraph became body text.
+        from brailix.input.docx._blocks import _paragraph_style
+
+        assert (
+            _paragraph_style(self._styled_para('<w:pStyle val="Heading1"/>'))
+            == "Heading1"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Paragraph alignment (``w:jc`` → Block.align)
 # ---------------------------------------------------------------------------
@@ -908,6 +942,79 @@ class TestAlternateContent:
         islands = _inline_math_islands(text)
         assert len(islands) == 1 and inline_math.unwrap(islands[0])[0] == "omml"
         assert "<msup>" in _island_mathml(islands[0])
+
+    def test_empty_fallback_does_not_suppress_choice_math(self, tmp_path: Path) -> None:
+        # Fallback holds only an empty placeholder run; the formula lives in
+        # Choice. The empty Fallback must NOT short-circuit Choice — regression:
+        # an empty ("", None) piece used to set produced=True and drop the
+        # Choice formula.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("式 ")
+        alt_xml = (
+            f'<mc:AlternateContent xmlns:mc="{_MC_NS}" xmlns:w="{_W_NS}" '
+            f'xmlns:m="{_M_NS}">'
+            f'<mc:Choice Requires="wps">'
+            f'<m:oMath><m:sSup>'
+            f'<m:e><m:r><m:t>x</m:t></m:r></m:e>'
+            f'<m:sup><m:r><m:t>2</m:t></m:r></m:sup>'
+            f'</m:sSup></m:oMath>'
+            f'</mc:Choice>'
+            f'<mc:Fallback><w:r><w:t></w:t></w:r></mc:Fallback>'
+            f'</mc:AlternateContent>'
+        )
+        para._p.append(etree.fromstring(alt_xml))
+        doc.save(path)
+        text = _para_text(parse_docx(path, profile="cn_current", language="zh-CN"))
+        islands = _inline_math_islands(text)
+        assert len(islands) == 1  # Choice formula survived the empty Fallback
+        assert "<msup>" in _island_mathml(islands[0])
+
+    def test_cross_run_eq_field_in_alternate_content_assembles(
+        self, tmp_path: Path
+    ) -> None:
+        # A cross-run EQ field (fldChar begin / instrText / end over 3 runs)
+        # inside an AlternateContent branch must assemble into a formula, not be
+        # dropped: _walk_alt_subtree now threads a _FieldState through its runs
+        # (previously fldChar was skipped with no state). Regression.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("公式 ")
+        eq_runs = (
+            f'<w:r xmlns:w="{_W_NS}"><w:fldChar w:fldCharType="begin"/></w:r>'
+            f'<w:r xmlns:w="{_W_NS}"><w:instrText xml:space="preserve">'
+            f" EQ \\F(1,2) </w:instrText></w:r>"
+            f'<w:r xmlns:w="{_W_NS}"><w:fldChar w:fldCharType="end"/></w:r>'
+        )
+        alt_xml = (
+            f'<mc:AlternateContent xmlns:mc="{_MC_NS}" xmlns:w="{_W_NS}">'
+            f'<mc:Choice Requires="wps">{eq_runs}</mc:Choice>'
+            f"</mc:AlternateContent>"
+        )
+        para._p.append(etree.fromstring(alt_xml))
+        doc.save(path)
+        text = _para_text(parse_docx(path, profile="cn_current", language="zh-CN"))
+        islands = _inline_math_islands(text)
+        assert len(islands) == 1  # the EQ field assembled, not dropped
+        assert "<mfrac" in _island_mathml(islands[0])
+
+    def test_recursion_error_in_body_walk_becomes_parse_error(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # A pathologically nested docx blows the Python stack in the block
+        # walkers; the RecursionError must surface as ParseError (the
+        # malformed-docx contract), not escape raw. Simulated at the walk seam.
+        import brailix.input.docx as docx_mod
+        from brailix.core.errors import ParseError
+
+        path, doc = _make_docx(tmp_path)
+        doc.add_paragraph("x")
+        doc.save(path)
+
+        def _boom(*_a, **_k):
+            raise RecursionError("simulated pathological nesting")
+
+        monkeypatch.setattr(docx_mod, "_iter_body_blocks", _boom)
+        with pytest.raises(ParseError):
+            parse_docx(path, profile="cn_current", language="zh-CN")
 
 
 # ---------------------------------------------------------------------------

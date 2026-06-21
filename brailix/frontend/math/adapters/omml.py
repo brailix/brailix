@@ -28,7 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from brailix.core._xml import local_name
+from brailix.core._xml import local_name, safe_fromstring
 from brailix.core.context import MathContext
 from brailix.frontend.math.adapters._atoms import tokenize_math_text
 from brailix.frontend.math.utils import (
@@ -66,7 +66,7 @@ class OmmlMathSourceAdapter:
         if not text:
             return merror_wrap("", reason="empty input")
         try:
-            root = ET.fromstring(text)
+            root = safe_fromstring(text)
         except ET.ParseError as e:
             return merror_wrap(text, reason=f"omml parse error: {e}")
         try:

@@ -211,9 +211,19 @@ def parse_docx(
 
     ole_blobs = _build_ole_blob_map(document)
     body = document.element.body
-    blocks = list(
-        _iter_body_blocks(body, ole_blobs=ole_blobs, chem_detection=chem_detection)
-    )
+    try:
+        blocks = list(
+            _iter_body_blocks(body, ole_blobs=ole_blobs, chem_detection=chem_detection)
+        )
+    except RecursionError as e:
+        # The block walkers recurse through wrapper elements (ins/del/sdt/
+        # customXml/hyperlink/AlternateContent) with no depth cap, so a docx
+        # nesting those thousands deep blows the Python stack. That escapes as
+        # a raw RecursionError, bypassing parse_docx's "malformed docx →
+        # ParseError" contract; convert it.
+        raise ParseError(
+            f"not a valid .docx file: {p} (pathologically nested content)"
+        ) from e
     result = DocumentIR(
         metadata={"language": language, "profile": profile},
         blocks=blocks,

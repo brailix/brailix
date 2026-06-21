@@ -58,6 +58,25 @@ _BINARY_SCORE_SUFFIXES = frozenset({".mid", ".midi"})
 ADAPTER_SCORE_SUFFIXES = frozenset(_ADAPTER_SCORE_SOURCES)
 
 
+def _read_xml_text(p: Path) -> str:
+    """Read a MusicXML / XML text file, honouring a UTF-16 BOM.
+
+    XML may legitimately be encoded UTF-16 — Finale and some Windows exporters
+    write it with a byte-order mark — and a flat ``utf-8-sig`` read raises
+    ``UnicodeDecodeError`` on those valid files. Detect the UTF-16 BOM and
+    decode accordingly; otherwise ``utf-8-sig`` (strips a UTF-8 BOM, still
+    raises on genuinely invalid UTF-8 — the documented contract).
+    """
+    raw = p.read_bytes()
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        text = raw.decode("utf-16")
+    else:
+        text = raw.decode("utf-8-sig")
+    # Normalise line endings the way a text-mode read (universal newlines)
+    # does, so a CRLF source reads identically to an LF one downstream.
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def parse_musicxml(
     path: str | os.PathLike[str],
     *,
@@ -83,10 +102,9 @@ def parse_musicxml(
     if suffix in _MXL_SUFFIXES:
         text = _unzip_mxl(p.read_bytes(), profile=profile)
     elif suffix in _MUSICXML_TEXT_SUFFIXES:
-        # utf-8-sig strips a leading BOM (still raises on truly invalid
-        # UTF-8, so the docstring's UnicodeDecodeError contract holds);
-        # a surviving BOM would break the score sniff / XML parse.
-        text = p.read_text(encoding="utf-8-sig")
+        # Honour a UTF-16 BOM (Finale / Windows exporters) and strip a UTF-8
+        # BOM; a surviving BOM would break the score sniff / XML parse.
+        text = _read_xml_text(p)
     else:
         raise ValueError(
             f"unsupported music file extension {suffix!r} "
@@ -141,7 +159,7 @@ def parse_score_file(
     payload: str | bytes = (
         p.read_bytes()
         if suffix in _BINARY_SCORE_SUFFIXES
-        else p.read_text(encoding="utf-8-sig")  # strip BOM; see parse_musicxml
+        else _read_xml_text(p)  # BOM-aware (UTF-16 / UTF-8); see parse_musicxml
     )
     # registry.get raises MissingExtraError (naming the extra) when the
     # adapter's optional dependency is absent — surfaced loudly here, the

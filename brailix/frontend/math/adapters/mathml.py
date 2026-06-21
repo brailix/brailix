@@ -11,6 +11,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
+from brailix.core._xml import safe_fromstring
 from brailix.core.context import MathContext
 from brailix.frontend.math.utils import _strip_math_delimiters, merror_wrap
 
@@ -38,7 +39,7 @@ class MathMLSourceAdapter:
         # same logic the latex adapter applies.
         text = _strip_math_delimiters(text)
         try:
-            ET.fromstring(text)
+            safe_fromstring(text)
         except ET.ParseError as e:
             return merror_wrap(text, reason=f"parse error: {e}")
         return text

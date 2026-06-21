@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from xml.sax.saxutils import escape, quoteattr
 
-from brailix.core._xml import strip_xml_invalid_chars
+from brailix.core._xml import safe_fromstring, strip_xml_invalid_chars
 from brailix.core.context import MusicContext
 
 
@@ -45,7 +45,7 @@ class MusicXMLSourceAdapter:
             return music_error_wrap("", reason="empty input")
         text = _strip_xml_prolog(text)
         try:
-            ET.fromstring(text)
+            safe_fromstring(text)
         except ET.ParseError as e:
             return music_error_wrap(text, reason=f"parse error: {e}")
         return text
