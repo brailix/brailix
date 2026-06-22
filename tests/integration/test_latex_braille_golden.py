@@ -176,17 +176,17 @@ class TestFractions:
         assert "math_fraction_open" not in roles
         assert "math_fraction_close" not in roles
 
-    def test_rules_txt_half(self, pipe):
+    def test_simple_fraction_half(self, pipe):
         # 1/2 = ⠼⠁⠆
         assert render(pipe, r"$1/2$") == "⠼⠁⠆"
 
-    def test_rules_txt_one_over_x(self, pipe):
+    def test_fraction_one_over_x(self, pipe):
         # 1/x = ⠼⠁⠳⠰⠭
         assert render(pipe, r"$1/x$") == "⠼⠁⠳⠰⠭"
 
-    def test_rules_txt_compound_fraction(self, pipe):
+    def test_compound_fraction(self, pipe):
         # \frac{1}{x+1} = ⠆⠼⠁ ⠳⠰⠭ ⠖⠼⠁⠰
-        # The blanks in the spec are real braille blanks (⠀ U+2800).
+        # The blanks here are real braille blanks (⠀ U+2800), not ASCII spaces.
         assert render(pipe, r"$\frac{1}{x+1}$") == "⠆⠼⠁⠀⠳⠰⠭⠀⠖⠼⠁⠰"
 
     def test_complex_numerator_adds_open_and_close(self, pipe):

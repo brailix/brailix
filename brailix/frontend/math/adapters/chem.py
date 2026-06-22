@@ -49,6 +49,13 @@ from brailix.frontend.math.utils import (
     merror_wrap,
 )
 
+# Cap recursion through parenthesised groups so a pathologically nested formula
+# (``Ca((((...))))``) bails its deepest group to flat ``<mtext>`` instead of
+# overflowing Python's stack — mirrors the eq_field adapter's _MAX_PARSE_DEPTH
+# so every math adapter localizes over-nesting the same way, rather than the
+# whole formula collapsing to one <merror> via convert_ce's broad except.
+_MAX_DEPTH = 64
+
 # An element symbol: a capital letter optionally followed by lowercase
 # letters (H, He, Na, Si). This same rule tells the backend whether the
 # whole formula is "all single-letter" (one <mi> per element).
@@ -376,7 +383,7 @@ def _soft_unknown_mathml(ch: str) -> str:
     return f'<merror data-bk-soft="1">{escape(ch)}</merror>'
 
 
-def _emit_formula(inner: str) -> str:
+def _emit_formula(inner: str, _depth: int = 0) -> str:
     """Parse the content of a ``\\ce{...}`` into MathML children.
 
     Handles element symbols with numeric subscripts (one ``<mi>`` /
@@ -403,6 +410,11 @@ def _emit_formula(inner: str) -> str:
     rather than charging only its last atom — those casing rules aren't
     specified yet.
     """
+    if _depth > _MAX_DEPTH:
+        # Over-nested: localize the degradation to this subtree (flat text)
+        # rather than let the recursion overflow the stack and sink the whole
+        # formula to <merror>.
+        return f"<mtext>{escape(inner)}</mtext>"
     parts: list[str] = []
     i = 0
     n = len(inner)
@@ -491,7 +503,7 @@ def _emit_formula(inner: str) -> str:
             prev_was_atom = False
             continue
         if ch == "(" or ch == "[":
-            group, i = _bracketed_group(inner, i)
+            group, i = _bracketed_group(inner, i, _depth)
             parts.append(group)
             species_atoms += 1
             prev_boundary = False
@@ -564,7 +576,7 @@ def _emit_formula(inner: str) -> str:
 _GROUP_CLOSE = {"(": ")", "[": "]"}
 
 
-def _bracketed_group(inner: str, i: int) -> tuple[str, int]:
+def _bracketed_group(inner: str, i: int, _depth: int = 0) -> tuple[str, int]:
     """Parse a ``(...)`` or ``[...]`` group at ``i`` plus an optional trailing
     whole-group multiplier (subscript) and/or charge. Returns
     ``(mathml, next_index)``.
@@ -611,7 +623,7 @@ def _bracketed_group(inner: str, i: int) -> tuple[str, int]:
             f"{content.strip()}</mtext><mo>)</mo></mrow>",
             j + 1,
         )
-    body = _emit_formula(content)  # recurse on the group content
+    body = _emit_formula(content, _depth + 1)  # recurse on the group content
     base = f"<mrow><mo>{open_char}</mo>{body}<mo>{close_char}</mo></mrow>"
     k = j + 1
     start = k

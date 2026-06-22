@@ -89,14 +89,39 @@ def emit_digit_run(
     """
     if not digits:
         return
+    # A digit run must begin with a digit or a decimal point — the number
+    # sign is meaningless before anything else (a leading thousands separator,
+    # or a stray non-digit a malformed <mn> fed in). Prose guarantees this
+    # upstream (segment.py); the math <mn> path does not, so enforce it here
+    # rather than emit a dangling number sign with no digit behind it. A
+    # leading fullwidth digit is "clean" only when fold_nonascii is on (prose
+    # folds; math treats it as the writing error it is and warns).
+    first = digits[0]
+    starts_clean = (
+        first == "."
+        or first in profile.digits
+        or (fold_nonascii and ascii_decimal_digit(first) in profile.digits)
+    )
     if want_number_sign and profile.number_sign:
-        cells.append(
-            BrailleCell(
-                dots=profile.number_sign,
-                role=roles.number_sign,
-                source_span=number_sign_span,
+        if starts_clean:
+            cells.append(
+                BrailleCell(
+                    dots=profile.number_sign,
+                    role=roles.number_sign,
+                    source_span=number_sign_span,
+                )
             )
-        )
+        else:
+            warnings.warn(
+                code=missing_code,
+                message=(
+                    f"digit run {digits!r} does not start with a digit or "
+                    f"decimal point; number sign suppressed"
+                ),
+                surface=digits,
+                span=span_at(0),
+                source=warn_source,
+            )
     for i, ch in enumerate(digits):
         sp = span_at(i)
         if ch == ".":

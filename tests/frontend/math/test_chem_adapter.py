@@ -581,13 +581,20 @@ class TestNonStandardCharsAreFlaggedNotFolded:
 
 
 class TestSoftFailureBackstop:
-    def test_pathological_nesting_degrades_to_merror(self):
-        # Hundreds of nested groups exhaust the recursive-descent
-        # parser (RecursionError).  chem was the only math adapter
-        # without an except-Exception backstop, so this escaped the
-        # "adapters never raise" contract and crashed the pipeline.
+    def test_pathological_nesting_localizes_to_flat_text(self):
+        # Hundreds of nested groups would overflow the recursive-descent
+        # parser. The depth cap (_MAX_DEPTH) now bails the deepest subtree to
+        # a flat <mtext> instead of collapsing the WHOLE formula to <merror>
+        # (RecursionError + convert_ce's broad except used to do that) — so the
+        # outer structure still renders. Mirrors eq_field / omml / mtef.
         out = convert_ce("(" * 600 + "H" + ")" * 600)
-        assert _merror(out) is not None
+        # Did not crash and did not sink the whole formula to <merror>.
+        assert _merror(out) is None
+        root = ET.fromstring(out)
+        assert root.get("data-bk-chem") == "1"
+        # The over-nested part localized to flat text; outer groups remain.
+        assert "<mtext>" in out
+        assert "<mo>(</mo>" in out
 
 
 class TestUnicodeArrowsRejectedInCe:

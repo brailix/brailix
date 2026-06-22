@@ -172,6 +172,16 @@ class TestMn:
         ns = [c for c in cells if c.role == "number_sign"]
         assert len(ns) == 2
 
+    def test_mn_starting_with_non_digit_suppresses_dangling_number_sign(
+        self, profile
+    ):
+        # A malformed <mn> mis-tagging a non-digit (here a leading thousands
+        # separator) must not emit a dangling number sign with no digit
+        # behind it; the run is flagged via MATH_MISSING_NUMBER_PART instead.
+        cells, wc = emit(mml("<math><mn>,5</mn></math>"), profile)
+        assert "number_sign" not in roles(cells)
+        assert "MATH_MISSING_NUMBER_PART" in [w.code for w in wc]
+
 
 # ---------------------------------------------------------------------------
 # 12-17: <mo>
