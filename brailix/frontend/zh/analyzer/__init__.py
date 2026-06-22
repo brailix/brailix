@@ -5,7 +5,7 @@ Three public callables, all consumed by the orchestrator
 
 * :func:`tokenize` — text → ``list[ChineseToken]`` via the analyzer
   adapter selected by ``ctx.options["zh_analyzer"]``.  The pluggable
-  surface; ``"auto"`` lazily picks ``hanlp`` → ``jieba`` → ``char``.
+  surface; ``"auto"`` lazily picks ``thulac`` → ``hanlp`` → ``jieba`` → ``char``.
 * :func:`shift_token_spans` — promote per-segment span coordinates
   into doc coordinates.  Pure helper; no adapter choice.
 * :func:`tokens_to_inline` — convert :class:`ChineseToken` →
@@ -54,7 +54,7 @@ def tokenize(
 
     The analyzer is selected by ``ctx.options["zh_analyzer"]``; when
     absent the default is ``"auto"`` which lazily picks
-    ``hanlp`` → ``jieba`` → ``char`` depending on what's installed.
+    ``thulac`` → ``hanlp`` → ``jieba`` → ``char`` depending on what's installed.
     """
     name = _DEFAULT_ANALYZER
     if ctx is not None and ctx.options:
