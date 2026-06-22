@@ -650,6 +650,36 @@ class TestWrapEdgeCases:
         assert sum(line.count(dot1) for line in lines) == n
         assert all(len(line) <= 8 for line in lines)
 
+    def test_long_unbroken_word_places_atoms_in_linear_time(self):
+        # Regression: place_atoms used to re-slice the atom suffix
+        # (``atoms = atoms[placed:]``) and re-sum its lengths every pass,
+        # making a long break-point-free run of distinct-span atoms O(n²) —
+        # ~30k cells took seconds, ~60k took ~12s. With an index cursor + a
+        # running total it is linear (~70ms at 60k). The bound is deliberately
+        # loose: linear finishes in well under a second, while the old
+        # quadratic would blow past it by 100x+, so this catches a
+        # re-quadratic regression without being wall-clock flaky on slow CI.
+        import time
+
+        n = 80_000
+        cells = [
+            BrailleCell(dots=(1,), source_span=Span(i, i + 1))
+            for i in range(n)
+        ]
+        doc = BrailleDocument(blocks=[BrailleBlock(cells=cells)])
+        renderer = LayoutRenderer(options=LayoutOptions(
+            line_width=8, paragraph_indent=0,
+        ))
+        start = time.perf_counter()
+        out = renderer.render(doc)
+        elapsed = time.perf_counter() - start
+        # Correctness preserved at scale: every source cell still placed.
+        assert sum(line.count(dots_to_char((1,))) for line in out.split("\n")) == n
+        # O(n) finishes in tens of ms; O(n²) would take ~20s at this n.
+        assert elapsed < 5.0, (
+            f"place_atoms took {elapsed:.2f}s for n={n} — likely O(n²) again"
+        )
+
 
 class TestPageNumbers:
     """``show_page_numbers=True`` adds the page number on its OWN line

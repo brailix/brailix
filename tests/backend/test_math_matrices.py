@@ -69,6 +69,25 @@ class TestMatrix:
         assert "MATH_UNSUPPORTED_ELEMENT" not in [w.code for w in wc]
         assert any(c.role == "math_delim" and c.dots == (1, 2, 6) for c in cells)
 
+    def test_empty_mtable_warns_and_emits_no_delimiters(self, profile):
+        # An <mtable> with no <mtr> rows is malformed; the linear path must warn
+        # and emit nothing, not a pair of empty hanging delimiters with no
+        # signal. (latex2mathml / MTEF never produce this; a corrupt / hand-
+        # built tree can.)
+        cells, wc = emit(mml("<math><mtable></mtable></math>"), profile)
+        assert "MATH_UNSUPPORTED_ELEMENT" in [w.code for w in wc]
+        assert not any(
+            c.role in ("math_delim", "hang_open", "hang_close") for c in cells
+        )
+
+    def test_empty_cases_mtable_warns_and_emits_nothing(self, profile):
+        # Same guard on the {-fenced cases path.
+        cells, wc = emit(mml("<math><mo>{</mo><mtable></mtable></math>"), profile)
+        assert "MATH_UNSUPPORTED_ELEMENT" in [w.code for w in wc]
+        assert not any(
+            c.role in ("math_delim", "hang_open", "hang_close") for c in cells
+        )
+
     def test_table_is_bracketed_in_hang_region(self, profile):
         # The whole table sits inside hang_open … hang_close so the
         # layout hangs width-overflow continuations by two cells

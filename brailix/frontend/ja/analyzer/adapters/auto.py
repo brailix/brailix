@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from brailix.core.context import FrontendContext
+from brailix.core.errors import MissingExtraError
 
 if TYPE_CHECKING:
     from brailix.frontend.ja.analyzer import JapaneseAnalyzer, JapaneseToken
@@ -25,9 +26,13 @@ def _pick() -> JapaneseAnalyzer:
     for name in _PREFERENCE:
         try:
             return analyzer_registry.get(name)
-        except Exception:
-            # Not installed (MissingExtraError) or its dictionary won't
-            # load — best-effort probe, move on to the next engine.
+        except MissingExtraError:
+            # Engine simply not installed — best-effort probe, try the next.
+            # A genuine load failure (corrupt dictionary, version mismatch) or
+            # a programming bug is deliberately NOT swallowed here: it
+            # propagates instead of silently degrading to kana (汉字 →
+            # MISSING_READING, no は→ワ) with no diagnostic, mirroring the zh
+            # auto chain's narrow catch.
             continue
     return analyzer_registry.get("kana")
 

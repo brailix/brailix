@@ -41,6 +41,38 @@ class TestBasicRegistration:
         assert a is b
         assert len(calls) == 1
 
+    def test_concurrent_first_access_loads_once(self):
+        # Threads racing the *first* get() of one name must not both run the
+        # loader or get different instances — the lazy-load slow path is
+        # serialised. Deterministic given a correct lock: the loader runs
+        # exactly once no matter how the threads interleave.
+        import threading
+
+        calls: list[int] = []
+
+        def loader():
+            calls.append(1)
+            return GoodGreeter()
+
+        reg: Registry[Greeter] = Registry("greeters")
+        reg.register("good", loader)
+
+        results: list[object] = []
+        barrier = threading.Barrier(8)
+
+        def worker():
+            barrier.wait()  # release all threads into get() together
+            results.append(reg.get("good"))
+
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(calls) == 1  # loader ran exactly once
+        assert len({id(r) for r in results}) == 1  # all got the same instance
+
     def test_unknown_name_raises_keyerror(self):
         reg: Registry[Greeter] = Registry("greeters")
         reg.register("a", GoodGreeter)

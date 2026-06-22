@@ -254,6 +254,27 @@ class TestScript:
         assert "<msub>" in out
         assert "<mi>n</mi>" in out
 
+    def test_empty_base_script_renders_like_explicit_base(self):
+        # The adapter emits x\s\up6(2) as <mi>x</mi><msup><mrow/><mn>2</mn>
+        # </msup> — an empty base with the preceding x as a sibling — relying
+        # on the braille backend reading the empty-base script sequentially.
+        # Lock that end-to-end: its braille must equal the hoisted-base
+        # <msup><mi>x</mi><mn>2</mn></msup> form (what MTEF produces), so a
+        # future backend change that breaks empty-base scripts is caught here
+        # rather than silently in x² / H₂O.
+        from brailix.core.config import load_profile
+        from tests.backend._math_common import emit, mml
+
+        profile = load_profile("cn_current")
+        eq = _mathml("x\\s\\up6(2)")
+        explicit = (
+            "<math xmlns='http://www.w3.org/1998/Math/MathML'>"
+            "<msup><mi>x</mi><mn>2</mn></msup></math>"
+        )
+        eq_cells, _ = emit(mml(eq), profile)
+        exp_cells, _ = emit(mml(explicit), profile)
+        assert [c.dots for c in eq_cells] == [c.dots for c in exp_cells]
+
 
 class TestBox:
     def test_default_draws_all_four_sides(self):

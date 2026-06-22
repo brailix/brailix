@@ -37,7 +37,11 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from brailix.core._xml import strip_namespace, strip_whitespace_text
+from brailix.core._xml import (
+    safe_fromstring,
+    strip_namespace,
+    strip_whitespace_text,
+)
 from brailix.frontend.math.utils import merror_wrap
 
 
@@ -50,7 +54,7 @@ def normalize(mathml: str) -> ET.Element:
     rooted at ``<math>``.
     """
     try:
-        root = ET.fromstring(mathml)
+        root = safe_fromstring(mathml)
     except ET.ParseError as e:
         root = ET.fromstring(merror_wrap(mathml, reason=f"parse error: {e}"))
     strip_namespace(root)

@@ -67,6 +67,28 @@ def _make_mxl_bytes(score_xml: str) -> bytes:
     return buf.getvalue()
 
 
+class TestMxlZipBombCap:
+    """A small .mxl whose inner member inflates past the decompression cap
+    must soft-fail (music-error), not OOM the process."""
+
+    def test_oversized_member_soft_fails_not_oom(self, monkeypatch):
+        import brailix.frontend.music.adapters.mxl as mxl_mod
+        from brailix.frontend.music.adapters.mxl import MxlSourceAdapter
+
+        # Shrink the cap instead of building a 64 MB payload: a normal inner
+        # score then exceeds it and exercises the same abort path a real zip
+        # bomb (tiny on disk, gigabytes inflated) would hit.
+        monkeypatch.setattr(mxl_mod, "_MAX_MEMBER_BYTES", 512)
+        big_inner = (
+            "<score-partwise><part-list/>"
+            + "<part><measure/></part>" * 60
+            + "</score-partwise>"
+        )
+        assert len(big_inner) > 512
+        out = MxlSourceAdapter().to_musicxml(_make_mxl_bytes(big_inner))
+        assert "zip bomb" in out  # soft-failed with the cap reason
+
+
 # ---------------------------------------------------------------------------
 # parse_musicxml direct
 # ---------------------------------------------------------------------------
@@ -88,6 +110,15 @@ class TestParseMusicxml:
         p.write_text(SIMPLE_XML, encoding="utf-8")
         doc = parse_musicxml(p, profile="cn_current", language="zh-CN")
         assert doc.blocks[0].source == "musicxml"
+
+    def test_utf16_musicxml_loads(self, tmp_path):
+        # Finale / some Windows exporters write UTF-16 (with a BOM); a flat
+        # utf-8-sig read used to raise UnicodeDecodeError on those valid files.
+        p = tmp_path / "song.musicxml"
+        p.write_bytes(SIMPLE_XML.encode("utf-16"))  # encodes with a BOM
+        doc = parse_musicxml(p, profile="cn_current", language="zh-CN")
+        assert isinstance(doc.blocks[0], ScoreBlock)
+        assert "<step>C</step>" in doc.blocks[0].text
 
     def test_mxl_zip_file(self, tmp_path):
         p = tmp_path / "song.mxl"

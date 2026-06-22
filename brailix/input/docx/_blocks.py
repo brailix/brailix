@@ -813,19 +813,25 @@ def _walk_alternate_content(
     """
     fallback = _first_local(alt, "Fallback")
     if fallback is not None:
-        produced = False
-        for piece, math in _walk_alt_subtree(fallback, ole_blobs):
-            produced = True
-            yield piece, math
-        if produced:
+        pieces = list(_walk_alt_subtree(fallback, ole_blobs))
+        # Short-circuit Choice only when Fallback yielded *real* content. An
+        # empty placeholder run yields ("", None), which used to set produced=
+        # True and suppress Choice — silently dropping a formula that lived
+        # only in Choice. Consumers filter empty pieces, so yielding them is
+        # harmless; the decision must hinge on whether any was non-empty.
+        if any(piece or math is not None for piece, math in pieces):
+            yield from pieces
             return
     for choice in alt:
         if _local(choice.tag) == "Choice":
-            for piece, math in _walk_alt_subtree(choice, ole_blobs):
-                yield piece, math
+            yield from _walk_alt_subtree(choice, ole_blobs)
 
 
-def _walk_alt_subtree(node: Element, ole_blobs: dict[str, bytes]):
+def _walk_alt_subtree(
+    node: Element,
+    ole_blobs: dict[str, bytes],
+    field_state: _FieldState | None = None,
+):
     """Descend into an AlternateContent branch, surfacing math content.
 
     The branch can be any depth — Word sometimes nests another
@@ -838,7 +844,19 @@ def _walk_alt_subtree(node: Element, ole_blobs: dict[str, bytes]):
     ``(piece, math)`` here vs. tokens there). A new inline-math source added
     to that walker must be mirrored here, or AlternateContent branches will
     silently drop it.
+
+    A single ``_FieldState`` is threaded through the whole branch (created at
+    the top-level call, passed down through recursion) so a cross-run EQ field
+    — ``fldChar begin`` / ``instrText`` / ``end`` spread over separate runs —
+    assembles instead of being dropped (``_walk_run`` skips ``fldChar`` when no
+    state is passed). Unclosed text is flushed at the branch end, matching the
+    paragraph walker.
     """
+    if field_state is None:
+        field_state = _FieldState()
+        own_state = True
+    else:
+        own_state = False
     for child in node:
         tag = _local(child.tag)
         if tag == "object":
@@ -850,12 +868,16 @@ def _walk_alt_subtree(node: Element, ole_blobs: dict[str, bytes]):
         elif tag == "oMathPara":
             yield "", _math_block_from_omath_para(child)
         elif tag == "r":
-            for piece in _walk_run(child, ole_blobs):
+            for piece in _walk_run(child, ole_blobs, field_state):
                 yield piece, None
         else:
             # Recurse — the OLE might be wrapped in another shape /
             # drawing element we don't directly handle.
-            yield from _walk_alt_subtree(child, ole_blobs)
+            yield from _walk_alt_subtree(child, ole_blobs, field_state)
+    if own_state and field_state.in_field:
+        leftover = field_state.take_unclosed_result()
+        if leftover:
+            yield leftover, None
 
 
 def _math_block_from_omath_para(node: Element) -> MathBlock:
@@ -888,7 +910,12 @@ def _paragraph_style(p: Element) -> str | None:
     style = _first(pPr, _W_PREFIX + "pStyle")
     if style is None:
         return None
-    return style.get(_W_PREFIX + "val")
+    # Qualified ``w:val`` first, bare ``val`` fallback — same two-step every
+    # other OOXML attribute read here uses. Some emitters drop the prefix on
+    # pStyle@val; reading only the qualified form silently lost heading/list
+    # detection (the style name came back None, so the paragraph degraded to
+    # plain body text).
+    return _ns_attr(style, _W_PREFIX, "val")
 
 
 # OOXML ``w:jc@w:val`` → the alignments braille layout can act on. Word

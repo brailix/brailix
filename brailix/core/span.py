@@ -57,15 +57,24 @@ class Span:
         a span round-trips as, whether in JSON (a list) or in memory (a tuple).
 
         Raises :class:`ValueError` on any other shape (wrong length, not a
-        sequence, non-int-coercible elements) so a malformed payload fails
-        loudly at the IR boundary instead of silently smuggling a non-Span into
-        a ``span`` field. This is the single canonical JSON-to-Span entry point;
-        the IR deserializers route every span through it.
+        sequence, non-integer elements) so a malformed payload fails loudly at
+        the IR boundary instead of silently smuggling a non-Span into a
+        ``span`` field. Offsets must be genuine ``int``\\ s: a ``float`` like
+        ``3.9`` is rejected rather than truncated to ``3`` (which would point
+        the cell↔source map at the wrong character), and ``bool`` (an ``int``
+        subclass) is rejected too. This is the single canonical JSON-to-Span
+        entry point; the IR deserializers route every span through it.
         """
         if not isinstance(value, (list, tuple)) or len(value) != 2:
             raise ValueError(f"span must be a 2-element sequence; got {value!r}")
         start, end = value
-        return cls(int(start), int(end))
+        for v in (start, end):
+            if not isinstance(v, int) or isinstance(v, bool):
+                raise ValueError(
+                    f"span offsets must be integers, not {type(v).__name__}; "
+                    f"got {value!r}"
+                )
+        return cls(start, end)
 
 
 def merge_spans(spans: Iterable[Span]) -> Span | None:

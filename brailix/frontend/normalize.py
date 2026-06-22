@@ -273,7 +273,16 @@ def _try_quantity(segs: list[Segment], i: int) -> tuple[Quantity, int] | None:
     nxt = segs[i + 1]
     if nxt.type != "latin_text":
         return None
-    unit_key = nxt.surface.lower()
+    unit = nxt.surface
+    # SI unit symbols are case-sensitive, and for a SINGLE letter the case is
+    # meaningful: "g"/"m"/"t"/"l"/"s"/"h" are units, but their uppercase forms
+    # are not — and "G"/"T"/"M" collide with very common non-unit tokens in
+    # tech prose ("5G" network, "4T" drive, "5M" bandwidth). Match single-
+    # letter units case-sensitively (the table is keyed lowercase, so an
+    # uppercase single letter simply misses and falls back to Number + latin);
+    # keep multi-letter units case-insensitive so "GHz"/"ghz"/"GHZ" all
+    # resolve (a multi-letter run is unambiguous).
+    unit_key = unit if len(unit) == 1 else unit.lower()
     canonical = _UNITS.get(unit_key)
     if canonical is None:
         return None
@@ -284,7 +293,7 @@ def _try_quantity(segs: list[Segment], i: int) -> tuple[Quantity, int] | None:
             surface=segs[i].surface + nxt.surface,
             span=span,
             number=number,
-            unit=nxt.surface,
+            unit=unit,
             unit_canonical=canonical,
         ),
         i + 2,

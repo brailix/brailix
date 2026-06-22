@@ -34,6 +34,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from brailix.core.context import FrontendContext
+from brailix.core.errors import MissingExtraError
 from brailix.frontend.zh.pinyin.adapters._align import resolve_by_char_alignment
 from brailix.ir.inline import ChineseToken
 
@@ -73,7 +74,25 @@ class G2pmPinyinResolver:
 def _load() -> G2pmPinyinResolver:
     import g2pM  # noqa: WPS433 — lazy (note the capital M: PyPI ``g2pM``)
 
-    model = g2pM.G2pM()
+    try:
+        model = g2pM.G2pM()
+    except Exception as e:  # noqa: BLE001
+        # g2pM loads its bundled numpy ``.pkl`` weights at construction; a
+        # corrupt pickle, a numpy version mismatch, or a frozen / Nuitka build
+        # that failed to bundle the data file raises something other than the
+        # ImportError the registry maps to MissingExtraError. Raise it here
+        # (the same convention g2pw / thulac use) so the ``auto`` chain — which
+        # prefers g2pm as the default — catches it and degrades to
+        # pypinyin / null instead of crashing the whole translation.
+        raise MissingExtraError(
+            adapter="g2pm",
+            extra="g2pm",
+            hint=(
+                "the g2pM model could not be loaded (corrupt bundled weights, "
+                "a numpy version mismatch, or a frozen build missing the .pkl "
+                "data file); install with pip install brailix[g2pm]."
+            ),
+        ) from e
 
     def converter(text: str) -> list[str]:
         # tone=True keeps numeric tones (incl. neutral=5); char_split=True

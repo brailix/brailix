@@ -4,12 +4,57 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
+import pytest
+
 from brailix.core._xml import (
     local_name,
+    safe_fromstring,
     strip_namespace,
     strip_whitespace_text,
     strip_xml_invalid_chars,
 )
+
+
+class TestSafeFromstring:
+    """:func:`safe_fromstring` parses untrusted XML but refuses entity
+    declarations (the billion-laughs / quadratic-blowup DoS vector)."""
+
+    def test_parses_plain_xml(self) -> None:
+        assert safe_fromstring("<a><b>x</b></a>").tag == "a"
+
+    def test_accepts_bytes(self) -> None:
+        assert safe_fromstring(b"<r><c/></r>").tag == "r"
+
+    def test_allows_predefined_entities(self) -> None:
+        # lt/gt/amp/apos/quot are always available and never declared.
+        assert safe_fromstring("<a>x &amp; y</a>").text == "x & y"
+
+    def test_allows_external_doctype(self) -> None:
+        # Real MusicXML files carry an external DTD reference (no internal
+        # entities); it must still parse.
+        doc = (
+            '<?xml version="1.0"?>'
+            '<!DOCTYPE score-partwise PUBLIC '
+            '"-//Recordare//DTD MusicXML 3.1 Partwise//EN" '
+            '"http://www.musicxml.org/dtds/partwise.dtd">'
+            "<score-partwise><part/></score-partwise>"
+        )
+        assert safe_fromstring(doc).tag == "score-partwise"
+
+    _BOMB = (
+        '<?xml version="1.0"?>'
+        '<!DOCTYPE lolz [<!ENTITY lol "lol">'
+        '<!ENTITY lol2 "&lol;&lol;&lol;">]>'
+        "<lolz>&lol2;</lolz>"
+    )
+
+    def test_rejects_internal_entity_declaration(self) -> None:
+        with pytest.raises(ET.ParseError, match="entity declarations"):
+            safe_fromstring(self._BOMB)
+
+    def test_rejects_entity_declaration_in_bytes(self) -> None:
+        with pytest.raises(ET.ParseError, match="entity declarations"):
+            safe_fromstring(self._BOMB.encode("utf-8"))
 
 
 class TestStripXmlInvalidChars:

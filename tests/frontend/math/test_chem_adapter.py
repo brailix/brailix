@@ -200,6 +200,32 @@ class TestConvertCe:
         assert msup is not None
         assert msup[1].tag == f"{_NS}mo" and msup[1].text in ("+", "-")
 
+    @pytest.mark.parametrize("inner", ["CH3-CH3", "H3C-CH3", "CH3-CH2-CH3"])
+    def test_single_bond_dash_is_flagged_not_charged(self, inner):
+        # A ``-`` BETWEEN two species is a structural single bond, not a unit
+        # negative charge on the first species. It must NOT silently become an
+        # anion <msup>; the unsupported bond is flagged in place (soft
+        # <merror>) so the rest of the molecule still translates. Regression:
+        # ``CH3-CH3`` (ethane) used to parse as (CH3)^- + CH3 — a silently
+        # wrong anion with no warning.
+        out = convert_ce(inner)
+        root = ET.fromstring(out)
+        assert root.get("data-bk-chem") == "1"  # not a whole-formula <merror>
+        assert root.find(f".//{_NS}msup") is None  # no charge was invented
+        soft = [
+            e for e in root.iter(f"{_NS}merror") if e.get("data-bk-soft") == "1"
+        ]
+        assert soft and any(e.text == "-" for e in soft)
+
+    @pytest.mark.parametrize("inner", ["Cl-", "OH-", "Na+ + Cl-"])
+    def test_trailing_negative_charge_survives_single_bond_guard(self, inner):
+        # The single-bond guard must not break a real trailing charge: a ``-``
+        # with nothing (or a space + connector) after it is still a charge —
+        # monatomic (Cl-) and polyatomic (OH-) both wrap in an <msup>.
+        out = convert_ce(inner)
+        assert _merror(out) is None
+        assert ET.fromstring(out).find(f".//{_NS}msup") is not None
+
 
 class TestConditions:
     def test_single_condition_is_mover(self):

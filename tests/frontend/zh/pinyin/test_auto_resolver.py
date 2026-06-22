@@ -107,6 +107,42 @@ def test_auto_falls_through_when_g2pw_model_load_fails(monkeypatch):
     assert [t.pinyin for t in out] == ["wo3", "zai4"]
 
 
+def test_auto_falls_through_when_g2pm_model_load_fails(monkeypatch):
+    # g2pM is importable but its bundled-weight construction fails (corrupt
+    # .pkl / numpy mismatch / a frozen build missing the data file). _load
+    # translates that into MissingExtraError, so auto — which prefers g2pm as
+    # the default — must degrade to pypinyin instead of crashing translation.
+    fake_g2pm = types.ModuleType("g2pM")
+
+    class _BoomModel:
+        def __init__(self) -> None:
+            raise RuntimeError("corrupt bundled weights")
+
+    fake_g2pm.G2pM = _BoomModel
+
+    fake_pypinyin = types.ModuleType("pypinyin")
+
+    class _Style:
+        TONE3 = "TONE3"
+
+    def fake_lazy_pinyin(text, style=None, neutral_tone_with_five=False):
+        return ["wo3", "zai4"]
+
+    fake_pypinyin.Style = _Style
+    fake_pypinyin.lazy_pinyin = fake_lazy_pinyin
+    monkeypatch.setitem(sys.modules, "g2pM", fake_g2pm)
+    monkeypatch.setitem(sys.modules, "g2pw", None)  # skip g2pw too
+    monkeypatch.setitem(sys.modules, "pypinyin", fake_pypinyin)
+
+    resolver = resolver_registry.get("auto")
+    out = resolver.resolve(
+        [ChineseToken(surface="我"), ChineseToken(surface="在")],
+        FrontendContext(profile="cn_current"),
+    )
+    # g2pm skipped (weights load failed → MissingExtraError); pypinyin ran.
+    assert [t.pinyin for t in out] == ["wo3", "zai4"]
+
+
 def test_auto_falls_back_to_null_when_real_backends_are_missing(monkeypatch):
     monkeypatch.setitem(sys.modules, "g2pM", None)
     monkeypatch.setitem(sys.modules, "g2pw", None)

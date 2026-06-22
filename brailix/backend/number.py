@@ -44,6 +44,12 @@ def translate_number(node: Number, ctx: BackendContext, profile: BrailleProfile)
     return _digits_to_cells(node.surface, node.span, ctx, profile)
 
 
+# The percent signs the frontend's _try_percent recognises (half- + full-width).
+# Kept in sync with brailix.frontend.normalize._PERCENT_CHARS, but a tiny
+# literal here avoids backend → frontend coupling.
+_PERCENT_CHARS = ("%", "％")
+
+
 def translate_percent(node: Percent, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:
     """Percent → digits + percent punctuation."""
     if not node.surface:
@@ -54,13 +60,18 @@ def translate_percent(node: Percent, ctx: BackendContext, profile: BrailleProfil
     cells = _digits_to_cells(node.surface[:-1], _first_part_span(node), ctx, profile)
     last_char = node.surface[-1]
     last_span = _last_char_span(node)
+    if last_char not in _PERCENT_CHARS:
+        # The last char is meant to be the percent sign. A hand-rolled / IR-
+        # round-tripped Percent whose surface ends in some other char (say
+        # ':') would otherwise render it as ordinary punctuation if that char
+        # happens to be in the punct table — silently masking a malformed
+        # node. Fail loud (unknown cell + warning) instead of guessing.
+        cells.append(_unknown_cell(last_char, last_span, ctx))
+        return cells
     tail = _punct_cells(last_char, last_span, ctx, profile)
     if not tail:
-        # The last char is meant to be the percent sign. If it isn't in the
-        # punctuation table (a hand-rolled / round-tripped Percent whose
-        # surface doesn't end in '%'), don't drop it silently — warn and emit
-        # an unknown cell, the same fail-loud behaviour the digit pipeline
-        # gives an unknown digit.
+        # Defensive: the percent sign should be in the punctuation table; if a
+        # profile omits it, still fail loud rather than drop the char.
         tail = [_unknown_cell(last_char, last_span, ctx)]
     cells.extend(tail)
     return cells
@@ -101,6 +112,23 @@ def translate_quantity(node: Quantity, ctx: BackendContext, profile: BrailleProf
             continue
         first_sp = Span(base + pos, base + pos + 1)
         prefix = profile.math_structure(f"letter_prefix.{cls}")
+        if not prefix:
+            # The script class hit a letter table but the profile defines no
+            # letter sign for it, so the unit letters go out bare. In a profile
+            # where a bare letter shares a cell with a digit (cn_current's "a"
+            # == "1"), that makes "47cm" ambiguous against the preceding digit
+            # run. Don't drop the sign silently — warn (shipped cn_* profiles
+            # define letter_prefix, so this only fires on an incomplete one).
+            ctx.warnings.warn(
+                code="MISSING_NUMBER_PART",
+                message=(
+                    f"profile defines no letter_prefix.{cls}; unit letters "
+                    f"{run!r} emitted without a letter sign"
+                ),
+                surface=run,
+                span=first_sp,
+                source="backend.number",
+            )
         for _ in range(letter_sign_repeats(cls, len(run))):
             cells.extend(
                 BrailleCell(dots=dots, role="quantity_unit", source_span=first_sp, source_text=run)

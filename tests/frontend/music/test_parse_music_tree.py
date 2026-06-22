@@ -426,10 +426,13 @@ class TestMxlUnreadableArchives:
         with zipfile.ZipFile(buf, "w") as zf:
             zf.writestr("score.xml", b"<score-partwise/>")
 
-        def _boom(self, name, pwd=None):
+        def _boom(self, name, *args, **kwargs):
             raise RuntimeError(f"File {name!r} is encrypted")
 
-        monkeypatch.setattr(zipfile.ZipFile, "read", _boom)
+        # The adapter reads members via ``ZipFile.open`` (chunked, size-capped
+        # against zip bombs); that is also the seam where zipfile itself raises
+        # the encrypted-entry RuntimeError.
+        monkeypatch.setattr(zipfile.ZipFile, "open", _boom)
         ctx = MusicContext(profile="cn_current", source="mxl")
         tree = parse_music_tree(buf.getvalue(), ctx)
         assert tree is not None

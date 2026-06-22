@@ -141,6 +141,18 @@ def _emit_mtable_linear(
     The delimiter cells reuse the profile's lpar/rpar/lbrack/rbrack/
     verbar symbols. Block matrices / diagonal shorthand /
     two-dimensional layout are deferred."""
+    if not any(child.tag == "mtr" for child in mtable):
+        # A malformed / empty <mtable> (no rows) would otherwise emit a pair of
+        # empty hanging delimiters — meaningless cells with no warning. Flag and
+        # emit nothing. (latex2mathml / MTEF never produce this; a hand-built or
+        # corrupt tree can.)
+        mctx.backend.warnings.warn(
+            code="MATH_UNSUPPORTED_ELEMENT",
+            message="<mtable> has no <mtr> rows; skipping empty matrix",
+            span=mctx.span,
+            source="backend.math",
+        )
+        return
     cells.append(HANG_OPEN_CELL)
     first_row = True
     for row in mtable:
@@ -202,6 +214,14 @@ def _emit_mtable_cases(
     ordinary one-line ``{``, not a multi-line brace.
     """
     rows = [row for row in mtable if row.tag == "mtr"]
+    if not rows:
+        mctx.backend.warnings.warn(
+            code="MATH_UNSUPPORTED_ELEMENT",
+            message="<mtable> cases has no <mtr> rows; skipping empty system",
+            span=mctx.span,
+            source="backend.math",
+        )
+        return
     if len(rows) == 1:
         _emit_as_mo(cells, mctx, "{")
         mctx.need_number_sign = True

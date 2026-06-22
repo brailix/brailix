@@ -109,6 +109,31 @@ class TestWarningCollectorNormal:
         assert wc.warnings[0].level is WarningLevel.WARN
         assert wc.warnings[0].span == Span(0, 1)
 
+    def test_lenient_downgrade_preserves_all_fields(self):
+        # LENIENT drops ERROR→WARN but must keep every other field. The old
+        # hand-listed rebuild would silently lose any field added to Warning
+        # later; dataclasses.replace can't drift.
+        wc = WarningCollector(mode=RunMode.LENIENT)
+        wc.emit(
+            Warning(
+                code="E",
+                message="boom",
+                level=WarningLevel.ERROR,
+                surface="x",
+                span=Span(2, 5),
+                candidates=("a", "b"),
+                source="frontend.zh",
+                anchor={"part_id": "P1"},
+            )
+        )
+        stored = wc.warnings[0]
+        assert stored.level is WarningLevel.WARN
+        assert stored.surface == "x"
+        assert stored.span == Span(2, 5)
+        assert stored.candidates == ("a", "b")
+        assert stored.source == "frontend.zh"
+        assert stored.anchor == {"part_id": "P1"}
+
     def test_iterable(self):
         wc = WarningCollector()
         wc.warn("A", "a")

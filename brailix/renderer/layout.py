@@ -518,12 +518,23 @@ class LayoutRenderer:
             rebinds ``atoms`` and loops instead.
             """
             nonlocal cur
-            while atoms:
-                total = sum(len(a) for a in atoms)
+            # Walk ``atoms`` with an index cursor + a running total instead of
+            # re-slicing the suffix and re-summing it every pass.  A word with
+            # no break points places only a few atoms per line, so the old
+            # ``atoms = atoms[placed:]`` + ``sum(len(a) for a in atoms)`` were
+            # both O(n) per pass — O(n²) overall (a ~30k-cell unbroken run took
+            # seconds).  ``start`` advances; ``remaining_total`` is kept equal
+            # to ``sum(len(a) for a in atoms[start:])``.  The placement scan
+            # iterates by index (not ``atoms[start:]``) so its early break
+            # isn't preceded by a full-suffix slice copy.
+            start = 0
+            n_atoms = len(atoms)
+            remaining_total = sum(len(a) for a in atoms)
+            while start < n_atoms:
                 remaining = opts.line_width - len(cur)
-                if total <= remaining:
-                    for atom in atoms:
-                        cur.extend(atom)
+                if remaining_total <= remaining:
+                    for k in range(start, n_atoms):
+                        cur.extend(atoms[k])
                     return
                 # Try a fresh line — that break is at a blank-equivalent
                 # boundary (whatever preceded the word), no hyphen.
@@ -532,29 +543,31 @@ class LayoutRenderer:
                         with_hyphen=False, next_indent=overflow_indent()
                     )
                     remaining = opts.line_width - len(cur)
-                    if total <= remaining:
-                        for atom in atoms:
-                            cur.extend(atom)
+                    if remaining_total <= remaining:
+                        for k in range(start, n_atoms):
+                            cur.extend(atoms[k])
                         return
                 # Multi-atom word still too wide — split between atoms
                 # with hyphen.
-                if len(atoms) > 1:
+                if n_atoms - start > 1:
                     slot = opts.line_width - len(cur) - hyphen_width
                     placed_len = 0
                     placed = 0
-                    for atom in atoms:
-                        if placed_len + len(atom) <= slot:
-                            placed_len += len(atom)
+                    for k in range(start, n_atoms):
+                        alen = len(atoms[k])
+                        if placed_len + alen <= slot:
+                            placed_len += alen
                             placed += 1
                         else:
                             break
                     if placed > 0:
-                        for atom in atoms[:placed]:
-                            cur.extend(atom)
+                        for k in range(start, start + placed):
+                            cur.extend(atoms[k])
                         flush_line(
                             with_hyphen=True, next_indent=overflow_indent()
                         )
-                        atoms = atoms[placed:]
+                        start += placed
+                        remaining_total -= placed_len
                         continue
                     # Even the first atom alone doesn't fit when we
                     # reserve a cell for the hyphen.  Before resorting
@@ -565,18 +578,19 @@ class LayoutRenderer:
                     # is the lesser evil compared to slicing a syllable
                     # / first-letter-prefix that the user wanted whole.
                     slot_no_hyphen = opts.line_width - len(cur)
-                    if len(atoms[0]) <= slot_no_hyphen:
-                        cur.extend(atoms[0])
+                    if len(atoms[start]) <= slot_no_hyphen:
+                        cur.extend(atoms[start])
                         flush_line(
                             with_hyphen=False, next_indent=overflow_indent()
                         )
-                        atoms = atoms[1:]
+                        remaining_total -= len(atoms[start])
+                        start += 1
                         continue
                     # First atom truly exceeds line_width — fall through
                     # to mid-atom split for it.
                 # Mid-atom split — last resort.  Take as many cells as fit
                 # (minus hyphen reservation), flush with hyphen, repeat.
-                first = atoms[0]
+                first = atoms[start]
                 rest_cells = first
                 while rest_cells:
                     slot = opts.line_width - len(cur) - hyphen_width
@@ -616,9 +630,10 @@ class LayoutRenderer:
                         flush_line(
                             with_hyphen=True, next_indent=overflow_indent()
                         )
-                # atoms[0] is now fully placed; loop on the remainder
-                # (empty -> while exits) instead of recursing.
-                atoms = atoms[1:]
+                # atoms[start] is now fully placed; advance to the remainder
+                # (start == n_atoms -> while exits) instead of recursing.
+                remaining_total -= len(atoms[start])
+                start += 1
 
         # --- atom-stream pass --------------------------------------
         pending_atom: list[BrailleCell] = []

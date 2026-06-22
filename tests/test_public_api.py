@@ -41,6 +41,7 @@ _FACADE: dict[str, list[str]] = {
         "Space",
         "Number",
         "Punct",
+        "PhoneticInline",
         "BrailleCell",
         "BrailleDocument",
         "BLANK_CELL",
@@ -97,3 +98,24 @@ def test_facade_reexports_are_the_same_objects() -> None:
     assert InlineNode is ConcreteInline
     assert Span is ConcreteSpan
     assert LayoutOptions is ConcreteLayoutOptions
+
+
+def test_all_registered_inline_nodes_are_reexported() -> None:
+    """Every registered inline node type must be importable from the stable
+    ``brailix.ir`` surface, not just ``brailix.ir.inline``.
+
+    The ``_FACADE`` list above is a representative subset, so a newly added
+    node (this is how ``PhoneticInline`` slipped through) could be registered
+    and serialisable yet never re-exported — leaving downstream front-ends /
+    plugins that follow the documented "import from ``brailix.ir``" rule
+    unable to consume it. This guards the whole registry, not a hand-list.
+    """
+    import brailix.ir as ir
+    from brailix.ir.inline import _INLINE_REGISTRY
+
+    missing = sorted(
+        cls.__name__
+        for cls in _INLINE_REGISTRY.values()
+        if not hasattr(ir, cls.__name__) or cls.__name__ not in ir.__all__
+    )
+    assert not missing, f"inline node types missing from brailix.ir: {missing}"

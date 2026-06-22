@@ -96,6 +96,18 @@ class TestSpanSerialization:
         with pytest.raises(ValueError):
             Span.from_tuple(None)
 
+    def test_from_tuple_rejects_float_offset(self):
+        # A float is int-coercible but must be rejected, not truncated: turning
+        # 3.9 into 3 would silently point the cell↔source map one char short.
+        with pytest.raises(ValueError):
+            Span.from_tuple([0.0, 3.9])
+
+    def test_from_tuple_rejects_bool_offset(self):
+        # bool is an int subclass; reject it explicitly rather than store
+        # True/False as offsets 1/0.
+        with pytest.raises(ValueError):
+            Span.from_tuple([True, False])
+
 
 class TestMergeSpans:
     def test_empty_iterable_returns_none(self):

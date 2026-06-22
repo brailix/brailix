@@ -8,7 +8,7 @@ mode promotes warnings to :class:`StrictModeError`.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 from brailix.core.span import Span
@@ -184,16 +184,12 @@ class WarningCollector:
         if self.mode is RunMode.STRICT:
             raise StrictModeError(warning)
         if self.mode is RunMode.LENIENT and warning.level is WarningLevel.ERROR:
-            warning = Warning(
-                code=warning.code,
-                message=warning.message,
-                level=WarningLevel.WARN,
-                surface=warning.surface,
-                span=warning.span,
-                candidates=warning.candidates,
-                source=warning.source,
-                anchor=warning.anchor,
-            )
+            # Drop ERROR to WARN, preserving every other field. Use
+            # dataclasses.replace, not a hand-listed rebuild: the old
+            # field-by-field copy silently dropped any field added to Warning
+            # later (surface / span / candidates / source / anchor each had to
+            # be remembered here), losing diagnostics in LENIENT mode.
+            warning = replace(warning, level=WarningLevel.WARN)
         self.warnings.append(warning)
 
     def warn(

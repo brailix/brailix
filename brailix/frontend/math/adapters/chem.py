@@ -332,7 +332,10 @@ def _condition_mathml(text: str) -> str:
         # The condition held non-formula characters (e.g. Chinese 点燃, which
         # now localises to soft <merror>s instead of raising). Render the whole
         # condition as text — a placeholder for the zh-backed path — rather than
-        # a string of flagged blanks.
+        # a string of flagged blanks. Sniffing the emitted string is safe (not
+        # fragile): ``data-bk-soft`` is a private attribute only _emit_formula
+        # writes, and user content reaches the output only through escape(), so
+        # it can never inject that literal substring.
         return f"<mtext>{escape(text)}</mtext>"
     return f"<mrow>{body}</mrow>"
 
@@ -636,8 +639,12 @@ def _match_charge(inner: str, i: int) -> tuple[str, str | None, int] | None:
     * a bare trailing ``+`` — a unit positive charge, but only when no new
       species follows (``Na+`` / ``H+``); a ``+`` with a species after it is
       the addition operator and is left for the caller (``2H2+O2``);
-    * a bare trailing ``-`` — a unit negative charge (``Cl-``), unless it
-      opens the ``->`` connector.
+    * a bare trailing ``-`` — a unit negative charge (``Cl-``), but only
+      when no new species follows (mirroring the ``+`` rule) and it does not
+      open the ``->`` connector. A ``-`` *between* two species is a
+      structural single bond (``CH3-CH3``), not a charge on the first
+      species; it is left for the caller, which flags it as an unsupported
+      bond rather than silently inventing an anion.
 
     Returns ``(sign, magnitude_or_None, next_index)`` with ``sign`` one of
     ``"+"`` / ``"-"`` and ``magnitude`` the digit string (``None`` for a unit
@@ -673,7 +680,9 @@ def _match_charge(inner: str, i: int) -> tuple[str, str | None, int] | None:
             return "+", None, i + 1
         return None
     if ch == "-" and not inner.startswith("->", i):
-        return "-", None, i + 1
+        if not _species_follows(inner, i + 1):
+            return "-", None, i + 1
+        return None
     return None
 
 

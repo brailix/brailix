@@ -16,6 +16,7 @@ who forget required methods.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 
 from brailix.core.errors import MissingExtraError
@@ -36,7 +37,7 @@ class Registry[T]:
         ``TypeError`` on mismatch.
     """
 
-    __slots__ = ("subsystem", "protocol", "_loaders", "_cache", "_extras")
+    __slots__ = ("subsystem", "protocol", "_loaders", "_cache", "_extras", "_lock")
 
     def __init__(
         self,
@@ -48,6 +49,12 @@ class Registry[T]:
         self._loaders: dict[str, Callable[[], T]] = {}
         self._cache: dict[str, T] = {}
         self._extras: dict[str, str] = {}
+        # Serialises the lazy-load slow path so concurrent first-access to one
+        # name can't both run the loader and return different instances —
+        # registries are module-level singletons a multi-threaded host may
+        # share. Reentrant so a loader that resolves another adapter on the
+        # same registry can't self-deadlock.
+        self._lock = threading.RLock()
 
     def register(
         self,
@@ -93,27 +100,37 @@ class Registry[T]:
             If a protocol was specified and the loaded instance does
             not conform.
         """
+        # Fast path: a cache hit needs no lock — a dict read is atomic under
+        # the GIL and a cached adapter is never swapped out.
         if name in self._cache:
             return self._cache[name]
-        if name not in self._loaders:
-            raise KeyError(
-                f"no adapter named {name!r} registered for subsystem "
-                f"{self.subsystem!r}; available: {sorted(self._loaders)}"
-            )
-        try:
-            instance = self._loaders[name]()
-        except ImportError as e:
-            extra = self._extras.get(name)
-            if extra:
-                raise MissingExtraError(adapter=name, extra=extra) from e
-            raise
-        if self.protocol is not None and not isinstance(instance, self.protocol):
-            raise TypeError(
-                f"adapter {name!r} in subsystem {self.subsystem!r} does "
-                f"not conform to protocol {self.protocol.__name__}"
-            )
-        self._cache[name] = instance
-        return instance
+        # Slow path under the lock so two threads racing the *first* access to
+        # one name don't both run the loader and hand out different instances
+        # (breaking the a-is-b cache contract and double-paying a heavy import).
+        with self._lock:
+            if name in self._cache:  # another thread loaded it while we waited
+                return self._cache[name]
+            if name not in self._loaders:
+                raise KeyError(
+                    f"no adapter named {name!r} registered for subsystem "
+                    f"{self.subsystem!r}; available: {sorted(self._loaders)}"
+                )
+            try:
+                instance = self._loaders[name]()
+            except ImportError as e:
+                extra = self._extras.get(name)
+                if extra:
+                    raise MissingExtraError(adapter=name, extra=extra) from e
+                raise
+            if self.protocol is not None and not isinstance(
+                instance, self.protocol
+            ):
+                raise TypeError(
+                    f"adapter {name!r} in subsystem {self.subsystem!r} does "
+                    f"not conform to protocol {self.protocol.__name__}"
+                )
+            self._cache[name] = instance
+            return instance
 
     def has(self, name: str) -> bool:
         return name in self._loaders

@@ -122,9 +122,22 @@ def _load_zh_exceptions_tone_omission(
             f"{path}: 'tone_omission' missing required "
             f"'by_initial' / 'zero_initial' sub-objects"
         )
+    # Validate every per-initial rule loudly rather than silently dropping a
+    # malformed one: a "b": "4" shorthand (instead of "b": {"omit_tone": "4"})
+    # used to be filtered out by an `isinstance(v, dict)` comprehension, so the
+    # backend never saw that initial's rule and emitted the tone anyway —
+    # silently wrong braille with no diagnostic. Fail at load like the
+    # char/word override loaders do.
+    for initial, rule in by_initial.items():
+        if not isinstance(rule, dict):
+            raise ConfigurationError(
+                f"{path}: 'tone_omission.by_initial.{initial!r}' must be an "
+                f'object (e.g. {{"omit_tone": ...}}), got '
+                f"{type(rule).__name__}"
+            )
     boundary = section.get("boundary_rule", {})
     return NcbToneOmission(
-        by_initial={k: v for k, v in by_initial.items() if isinstance(v, dict)},
+        by_initial=dict(by_initial),
         zero_initial=dict(zero_initial),
         boundary_rule_enabled=bool(
             boundary.get("enabled", True) if isinstance(boundary, dict) else True

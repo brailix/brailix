@@ -34,6 +34,27 @@ def test_missing_g2pm_surfaces_missing_extra_error(monkeypatch):
     assert "pip install brailix[g2pm]" in str(ei.value)
 
 
+def test_g2pm_model_load_failure_surfaces_missing_extra_error(monkeypatch):
+    # g2pM imports fine but its bundled-weight construction blows up (corrupt
+    # .pkl / numpy mismatch / a frozen build missing the data file). That must
+    # surface as MissingExtraError — not the raw RuntimeError — so the auto
+    # chain can catch it and degrade instead of crashing the translation.
+    import types
+
+    fake_g2pm = types.ModuleType("g2pM")
+
+    class _BoomModel:
+        def __init__(self) -> None:
+            raise RuntimeError("corrupt bundled weights")
+
+    fake_g2pm.G2pM = _BoomModel
+    resolver_registry.clear_cache()
+    monkeypatch.setitem(sys.modules, "g2pM", fake_g2pm)
+    with pytest.raises(MissingExtraError) as ei:
+        resolver_registry.get("g2pm")
+    assert ei.value.extra == "g2pm"
+
+
 class TestResolve:
     def test_empty(self):
         assert G2pmPinyinResolver(converter=lambda _: []).resolve([]) == []

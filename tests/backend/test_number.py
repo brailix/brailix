@@ -127,6 +127,19 @@ class TestTranslatePercent:
         assert cells[-1].source_text == "％"
         assert not any(w.code == "UNKNOWN_DIGIT" for w in ctx.warnings)
 
+    def test_non_percent_tail_fails_loud(self, ctx, profile):
+        # A hand-rolled / round-tripped Percent whose surface doesn't end in a
+        # percent sign (e.g. "5:") must not render the stray char as ordinary
+        # punctuation just because it's in the punct table — fail loud with an
+        # unknown cell + warning instead of masking the malformed node.
+        node = Percent(
+            surface="5:", span=Span(0, 2), number=Number(surface="5", span=Span(0, 1))
+        )
+        cells = translate_percent(node, ctx, profile)
+        assert cells[-1].role == "unknown"
+        assert cells[-1].source_text == ":"
+        assert any(w.code == "UNKNOWN_NUMBER_PART" for w in ctx.warnings)
+
 
 class TestTranslateQuantity:
     def test_kg(self, ctx, profile):
@@ -148,6 +161,36 @@ class TestTranslateQuantity:
         assert [c.dots for c in unit_cells] == [(5, 6), (1, 3), (1, 2, 4, 5)]
         # Unit lookup hits the letter tables → no UNKNOWN_NUMBER_PART warnings.
         assert not any(w.code == "UNKNOWN_NUMBER_PART" for w in ctx.warnings)
+
+    def test_missing_letter_prefix_warns(self, ctx, profile, monkeypatch):
+        # A profile that hits a letter class but defines no letter_prefix for
+        # it emits the unit letters bare; in cn_current a bare "a" shares a
+        # cell with digit "1", so "47cm" would read ambiguously against the
+        # digit run. Warn rather than silently drop the sign (shipped cn_*
+        # profiles define letter_prefix, so this only fires on an incomplete
+        # one — simulated by dropping the structure here).
+        real = type(profile).math_structure
+        monkeypatch.setattr(
+            type(profile),
+            "math_structure",
+            lambda self, key, *a, **k: ()
+            if key.startswith("letter_prefix")
+            else real(self, key, *a, **k),
+        )
+        node = Quantity(
+            surface="47cm",
+            span=Span(0, 4),
+            number=Number(surface="47", span=Span(0, 2)),
+            unit="cm",
+            unit_canonical="centimetre",
+        )
+        cells = translate_quantity(node, ctx, profile)
+        assert any(w.code == "MISSING_NUMBER_PART" for w in ctx.warnings)
+        # the letters are still emitted, just without the (missing) sign
+        assert [c.source_text for c in cells if c.role == "quantity_unit"] == [
+            "c",
+            "m",
+        ]
 
     def test_unit_case_change_starts_new_sign(self, ctx, profile):
         # "mW" — the class change (lower → upper) starts a new sign, so

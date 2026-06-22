@@ -446,3 +446,20 @@ class TestLoaderValidation:
         )
         with pytest.raises(ConfigurationError, match="surface"):
             _load_zh_exceptions(tmp_path, "bad_exceptions.json", {})
+
+    def test_tone_omission_non_dict_by_initial_entry_raises(self, tmp_path):
+        # A "b": "4" shorthand (instead of "b": {"omit_tone": "4"}) used to be
+        # silently dropped by an isinstance filter, so the backend never saw
+        # that initial's rule and emitted the tone anyway — wrong braille with
+        # no diagnostic. It must now fail loudly at load, like the other
+        # malformed-config paths.
+        from brailix.core.config.loader import _load_zh_exceptions
+        from brailix.core.errors import ConfigurationError
+
+        bad = tmp_path / "bad_exceptions.json"
+        bad.write_text(
+            '{"tone_omission": {"by_initial": {"b": "4"}, "zero_initial": {}}}',
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigurationError, match="by_initial"):
+            _load_zh_exceptions(tmp_path, "bad_exceptions.json", {})

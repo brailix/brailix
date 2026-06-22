@@ -79,6 +79,29 @@ class TestInlineMathAdapterCrash:
         assert result.render()
         assert "MATH_INLINE_PARSE_FAILED" in [w.code for w in result.warnings]
 
+    def test_strict_mode_preserves_original_warning_code(self, monkeypatch):
+        # In STRICT mode the frontend's own warn (e.g. adapter missing) raises
+        # StrictModeError carrying the real code. The pipeline must let it
+        # propagate unchanged, not catch it in the broad adapter-error handler
+        # and reclassify it as MATH_*_PARSE_FAILED (which masked the real code).
+        import brailix.pipeline as pipeline_mod
+        from brailix.core.errors import StrictModeError, Warning, WarningLevel
+
+        def _boom(surface, ctx):
+            raise StrictModeError(
+                Warning(
+                    code="MATH_ADAPTER_MISSING",
+                    message="no adapter",
+                    level=WarningLevel.ERROR,
+                )
+            )
+
+        monkeypatch.setattr(pipeline_mod, "_frontend_parse_math_tree", _boom)
+        pipe = Pipeline(profile="cn_current", mode="strict")
+        with pytest.raises(StrictModeError) as ei:
+            pipe.translate_text("看 $x^2$ 完")
+        assert ei.value.warning.code == "MATH_ADAPTER_MISSING"
+
 
 # ---------------------------------------------------------------------------
 # MathML adapter + normalizer wiring (no IR-builder layer)

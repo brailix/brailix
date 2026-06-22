@@ -68,11 +68,21 @@ def _emit_sound(
         )
     segno_letter = elem.attrib.get("segno")
     if segno_letter:
-        # The MusicXML segno attribute carries a label letter; BANA
-        # encodes a per-letter braille marker. M1 resources shipped
-        # `braille_segno_with_letter` keyed to letter "a" only, so
-        # we emit that as a generic marker (refinement to per-letter
-        # segno is a future resource expansion).
+        # The MusicXML segno attribute carries a label letter; BANA encodes a
+        # per-letter braille marker. Resources ship only the generic
+        # `braille_segno_with_letter` (letter "a"), so a non-"a" label can't be
+        # rendered yet — warn that the specific letter is dropped rather than
+        # silently presenting it as segno "a" (per-letter segno is a future
+        # resource expansion).
+        if segno_letter.strip().lower() != "a":
+            mctx.warn(
+                code="MUSIC_UNSUPPORTED_NOTATION",
+                message=(
+                    f"segno label {segno_letter!r} has no per-letter braille "
+                    "marker; emitting the generic segno sign without the letter"
+                ),
+                source="backend.music",
+            )
         emit_cells_for_entity(
             cells, mctx,
             topic="dacapo", entity="braille_segno_with_letter",
@@ -81,12 +91,31 @@ def _emit_sound(
         )
     dalsegno_letter = elem.attrib.get("dalsegno")
     if dalsegno_letter:
-        emit_cells_for_entity(
+        # The label letter selects a per-letter marker (resources ship "a" and
+        # "b"). Use the letter-specific entity so dal segno "B" reads as a jump
+        # to B, not A; if no marker exists for this letter, warn and fall back
+        # to "a" rather than silently mislabelling the jump.
+        letter = dalsegno_letter.strip().lower()
+        if not emit_cells_for_entity(
             cells, mctx,
-            topic="dacapo", entity="braille_dal_segno_letter_a",
+            topic="dacapo", entity=f"braille_dal_segno_letter_{letter}",
             role="music_dal_segno",
             source_text=f"dal-segno:{dalsegno_letter}",
-        )
+        ):
+            mctx.warn(
+                code="MUSIC_UNSUPPORTED_NOTATION",
+                message=(
+                    f"dal segno label {dalsegno_letter!r} has no per-letter "
+                    "braille marker; falling back to letter 'a'"
+                ),
+                source="backend.music",
+            )
+            emit_cells_for_entity(
+                cells, mctx,
+                topic="dacapo", entity="braille_dal_segno_letter_a",
+                role="music_dal_segno",
+                source_text=f"dal-segno:{dalsegno_letter}",
+            )
     coda_letter = elem.attrib.get("coda")
     if coda_letter:
         emit_cells_for_entity(

@@ -64,6 +64,37 @@ class TestSoundDirectives:
         assert _dots(cells) == [(5,), (3, 4, 6), (1,)]
         assert all(c.role == "music_dal_segno" for c in cells)
 
+    def test_dalsegno_b_emits_letter_b(self, profile, ctx):
+        # Regression: dal segno "B" used to be hardcoded to letter "a"; the
+        # _b resource exists and must be used so "B" reads as a jump to B,
+        # not a silent mislabel as A.
+        s = ET.fromstring('<sound dalsegno="B"/>')
+        cells = emit_tree(s, ctx, profile)
+        # braille_dal_segno_letter_b = '"+b' = (5,)(3,4,6)(1,2)
+        assert _dots(cells) == [(5,), (3, 4, 6), (1, 2)]
+        assert all(c.role == "music_dal_segno" for c in cells)
+        assert not ctx.warnings.warnings  # known letter → no warning
+
+    def test_dalsegno_unknown_letter_falls_back_to_a_with_warning(
+        self, profile, ctx
+    ):
+        # No per-letter marker beyond a/b ships: fall back to "a" but warn so
+        # the mislabel is visible to the proofreader, not silent.
+        s = ET.fromstring('<sound dalsegno="C"/>')
+        cells = emit_tree(s, ctx, profile)
+        assert _dots(cells) == [(5,), (3, 4, 6), (1,)]  # letter-a fallback
+        codes = [w.code for w in ctx.warnings.warnings]
+        assert "MUSIC_UNSUPPORTED_NOTATION" in codes
+
+    def test_segno_non_a_letter_warns(self, profile, ctx):
+        # Only the generic (letter-a) segno marker ships; a non-"a" label is
+        # dropped, so warn rather than silently presenting it as segno "a".
+        s = ET.fromstring('<sound segno="B"/>')
+        cells = emit_tree(s, ctx, profile)
+        assert _dots(cells) == [(3, 4, 6), (1,)]  # generic segno marker
+        codes = [w.code for w in ctx.warnings.warnings]
+        assert "MUSIC_UNSUPPORTED_NOTATION" in codes
+
     def test_coda_emits_print_encircled_cross(self, profile, ctx):
         s = ET.fromstring('<sound coda="X"/>')
         cells = emit_tree(s, ctx, profile)

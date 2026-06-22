@@ -183,3 +183,39 @@ class TestFugashi:
         toks = ana.analyze(text)
         assert toks
         assert all(text[t.span.start : t.span.end] == t.surface for t in toks)
+
+
+class TestAutoPick:
+    def test_pick_falls_back_to_kana_when_engines_missing(self, monkeypatch):
+        # All real engines uninstalled (MissingExtraError) → degrade to kana.
+        from brailix.core.errors import MissingExtraError
+        from brailix.core.registry import Registry
+        from brailix.frontend.ja.analyzer.adapters.auto import _pick
+
+        real = Registry.get
+
+        def fake(self, name):
+            if name in ("janome", "fugashi", "sudachi"):
+                raise MissingExtraError(adapter=name, extra=name)
+            return real(self, name)
+
+        monkeypatch.setattr(Registry, "get", fake)
+        assert _pick() is analyzer_registry.get("kana")
+
+    def test_pick_propagates_non_missing_extra_error(self, monkeypatch):
+        # An installed engine that fails to load (corrupt dictionary / version
+        # mismatch / a bug) raises something other than MissingExtraError; that
+        # must propagate, not be swallowed into a silent kana downgrade.
+        from brailix.core.registry import Registry
+        from brailix.frontend.ja.analyzer.adapters.auto import _pick
+
+        real = Registry.get
+
+        def fake(self, name):
+            if name in ("janome", "fugashi", "sudachi"):
+                raise RuntimeError("corrupt dictionary")
+            return real(self, name)
+
+        monkeypatch.setattr(Registry, "get", fake)
+        with pytest.raises(RuntimeError):
+            _pick()

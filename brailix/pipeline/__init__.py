@@ -67,7 +67,12 @@ from brailix.core.defaults import (
     DEFAULT_SEGMENTER,
     DEFAULT_ZH_ANALYZER,
 )
-from brailix.core.errors import RunMode, WarningCollector, normalize_run_mode
+from brailix.core.errors import (
+    RunMode,
+    StrictModeError,
+    WarningCollector,
+    normalize_run_mode,
+)
 from brailix.core.span import Span
 from brailix.frontend import apply_boundary as _apply_boundary
 from brailix.frontend import language_frontend_registry
@@ -677,6 +682,15 @@ class Pipeline:
         # a span.  Single rule for every block kind — math / score / code /
         # prose alike — so the pre-populated "text + children, no span"
         # case can't drift per kind.
+        #
+        # Contract note: a MathBlock/ScoreBlock/MusicBlock handed in already-
+        # filled (children present) does NOT get its parse tree recorded into
+        # ``tree_out`` here — the ET tree isn't reconstructable from the
+        # flattened children without re-parsing, which would defeat the cache.
+        # This is safe today because callers parse fresh, unfilled blocks each
+        # run and so hit the populate path above; a future caller that reuses
+        # pre-filled IR blocks must thread the tree via ``tree_in`` rather than
+        # rely on this method to re-record it.
         if block.span is None and block.text:
             block.span = Span(0, len(block.text))
 
@@ -727,6 +741,11 @@ class Pipeline:
             )
             try:
                 tree = _frontend_parse_music_tree(text, music_ctx)
+            except StrictModeError:
+                # STRICT mode: the frontend's own warn (e.g. adapter missing)
+                # already raised this carrying its real code; don't reclassify
+                # it as *_PARSE_FAILED — let it propagate unchanged.
+                raise
             except Exception as exc:  # noqa: BLE001 — adapter failures are wide
                 ctx.warnings.error(
                     code="MUSIC_BLOCK_PARSE_FAILED",
@@ -794,6 +813,9 @@ class Pipeline:
             )
             try:
                 tree = _frontend_parse_math_tree(text, math_ctx)
+            except StrictModeError:
+                # See _populate_music_block: keep the real code, don't rewrap.
+                raise
             except Exception as exc:  # noqa: BLE001 — adapter errors are wide
                 ctx.warnings.error(
                     code="MATH_BLOCK_PARSE_FAILED",
@@ -898,8 +920,12 @@ class Pipeline:
             if segment.type in frontend.prose_types:
                 base = segment.span.start if segment.span else 0
                 return frontend.process(segment.surface, base, ctx)
-        elif segment.type in _all_prose_types():
-            # A prose segment, but the active language has no frontend.
+        # Independent `if` (not `elif`): a prose segment can reach here either
+        # because the active language has no frontend, OR because its frontend
+        # doesn't claim this segment's type (some other language's prose). Both
+        # mean "no frontend for this prose" — NO_LANGUAGE_FRONTEND — not the
+        # misleading UNHANDLED_SEGMENT_TYPE the old `elif` fell through to.
+        if segment.type in _all_prose_types():
             ctx.warnings.warn(
                 code="NO_LANGUAGE_FRONTEND",
                 message=f"no frontend registered for language {lang!r}",
@@ -952,6 +978,9 @@ class Pipeline:
         # (the backend's MATH_NO_IR path degrades a None tree to a warning).
         try:
             tree = _frontend_parse_math_tree(node.surface, math_ctx)
+        except StrictModeError:
+            # See _populate_music_block: keep the real code, don't rewrap.
+            raise
         except Exception as exc:  # noqa: BLE001 — adapter errors are wide
             ctx.warnings.error(
                 code="MATH_INLINE_PARSE_FAILED",

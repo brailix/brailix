@@ -35,7 +35,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, fields
 from typing import Any, ClassVar
 
-from brailix.core._xml import strip_namespace
+from brailix.core._xml import safe_fromstring, strip_namespace
 from brailix.core.span import Span
 
 # ---------------------------------------------------------------------------
@@ -368,8 +368,11 @@ def _strip_xml_namespace(elem: ET.Element) -> ET.Element:
     ``xmlns`` attribute on the root, the reparse rewrites every tag to
     Clark notation and the backend — which dispatches on bare local names —
     fails to match, yielding blank cells + spurious warnings. Stripping at
-    the IR boundary keeps the round-trip lossless no matter how the tree
-    was built. Delegates to the shared
+    the IR boundary keeps the *string* round-trip (``ET.tostring`` →
+    ``ET.fromstring``) lossless. (A pre-parsed ``ET.Element`` handed straight
+    to ``from_dict`` is passed through un-stripped — that path stays correct
+    because the frontend normalizers already emit bare-tag trees, not because
+    of this guard.) Delegates to the shared
     :func:`brailix.core._xml.strip_namespace` (a core helper, so the IR
     layer takes no frontend dependency); this thin wrapper just returns
     ``elem`` so the deserializer can strip-and-return in one expression.
@@ -430,7 +433,7 @@ def _deserialize_xml_tree(key: str, value: Any) -> ET.Element | None:
     field_label, fmt = _XML_TREE_FIELDS[key]
     if isinstance(value, str):
         try:
-            parsed = ET.fromstring(value)
+            parsed = safe_fromstring(value)
         except ET.ParseError as e:
             raise ValueError(f"{field_label} is not well-formed {fmt}: {e}") from e
         return _strip_xml_namespace(parsed)

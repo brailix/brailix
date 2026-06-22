@@ -1,4 +1,6 @@
 
+import pytest
+
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
 from brailix.frontend.normalize import (
@@ -260,6 +262,24 @@ class TestQuantity:
         assert isinstance(out[0], Number)
         assert isinstance(out[1], Space)
         assert isinstance(out[2], LatinWord)
+
+    def test_lowercase_single_letter_unit_still_matches(self):
+        # The case-sensitive single-letter rule must not break real lowercase
+        # symbols: "5g" is still 5 grams.
+        out = _normalize_text("5g")
+        assert isinstance(out[0], Quantity)
+        assert out[0].unit_canonical == "gram"
+
+    @pytest.mark.parametrize("text", ["5G", "4T", "5M"])
+    def test_uppercase_single_letter_is_not_a_unit(self, text):
+        # "5G" (network), "4T" (drive), "5M" (bandwidth) are common tech-prose
+        # tokens, NOT 5 grams / 4 tonnes / 5 metres. Case-insensitive folding
+        # used to misclassify them as quantities with unit_canonical="gram"
+        # etc.; an uppercase single letter must not match a lowercase-keyed
+        # single-letter unit. Regression.
+        out = _normalize_text(text)
+        assert isinstance(out[0], Number)
+        assert not any(isinstance(n, Quantity) for n in out)
 
 
 class TestEmDash:
