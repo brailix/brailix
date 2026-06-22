@@ -116,6 +116,30 @@ class TestXmlSniffing:
         assert isinstance(doc.blocks[0], Paragraph)
         assert not isinstance(doc.blocks[0], ScoreBlock)
 
+    def test_utf16_score_xml_routes_to_music(self, tmp_path: Path) -> None:
+        # Regression: a UTF-16 MusicXML .xml (Finale / some Windows exporters
+        # write a BOM) must route to a ScoreBlock, not crash. The .xml sniff
+        # used to read utf-8-sig and raise UnicodeDecodeError before the sniff
+        # ran, while the byte-identical .musicxml parsed fine.
+        path = tmp_path / "score.xml"
+        path.write_bytes(_SCORE_XML.encode("utf-16"))  # encodes a BOM
+        doc = parse_file(path, profile="cn_current", language="zh-CN")
+        assert isinstance(doc.blocks[0], ScoreBlock)
+
+    def test_utf16_non_score_xml_falls_back_to_plain(
+        self, tmp_path: Path
+    ) -> None:
+        # A UTF-16 non-score .xml must also survive the BOM-aware sniff and
+        # degrade to plain text instead of crashing on the decode.
+        path = tmp_path / "eq.xml"
+        path.write_bytes(
+            '<math xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi>'
+            "</math>".encode("utf-16")
+        )
+        doc = parse_file(path, profile="cn_current", language="zh-CN")
+        assert isinstance(doc.blocks[0], Paragraph)
+        assert not isinstance(doc.blocks[0], ScoreBlock)
+
     def test_musicxml_suffix_still_routes_to_music(self, tmp_path: Path) -> None:
         # The dedicated .musicxml suffix is unconditional (no sniff needed).
         path = tmp_path / "song.musicxml"

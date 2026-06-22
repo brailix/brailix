@@ -57,6 +57,7 @@ from brailix.input.markdown import parse_markdown
 from brailix.input.music_xml import (
     ADAPTER_SCORE_SUFFIXES,
     MUSIC_SUFFIXES,
+    _read_xml_text,
     parse_musicxml,
     parse_score_file,
 )
@@ -171,9 +172,16 @@ def _route_xml(ctx: _FileCtx) -> DocumentIR:
     # Generic .xml: only treat as a score if the head looks like one;
     # otherwise plain text, so a non-score .xml (MathML, DocBook, arbitrary
     # XML) doesn't yield misleading MUSIC_* warnings / an empty score tree.
-    if _looks_like_musicxml(ctx.text):
+    #
+    # Sniff via the BOM-aware reader parse_musicxml uses, NOT ctx.text's flat
+    # utf-8-sig: XML may legitimately be UTF-16 (Finale / some Windows
+    # exporters emit a BOM), and utf-8-sig raises UnicodeDecodeError on those
+    # valid files before the sniff runs — so a UTF-16 score .xml used to crash
+    # where the byte-identical .musicxml parsed fine. Both routes now agree.
+    text = _read_xml_text(ctx.path)
+    if _looks_like_musicxml(text):
         return parse_musicxml(ctx.path, language=ctx.language, profile=ctx.profile)
-    return parse_plain(ctx.text, language=ctx.language, profile=ctx.profile)
+    return parse_plain(text, language=ctx.language, profile=ctx.profile)
 
 
 def _route_markdown(ctx: _FileCtx) -> DocumentIR:
