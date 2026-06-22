@@ -514,6 +514,62 @@ class TestRevisionAndContentControlWrappers:
         assert len(islands) == 1 and inline_math.is_tagged(islands[0])
         assert "<msup>" in _island_mathml(islands[0])
 
+    def test_inline_math_under_unknown_wrapper_survives(
+        self, tmp_path: Path
+    ) -> None:
+        # docx-unknown-wrapper: inline math under an unrecognised wrapping
+        # element (not in _TRANSPARENT_RUN_WRAPPERS) survives via transparent
+        # descent, not flattened to its bare <w:t> characters.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("公式 ")
+        wrap = etree.fromstring(
+            f'<w:futureWrapper xmlns:w="{_W_NS}" xmlns:m="{_M_NS}">'
+            f"<m:oMath><m:sSup>"
+            f"<m:e><m:r><m:t>x</m:t></m:r></m:e>"
+            f"<m:sup><m:r><m:t>2</m:t></m:r></m:sup>"
+            f"</m:sSup></m:oMath>"
+            f"</w:futureWrapper>"
+        )
+        para._p.append(wrap)
+        doc.save(path)
+
+        result = parse_docx(path, profile="cn_current", language="zh-CN")
+        joined = "\n".join(
+            p.text or "" for p in result.blocks if isinstance(p, Paragraph)
+        )
+        islands = _inline_math_islands(joined)
+        assert len(islands) == 1
+        assert "<msup>" in _island_mathml(islands[0])
+
+    def test_run_nested_alternate_content_display_math_survives(
+        self, tmp_path: Path
+    ) -> None:
+        # docx-altcontent: a display equation (oMathPara) in an
+        # AlternateContent nested inside a <w:r> was dropped (its _math slot
+        # discarded). It now folds in as an inline-math island, not vanishes.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("公式 ")
+        run = etree.fromstring(
+            f'<w:r xmlns:w="{_W_NS}" xmlns:m="{_M_NS}" xmlns:mc="{_MC_NS}">'
+            f"<mc:AlternateContent><mc:Fallback>"
+            f"<m:oMathPara><m:oMath><m:sSup>"
+            f"<m:e><m:r><m:t>x</m:t></m:r></m:e>"
+            f"<m:sup><m:r><m:t>2</m:t></m:r></m:sup>"
+            f"</m:sSup></m:oMath></m:oMathPara>"
+            f"</mc:Fallback></mc:AlternateContent>"
+            f"</w:r>"
+        )
+        para._p.append(run)
+        doc.save(path)
+
+        result = parse_docx(path, profile="cn_current", language="zh-CN")
+        joined = "\n".join(
+            p.text or "" for p in result.blocks if isinstance(p, Paragraph)
+        )
+        islands = _inline_math_islands(joined)
+        assert len(islands) == 1
+        assert "<msup>" in _island_mathml(islands[0])
+
     def test_block_paragraph_inside_content_control_not_dropped(
         self, tmp_path: Path
     ) -> None:
@@ -817,6 +873,19 @@ class TestMathTypeOLE:
         joined = "\n".join(p.text or "" for p in paragraphs)
         assert "$<math" in joined
         assert "merror" in joined
+
+    def test_oversized_ole_blob_is_skipped(self, monkeypatch) -> None:
+        # docx-mtef: an oversized untrusted embed is skipped (treated as
+        # non-math) rather than handed to the OLE / MTEF parsers, so a hostile
+        # or corrupt .docx can't inflate memory through one stream.
+        from brailix.input.docx import _ole
+
+        monkeypatch.setattr(_ole, "_MAX_MTEF_BYTES", 16)
+        # Over the cap → skipped, even though the prelude looks like raw MTEF.
+        assert _ole._extract_mtef_payload(b"\x05" + b"\x00" * 32) is None
+        # Within the cap → the raw-MTEF heuristic still recognises it.
+        small = b"\x05" + b"\x00" * 8
+        assert _ole._extract_mtef_payload(small) == small
 
     def test_no_ole_objects_path_unaffected(self, tmp_path: Path) -> None:
         # Sanity: a document without any OLE objects produces no

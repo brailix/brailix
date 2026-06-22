@@ -410,11 +410,15 @@ def _emit_child_tokens(child: Element, ole_blobs, field_state):
         # Paragraph properties — already consumed by style / list detection.
         return
     else:
-        # Genuinely unknown wrapping element — last-resort descend for bare
-        # text runs only. Avoid descending into property sub-trees.
-        for sub in child.iter():
-            if _local(sub.tag) == "t":
-                yield ("text", sub.text or "", None)
+        # Genuinely unknown wrapping element: descend transparently through the
+        # SAME dispatch as the named run wrappers, so inline math / OLE / EQ
+        # fields / vertAlign scripts under an unrecognised wrapper survive
+        # instead of being flattened to bare <w:t> text (which also dropped the
+        # vertical-alignment context). In well-formed OOXML <w:t> always lives
+        # inside a <w:r>, which the 'r' branch above walks; property sub-trees
+        # (rPr/pPr/...) recurse to nothing, so this stays safe.
+        for sub in child:
+            yield from _emit_child_tokens(sub, ole_blobs, field_state)
 
 
 # ---------------------------------------------------------------------------
@@ -796,8 +800,15 @@ def _walk_run(
             if text:
                 parts.append(text)
         elif tag == "AlternateContent":
-            for piece, _math in _walk_alternate_content(child, ole_blobs):
-                if piece:
+            for piece, math in _walk_alternate_content(child, ole_blobs):
+                if math is not None:
+                    # A display equation (oMathPara) in a run-nested
+                    # AlternateContent comes back as ("", MathBlock). _walk_run
+                    # yields string pieces, so fold the display block in as an
+                    # inline-math island (mirrors _convert_table_cell) rather
+                    # than discard the _math slot and silently lose the formula.
+                    parts.append(inline_math.wrap(math.source, math.text or ""))
+                elif piece:
                     parts.append(piece)
     yield from parts
 

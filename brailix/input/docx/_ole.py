@@ -30,6 +30,12 @@ from brailix.input.docx._xml import (
     _wrap_inline_math,
 )
 
+# Hard ceiling on a single ``Equation Native`` stream. A real MathType /
+# Equation 3.0 formula is KB-scale; anything past this in an untrusted embed is
+# treated as non-math and skipped, so a hostile / corrupt .docx can't inflate
+# memory through one oversized OLE stream.
+_MAX_MTEF_BYTES = 4 * 1024 * 1024  # 4 MiB
+
 
 def _build_ole_blob_map(document: Any) -> dict[str, bytes]:
     """Index every OLE-object relationship by its rId.
@@ -150,6 +156,12 @@ def _extract_mtef_payload(blob: bytes) -> bytes | None:
     fails — the caller treats ``None`` as "not a math object" and
     skips it.
     """
+    # An oversized embed is not a KB-scale formula; skip it (treat as non-math)
+    # rather than hand a huge untrusted blob to the OLE / MTEF parsers. The OLE
+    # "Equation Native" stream read below is a substring of this blob, so
+    # bounding the blob bounds the stream read too.
+    if len(blob) > _MAX_MTEF_BYTES:
+        return None
     import io
 
     try:
