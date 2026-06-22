@@ -74,12 +74,19 @@ class TestBasicRegistration:
         assert len({id(r) for r in results}) == 1  # all got the same instance
 
     def test_unknown_name_raises_keyerror(self):
+        from brailix.core.errors import BrailixError, UnknownAdapterError
+
         reg: Registry[Greeter] = Registry("greeters")
         reg.register("a", GoodGreeter)
         with pytest.raises(KeyError) as ei:
             reg.get("nope")
         assert "available" in str(ei.value)
         assert "'a'" in str(ei.value)
+        # Typed UnknownAdapterError: a KeyError (back-compat for the many
+        # catchers / tests) AND a BrailixError (so a top-level BrailixError
+        # handler surfaces it without swallowing unrelated internal KeyErrors).
+        assert isinstance(ei.value, UnknownAdapterError)
+        assert isinstance(ei.value, BrailixError)
 
     def test_has_and_names(self):
         reg: Registry[Greeter] = Registry("greeters")

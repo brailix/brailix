@@ -18,7 +18,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from brailix.core.context import FrontendContext
-from brailix.core.errors import MissingExtraError, ModelNotInstalledError
+from brailix.core.errors import (
+    MissingExtraError,
+    ModelNotInstalledError,
+    UnknownAdapterError,
+)
 from brailix.core.protocols import ChineseAnalyzer
 from brailix.ir.inline import ChineseToken
 
@@ -59,7 +63,7 @@ class AutoChineseAnalyzer:
 
         if last_error is not None:
             raise last_error
-        raise KeyError("auto Chinese analyzer has no candidates")
+        raise UnknownAdapterError("auto Chinese analyzer has no candidates")
 
 
 def _load() -> AutoChineseAnalyzer:

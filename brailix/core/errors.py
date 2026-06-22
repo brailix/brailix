@@ -87,6 +87,19 @@ class MissingExtraError(BrailixError):
         self.extra = extra
 
 
+class UnknownAdapterError(BrailixError, KeyError):
+    """Raised when a registry is asked for an adapter / analyzer / resolver /
+    renderer name it doesn't know (and no optional extra would supply it).
+
+    Subclasses both :class:`BrailixError` — so an ``except BrailixError`` block
+    (e.g. the CLI's top-level handler) catches it WITHOUT also swallowing every
+    unrelated internal :class:`KeyError` as a clean user error — and
+    :class:`KeyError`, so the many call sites and tests that catch the
+    registry's idiomatic "key not found" keep working unchanged. Mirrors
+    :class:`ConfigurationError`'s dual-base rationale.
+    """
+
+
 class ModelNotInstalledError(BrailixError):
     """Raised when an adapter needs a downloadable model that isn't
     present in the portable ``models/`` directory.

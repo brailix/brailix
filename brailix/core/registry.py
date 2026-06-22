@@ -19,7 +19,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
-from brailix.core.errors import MissingExtraError
+from brailix.core.errors import MissingExtraError, UnknownAdapterError
 
 
 class Registry[T]:
@@ -111,7 +111,7 @@ class Registry[T]:
             if name in self._cache:  # another thread loaded it while we waited
                 return self._cache[name]
             if name not in self._loaders:
-                raise KeyError(
+                raise UnknownAdapterError(
                     f"no adapter named {name!r} registered for subsystem "
                     f"{self.subsystem!r}; available: {sorted(self._loaders)}"
                 )

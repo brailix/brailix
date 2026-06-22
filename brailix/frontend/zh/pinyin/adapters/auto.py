@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from brailix.core.context import FrontendContext
-from brailix.core.errors import MissingExtraError
+from brailix.core.errors import MissingExtraError, UnknownAdapterError
 from brailix.core.protocols import PinyinResolver
 from brailix.ir.inline import ChineseToken
 
@@ -50,7 +50,7 @@ class AutoPinyinResolver:
 
         if last_error is not None:
             raise last_error
-        raise KeyError("auto pinyin resolver has no candidates")
+        raise UnknownAdapterError("auto pinyin resolver has no candidates")
 
 
 def _load() -> AutoPinyinResolver:

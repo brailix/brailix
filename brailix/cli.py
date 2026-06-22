@@ -493,7 +493,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             resolver=args.resolver,
         )
         result = _translate(pipe, args, source_text)
-    except (BrailixError, OSError, UnicodeDecodeError, KeyError) as exc:
+    except (BrailixError, OSError, UnicodeDecodeError) as exc:
+        # Registry / auto "unknown name" failures are UnknownAdapterError, a
+        # BrailixError, so they're still caught here as clean exit-1 messages.
+        # Bare KeyError is deliberately NOT caught: a genuine internal dict-miss
+        # is a programming bug and should surface as a crash + traceback, not be
+        # masked as a user-facing error.
         print(f"brailix: {_format_error(exc)}", file=sys.stderr)
         return 1
 
@@ -502,7 +507,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         payload = _produce_output(result, args)
         _write_output(payload, args.output)
-    except (BrailixError, OSError, KeyError) as exc:
+    except (BrailixError, OSError) as exc:  # see the translate try above re KeyError
         print(f"brailix: {_format_error(exc)}", file=sys.stderr)
         return 1
     return 0

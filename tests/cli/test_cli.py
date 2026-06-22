@@ -356,3 +356,19 @@ def test_ja_list_analyzers_from_registry():
 def test_zh_list_analyzers_from_registry():
     names = zh_list_analyzers()
     assert "char" in names and "auto" in names
+
+
+def test_internal_keyerror_is_not_masked(monkeypatch):
+    # cli-keyerror: a genuine internal KeyError (a programming bug deep in the
+    # pipeline) must crash with a traceback, NOT be reported as a clean exit-1
+    # user error. Registry / auto "unknown name" failures are now
+    # UnknownAdapterError (a BrailixError) and stay caught; a bare KeyError
+    # propagates so the bug is debuggable.
+    import brailix.cli as cli_mod
+
+    def _boom(*args, **kwargs):
+        raise KeyError("internal-bug-key")
+
+    monkeypatch.setattr(cli_mod, "_translate", _boom)
+    with pytest.raises(KeyError, match="internal-bug-key"):
+        main(["123", "-p", "cn_current"])
