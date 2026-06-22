@@ -315,8 +315,12 @@ class LayoutRenderer:
             # lookup, not a branch here); this method only frames the
             # block with blank lines.
             wrapped = get_scheme(opts.music_scheme).lay_out(cells, opts)
-            if not wrapped:
-                # Empty music block — emit nothing (no stray blank lines).
+            if not wrapped or all(not line for line in wrapped):
+                # Empty (or all-empty-line) music block — emit nothing. The
+                # wrapper returns [[]] for a degenerate block (only separator
+                # cells, no real measures), which is truthy; without the
+                # all-empty check its framing blanks + that empty line would
+                # leak in as stray rows.
                 return out
             for _ in range(blank_before):
                 out.append([BLANK_CELL])
@@ -355,11 +359,12 @@ class LayoutRenderer:
         wrapped = self._wrap_block_cells(
             cells, first_indent=first_indent, cont_indent=cont_indent
         )
-        if not wrapped:
-            # Empty text block — emit nothing, not the framing blank lines
-            # a heading's blank_before / blank_after would otherwise
-            # surface as two stray blank rows.  Mirrors the score path's
-            # empty-block guard above.
+        if not wrapped or all(not line for line in wrapped):
+            # Empty (or all-empty-line) text block — emit nothing, not the
+            # framing blank lines a heading's blank_before / blank_after would
+            # otherwise surface as stray blank rows. The wrapper returns [[]]
+            # for an all-blank block (truthy), so the all-empty check is needed
+            # too. Mirrors the score path's empty-block guard above.
             return out
         if align is not None:
             wrapped = [self._align_line(line, align) for line in wrapped]

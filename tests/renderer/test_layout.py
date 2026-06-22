@@ -551,6 +551,20 @@ class TestWrapEdgeCases:
         out = LayoutRenderer().render(doc)  # defaults frame headings
         assert out == ""
 
+    def test_degenerate_score_block_emits_no_stray_blanks(self):
+        # rl-1: a score block with only separator cells (no real measures)
+        # wraps to [[]] (one empty line) — truthy, so the empty-block guard's
+        # all-empty check is what stops its framing blanks + that empty line
+        # from leaking in as stray rows.
+        sep = BrailleCell(dots=(), role="music_measure_sep")
+        doc = BrailleDocument(blocks=[
+            BrailleBlock(block_type="score", cells=[sep, sep]),
+        ])
+        out = LayoutRenderer(
+            options=LayoutOptions(score_blank_before=1, score_blank_after=1)
+        ).render(doc)
+        assert out == ""
+
     def test_non_positive_line_width_emits_single_line(self):
         # A non-positive ``line_width`` would loop forever in a naive
         # greedy wrap; the defensive branch returns the cells as one
