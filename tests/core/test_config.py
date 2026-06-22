@@ -15,6 +15,19 @@ from brailix.core.config import (
 )
 
 
+def test_math_less_profile_does_not_alias_empty_singleton() -> None:
+    # cfg-empty-math: a profile with no tables.math (e.g. ja_current) must get
+    # FRESH inner dicts, not the shared _EMPTY_MATH module singleton — else an
+    # in-place mutation of one profile's math_symbols / structures leaks into
+    # every other math-less profile and permanently poisons the module global.
+    a = load_profile("ja_current")
+    b = load_profile("ja_current")
+    assert a.math_symbols is not b.math_symbols
+    a.math_symbols["LEAK"] = "oops"
+    assert "LEAK" not in b.math_symbols
+    assert "LEAK" not in load_profile("ja_current").math_symbols
+
+
 def test_profile_equality_survives_letter_cache() -> None:
     # The lazy letter() memoization is excluded from __eq__, so two
     # profiles built from identical tables stay equal even after one has

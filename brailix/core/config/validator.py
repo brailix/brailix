@@ -140,6 +140,17 @@ def validate_profile(
     lang_subtag = str(payload["language"]).split("-")[0]
     if lang_subtag != "zh":
         _validate_lang_tables(base, tables.get(lang_subtag), lang_subtag, profile_file)
+    elif isinstance(zh_tables, dict):
+        # zh keeps welded loaders (exempt from the generic per-language slot
+        # check above), but its hand-authored punctuation table still resolves
+        # through _resolve_table, which SILENTLY drops an entry it can't parse
+        # (e.g. an object with neither 'cells' nor 'dots') — surfacing only as a
+        # missing cell at first translation. Validate it the same way as any
+        # other cell table so an authoring typo fails loud at load. The helper
+        # keys on payload.get("punctuation"), exactly as _load_punct_table does.
+        punct_ref = zh_tables.get("punctuation")
+        if isinstance(punct_ref, str) and punct_ref:
+            _validate_lang_cell_table(base, punct_ref, "punctuation")
 
     # Sub-table content validation. Each helper re-reads the relevant
     # file so error messages can point at the offending raw entry.

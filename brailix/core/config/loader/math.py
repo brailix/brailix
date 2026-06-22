@@ -51,7 +51,14 @@ def _load_math_table(
     """
     pool = cells_pool or {}
     if not entry or not isinstance(entry, dict):
-        return _EMPTY_MATH
+        # Fresh dict with fresh inner {} per call — NEVER the shared module
+        # singleton. Its values land directly on BrailleProfile fields
+        # (math_symbols / math_structures / ...); returning the singleton would
+        # alias those mutable dicts across every math-less profile (ja_current,
+        # …) and, via the cached shared profile, let any in-place mutation
+        # corrupt every other math-less profile and permanently poison the
+        # module global. ``_EMPTY_MATH`` stays the canonical key-set template.
+        return {key: {} for key in _EMPTY_MATH}
 
     sym_rel = entry.get("symbols")
     fn_rel = entry.get("functions")

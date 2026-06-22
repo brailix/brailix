@@ -248,6 +248,31 @@ class TestLangTableMetadataKeys:
         assert p.language == "xx-XX"
 
 
+class TestPunctTableValidation:
+    """cfg-punct: the zh punctuation table resolves through _resolve_table,
+    which silently drops an entry it can't parse. validate_profile now checks
+    it so an authoring typo fails loud at load instead of surfacing as a
+    missing cell at first translation. (cn_current's real punct.json passing
+    TestHappyPath proves the check doesn't false-positive on valid entries.)"""
+
+    def test_unparseable_punct_entry_raises(self, tmp_path):
+        res = tmp_path / "resources"
+        res.mkdir(parents=True, exist_ok=True)
+        # An object with neither 'cells' nor 'dots' — silently dropped before.
+        (res / "punct.json").write_text(
+            json.dumps({"punctuation": {"，": {"foo": 1}}}), encoding="utf-8"
+        )
+        name = _write_profile(
+            tmp_path,
+            tables_override={
+                "cells": "resources/cells.json",
+                "zh": {"punctuation": "resources/punct.json"},
+            },
+        )
+        with pytest.raises(ConfigurationError, match="not a valid cell spec"):
+            load_profile(name, root=tmp_path)
+
+
 class TestMathSymbolAccentMark:
     _STRUCT = {"accent": {"mark": {
         "arrow": {"single": ["c_2"], "double": ["c_2", "c_3"]}
