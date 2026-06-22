@@ -383,9 +383,25 @@ def _emit_multi_voice(
     pre_globals: list[ET.Element] = []
     post_globals: list[ET.Element] = []
     current_voice: str | None = None
+    # Inter-note cursor-zone elements (a <direction> etc.) are BUFFERED, not
+    # appended immediately, so one landing between a chord root and its
+    # <chord/> members can't split the chord (the run batcher in
+    # _emit_note_sequence only groups a member that *immediately* follows the
+    # root). They flush to the voice they followed when the next non-chord note
+    # arrives — i.e. after the chord is complete — or at measure end.
+    pending_inserts: list[ET.Element] = []
     for i, child in enumerate(children):
         if child.tag == "note":
             v = _voice_of(child)
+            if (
+                child.find("chord") is None
+                and pending_inserts
+                and current_voice is not None
+            ):
+                # A fresh (non-chord) note starts: the previous chord is done,
+                # so flush the buffered inserts after it, before this note.
+                voice_notes[current_voice].extend(pending_inserts)
+                pending_inserts = []
             voice_notes.setdefault(v, []).append(child)
             current_voice = v
         elif child.tag in ("backup", "forward"):
@@ -397,16 +413,21 @@ def _emit_multi_voice(
         else:
             # A non-note element between the first and last cursor — a
             # <direction> (dynamic / wedge), a mid-measure <attributes>,
-            # etc. Attach it to the most recent note's voice so it stays
-            # where it sounds, instead of hoisting it to the end of the
-            # measure (which would move e.g. a dynamic onto the wrong
-            # note, or apply a mid-measure clef change too late). If the
-            # cursor zone opened on a <backup> (no note seen yet), fall
-            # back to the measure head.
+            # etc. Buffer it (see pending_inserts above) so it stays in the
+            # current voice but after any in-progress chord, instead of
+            # hoisting it to the end of the measure (which would move e.g. a
+            # dynamic onto the wrong note, or apply a mid-measure clef change
+            # too late). If the cursor zone opened on a <backup> (no note seen
+            # yet), fall back to the measure head.
             if current_voice is not None:
-                voice_notes[current_voice].append(child)
+                pending_inserts.append(child)
             else:
                 pre_globals.append(child)
+    # Trailing inserts (a <direction> after the measure's last note) attach to
+    # the voice they followed. (pending_inserts is only filled when a note —
+    # hence a voice — has been seen, so current_voice is set here.)
+    if pending_inserts and current_voice is not None:
+        voice_notes[current_voice].extend(pending_inserts)
 
     for el in pre_globals:
         _emit_element(cells, mctx, el)

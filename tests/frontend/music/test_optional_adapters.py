@@ -121,6 +121,28 @@ class TestAbcAdapter:
         )
 
     @pytest.mark.skipif(
+        not _has("abc_xml_converter"),
+        reason="abc-xml-converter not installed — pip install brailix[abc]",
+    )
+    def test_abc_multi_score_warns_about_dropped_tunes(self, monkeypatch):
+        # music-3: if the converter returns more than one per-tune score, only
+        # the first is translated, so the rest must be flagged (not silently
+        # dropped). The installed converter merges tunes into a single score,
+        # so simulate the multi-score return the adapter's own comment
+        # anticipates and assert it warns + keeps the first.
+        from abc_xml_converter import abc2xml
+
+        monkeypatch.setattr(abc2xml, "getXmlScores", lambda _text: ["<a/>", "<b/>"])
+        ctx = MusicContext(profile="cn_current", source="abc")
+        adapter = music_source_registry.get("abc")
+        out = adapter.to_musicxml("X:1\nK:C\nCDEF|", ctx)
+        assert out == "<a/>"  # the first tune is kept
+        assert any(
+            w.code == "MUSIC_UNSUPPORTED_NOTATION" and "tunes" in w.message
+            for w in ctx.warnings.warnings
+        )
+
+    @pytest.mark.skipif(
         _has("abc_xml_converter"),
         reason="abc-xml-converter installed — can't test missing-extra path",
     )

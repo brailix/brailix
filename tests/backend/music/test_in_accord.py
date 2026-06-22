@@ -110,6 +110,36 @@ class TestMultiVoice:
             "music_octave", "music_note",
         ]
 
+    def test_direction_mid_chord_keeps_chord_contiguous(self, profile, ctx):
+        # music-2: a <direction> (dynamic) interleaved between a chord root and
+        # its <chord/> member in a multi-voice measure must not split the chord
+        # — the member stays grouped (interval right after the root) and the
+        # direction cell follows the complete chord, not lands inside it.
+        chord_member = (
+            "<note><chord/><pitch><step>E</step><octave>4</octave></pitch>"
+            "<duration>1</duration><type>quarter</type><voice>1</voice></note>"
+        )
+        dynamic = (
+            "<direction><direction-type><dynamics><f/></dynamics>"
+            "</direction-type></direction>"
+        )
+        m = ET.fromstring(
+            '<measure number="1">'
+            + _note("G", 4, voice="1")  # chord root, voice 1
+            + dynamic  # interleaved mid-chord
+            + chord_member  # chord member, voice 1
+            + "<backup><duration>1</duration></backup>"
+            + _note("C", 4, voice="2")  # voice 2 → triggers multi-voice
+            + "</measure>"
+        )
+        cells = emit_tree(m, ctx, profile)
+        roles = _roles(cells)
+        assert "music_in_accord" in roles  # multi-voice path taken
+        note_idx = roles.index("music_note")
+        interval_idx = roles.index("music_interval")
+        dynamic_idx = roles.index("music_dynamic")
+        assert note_idx < interval_idx < dynamic_idx
+
     def test_voice_marker_cells(self, profile, ctx):
         m = ET.fromstring(
             '<measure number="1">'

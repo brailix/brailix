@@ -80,8 +80,18 @@ class AbcSourceAdapter:
             return music_error_wrap(
                 text, reason="abc-xml-converter produced no score"
             )
-        # One music fragment → one score; a multi-tune ABC file yields its
-        # first tune (the music IR is one score per fragment).
+        # The music IR is one score per fragment, so only the first tune of a
+        # multi-tune ABC file is translated. Warn (when a ctx is available) so
+        # the dropped tunes 2..N aren't a silent content loss.
+        if len(scores) > 1 and ctx is not None:
+            ctx.warnings.warn(
+                code="MUSIC_UNSUPPORTED_NOTATION",
+                message=(
+                    f"ABC file has {len(scores)} tunes; only the first is "
+                    f"translated ({len(scores) - 1} dropped)"
+                ),
+                source="frontend.music.abc",
+            )
         return scores[0]
 
 
