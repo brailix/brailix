@@ -33,6 +33,26 @@ class TestBomHandling:
         doc = parse_file(path, profile="cn_current", language="zh-CN")
         assert doc.blocks[0].text == "你好"
 
+    def test_utf16_le_txt_decodes(self, tmp_path: Path) -> None:
+        # Windows Notepad's "save as .txt" writes UTF-16 LE + BOM; utf-8-sig
+        # alone used to crash on it with UnicodeDecodeError.
+        path = tmp_path / "notepad.txt"
+        path.write_bytes(b"\xff\xfe" + "你好".encode("utf-16-le"))
+        doc = parse_file(path, profile="cn_current", language="zh-CN")
+        assert doc.blocks[0].text == "你好"
+
+    def test_utf16_le_md_detects_heading(self, tmp_path: Path) -> None:
+        path = tmp_path / "notepad.md"
+        path.write_bytes(b"\xff\xfe" + "# 标题\n".encode("utf-16-le"))
+        doc = parse_file(path, profile="cn_current", language="zh-CN")
+        assert isinstance(doc.blocks[0], Heading)
+
+    def test_utf16_be_txt_decodes(self, tmp_path: Path) -> None:
+        path = tmp_path / "be.txt"
+        path.write_bytes(b"\xfe\xff" + "你好".encode("utf-16-be"))
+        doc = parse_file(path, profile="cn_current", language="zh-CN")
+        assert doc.blocks[0].text == "你好"
+
 
 class TestSuffixDispatch:
     def test_md_suffix_routes_to_markdown_parser(self, tmp_path: Path) -> None:

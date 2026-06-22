@@ -223,6 +223,15 @@ def _convert_paragraph(
     if not blocks_out and not style and list_info is None:
         return [Paragraph(text="")]
 
+    # Empty list item: keep the slot so the list's visible numbering doesn't
+    # shift. An authored empty bullet / numbered line is a real placeholder;
+    # dropping it renumbers every following ordered item, so the braille list
+    # no longer matches what the user sees in Word.
+    if not blocks_out and list_info is not None:
+        return [
+            _wrap_text_block("", style=style, list_info=list_info, align=align)
+        ]
+
     return blocks_out
 
 
@@ -850,11 +859,11 @@ def _walk_alt_subtree(
     used by paragraph walking, just without the paragraph-level
     splitting (the caller's run/paragraph context already has that).
 
-    Note: this re-implements the object / oMath / oMathPara / r tag
-    dispatch of :func:`_iter_paragraph_tokens` (different return contract —
-    ``(piece, math)`` here vs. tokens there). A new inline-math source added
-    to that walker must be mirrored here, or AlternateContent branches will
-    silently drop it.
+    Note: this re-implements the object / oMath / oMathPara / r / fldSimple
+    tag dispatch of :func:`_iter_paragraph_tokens` (different return contract
+    — ``(piece, math)`` here vs. tokens there). A new inline-math source
+    added to that walker must be mirrored here, or AlternateContent branches
+    will silently drop it.
 
     A single ``_FieldState`` is threaded through the whole branch (created at
     the top-level call, passed down through recursion) so a cross-run EQ field
@@ -880,6 +889,15 @@ def _walk_alt_subtree(
             yield "", _math_block_from_omath_para(child)
         elif tag == "r":
             for piece in _walk_run(child, ole_blobs, field_state):
+                yield piece, None
+        elif tag == "fldSimple":
+            # Word's simple-field form: the EQ instruction lives in the
+            # w:instr attribute, not the (cached visual result) children.
+            # Mirror _emit_child_tokens — falling into the else branch would
+            # recurse into the rendered runs and silently drop the equation.
+            instr = _ns_attr(child, _W_PREFIX, "instr") or ""
+            piece = _eq_field_to_inline_math(instr)
+            if piece is not None:
                 yield piece, None
         else:
             # Recurse — the OLE might be wrapped in another shape /

@@ -122,13 +122,26 @@ class _FileCtx:
     @property
     def text(self) -> str:
         if self._text is None:
-            # utf-8-sig strips a leading BOM (Windows Notepad / Word "save as
-            # .txt" write one), else behaves exactly like utf-8 — without it a
-            # BOM survives into the first block and a Markdown heading on line
-            # one ("﻿# 标题") fails the ^#{1,6} match. Still raises
-            # UnicodeDecodeError on genuinely non-UTF-8 bytes.
-            self._text = self.path.read_text(encoding="utf-8-sig")
+            self._text = _decode_text(self.path)
         return self._text
+
+
+def _decode_text(path: Path) -> str:
+    """Decode a text file, tolerating the UTF-16 BOM Windows Notepad writes.
+
+    Notepad's "save as .txt" historically emits UTF-16 LE with a BOM, and
+    ``.md`` / ``.txt`` files from non-technical users are exactly that —
+    the same UTF-16 reality the ``.xml`` route already handles via
+    :func:`_read_xml_text`. ``utf-8-sig`` alone raises UnicodeDecodeError on
+    those valid files. Sniff the UTF-16 BOM (the codec reads it for
+    endianness); otherwise fall back to ``utf-8-sig`` (which strips a UTF-8
+    BOM so a Markdown heading on line one still matches, else behaves like
+    utf-8). Genuinely non-UTF-8/16 bytes still raise.
+    """
+    raw = path.read_bytes()
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16")
+    return raw.decode("utf-8-sig")
 
 
 # Route handlers: each takes a :class:`_FileCtx` and returns a ``DocumentIR``.

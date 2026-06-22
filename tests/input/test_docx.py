@@ -172,6 +172,22 @@ class TestStructuralBlocks:
         assert [it.text for it in lists[0].items] == ["一项", "二项", "三项"]
         assert all(isinstance(it, ListItem) for it in lists[0].items)
 
+    def test_empty_list_item_keeps_its_slot(self, tmp_path: Path) -> None:
+        # An authored empty list item (a bullet / number line with no text)
+        # must keep its slot — dropping it would renumber every following
+        # ordered item so the braille list no longer matches Word.
+        path, doc = _make_docx(tmp_path)
+        doc.add_paragraph("一项", style="List Bullet")
+        doc.add_paragraph("", style="List Bullet")  # empty middle item
+        doc.add_paragraph("三项", style="List Bullet")
+        doc.save(path)
+
+        result = parse_docx(path, profile="cn_current", language="zh-CN")
+        lists = [b for b in result.blocks if isinstance(b, List)]
+        assert len(lists) == 1
+        assert [it.text for it in lists[0].items] == ["一项", "", "三项"]
+        assert all(isinstance(it, ListItem) for it in lists[0].items)
+
     def test_table_with_two_rows(self, tmp_path: Path) -> None:
         path, doc = _make_docx(tmp_path)
         t = doc.add_table(rows=2, cols=2)
@@ -1064,6 +1080,34 @@ class TestAlternateContent:
         islands = _inline_math_islands(text)
         assert len(islands) == 1  # the EQ field assembled, not dropped
         assert "<mfrac" in _island_mathml(islands[0])
+
+    def test_fldsimple_eq_field_in_alternate_content_survives(
+        self, tmp_path: Path
+    ) -> None:
+        # A simple-field EQ formula (<w:fldSimple w:instr="eq ...">) inside an
+        # AlternateContent branch. The instruction lives in the w:instr
+        # attribute, not the cached-result children — the subtree walker used
+        # to fall into its else branch, recurse into those rendered children,
+        # and silently drop the equation.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("值 ")
+        alt_xml = (
+            f'<mc:AlternateContent xmlns:mc="{_MC_NS}" xmlns:w="{_W_NS}">'
+            f'<mc:Fallback>'
+            f'<w:fldSimple w:instr="eq \\f(1,2)">'
+            f"<w:r><w:t>cached</w:t></w:r>"  # visual result — must be ignored
+            f"</w:fldSimple>"
+            f"</mc:Fallback>"
+            f"</mc:AlternateContent>"
+        )
+        para._p.append(etree.fromstring(alt_xml))
+        doc.save(path)
+        text = _para_text(parse_docx(path, profile="cn_current", language="zh-CN"))
+        assert "值" in text
+        islands = _inline_math_islands(text)
+        assert len(islands) == 1  # the EQ instruction parsed, not dropped
+        assert "<mfrac" in _island_mathml(islands[0])
+        assert "cached" not in text  # the cached visual run is not surfaced
 
     def test_recursion_error_in_body_walk_becomes_parse_error(
         self, tmp_path: Path, monkeypatch
