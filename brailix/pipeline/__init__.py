@@ -926,9 +926,19 @@ class Pipeline:
         # mean "no frontend for this prose" — NO_LANGUAGE_FRONTEND — not the
         # misleading UNHANDLED_SEGMENT_TYPE the old `elif` fell through to.
         if segment.type in _all_prose_types():
+            # Same code (NO_LANGUAGE_FRONTEND) for both arrival reasons, but an
+            # accurate message: the language may have no frontend at all, or
+            # have one that simply doesn't claim this prose segment type.
+            if language_frontend_registry.has(lang):
+                message = (
+                    f"language {lang!r} frontend does not handle prose "
+                    f"segment type {segment.type!r}"
+                )
+            else:
+                message = f"no frontend registered for language {lang!r}"
             ctx.warnings.warn(
                 code="NO_LANGUAGE_FRONTEND",
-                message=f"no frontend registered for language {lang!r}",
+                message=message,
                 surface=segment.surface,
                 span=segment.span,
                 source="pipeline",

@@ -52,6 +52,7 @@ _FACADE: dict[str, list[str]] = {
         "Warning",
         "WarningCollector",
         "BrailixError",
+        "UnknownAdapterError",
         "FrontendContext",
         "BackendContext",
         "MathContext",
