@@ -53,12 +53,16 @@ class AutoChineseAnalyzer:
             try:
                 self._delegate = analyzer_registry.get(name)
                 return self._delegate
-            except (KeyError, MissingExtraError, ModelNotInstalledError) as e:
+            except (KeyError, MissingExtraError, ModelNotInstalledError, OSError) as e:
                 # ModelNotInstalledError: a candidate (e.g. hanlp under
                 # managed download) is importable but its model isn't
-                # downloaded yet. Treat it like any other "candidate
-                # unavailable" and fall through to the next — the shipping
-                # default chain must degrade to char, not crash the compile.
+                # downloaded yet. OSError: a candidate's loader touched the
+                # filesystem (e.g. created its model dir) and failed — a
+                # read-only models root when brailix runs inside another
+                # app's frozen interpreter. Treat both like any other
+                # "candidate unavailable" and fall through to the next — the
+                # shipping default chain must degrade to char, not crash the
+                # compile.
                 last_error = e
 
         if last_error is not None:
