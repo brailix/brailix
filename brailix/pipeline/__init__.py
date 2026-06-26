@@ -32,7 +32,8 @@ are re-exported here so ``brailix.pipeline.<name>`` keeps resolving:
   :data:`TreeSubcache`.
 * :mod:`brailix.pipeline._helpers` — the module-level standalone helpers
   :func:`_resolve_language_adapter`, :func:`_all_prose_types`,
-  :func:`_ensure_block_span`, :func:`_block_surface`, :func:`block_hash`.
+  :func:`_ensure_block_span`, :func:`_block_surface`, :func:`block_hash`,
+  :func:`cache_lookup`, :func:`cache_record`.
 
 The cohesive :class:`Pipeline` orchestrator stays here, together with
 :data:`_frontend_parse_math_tree` / :data:`_frontend_parse_music_tree`,
@@ -133,6 +134,41 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
+# Table-cell span rebasing
+# ---------------------------------------------------------------------------
+
+# Source-text gap between table cells: a row's display text joins its cells
+# with two spaces (and the backend separates them with two blank cells), so a
+# cell's source spans are offset by the prior cells' lengths plus this gap.
+_TABLE_CELL_GAP = 2
+
+
+def _shift_node_spans(node: Any, delta: int) -> None:
+    """Recursively shift ``node``'s ``span`` and every descendant's by ``delta``.
+
+    Inline nodes / blocks are mutable (``frozen=False`` slots dataclasses) and
+    ``Span`` is immutable, so each shift assigns a fresh ``Span``.  Nodes
+    without provenance (``span is None``) are left untouched."""
+    span = getattr(node, "span", None)
+    if span is not None:
+        node.span = span.shift(delta)
+    for child in getattr(node, "children", ()) or ():
+        _shift_node_spans(child, delta)
+
+
+def _table_cell_source_len(cell: Any) -> int:
+    """Source-text length of a table cell — what a row's display text joins.
+
+    A cell's source length is its own ``text`` when present, else the total of
+    its children's surfaces, so the rebase offset matches the row's joined
+    source string.  Uses the raw text, never the cell's span (which this pass
+    shifts), so re-translating an already-populated table stays idempotent."""
+    if cell.text:
+        return len(cell.text)
+    return sum(len(getattr(child, "surface", "")) for child in cell.children)
+
+
+# ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
 
@@ -156,9 +192,9 @@ class Pipeline:
     * ``segmenter`` / ``normalizer`` — segmenter and normalizer adapter
       names.
     * ``analyzer`` — Chinese tokenizer name (``auto`` / ``char`` /
-      ``jieba`` / ``hanlp``).
+      ``thulac`` / ``jieba`` / ``hanlp``).
     * ``resolver`` — pinyin resolver name (``auto`` / ``null`` /
-      ``pypinyin`` / ``g2pw``).
+      ``pypinyin`` / ``g2pm`` / ``g2pw``).
     * ``user_pinyin_dict`` — optional ``surface → reading`` overrides
       layered on top of ``resolver`` (a proofreading front-end's personal
       dictionary). Multi-char surfaces only; empty = no-op.
@@ -646,10 +682,21 @@ class Pipeline:
             return
         if isinstance(block, Table):
             for row in block.rows:
+                # Each cell is tokenised in isolation, so its inline spans are
+                # local to the cell's own text. A row's display text is its
+                # cells joined by two spaces (matching the backend's two-blank
+                # column separator), so rebase each cell's spans by its offset
+                # in that joined string — otherwise a non-first cell's inline
+                # node / braille cell highlights the wrong column.
+                cell_offset = 0
                 for cell in row.cells:
+                    already_populated = bool(cell.children)
                     self._populate_block(
                         cell, ctx, tree_in=tree_in, tree_out=tree_out
                     )
+                    if cell_offset and not already_populated:
+                        _shift_node_spans(cell, cell_offset)
+                    cell_offset += _table_cell_source_len(cell) + _TABLE_CELL_GAP
             return
         # Leaf block.  Populate children from raw ``text`` only when it's
         # present and nothing has filled them yet; the per-kind branches

@@ -111,6 +111,68 @@ class TestBackendEmitsForMathCode:
 
 
 # ---------------------------------------------------------------------------
+# Table cells: spans rebased to the row coordinate, not cell-local
+# ---------------------------------------------------------------------------
+
+
+class TestTableCellSpanRebasing:
+    """Each table cell is tokenised in isolation, so its inline spans are
+    local to the cell. A row flattens its cells into one source string joined
+    by two spaces; the spans must be rebased into that row coordinate, else a
+    non-first cell's inline node / braille cell points at the wrong column."""
+
+    def test_inline_spans_are_row_local(self, pipe):
+        from brailix.ir.document import Table
+
+        doc = parse_markdown(
+            "| AB | CDE |\n| --- | --- |\n| FG | HI |\n",
+            profile="cn_current",
+            language="zh-CN",
+        )
+        pipe.translate_document(doc)
+        table = next(b for b in doc.blocks if isinstance(b, Table))
+        header = table.rows[0]
+        # Row text "AB  CDE": cell0 at 0, cell1 at len("AB") + 2 == 4.
+        c0 = header.cells[0].children[0]
+        c1 = header.cells[1].children[0]
+        assert (c0.span.start, c0.span.end) == (0, 2)  # "AB"
+        assert (c1.span.start, c1.span.end) == (4, 7)  # "CDE", not (0, 3)
+
+    def test_braille_cell_source_spans_are_row_local(self, pipe):
+        doc = parse_markdown(
+            "| AB | CDE |\n| --- | --- |\n",
+            profile="cn_current",
+            language="zh-CN",
+        )
+        result = pipe.translate_document(doc)
+        rows = [
+            b for b in result.braille_ir.blocks if b.block_type == "table_row"
+        ]
+        assert rows
+        starts = [
+            c.source_span.start for c in rows[0].cells if c.source_span is not None
+        ]
+        # Second column ("CDE") braille cells carry row-local spans starting
+        # at offset 4, not cell-local 0.
+        assert max(starts) >= 4
+
+    def test_single_cell_row_unchanged(self, pipe):
+        # A one-cell row has no separator, so cell0 stays at offset 0 — the
+        # rebase must not shift the first (or only) cell.
+        from brailix.ir.document import Table
+
+        doc = parse_markdown(
+            "| AB |\n| --- |\n",
+            profile="cn_current",
+            language="zh-CN",
+        )
+        pipe.translate_document(doc)
+        table = next(b for b in doc.blocks if isinstance(b, Table))
+        child = table.rows[0].cells[0].children[0]
+        assert child.span.start == 0
+
+
+# ---------------------------------------------------------------------------
 # Layout honors heading_level metadata
 # ---------------------------------------------------------------------------
 
