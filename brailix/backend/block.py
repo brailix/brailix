@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from brailix.backend import number as number_backend
 from brailix.backend.dispatch import translate_node
+from brailix.backend.latin import english_run_role
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.ir.braille import BLANK_CELL, BrailleBlock, BrailleCell, BrailleDocument
@@ -142,16 +143,35 @@ def _translate_children(
     Each dispatch sees the immediately-following sibling stashed under
     ``ctx.options['_next_inline_sibling']`` so backends can peek
     across IR-node boundaries (the zh backend uses this for NCB's
-    cross-syllable boundary rule). The key is cleared after the loop so it
-    doesn't leak to unrelated callers that share the context.
+    cross-syllable boundary rule).
+
+    It also threads a running-English flag under
+    ``ctx.options['_english_run_active']``: the flag is on whenever an
+    earlier sibling already opened an English stretch that the current
+    node hasn't broken, letting :func:`brailix.backend.latin.translate_latin`
+    drop the redundant lowercase sign on a following lowercase word. The
+    on/off transitions come from :func:`english_run_role` so the type
+    knowledge stays in the Latin backend, not here. Both keys are cleared
+    after the loop so they don't leak to unrelated callers that share the
+    context. The flag starts fresh per call, so an English run never
+    spans block / list-item / table-cell boundaries.
     """
     out: list[BrailleCell] = []
+    english_active = False
     for i, child in enumerate(children):
         ctx.options["_next_inline_sibling"] = (
             children[i + 1] if i + 1 < len(children) else None
         )
+        ctx.options["_english_run_active"] = english_active
         out.extend(translate_node(child, ctx, profile))
+        role = english_run_role(child)
+        if role == "letter":
+            english_active = True
+        elif role == "break":
+            english_active = False
+        # "carry" (space / punct / digits) leaves the flag unchanged.
     ctx.options.pop("_next_inline_sibling", None)
+    ctx.options.pop("_english_run_active", None)
     return out
 
 

@@ -1,9 +1,9 @@
 {
-  "description": "English text (V3 current-braille convention: the first letter of each word carries a case prefix, subsequent letters are bare).",
+  "description": "English text (Current Chinese Braille convention for embedded English): the first letter of a word carries a case sign, the rest are bare. Inside a running English stretch the lowercase sign ⠰ is dropped on following lowercase words — it only announces 'a Latin letter starts here', redundant once English is already underway — so a whole sentence shows it at most once. The capital sign keeps emitting per word because it carries case (World vs world).",
   "regen_hint": "python -c \"from brailix import Pipeline; print(repr(Pipeline().translate_text(SRC).render()))\"",
   "groups": {
     "single_letter": {
-      "description": "Single letter — prefix + letter (2 cells)",
+      "description": "Single letter — sign + letter (2 cells)",
       "cases": [
         {"src": "a", "expected": "⠰⠁", "note": "lowercase a: ⠰ + a"},
         {"src": "z", "expected": "⠰⠵", "note": "lowercase z"},
@@ -12,25 +12,25 @@
       ]
     },
     "lower_word": {
-      "description": "Lowercase word — one prefix + bare letters",
+      "description": "Lowercase word — one lowercase sign + bare letters",
       "cases": [
-        {"src": "hello", "expected": "⠰⠓⠑⠇⠇⠕", "note": "5-char word: 1 prefix + 5 bare letters"},
+        {"src": "hello", "expected": "⠰⠓⠑⠇⠇⠕", "note": "5-char word: 1 sign + 5 bare letters"},
         {"src": "world", "expected": "⠰⠺⠕⠗⠇⠙", "note": "5-char word"},
-        {"src": "ab", "expected": "⠰⠁⠃", "note": "2-char word: prefix + a + b"}
+        {"src": "ab", "expected": "⠰⠁⠃", "note": "2-char word: sign + a + b"}
       ]
     },
     "mixed_case": {
-      "description": "Mixed case — the first letter's case picks the prefix, subsequent letters are bare",
+      "description": "Mixed case — the first letter's case picks the sign, subsequent letters are bare",
       "cases": [
         {"src": "Hello", "expected": "⠠⠓⠑⠇⠇⠕", "note": "first letter cap"},
         {"src": "World", "expected": "⠠⠺⠕⠗⠇⠙", "note": "same shape"},
-        {"src": "Hello World", "expected": "⠠⠓⠑⠇⠇⠕⠀⠠⠺⠕⠗⠇⠙", "note": "two words, each takes own prefix"},
+        {"src": "Hello World", "expected": "⠠⠓⠑⠇⠇⠕⠀⠠⠺⠕⠗⠇⠙", "note": "two capitalized words — the capital sign is per-word (it carries case), so World keeps its ⠠"},
         {"src": "McDonald", "expected": "⠠⠍⠉⠙⠕⠝⠁⠇⠙", "note": "mid-word D becomes bare cell"},
         {"src": "iPhone", "expected": "⠰⠊⠏⠓⠕⠝⠑", "note": "first letter lowercase prevails"}
       ]
     },
     "acronym": {
-      "description": "All-caps acronym — whole-word capitals double the upper prefix (⠠⠠) + bare letters; a single ⠠ means only the first letter is capital",
+      "description": "All-caps acronym — whole-word capitals double the upper sign (⠠⠠) + bare letters; a single ⠠ means only the first letter is capital",
       "cases": [
         {"src": "CPU", "expected": "⠠⠠⠉⠏⠥", "note": "3-char acronym"},
         {"src": "GPU", "expected": "⠠⠠⠛⠏⠥", "note": "3-char acronym"},
@@ -38,11 +38,21 @@
         {"src": "HTTP", "expected": "⠠⠠⠓⠞⠞⠏", "note": "4-char acronym"}
       ]
     },
-    "dotted_abbrev": {
-      "description": "Abbreviation with periods (the segmenter treats the period as a separator, each segment gets its own prefix; an English '.' is followed by one blank)",
+    "running_english": {
+      "description": "A running stretch of English: the lowercase sign ⠰ appears at most once (on the first word, and only if it's lowercase), then following lowercase words run bare. Spaces, punctuation and digits don't break the run; Chinese does. Capitals keep their per-word sign throughout.",
       "cases": [
-        {"src": "i.e.", "expected": "⠰⠊⠲⠀⠰⠑⠲⠀", "note": "i + period + blank + e + period + blank"},
-        {"src": "e.g.", "expected": "⠰⠑⠲⠀⠰⠛⠲⠀", "note": "two single-letter LatinWords, each followed by ⠲⠀"}
+        {"src": "hello world", "expected": "⠰⠓⠑⠇⠇⠕⠀⠺⠕⠗⠇⠙", "note": "sign once on hello; world runs bare"},
+        {"src": "Hello world", "expected": "⠠⠓⠑⠇⠇⠕⠀⠺⠕⠗⠇⠙", "note": "capital opens the run; world bare"},
+        {"src": "Hello there world", "expected": "⠠⠓⠑⠇⠇⠕⠀⠞⠓⠑⠗⠑⠀⠺⠕⠗⠇⠙", "note": "whole sentence: one capital sign up front, no signs after"},
+        {"src": "the CPU is fast", "expected": "⠰⠞⠓⠑⠀⠠⠠⠉⠏⠥⠀⠊⠎⠀⠋⠁⠎⠞", "note": "the takes ⠰; CPU keeps its doubled capital sign; is / fast run bare"},
+        {"src": "abc 123 def", "expected": "⠰⠁⠃⠉⠀⠼⠁⠃⠉⠀⠙⠑⠋", "note": "the digit run (⠼…) carries the English context across; def runs bare"}
+      ]
+    },
+    "dotted_abbrev": {
+      "description": "Abbreviation with periods. The period carries the English run (it doesn't break it), so only the first letter takes the lowercase sign and the second runs bare. An English '.' is followed by one blank.",
+      "cases": [
+        {"src": "i.e.", "expected": "⠰⠊⠲⠀⠑⠲⠀", "note": "i takes ⠰; the period carries the run; e runs bare; each period adds a blank"},
+        {"src": "e.g.", "expected": "⠰⠑⠲⠀⠛⠲⠀", "note": "e takes ⠰; g runs bare after the carrying period"}
       ]
     }
   }

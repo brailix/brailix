@@ -132,12 +132,12 @@
       ]
     },
     "mtext": {
-      "description": "<mtext> / \\text{...} is natural-language text, routed through the zh/latin language path: one letter prefix per word (not per char), Chinese as Chinese braille, spaces (incl. the U+00A0 latex2mathml emits inside \\text) as blank cells",
+      "description": "<mtext> / \\text{...} is natural-language text, routed through the zh/latin language path, so it follows the same running-English rule as prose: the lowercase sign ⠰ opens a run and following lowercase words run bare. Chinese renders as Chinese braille; spaces (incl. the U+00A0 latex2mathml emits inside \\text) become blank cells",
       "cases": [
         {"src": "$\\text{ab}$", "expected": "⠰⠁⠃", "note": "mtext word: one latin prefix for the run, not one per char"},
         {"src": "$\\text{x}$", "expected": "⠰⠭", "note": "mtext single char x"},
         {"src": "$\\text{hello}$", "expected": "⠰⠓⠑⠇⠇⠕", "note": "mtext word hello: single latin prefix"},
-        {"src": "$\\text{a b}$", "expected": "⠰⠁⠀⠰⠃", "note": "mtext space (latex2mathml gives U+00A0) → blank cell, no warning"},
+        {"src": "$\\text{a b}$", "expected": "⠰⠁⠀⠃", "note": "mtext with a space: a opens the run (⠰), U+00A0 → blank cell, b runs bare"},
         {"src": "$\\text{速度}$", "expected": "⠎⠥⠆⠙⠥⠆", "note": "mtext Chinese → Chinese braille via the language path (was blank cells)"}
       ]
     }

@@ -38,6 +38,22 @@ def test_word_spacing_inserts_blank(pipe):
 
 
 # ---------------------------------------------------------------------------
+# Running English: the lowercase sign ⠰ is dropped on a following lowercase
+# word, and Chinese breaks the run so the next English word re-announces.
+# ---------------------------------------------------------------------------
+
+
+def test_chinese_breaks_running_english_re_signs(pipe):
+    """A Chinese word breaks the running-English context: the lowercase
+    sign ⠰ opens "hello", is dropped on the mid-run "world", then
+    re-appears on "foo" only because 你 reset the run in between."""
+    rendered = pipe.translate_text("hello world 你 foo").render()
+    # Exactly two lowercase signs ⠰ (U+2830): opening hello, re-opening
+    # foo. "world" mid-run carries none, and 你's pinyin uses no ⠰.
+    assert rendered.count("⠰") == 2, rendered
+
+
+# ---------------------------------------------------------------------------
 # data-bk-span: feed raw MathML directly through the backend.
 # ---------------------------------------------------------------------------
 #

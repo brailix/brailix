@@ -10,11 +10,19 @@ from __future__ import annotations
 
 import pytest
 
-from brailix.backend.latin import translate_latin
+from brailix.backend.latin import english_run_role, translate_latin
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
-from brailix.ir.inline import LatinAcronym, LatinWord
+from brailix.ir.inline import (
+    LatinAcronym,
+    LatinWord,
+    Number,
+    Punct,
+    Space,
+    Unknown,
+    Word,
+)
 
 
 @pytest.fixture(scope="module")
@@ -209,6 +217,97 @@ class TestLatinLetterLookup:
         assert roles_seq[0] == "punct"
         assert roles_seq.count("latin_letter") == 3
         assert len(cells) == 4
+
+
+class TestRunningEnglish:
+    """Inside a running English stretch (``_english_run_active`` flag set
+    by the block dispatcher) a *lowercase* word drops its lowercase sign
+    ⠰ — the English context is already established. Capitals and Greek
+    keep their script-class sign because it carries case / script, not
+    merely 'a letter starts here'.
+    """
+
+    def _run_ctx(self, profile):
+        return BackendContext(
+            profile=profile.name, options={"_english_run_active": True}
+        )
+
+    def test_lowercase_word_in_run_drops_lowercase_sign(self, profile):
+        # "world" mid-run → bare letters only, no leading ⠰ (5,6).
+        cells = translate_latin(
+            LatinWord(surface="world", span=Span(0, 5)),
+            self._run_ctx(profile),
+            profile,
+        )
+        assert len(cells) == 5  # one bare cell per letter, no sign
+        assert all(c.role == "latin_letter" for c in cells)
+        assert cells[0].dots == profile.bare_letter("w")
+        assert (5, 6) not in [c.dots for c in cells]
+
+    def test_single_lowercase_letter_in_run_drops_sign(self, profile):
+        # A bare "a" mid-run is just the bare cell — the one place the
+        # sign would otherwise always appear.
+        cells = translate_latin(
+            LatinWord(surface="a", span=Span(0, 1)), self._run_ctx(profile), profile
+        )
+        assert len(cells) == 1
+        assert cells[0].dots == profile.bare_letter("a")
+
+    def test_capital_word_in_run_keeps_capital_sign(self, profile):
+        # "World" mid-run still emits the capital sign ⠠ (it carries case).
+        cells = translate_latin(
+            LatinWord(surface="World", span=Span(0, 5)),
+            self._run_ctx(profile),
+            profile,
+        )
+        assert cells[0].dots == (6,)  # capital sign retained
+        assert len(cells) == 6
+
+    def test_all_caps_word_in_run_keeps_doubled_sign(self, profile):
+        # "CPU" mid-run still doubles the capital sign ⠠⠠.
+        cells = translate_latin(
+            LatinAcronym(surface="CPU"), self._run_ctx(profile), profile
+        )
+        assert cells[0].dots == (6,)
+        assert cells[1].dots == (6,)
+        assert len(cells) == 5
+
+    def test_greek_lowercase_in_run_keeps_script_sign(self, profile):
+        # Only latin_lower is dropped; the Greek lower-case sign ⠨ stays.
+        cells = translate_latin(
+            LatinWord(surface="τ", span=Span(0, 1)), self._run_ctx(profile), profile
+        )
+        assert cells[0].dots == (4, 6)  # Greek lower-case sign, not dropped
+        assert len(cells) == 2
+
+    def test_lowercase_word_outside_run_keeps_sign(self, ctx, profile):
+        # Regression: with no run flag (the default) the first word still
+        # gets its lowercase sign — this is the run-opening word.
+        cells = translate_latin(
+            LatinWord(surface="world", span=Span(0, 5)), ctx, profile
+        )
+        assert cells[0].dots == (5, 6)
+        assert len(cells) == 6
+
+
+class TestEnglishRunRole:
+    """``english_run_role`` classifies how a node affects a running
+    English stretch: it's the rule the block dispatcher threads into the
+    ``_english_run_active`` flag."""
+
+    def test_latin_nodes_are_letters(self):
+        assert english_run_role(LatinWord(surface="x")) == "letter"
+        assert english_run_role(LatinAcronym(surface="X")) == "letter"
+
+    def test_space_punct_digits_carry_the_run(self):
+        # These may sit inside an English stretch without ending it.
+        assert english_run_role(Space(surface=" ")) == "carry"
+        assert english_run_role(Punct(surface=".")) == "carry"
+        assert english_run_role(Number(surface="42")) == "carry"
+
+    def test_chinese_and_unknown_break_the_run(self):
+        assert english_run_role(Word(surface="你")) == "break"
+        assert english_run_role(Unknown(surface="☃")) == "break"
 
 
 class TestLatinHousing:
