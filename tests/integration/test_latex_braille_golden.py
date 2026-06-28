@@ -145,6 +145,14 @@ class TestScripts:
         assert roles.count("math_op") == 1
         assert roles.count("math_rel") == 1
 
+    def test_scripted_letter_continues_adjacent_letter_run(self, pipe):
+        # 2ab^2 is one adjacent lowercase letter run. The scripted b should
+        # not start a second lowercase sign: ⠼⠃⠰ab⠌⠆, not ⠼⠃⠰a⠰b⠌⠆.
+        assert render(pipe, r"$(2ab^2)$") == "⠣⠼⠃⠰⠁⠃⠌⠆⠜"
+
+    def test_scripted_letter_after_operator_starts_new_letter_run(self, pipe):
+        assert render(pipe, r"$(2a\cdot b^2)$") == "⠣⠼⠃⠰⠁⠄⠰⠃⠌⠆⠜"
+
 
 # ---------------------------------------------------------------------------
 # Fractions

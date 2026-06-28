@@ -26,6 +26,7 @@ from brailix.backend.math.handlers.leaves import _emit_function_name
 from brailix.backend.math.utils import (
     _emit_structure,
     _is_atomic,
+    _is_single_char_mi,
     _is_single_digit_mn,
     _unpack_script,
     _unpack_under_over,
@@ -151,7 +152,7 @@ def _emit_regular_script(
     profile = mctx.profile
     simplify = profile.feature("math.simplify_script", True)
     if base is not None:
-        _emit_element(cells, mctx, base)
+        _emit_script_base(cells, mctx, base)
     if sub is not None:
         _emit_structure(cells, mctx, "script.sub", role="math_subscript")
         if not _try_emit_atomic_lower_digit(cells, mctx, sub):
@@ -174,6 +175,56 @@ def _emit_regular_script(
                 if not (simplify and _is_atomic(sup)):
                     _emit_structure(cells, mctx, "script.close", role="math_script_close")
     mctx.need_number_sign = True
+
+
+def _emit_script_base(
+    cells: list[BrailleCell], mctx: MathBrailleContext, base: ET.Element
+) -> None:
+    """Emit a script base, preserving an adjacent same-class letter run.
+
+    In a linear product like ``ab^2``, MathML represents the scripted
+    letter as a separate ``<msup><mi>b</mi>...</msup>`` sibling after
+    ``<mi>a</mi>``. The generic ``<mi>`` handler cannot see the previous
+    sibling from inside the script node, so it would emit another letter
+    prefix (``⠰a⠰b``). If the previous emitted identifier is the same
+    letter class, emit only the bare base letter and let the earlier
+    prefix continue over the scripted base.
+    """
+    if not _is_single_char_mi(base):
+        _emit_element(cells, mctx, base)
+        return
+    text = (base.text or "").strip()
+    cls = mctx.profile.letter_class(text)
+    bare = mctx.profile.bare_letter(text)
+    prev_cls = _last_identifier_class(cells, mctx)
+    if cls is None or bare is None or prev_cls != cls:
+        _emit_element(cells, mctx, base)
+        return
+    cells.append(
+        BrailleCell(
+            dots=bare,
+            role="math_identifier",
+            source_span=mctx.span,
+            source_text=text,
+        )
+    )
+    mctx.need_number_sign = True
+
+
+def _last_identifier_class(
+    cells: list[BrailleCell], mctx: MathBrailleContext
+) -> str | None:
+    """Return the letter class of the last real identifier cell, if any."""
+    for cell in reversed(cells):
+        if cell.role in ("hang_open", "hang_close"):
+            continue
+        if cell.role != "math_identifier":
+            return None
+        text = cell.source_text or ""
+        if len(text) != 1:
+            return None
+        return mctx.profile.letter_class(text)
+    return None
 
 
 def _emit_big_op_script(
