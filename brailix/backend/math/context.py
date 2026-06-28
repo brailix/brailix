@@ -49,6 +49,17 @@ class MathBrailleContext:
       entry and force the compound ⠆…⠰ form: ``cos`` of α/a must keep
       its brackets, otherwise it would collapse into the same cells as
       the bracket-free (cos α)/a.
+    * ``letter_run_class`` — the ``letter_prefix.*`` class of the active
+      baseline letter run (``"latin_lower"`` / ``"latin_upper"`` /
+      ``"greek_lower"`` / ``"greek_upper"``), or ``None`` when no run is
+      open. The letter-sign rule writes the class/script prefix only when
+      this changes, so consecutive same-class letters share one sign —
+      *even across a script base* (``ab^2`` / ``a^2b`` are one lowercase
+      run, not two). Letter emission sets it; any non-letter baseline cell
+      (operators, digits, delimiters, structural markers, text, spaces)
+      clears it via :meth:`break_letter_run`; a script saves it before its
+      sub/sup body and restores it after, so the base joins the run while
+      the script body stays an isolated context.
     """
 
     profile: BrailleProfile
@@ -58,3 +69,14 @@ class MathBrailleContext:
     chem: bool = False
     chem_per_element: bool = False
     fraction_is_function_arg: bool = False
+    letter_run_class: str | None = None
+
+    def break_letter_run(self) -> None:
+        """End the active baseline letter run.
+
+        After this the next letter — whatever its class — re-emits its
+        class/script prefix. Called whenever a non-letter baseline cell is
+        emitted (operators, digits, delimiters, structural markers, text,
+        forced spaces), since each of those interrupts a letter run.
+        """
+        self.letter_run_class = None

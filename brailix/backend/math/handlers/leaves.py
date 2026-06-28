@@ -16,7 +16,6 @@ import xml.etree.ElementTree as ET
 
 from brailix.backend._digits import DigitRoles, emit_digit_run
 from brailix.backend._inline import rebase_translated_cells
-from brailix.backend._letters import iter_letter_runs
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.utils import (
     _NUMBER_BREAKING_ROLES,
@@ -103,12 +102,64 @@ def _emit_mi(
     _emit_identifier_char(cells, mctx, text)
 
 
+def _emit_one_letter(
+    cells: list[BrailleCell], mctx: MathBrailleContext, ch: str
+) -> bool:
+    """Emit one letter, sharing its class/script prefix across a same-class
+    baseline run. Returns ``False`` (emitting nothing) when ``ch`` is not a
+    letter, so callers can fall back to the symbol / punctuation chain.
+
+    The letter sign (class/script prefix) is written only when the active
+    run's class differs from this letter's — consecutive same-class letters
+    reuse it, *even across a script base* (``ab^2`` / ``a^2b`` are one
+    lowercase run, not two) or a coalesced word (``ab`` / ``ABC``). A class
+    change starts a new sign (``Abc`` → ⠠⠁⠰⠃⠉, ``πr`` → ⠨⠏⠰⠗). Math keeps a
+    single sign for an all-capital run (``ABC`` → ⠠⠁⠃⠉) — the per-class run
+    structure carries the case; the whole-word-capitals ⠠⠠ doubling is an
+    embedded-English convention (``backend.latin``), not a math one.
+
+    For the *first* letter of a run this emits exactly what
+    ``profile.letter(ch)`` would (``letter_prefix.{class}`` + bare letter);
+    the run state only ever *omits* a prefix a same-class predecessor
+    already wrote, so single-word output is unchanged — only cross-structure
+    adjacency (the case the old per-element prefix double-counted) differs.
+    """
+    profile = mctx.profile
+    cls = profile.letter_class(ch)
+    bare = profile.bare_letter(ch)
+    if cls is None or bare is None:
+        return False
+    if mctx.letter_run_class != cls:
+        cells.extend(
+            BrailleCell(
+                dots=dots,
+                role="math_identifier",
+                source_span=mctx.span,
+                source_text=ch,
+            )
+            for dots in profile.math_structure(f"letter_prefix.{cls}")
+        )
+        mctx.letter_run_class = cls
+    cells.append(
+        BrailleCell(
+            dots=bare,
+            role="math_identifier",
+            source_span=mctx.span,
+            source_text=ch,
+        )
+    )
+    mctx.need_number_sign = True
+    return True
+
+
 def _emit_identifier_char(
     cells: list[BrailleCell], mctx: MathBrailleContext, ch: str
 ) -> None:
     """Emit one identifier character.
 
-    Lookup chain: profile.letter (latin/greek + script-class prefix) →
+    A letter shares its class/script prefix with an adjacent same-class
+    baseline run (see :func:`_emit_one_letter`). A non-letter character
+    breaks any active run, then falls through the lookup chain:
     math_symbol (catches operators / shapes / extras that surface as
     ``<mi>`` instead of ``<mo>`` — latex2mathml emits ``\\pm`` and other
     binary operators as ``<mi>±</mi>`` rather than ``<mo>±</mo>``) →
@@ -118,20 +169,11 @@ def _emit_identifier_char(
     symbol's spacing and role (op / rel / big_op...) take effect —
     otherwise mid-formula ``\\pm`` would lose its ``space_before`` flag.
     """
-    profile = mctx.profile
-    dots_seq = profile.letter(ch)
-    if dots_seq is not None:
-        cells.extend(
-            BrailleCell(
-                dots=dots,
-                role="math_identifier",
-                source_span=mctx.span,
-                source_text=ch,
-            )
-            for dots in dots_seq
-        )
-        mctx.need_number_sign = True
+    if _emit_one_letter(cells, mctx, ch):
         return
+    # Not a letter — it interrupts any active letter run.
+    mctx.break_letter_run()
+    profile = mctx.profile
     if profile.math_symbol(ch) is not None:
         _emit_as_mo(cells, mctx, ch)
         return
@@ -157,48 +199,21 @@ def _emit_identifier_char(
 def _emit_letter_runs(
     cells: list[BrailleCell], mctx: MathBrailleContext, text: str
 ) -> None:
-    """Emit a stretch of letters with per-class letter signs.
+    """Emit a stretch of letters (a multi-letter ``<mi>`` word — a coalesced
+    run, ``\\mathrm{ABC}``, or an OMML/MTEF word token) with per-class
+    letter signs.
 
-    The case/script sign is written before the letter; consecutive
-    letters of the SAME class share one sign (only the first letter of
-    the run takes it); a class change starts a new sign — ``Abc`` →
-    ⠠⠁⠰⠃⠉, ``πr`` → ⠨⠏⠰⠗. An all-capital run keeps that single sign:
-    ``ABC`` → ⠠⠁⠃⠉. The whole-word-capitals doubling (⠠⠠) is an
-    embedded-English text convention (``backend.latin``) — a math
-    identifier is not embedded English, and the per-class run structure
-    already carries the case, so math never doubles.
-
-    Characters without a letter class shouldn't reach here (callers
-    pre-check via ``letter_class``); they degrade to the per-char
-    identifier path defensively.
+    Delegates each character to :func:`_emit_identifier_char`, so the
+    case/script sign follows the same shared-run rule as everywhere else:
+    one sign per same-class stretch (``Abc`` → ⠠⠁⠰⠃⠉, ``πr`` → ⠨⠏⠰⠗,
+    ``ABC`` → ⠠⠁⠃⠉), shared with an adjacent same-class letter outside the
+    word and reset by a class change or any non-letter character. The
+    run state lives on :attr:`MathBrailleContext.letter_run_class`, so a
+    leading letter whose class matches the preceding identifier reuses that
+    sign instead of repeating it.
     """
-    profile = mctx.profile
-    for cls, run in iter_letter_runs(text, profile):
-        if cls is None:
-            _emit_identifier_char(cells, mctx, run)
-            continue
-        prefix = profile.math_structure(f"letter_prefix.{cls}")
-        cells.extend(
-            BrailleCell(
-                dots=dots,
-                role="math_identifier",
-                source_span=mctx.span,
-                source_text=run,
-            )
-            for dots in prefix
-        )
-        for ch in run:
-            bare = profile.bare_letter(ch)
-            if bare is None:  # unreachable: letter_class hit the same table
-                continue
-            cells.append(
-                BrailleCell(
-                    dots=bare,
-                    role="math_identifier",
-                    source_span=mctx.span,
-                    source_text=ch,
-                )
-            )
+    for ch in text:
+        _emit_identifier_char(cells, mctx, ch)
     mctx.need_number_sign = True
 
 
@@ -243,6 +258,10 @@ def _emit_function_name(
         # Per-char fallback for names with non-letter content.
         for ch in lookup_name:
             _emit_identifier_char(cells, mctx, ch)
+    # A function application is its own unit: a spelled-out name must not
+    # share a letter sign with a following argument letter (``\arccot x``
+    # — x is a separate variable, not the tail of the name).
+    mctx.break_letter_run()
     mctx.need_number_sign = True
 
 
@@ -253,6 +272,11 @@ def _emit_mn(
     if not text:
         return
     profile = mctx.profile
+    # A baseline digit run interrupts a letter run (``a`` and ``b`` in
+    # ``a2b`` are not adjacent letters). Script-position digits never reach
+    # here on the run-sharing path — single digits go through the lowered
+    # form, multi-digit script content runs inside the script's save/restore.
+    mctx.break_letter_run()
     emit_digit_run(
         cells,
         text,
@@ -308,6 +332,10 @@ def _emit_mo(
     the operator still renders, so the faithful output is unchanged; the
     writer is just told the doubled ``==`` looks like a typo.
     """
+    # An operator / relation / delimiter / shape / symbol all interrupt a
+    # letter run, on every path below (chem arrow, ordinary symbol, and the
+    # function-name / letter / punct fallbacks for unmapped chars).
+    mctx.break_letter_run()
     if elem.get("data-bk-warn") == "repeated-operator":
         op = (elem.text or "").strip()
         hint = ""
@@ -452,6 +480,7 @@ def _emit_mspace(
     """
     if elem.get("linebreak") != "newline":
         return
+    mctx.break_letter_run()
     if not (cells and cells[-1].role == "line_break"):
         cells.append(LINE_BREAK_CELL)
     mctx.need_number_sign = True
@@ -479,6 +508,10 @@ def _emit_mtext(
     label ((s)/(l)/(g)/(aq)) — routed to the chem state emitter (one
     Latin-lowercase prefix + bare letters) instead.
     """
+    # Literal text is its own unit: it interrupts a math letter run on both
+    # sides (a letter before / after ``\text{...}`` doesn't share its sign),
+    # and its own cells are text, not run-bearing identifiers.
+    mctx.break_letter_run()
     if mctx.chem and elem.get("data-bk-chem-state") is not None:
         from brailix.backend.math import chem as _chem
 

@@ -69,13 +69,15 @@ class TestMi:
     ):
         # Three-letter name not in the functions table — it's a letter
         # word, not a function: no ⠫, and the same-class run shares ONE
-        # lowercase sign: ⠰ + h + y + p.
+        # lowercase sign: ⠰ + h + y + p. The sign attributes to the first
+        # letter it governs — every letter now flows through one per-char
+        # emit path, so the prefix's source_text is that char, not the word.
         cells, _ = emit(mml("<math><mi>hyp</mi></math>"), profile)
         assert all(c.role == "math_identifier" for c in cells)
         assert [c.dots for c in cells] == [
             (5, 6), (1, 2, 5), (1, 3, 4, 5, 6), (1, 2, 3, 4),
         ]
-        assert [c.source_text for c in cells] == ["hyp", "h", "y", "p"]
+        assert [c.source_text for c in cells] == ["h", "h", "y", "p"]
 
     def test_mi_all_caps_word_keeps_single_capital_sign(self, profile):
         # Math is not embedded English: an all-capital run keeps ONE

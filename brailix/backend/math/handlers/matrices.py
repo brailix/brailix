@@ -191,6 +191,10 @@ def _emit_row_cells(
         if not first:
             cells.append(BLANK_CELL)
             mctx.need_number_sign = True
+            # The blank cell separates columns: adjacent cells are distinct
+            # entries, so a letter ending one cell and a letter starting the
+            # next must not share a letter sign.
+            mctx.break_letter_run()
         first = False
         _emit_children_with_matrix(cells, mctx, list(tcell))
 

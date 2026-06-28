@@ -1178,12 +1178,76 @@ class TestLetterRunCoalesce:
         assert [c.dots for c in cells] == [(5, 6), (1,), (1, 2)]
 
     def test_mixed_span_presence_blocks_merge(self, profile):
-        # One spanned + one unspanned letter: merging would mis-attribute
-        # cells, so the run stays per-letter (two ⠰ signs).
+        # One spanned + one unspanned letter: the coalescer must NOT merge
+        # them — a merged cell would mis-attribute the span. They stay two
+        # separate identifiers, each keeping its own span. The lowercase
+        # sign is still shared at emit time (the letter run spans the two
+        # adjacent same-class letters), so the visible output is one ⠰ over
+        # ⠁⠃ — but ⠰⠁ carry a's span (3,4) while ⠃ keeps its own.
         cells, _ = emit(
             mml(
                 '<math><mi data-bk-span="3,4">a</mi><mi>b</mi></math>'
             ),
             profile,
         )
-        assert [c.dots for c in cells] == [(5, 6), (1,), (5, 6), (1, 2)]
+        assert [c.dots for c in cells] == [(5, 6), (1,), (1, 2)]
+        spans = [
+            (c.source_span.start, c.source_span.end) if c.source_span else None
+            for c in cells
+        ]
+        assert spans == [(3, 4), (3, 4), None]
+
+
+class TestLetterRunAcrossScripts:
+    """The lowercase / capital / Greek sign is shared across a same-class
+    baseline run even when a sub/superscript intervenes, because the run is
+    tracked at emit time — not reconstructed from the tree shape or from
+    already-emitted cells.
+
+    The data-bk-span case is the real-document one: OMML / MTEF / docx math
+    tags every token with a ``data-bk-span`` (LaTeX never does), so a fix that
+    gated on a bare-``<mi>`` shape would silently no-op there. These tests lock
+    that the spanned tree and the bare tree emit identical cells.
+    """
+
+    # ⠰ a b ⠌ ⠆ — one lowercase sign over the a·b run, scripted b included.
+    _AB2 = [(5, 6), (1,), (1, 2), (3, 4), (2, 3)]
+    # ⠰ a ⠌ ⠆ b — b continues a's run across the superscript.
+    _A2B = [(5, 6), (1,), (3, 4), (2, 3), (1, 2)]
+
+    def test_ab_squared_shares_one_sign(self, profile):
+        cells, _ = emit(
+            mml("<math><mi>a</mi><msup><mi>b</mi><mn>2</mn></msup></math>"),
+            profile,
+        )
+        assert [c.dots for c in cells] == self._AB2
+        # exactly one lowercase sign (⠰ = dots 5,6), not one per letter
+        assert [c.dots for c in cells].count((5, 6)) == 1
+
+    def test_data_bk_span_does_not_break_sharing(self, profile):
+        # The PR #46 blind spot: every <mi> carries data-bk-span (the real
+        # docx / OMML shape). The shared-sign output must be identical to the
+        # bare tree — the rule follows emit events, not token attributes.
+        spanned, _ = emit(
+            mml(
+                '<math><mi data-bk-span="0,1">a</mi>'
+                '<msup><mi data-bk-span="1,2">b</mi><mn>2</mn></msup></math>'
+            ),
+            profile,
+        )
+        bare, _ = emit(
+            mml("<math><mi>a</mi><msup><mi>b</mi><mn>2</mn></msup></math>"),
+            profile,
+        )
+        assert [c.dots for c in spanned] == [c.dots for c in bare] == self._AB2
+
+    def test_scripted_first_letter_shares_across_superscript(self, profile):
+        # a²b (symmetric): the script cells sit between a and b, so a fix that
+        # scans emitted cells backward can't see the run — the emit-time state
+        # can. b reuses a's sign.
+        cells, _ = emit(
+            mml("<math><msup><mi>a</mi><mn>2</mn></msup><mi>b</mi></math>"),
+            profile,
+        )
+        assert [c.dots for c in cells] == self._A2B
+        assert [c.dots for c in cells].count((5, 6)) == 1

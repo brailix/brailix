@@ -154,6 +154,12 @@ def _emit_regular_script(
     simplify = profile.feature("math.simplify_script", True)
     if base is not None:
         _emit_element(cells, mctx, base)
+        # The base is a baseline atom: when it's a single letter it joins the
+        # surrounding letter run, so capture its run class to restore after
+        # the (isolated) script body. A non-letter base leaves this ``None``.
+        saved_run = mctx.letter_run_class
+    else:
+        saved_run = None
     if sub is not None:
         _emit_structure(cells, mctx, "script.sub", role="math_subscript")
         if not _try_emit_atomic_lower_digit(cells, mctx, sub):
@@ -175,6 +181,11 @@ def _emit_regular_script(
                 _emit_element(cells, mctx, sup)
                 if not (simplify and _is_atomic(sup)):
                     _emit_structure(cells, mctx, "script.close", role="math_script_close")
+    # Restore the base's letter run across the (now-finished) script body, so
+    # a following baseline letter shares the base's sign: ``a^2b`` is one
+    # lowercase run, matching ``ab^2``. The sub/sup markers above already
+    # cleared the run while the body was being emitted.
+    mctx.letter_run_class = saved_run
     mctx.need_number_sign = True
 
 
@@ -200,6 +211,9 @@ def _emit_big_op_script(
         _emit_big_op_side(
             cells, mctx, sup, "script.sup", "math_superscript", use_prefix
         )
+    # A big-op (∑ / ∫ / lim …) is a baseline atom: its limits never extend a
+    # letter run onto a following baseline letter, so close the run here.
+    mctx.break_letter_run()
     mctx.need_number_sign = True
 
 
@@ -226,6 +240,9 @@ def _emit_big_op_function_script(
         _emit_big_op_side(
             cells, mctx, sup, "script.sup", "math_superscript", use_prefix
         )
+    # A big-op (∑ / ∫ / lim …) is a baseline atom: its limits never extend a
+    # letter run onto a following baseline letter, so close the run here.
+    mctx.break_letter_run()
     mctx.need_number_sign = True
 
 

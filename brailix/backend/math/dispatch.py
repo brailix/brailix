@@ -69,8 +69,14 @@ def _emit_element(
         mctx.span = override
     if chem:
         mctx.chem = True
+        # A chemistry subtree uses its own casing rules (capital sign / ⠸
+        # formula indicator), not the math letter-sign run; fence it off both
+        # ways so a math letter run on either side never bleeds across it.
+        mctx.break_letter_run()
     try:
         handler(cells, mctx, elem)
     finally:
         mctx.span = saved_span
         mctx.chem = saved_chem
+        if chem:
+            mctx.break_letter_run()

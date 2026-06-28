@@ -146,6 +146,52 @@ class TestScripts:
         assert roles.count("math_rel") == 1
 
 
+class TestLetterRunAcrossScripts:
+    """A letter sign is shared across a whole same-class baseline run, and a
+    sub/superscript does not break that run — the script's base is still a
+    baseline letter. So ``ab²``, ``a²b`` and ``a²b²`` are each one lowercase
+    run with a single ⠰, mirroring the plain ``ab``. The run restarts only on
+    a genuine break: an operator, a delimiter, or a letter-class change. The
+    rule is symmetric (it holds whether the script is on the first or second
+    letter) and follows emit order, so it is independent of how the MathML
+    marks its tokens (see the data-bk-span regression in
+    ``tests/backend/test_math_handlers.py``)."""
+
+    def test_scripted_second_letter_shares_run(self, pipe):
+        # ab²: a and the scripted b are one lowercase run — ⠰ab, not ⠰a⠰b.
+        assert render(pipe, r"$ab^2$") == "⠰⠁⠃⠌⠆"
+
+    def test_scripted_first_letter_shares_run(self, pipe):
+        # a²b (symmetric): b continues a's run across the superscript.
+        assert render(pipe, r"$a^2b$") == "⠰⠁⠌⠆⠃"
+
+    def test_both_letters_scripted_share_run(self, pipe):
+        # a²b²: still one run — the second base shares even though the first
+        # base's script intervenes.
+        assert render(pipe, r"$a^2b^2$") == "⠰⠁⠌⠆⠃⠌⠆"
+
+    def test_operator_between_restarts_run(self, pipe):
+        # a·b²: the operator breaks the run, so b takes a fresh sign.
+        assert render(pipe, r"$a \cdot b^2$") == "⠰⠁⠄⠰⠃⠌⠆"
+
+    def test_class_change_restarts_run(self, pipe):
+        # Ab²: A is capital, b is lowercase — a class change, two signs.
+        assert render(pipe, r"$Ab^2$") == "⠠⠁⠰⠃⠌⠆"
+
+    def test_coefficient_and_variables_one_run(self, pipe):
+        # (2ab²): the digit 2 then the a·b letters — one lowercase sign over
+        # ab, scripted b included.
+        assert render(pipe, r"$(2ab^2)$") == "⠣⠼⠃⠰⠁⠃⠌⠆⠜"
+
+    def test_greek_run_shares_across_script(self, pipe):
+        # αβ²: Greek lowercase shares its own sign the same way.
+        assert render(pipe, r"$\alpha\beta^2$") == "⠨⠁⠃⠌⠆"
+
+    def test_subscripted_letter_then_letter_shares_run(self, pipe):
+        # x₁y: y continues x's run across the subscript (same rule as a²b).
+        assert render(pipe, r"$x_1 y$") == "⠰⠭⠡⠂⠽"
+
+
 # ---------------------------------------------------------------------------
 # Fractions
 # ---------------------------------------------------------------------------
@@ -373,6 +419,11 @@ class TestEquationSystems:
         # The motivating real-world shape: a 3-equation linear system in
         # x₁ x₂ x₃ with parenthesised coefficients — row-internal
         # parentheses ⠣…⠜ coexist with the ⠣ last-row segment.
+        # A bare coefficient next to a variable (``ax₁``) is one lowercase
+        # letter run — ``a`` and ``x`` share the sign across x's subscript,
+        # exactly like ``ab²`` — so it is ⠰⠁⠭⠡⠂, not ⠰⠁⠰⠭⠡⠂. A parenthesised
+        # coefficient ``(1+a)x₂`` still restarts the sign: the closing ⠜
+        # breaks the run.
         out = render(
             pipe,
             r"$\left\{\begin{array}{l}a x_{1}+x_{2}+x_{3}=1 \\"
@@ -380,8 +431,8 @@ class TestEquationSystems:
             r" 2 x_{1}+(1+a) x_{2}+(1+a) x_{3}=a(1+a)\end{array}\right.$",
         )
         assert out == (
-            "⠎⠀⠰⠁⠰⠭⠡⠂⠀⠖⠰⠭⠡⠆⠀⠖⠰⠭⠡⠒⠀⠶⠼⠁"
-            "\n⠇⠀⠰⠭⠡⠂⠀⠖⠰⠁⠰⠭⠡⠆⠀⠖⠰⠭⠡⠒⠀⠶⠰⠁"
+            "⠎⠀⠰⠁⠭⠡⠂⠀⠖⠰⠭⠡⠆⠀⠖⠰⠭⠡⠒⠀⠶⠼⠁"
+            "\n⠇⠀⠰⠭⠡⠂⠀⠖⠰⠁⠭⠡⠆⠀⠖⠰⠭⠡⠒⠀⠶⠰⠁"
             "\n⠣⠀⠼⠃⠰⠭⠡⠂⠀⠖⠣⠼⠁⠀⠖⠰⠁⠜⠰⠭⠡⠆"
             "⠀⠖⠣⠼⠁⠀⠖⠰⠁⠜⠰⠭⠡⠒⠀⠶⠰⠁⠣⠼⠁⠀⠖⠰⠁⠜"
         )

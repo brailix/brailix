@@ -79,7 +79,14 @@ def _emit_structure(
     """Emit a named structural marker (fraction bar, sup/sub indicators,
     sqrt brackets, big-op prefix, ...). Profiles that don't define the
     marker simply skip it — that's a configuration choice, not an error.
+
+    Any structural marker interrupts a baseline letter run, so this clears
+    :attr:`MathBrailleContext.letter_run_class` — the fraction bar between
+    ``a`` and ``b`` must not let ``a/b`` share one letter sign, and the
+    sub/sup indicators isolate a script body from the base's run (the
+    script handler saves and restores the base run around its content).
     """
+    mctx.break_letter_run()
     seq = mctx.profile.math_structure(name)
     for dots in seq:
         cells.append(
