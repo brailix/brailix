@@ -52,8 +52,8 @@
         },
         {
           "src": "hello world",
-          "expected": "⠰⠓⠑⠇⠇⠕⠀⠰⠺⠕⠗⠇⠙",
-          "note": "plain latin text, two words"
+          "expected": "⠰⠓⠑⠇⠇⠕⠀⠺⠕⠗⠇⠙",
+          "note": "running English: ⠰ opens on hello, world runs bare"
         },
         {
           "src": "我",
