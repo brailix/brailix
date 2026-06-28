@@ -17,11 +17,12 @@ right boundaries:
 Soft-failure contract: an unrecognised element / character produces an
 unknown cell plus a ``MATH_*`` warning. The pipeline never crashes.
 
-The package is split into four modules so each one stays scannable:
+The package is split into focused modules so each one stays scannable:
 
 * :mod:`.context`   — :class:`MathBrailleContext` dataclass
 * :mod:`.dispatch`  — :func:`_emit_element`, the tag-dispatch entrypoint
 * :mod:`.handlers`  — every ``_emit_<tag>`` handler + ``_DISPATCH`` table
+* :mod:`.chem`      — chemistry-specific emit helpers (``\\ce{}`` output)
 * :mod:`.utils`     — small pure helpers (shape checks, unpackers, role
   tables, ``_emit_structure``, ``_unknown_cell``, etc.)
 

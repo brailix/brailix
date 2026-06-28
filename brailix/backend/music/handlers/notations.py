@@ -139,9 +139,9 @@ def _emit_tuplet_marker(
     * ``"single_cell"`` (default, Par. 8.4) → ``2`` (cell c_23)
     * ``"three_cell"`` (Par. 8.5)            → ``_3'``
 
-    N=2 / N=10 use the pre-built BANA exemplars; other N values
-    warn — the general ``_<digit>'`` composition lands in a later
-    milestone.
+    N=2 / N=10 use the pre-built BANA exemplars; any other N is
+    synthesized as the general ``_<digits>'`` form (BANA Par. 8.5) by
+    :func:`emit_synthesized_tuplet_marker` — not warned.
     """
     notations = elem.find("notations")
     if notations is None:

@@ -23,7 +23,8 @@ Two builtins ship:
 * :mod:`.ncb_omission` — registers ``"ncb_omission"``.  National Common
   Braille (NCB, GF0019-2018): tone omission grouped by initial +
   zero-initial default + cross-syllable boundary rule; reads the
-  table from :attr:`BrailleProfile.zh_tone_omission`.
+  table from the ``tone_omission`` section of
+  :attr:`BrailleProfile.zh_exceptions`.
 
 Both ship under :mod:`brailix.backend.zh.tone` so they're discovered
 in lockstep with the registry module — the lazy import in
@@ -83,8 +84,9 @@ def register(
     ``builder`` is a callable that takes a :class:`BrailleProfile`
     and returns a :class:`TonePolicy`.  The factory shape (rather
     than a class) lets a strategy require profile-level resources
-    (e.g. ``NcbOmissionPolicy`` needs ``profile.zh_tone_omission``)
-    and raise :class:`ConfigurationError` at build time if those
+    (e.g. ``NcbOmissionPolicy`` needs
+    ``profile.zh_exceptions.tone_omission``) and raise
+    :class:`ConfigurationError` at build time if those
     are missing — instead of crashing on the first decision call.
 
     First registration wins: re-registering the same name is a harmless

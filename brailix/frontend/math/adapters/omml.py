@@ -314,8 +314,9 @@ def _convert_radical(node: ET.Element) -> list[ET.Element]:
 def _convert_nary(node: ET.Element) -> list[ET.Element]:
     """OMML ``<m:nary>`` — n-ary operator (sum, product, integral, ...).
 
-    Becomes ``<munderover><mo>op</mo>sub sup</munderover>e`` for limit
-    location ``undOvr``, otherwise ``<msubsup>``. Word also lets the
+    Becomes ``<msubsup><mo>op</mo>sub sup</msubsup>`` only when the
+    limit location is ``subSup``; every other case (``undOvr`` or an
+    absent ``limLoc``) uses ``<munderover>``. Word also lets the
     operator character be hidden (``subHide`` / ``supHide``); the
     output reflects that by omitting the corresponding child.
     """

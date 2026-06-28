@@ -86,7 +86,7 @@ def parse_musicxml(
     """Read a MusicXML / .mxl file and return a single-block
     :class:`DocumentIR`.
 
-    Suffix dispatch handles ``.musicxml`` / ``.xml`` (UTF-8 text) and
+    Suffix dispatch handles ``.musicxml`` / ``.xml`` (UTF-8/UTF-16 text) and
     ``.mxl`` (ZIP container). Both produce a ``ScoreBlock`` whose
     ``text`` is the resolved MusicXML string and ``source`` is
     ``"musicxml"`` — the inner XML carries no compression by the time
@@ -94,8 +94,8 @@ def parse_musicxml(
 
     Raises :class:`FileNotFoundError` if the path is missing,
     :class:`ValueError` for unrecognised suffixes,
-    :class:`UnicodeDecodeError` if a ``.musicxml`` file's bytes
-    aren't valid UTF-8.
+    :class:`UnicodeDecodeError` if a ``.musicxml`` file's bytes are
+    neither valid UTF-8 nor UTF-16-BOM-prefixed.
     """
     p = Path(path)
     suffix = p.suffix.lower()

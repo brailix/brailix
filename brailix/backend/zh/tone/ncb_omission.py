@@ -1,7 +1,8 @@
 """National Common Braille (GF0019-2018) tone strategy — tone omission grouped by initial.
 
 Wraps :class:`brailix.core.config.zh_ncb_tables.NcbToneOmission`
-(loaded by the profile loader from ``tables.zh.tone_omission``) and
+(loaded by the profile loader from the ``tone_omission`` section of
+``tables.zh.exceptions``) and
 runs the multi-step tone-omission decision tree:
 
 1. ``tone==""`` → no emit.
@@ -26,10 +27,10 @@ runs the multi-step tone-omission decision tree:
    * else → emit
 
 The builder raises :class:`ConfigurationError` at registration-time
-lookup if a profile selects ``ncb_omission`` without providing
-``tables.zh.tone_omission`` — surfaces the misconfig at startup, not
-at the first translated syllable (where it'd be a much noisier
-silent-fall-through bug).
+lookup if a profile selects ``ncb_omission`` without providing a
+``tone_omission`` section in ``tables.zh.exceptions`` — surfaces the
+misconfig at startup, not at the first translated syllable (where
+it'd be a much noisier silent-fall-through bug).
 """
 
 from __future__ import annotations

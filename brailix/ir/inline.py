@@ -186,7 +186,7 @@ class MathInline(InlineNode):
     """
 
     type: ClassVar[str] = "math_inline"
-    source: str = "plain"  # latex / mathml / asciimath / plain
+    source: str = "plain"  # latex / mathml / plain
     math: ET.Element | None = None
 
 
@@ -206,7 +206,7 @@ class MusicInline(InlineNode):
     """
 
     type: ClassVar[str] = "music_inline"
-    source: str = "plain"  # musicxml / mxl / jianpu / midi / abc / plain
+    source: str = "plain"  # musicxml / mxl / midi / abc / plain
     score: ET.Element | None = None
 
 

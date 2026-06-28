@@ -31,7 +31,7 @@ class TranslationResult:
 
     Holds the parsed :class:`DocumentIR` and the
     :class:`BrailleDocument` produced by the backend. Concrete output
-    formats (Unicode braille, BRF, cells, HTML preview, ...) are
+    formats (Unicode braille, BRF, cells, layout, ...) are
     produced by calling :meth:`render` — nothing is pre-rendered, so
     you only pay for the formats you ask for.
     """
@@ -47,7 +47,7 @@ class TranslationResult:
 
         ``name`` defaults to :attr:`default_renderer`. Returns whatever
         the renderer produces — typically ``str`` (Unicode braille) or
-        ``bytes`` (BRF); cells / HTML renderers may produce other types.
+        ``bytes`` (BRF); cells / layout renderers may produce other types.
 
         Raises :class:`KeyError` if no renderer is registered under
         ``name``; :class:`MissingExtraError` if the renderer needs an

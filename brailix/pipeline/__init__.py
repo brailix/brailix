@@ -32,7 +32,8 @@ are re-exported here so ``brailix.pipeline.<name>`` keeps resolving:
   :data:`TreeSubcache`.
 * :mod:`brailix.pipeline._helpers` — the module-level standalone helpers
   :func:`_resolve_language_adapter`, :func:`_all_prose_types`,
-  :func:`_ensure_block_span`, :func:`_block_surface`, :func:`block_hash`.
+  :func:`_ensure_block_span`, :func:`_block_surface`, :func:`block_hash`,
+  :func:`cache_lookup`, :func:`cache_record`.
 
 The cohesive :class:`Pipeline` orchestrator stays here, together with
 :data:`_frontend_parse_math_tree` / :data:`_frontend_parse_music_tree`,
@@ -191,9 +192,9 @@ class Pipeline:
     * ``segmenter`` / ``normalizer`` — segmenter and normalizer adapter
       names.
     * ``analyzer`` — Chinese tokenizer name (``auto`` / ``char`` /
-      ``jieba`` / ``hanlp``).
+      ``thulac`` / ``jieba`` / ``hanlp``).
     * ``resolver`` — pinyin resolver name (``auto`` / ``null`` /
-      ``pypinyin`` / ``g2pw``).
+      ``pypinyin`` / ``g2pm`` / ``g2pw``).
     * ``user_pinyin_dict`` — optional ``surface → reading`` overrides
       layered on top of ``resolver`` (a proofreading front-end's personal
       dictionary). Multi-char surfaces only; empty = no-op.

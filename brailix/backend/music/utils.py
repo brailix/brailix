@@ -279,7 +279,7 @@ def emit_if_enabled(
     """The §6.4 handler template helper — every M3+ handler funnels
     through here.
 
-    Three-step composition:
+    Two-step composition:
 
     1. **Feature gate** — bail out (return False) if the profile has
        ``features.music.<feature>`` set to false.

@@ -21,8 +21,9 @@ the points the project's braille domain expert specified:
   each species decides independently (``Na + H2`` → ⠠Na … ⠸H₂).
 * **Coefficients and the operators ``+`` / ``=`` / ⇌ reuse maths.** They are
   emitted through the ordinary number / operator handlers (coefficient =
-  number-sign + digit; ``+`` / ``=`` keep maths spacing). Only the gas ↑ /
-  precipitate ↓ arrows are chem-specific (attached, no leading space).
+  number-sign + digit; ``+`` / ``=`` keep maths spacing). Chem-specific
+  operators are the attached gas ↑ / precipitate ↓ arrows, the structural
+  bonds (double ⠶ / triple ⠿), and the spaced reverse arrow ← (⠠⠶⠂).
 
 All cells come from the profile tables; the rules live here in the
 backend, the only layer allowed to own braille output decisions.

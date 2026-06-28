@@ -28,8 +28,8 @@ def parse_music_tree(
     tree (rooted at ``<score-partwise>``).
 
     Steps: pick the source adapter from ``ctx.source`` → produce a
-    MusicXML string → run the normalizer (strip namespace, collapse
-    score-timewise to score-partwise) → return the resulting
+    MusicXML string → run the normalizer (strip namespace, normalize
+    voices, infer missing note types) → return the resulting
     :class:`ET.Element`.
 
     Returns ``None`` (and records a ``MUSIC_ADAPTER_MISSING`` warning

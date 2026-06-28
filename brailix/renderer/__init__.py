@@ -2,7 +2,7 @@
 
 Renderers do not understand Chinese, math, or any source language —
 they only convert :class:`~brailix.ir.braille.BrailleCell` instances
-into a target encoding (Unicode braille, BRF, cells, HTML preview,
+into a target encoding (Unicode braille, BRF, cells, layout,
 ...).
 
 Selection happens by name through :data:`renderer_registry`. Each

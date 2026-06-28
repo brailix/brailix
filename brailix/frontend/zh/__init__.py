@@ -4,7 +4,7 @@ Two independent subsystems live under this umbrella, mirroring the zh
 language's two frontend jobs:
 
 * :mod:`~brailix.frontend.zh.analyzer` — text → ``list[ChineseToken]``
-  (HanLP / jieba / char adapters), plus the IRBuilder helpers
+  (thulac / HanLP / jieba / char adapters), plus the IRBuilder helpers
   (``tokens_to_inline`` / ``shift_token_spans`` /
   ``insert_cross_kind_boundary_spaces``).
 * :mod:`~brailix.frontend.zh.pinyin` — fill each token's reading

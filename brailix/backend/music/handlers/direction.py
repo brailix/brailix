@@ -45,9 +45,9 @@ def _emit_direction_type(
 
 
 # MusicXML ``<dynamics>`` symbol-name → BANA Table 22 (A-C) entity.
-# Only the M1-shipped entities are covered; extra MusicXML symbols
-# (mp, sf, sfz, ...) warn until the resource table grows in a later
-# milestone.
+# Only the common symbols are pre-built here; any other MusicXML
+# symbol (mp, sf, sfz, ...) is synthesized as a ``>``-word form
+# (BANA Par. 22.3) by the fallback below — no warning.
 _DYNAMICS_ENTITY: dict[str, str] = {
     "pp": "dynamic_pp",
     "p":  "dynamic_p",
@@ -63,11 +63,11 @@ def _emit_dynamics(
     """``<dynamics><p/><mf/>...</dynamics>`` — each child is one
     dynamic symbol. Each maps to a BANA Table 22 (A-C) entity.
 
-    M3.4 only supports the BANA word-form dynamics shipped in
-    ``resources/music/nuances.json``: pp / p / mf / f / ff. Other
-    MusicXML symbols (mp / sf / sfz / fp / fz / niente) warn —
-    resource expansion lands in a later milestone, not in M3.4's
-    handler-only scope.
+    The BANA word-form dynamics shipped in
+    ``resources/music/nuances.json`` (pp / p / mf / f / ff) use their
+    pre-built entities; any other MusicXML symbol (mp / sf / sfz / fp /
+    fz / niente, ...) is synthesized as a ``>``-word form per BANA
+    Par. 22.3 by the fallback below — not warned.
     """
     if not mctx.profile.feature("music.show_dynamics", True):
         return

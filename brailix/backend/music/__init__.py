@@ -13,8 +13,10 @@ at the right boundaries:
 * **First note of line** always carries an octave prefix
   (Par. 3.2.1).
 
-Soft-failure contract: an unrecognised element / character produces an
-unknown cell plus a ``MUSIC_*`` warning. The pipeline never crashes.
+Soft-failure contract: an unrecognised *element* is a no-op plus a
+``MUSIC_*`` warning (it contributes no cells); an unrecognised
+*character* or a malformed note produces an unknown cell plus a
+warning. The pipeline never crashes.
 
 Public surface is intentionally tiny:
 

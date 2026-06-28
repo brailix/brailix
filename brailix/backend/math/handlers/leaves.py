@@ -209,9 +209,10 @@ def _emit_function_name(
 
     Shape: ``function_prefix`` cells + name cells. Names registered
     in the profile's functions table emit those cells directly;
-    unknown names fall back to letter-by-letter spelling via
-    :func:`_emit_identifier_char` (each letter goes through its own
-    letter+prefix path).
+    unknown names fall back to spelling: an all-letter name via
+    :func:`_emit_letter_runs` (one letter sign per same-class run, not
+    one per letter), a name with non-letter characters per-character
+    via :func:`_emit_identifier_char`.
 
     latex2mathml sometimes emits ``<mi>\\arccot</mi>`` (literal
     backslash, because it doesn't recognise the command) instead of

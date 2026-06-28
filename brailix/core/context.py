@@ -90,7 +90,7 @@ class MathContext:
     """
 
     mode: Literal["inline", "display"] = "inline"
-    source: str = "plain"  # latex / omml / asciimath / mathml / plain
+    source: str = "plain"  # latex / omml / mathml / plain
     profile: str = field(kw_only=True)  # required; no built-in default standard
     surrounding_text: tuple[str, str] | None = None  # (before, after)
     warnings: WarningCollector = field(default_factory=WarningCollector)
@@ -115,9 +115,13 @@ class MusicContext:
     mode: Literal["inline", "block", "score"] = "block"
     source: str = "plain"  # musicxml / mxl / midi / abc / plain
     profile: str = field(kw_only=True)  # required; no built-in default standard
-    transposition: int = 0           # semitones; -12 = octave down, etc.
-    octave_inference: bool = True    # whether to apply BANA Par. 3.2.2
-    show_lyrics: bool = True
+    # NOTE: transposition / octave_inference / show_lyrics are not yet
+    # consumed — these behaviours are currently driven by profile features
+    # (e.g. ``music.octave_rule`` / ``music.show_lyrics``) read by the
+    # backend's MusicBrailleContext, not by these fields.
+    transposition: int = 0           # semitones; -12 = octave down (reserved)
+    octave_inference: bool = True    # BANA Par. 3.2.2 (reserved)
+    show_lyrics: bool = True         # (reserved)
     surrounding_text: tuple[str, str] | None = None  # (before, after)
     warnings: WarningCollector = field(default_factory=WarningCollector)
     options: dict[str, Any] = field(default_factory=dict)

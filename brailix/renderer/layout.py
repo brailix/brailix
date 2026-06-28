@@ -197,9 +197,10 @@ class LayoutOptions:
     # Which BANA layout *format* a score / music_block uses.  Resolved
     # against :mod:`brailix.renderer.music_layout`'s registry and applied
     # by the scheme strategy — the renderer does not branch on it.
-    # Default ``single_line`` (BANA §24.1); ``bar_over_bar`` /
-    # ``line_by_line`` fall back to single_line until their backend
-    # support lands.  Per-line indent is the scheme's concern.
+    # Default ``single_line`` (BANA §24.1); ``bar_over_bar`` is also
+    # implemented, while ``line_by_line`` still falls back to
+    # single_line until its backend support lands.  Per-line indent is
+    # the scheme's concern.
     music_scheme: str = "single_line"
     # Block framing: ``score`` is a display block (blank line before /
     # after, like a heading); ``music_block`` is the inline-ish analogue

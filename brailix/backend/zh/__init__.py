@@ -11,7 +11,7 @@ For each token with a pinyin annotation:
 
    * **initial cell** (if non-empty),
    * **final cell**,
-   * **tone cell** (if ``profile.features.tone`` is enabled and tone
+   * **tone cell** (if the ``tone`` feature is enabled and tone
      is not the neutral one suppressed by ``tone_omit_neutral``).
 
 Missing pinyin → :code:`MISSING_PINYIN` warning + one unknown cell

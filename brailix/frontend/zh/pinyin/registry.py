@@ -1,9 +1,10 @@
 """Registry for pinyin resolver adapters.
 
 The ``auto`` and ``null`` adapters are always present and have no
-third-party dependencies. ``auto`` uses ``g2pw`` when it is installed,
-then ``pypinyin``, and otherwise falls back to ``null``. ``g2pw`` and
-``pypinyin`` register lazily via extras for explicit selection.
+third-party dependencies. ``auto`` prefers ``g2pm``, then ``g2pw``,
+then ``pypinyin``, and otherwise falls back to ``null``. ``g2pm``,
+``g2pw`` and ``pypinyin`` register lazily via extras for explicit
+selection.
 """
 
 from __future__ import annotations

@@ -67,9 +67,10 @@ class LatexMathSourceAdapter:
 def _strip_math_delimiters(text: str) -> str:
     """Peel the inline-math delimiters that the segmenter leaves attached.
 
-    Delegates to the shared helper in :mod:`.mathml` so the LaTeX and
-    MathML adapters stay in sync on delimiter rules; re-exported under
-    the local name to preserve the historical import path for tests.
+    Delegates to the shared helper in
+    :mod:`brailix.frontend.math.utils` so the LaTeX and MathML adapters
+    stay in sync on delimiter rules; re-exported under the local name to
+    preserve the historical import path for tests.
     """
     return _shared_strip(text)
 

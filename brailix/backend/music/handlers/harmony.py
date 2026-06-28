@@ -141,7 +141,8 @@ def _emit_harmony(
     MusicXML ``<harmony>`` element.
 
     Sequence: ``<root-step>`` letter (lowercase) → optional root
-    accidental → ``<kind>`` suffix (per ``_HARMONY_KIND_SPEC``) →
+    accidental → ``<kind>`` suffix (per the ``kind_spec`` recipe read
+    via ``profile.music_spec("chord_symbols", "kind_spec")``) →
     optional ``<bass>`` slash + bass letter.
 
     Gated by ``music.show_chord_symbols`` (default true). Unknown

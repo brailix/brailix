@@ -1,7 +1,7 @@
 """Registry for math source-format adapters.
 
 Adapters convert raw formula text from a specific source format
-(LaTeX, MathML, ASCIIMath, ...) into a normalized MathML string. The
+(LaTeX, MathML, OMML, ...) into a normalized MathML string. The
 math backend then walks the MathML element tree directly — there is no
 separate IR-builder layer. Adding a new source format means adding
 exactly one adapter; the backend doesn't change.

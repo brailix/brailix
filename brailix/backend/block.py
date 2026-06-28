@@ -76,7 +76,7 @@ def translate_document(
     doc: DocumentIR, ctx: BackendContext, profile: BrailleProfile
 ) -> BrailleDocument:
     """Translate every block in ``doc``, expanding composite containers
-    (List, Table, MathBlock) into multiple :class:`BrailleBlock`\\ s.
+    (List, Table) into multiple :class:`BrailleBlock`\\ s.
     """
     blocks: list[BrailleBlock] = []
     for block in doc.blocks:

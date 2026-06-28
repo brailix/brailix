@@ -1,11 +1,14 @@
 """Chinese frontend subsystem.
 
-Three public callables, all consumed by the orchestrator
-(:class:`brailix.Pipeline`):
+Five public callables.  Four feed the orchestrator
+(:class:`brailix.Pipeline`); :func:`list_analyzers` instead serves the
+CLI and any caller that enumerates the analyzer registry:
 
 * :func:`tokenize` — text → ``list[ChineseToken]`` via the analyzer
   adapter selected by ``ctx.options["zh_analyzer"]``.  The pluggable
   surface; ``"auto"`` lazily picks ``thulac`` → ``hanlp`` → ``jieba`` → ``char``.
+* :func:`list_analyzers` — names of the registered analyzer adapters
+  (drives the CLI ``--list-analyzers`` flag).
 * :func:`shift_token_spans` — promote per-segment span coordinates
   into doc coordinates.  Pure helper; no adapter choice.
 * :func:`tokens_to_inline` — convert :class:`ChineseToken` →
@@ -13,6 +16,8 @@ Three public callables, all consumed by the orchestrator
   "write a word's characters together, separate words with a space"
   rule by inserting zero-width :class:`Space` markers at word
   boundaries.  Pure helper; no adapter choice.
+* :func:`insert_cross_kind_boundary_spaces` — insert spaces at
+  hanzi↔non-hanzi boundaries.  Pure helper; no adapter choice.
 
 ARCHITECTURE.md §3 names the "IRBuilder" step that follows
 ZhAnalyzer + PinyinResolver in the data flow.  The Chinese slice

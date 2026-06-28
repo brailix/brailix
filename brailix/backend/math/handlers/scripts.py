@@ -66,11 +66,13 @@ def _emit_under_over_dispatch(
     """``<munder>`` / ``<mover>`` / ``<munderover>``.
 
     Routes to the accent handler when ``accent="true"`` OR the over/under
-    script is a single ``role=accent`` character — latex2mathml's
-    ``accent`` attribute is unreliable (``\\bar`` / ``\\dot`` / ``\\tilde``
-    arrive as ``accent="false"``), so we also recognise the accent by its
-    character. Otherwise behaves structurally like msub/msup/msubsup
-    (big-op limits, ordinary under/over scripts)."""
+    script is an accent character — either a single ``role=accent`` leaf
+    or an accent-mark node (a vector arrow / bar that keeps ``role=rel``
+    elsewhere). latex2mathml's ``accent`` attribute is unreliable
+    (``\\bar`` / ``\\dot`` / ``\\tilde`` arrive as ``accent="false"``), so
+    we recognise the accent by its character. Otherwise behaves
+    structurally like msub/msup/msubsup (big-op limits, ordinary
+    under/over scripts)."""
     if mctx.chem:
         # Chemistry: a connector (= / ⇌) carrying over/under reaction
         # conditions. Emit the connector + 46-prefix positioned conditions

@@ -46,7 +46,7 @@ _ATTRIBUTE_SKIP: frozenset[str] = frozenset({
     "staves",           # multi-staff hint (handled at part level in M4)
     "instruments",      # part metadata
     "staff-details",    # staff appearance hint
-    "transpose",        # pitch transposition (handled by MusicContext)
+    "transpose",        # pitch transposition — not applied (score written as-is)
     "directive",        # vendor-specific
     "measure-style",    # multi-measure rest etc., M3.3+ may revisit
 })
@@ -168,10 +168,9 @@ def _emit_key(
       accidental N times
     * ``|fifths| == 4`` → use ``four_sharp_signature`` /
       ``four_flat_signature`` (numeral prefix + accidental)
-    * ``|fifths| ≥ 5`` → warn ``MUSIC_UNSUPPORTED_NOTATION``; the
-      five/six/seven-sharp/flat numeral forms aren't pre-built as
-      named entries (would need synthesized ``#<digit>%`` / ``#<digit><``;
-      reserved for the M3.2 accidental-handling pass).
+    * ``|fifths| ≥ 5`` → synthesize ``#<digit><accidental>`` (numeral
+      prefix + repeated accidental) per BANA Par. 6.5 — covers any N
+      that has no pre-built named entry.
     """
     fifths_text = first_child_text(elem, "fifths")
     if fifths_text is None:
@@ -239,8 +238,11 @@ def _emit_time(
     * ``symbol="cut"`` → ``alla_breve_cut_time`` (¢)
     * 4/4 → ``four_four_time`` (#d4)
     * 6/8 → ``six_eight_time`` (#f8)
-    * Anything else → warn ``MUSIC_UNSUPPORTED_NOTATION`` (M3.3+ will
-      add the general ``#<numerator><denominator>`` composition).
+    * any other numeric meter (3/4, 2/4, 9/8, ...) → synthesize
+      ``#<numerator-upper><denominator-lower>`` per BANA Par. 7.1
+    * additive meters (``beats="3+2"``) and compound / interchangeable
+      meters (multiple beats / beat-type groups) → warn
+      ``MUSIC_UNSUPPORTED_NOTATION``
     """
     if not mctx.profile.feature("music.show_time_signature", True):
         return

@@ -860,7 +860,7 @@ def _walk_alt_subtree(
     splitting (the caller's run/paragraph context already has that).
 
     Note: this re-implements the object / oMath / oMathPara / r / fldSimple
-    tag dispatch of :func:`_iter_paragraph_tokens` (different return contract
+    tag dispatch of :func:`_emit_child_tokens` (different return contract
     — ``(piece, math)`` here vs. tokens there). A new inline-math source
     added to that walker must be mirrored here, or AlternateContent branches
     will silently drop it.

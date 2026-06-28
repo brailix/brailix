@@ -13,7 +13,7 @@ from __future__ import annotations
 from brailix.frontend.math.utils import _MATHML_NS as _MATHML_NS
 
 # ---------------------------------------------------------------------------
-# Record type constants (shared by v3 and v5; v5 adds 8/15-19)
+# Record type constants (shared by v3 and v5; v5-only defs add 15-19)
 # ---------------------------------------------------------------------------
 
 _REC_END = 0x00

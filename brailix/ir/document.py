@@ -228,7 +228,7 @@ class CodeBlock(Block):
 @dataclass(slots=True)
 class MathBlock(Block):
     """Display-mode math block. ``source`` is the source format the raw
-    formula text is written in (latex / mathml / asciimath / plain)."""
+    formula text is written in (latex / mathml / plain)."""
 
     type: ClassVar[str] = "math_block"
     source: str = "plain"
@@ -243,7 +243,7 @@ class ScoreBlock(Block):
     ``ARCHITECTURE.md``)."""
 
     type: ClassVar[str] = "score"
-    source: str = "plain"  # musicxml / mxl / jianpu / midi / abc / plain
+    source: str = "plain"  # musicxml / mxl / midi / abc / plain
 
 
 @dataclass(slots=True)

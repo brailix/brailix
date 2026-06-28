@@ -31,6 +31,8 @@ Module              Public callable
 ``frontend.zh``       :func:`tokenize` (selected by ``zh_analyzer``)
 ``frontend.zh.pinyin``   :func:`annotate` (selected by ``pinyin_resolver``)
 ``frontend.math``     :func:`parse_math_tree` (source via :class:`MathContext`)
+``frontend.music``    :func:`parse_music_tree` (source via :class:`MusicContext`)
+``frontend.ja``       :func:`analyze` (selected by ``ja_analyzer``)
 ==================  ==============================================
 
 Custom adapters register themselves with the corresponding internal

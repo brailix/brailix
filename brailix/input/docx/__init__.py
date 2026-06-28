@@ -387,17 +387,14 @@ def _mtef_recovery_needed(result: DocumentIR, equation_oles: int) -> bool:
       ProgID variant it half-recognises, a broken relationship, a
       corrupt CFB container, or a missing ``olefile`` — exactly the
       silent-loss class that already shipped once in a frozen build.
-      Other math sources (native OMML, script-run clusters) can only
-      *inflate* the span count, so this check under-triggers rather
-      than over-triggers. The inflation cuts one way only and leaves a
-      known gap: a vanished OLE can hide behind an equal number of
-      non-OLE spans — e.g. one silently-dropped MathType OLE plus one
-      healthy native-OMML span gives ``len(spans) == equation_oles``, so
-      no retry fires and that OLE stays lost. Accepted as the lesser
-      evil (a needless LibreOffice round-trip on every false positive is
-      worse), but it means "auto" is a safety net with a hole, not a
-      guarantee — closing it would need spans tagged by source so only
-      OLE-derived ones are counted here.
+      ``spans`` counts only *eager* ``$<math>...$`` islands, which only
+      the OLE→MTEF path emits (:func:`._xml._wrap_inline_math`); native
+      OMML, EQ fields and script-run clusters defer as source-tagged
+      islands (:func:`brailix.core.inline_math.wrap`) that don't open
+      with ``$<math`` and so aren't counted here. The count therefore
+      reflects decoded OLE equations only and is directly comparable to
+      ``equation_oles`` — a silently-dropped OLE shows up as a shortfall
+      that fires the retry, with no risk of a non-OLE span masking it.
     * **Spans exist but every one is an ``<merror>`` soft failure** —
       nothing decoded successfully (the original "all failed" rule).
     """

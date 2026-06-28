@@ -6,8 +6,8 @@ Covers :class:`Number`, :class:`Date`, :class:`Percent`,
 
 A number-sign cell is prepended whenever a digit run starts a new
 braille "phrase". For now we emit it before every numeric token;
-context-aware suppression (e.g. "still inside a number") arrives with
-:class:`BackendContext` plumbing.
+context-aware suppression (e.g. "still inside a number") is future
+work.
 
 Language scope: every node here is language-agnostic. Number / Percent /
 Quantity only touch the profile's digit / punctuation / letter tables.

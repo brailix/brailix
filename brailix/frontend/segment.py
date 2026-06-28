@@ -39,6 +39,9 @@ ChineseAnalyzer):
 * ``punct``       — any single punctuation char.
 * ``space``       — whitespace run.
 * ``math_inline`` — protected ``$...$`` region.
+* ``math_op``     — a bare half-width math operator / delimiter
+  (one of ``()[]{}+-*/=<>|``); the Normalizer wraps it into a
+  degenerate ``MathInline``.
 * ``phonetic_inline`` — protected ``/.../`` or ``[...]`` IPA transcription.
 * ``unknown``     — anything we don't classify.
 """

@@ -18,7 +18,7 @@ layer that owns output rules. See ``ARCHITECTURE.md``
 
 Supported subset (school chemistry, grown incrementally): element symbols
 ``[A-Z][a-z]*`` with numeric subscripts (``H2O``, ``H2SiO3``, ``NaCl``),
-gas / precipitate arrows (mhchem ``^`` / ``v`` or literal ↑ / ↓), leading
+gas / precipitate arrows (mhchem ``^`` / ``v``), leading
 coefficients (``2H2O``), the ``+`` operator, the reaction connectors ``->``
 / ``=`` (yields, rendered ``=``) and ``<=>`` (reversible ⇌), and over/under
 reaction conditions (``->[above][below]`` — formula conditions like ``MnO2``
@@ -31,7 +31,7 @@ content is parsed and cased on its own), physical-state labels (``(s)`` /
 ``(l)`` / ``(g)`` / ``(aq)`` — carried as ``<mtext data-bk-chem-state>``) and
 square-bracket complex ions (``[Cu(NH3)4]^2+`` — the bracketed-group parser
 handles ``[...]`` with a trailing charge just like ``(...)``), and the triple
-bond (mhchem ``#`` or a literal ≡, as in ``N#N`` / ``HC#CH``) rendered ⠿ with
+bond (mhchem ``#``, as in ``N#N`` / ``HC#CH``) rendered ⠿ with
 no surrounding space. The single-bond dash ``-`` has no structural-bond
 rendering yet (only the reaction connectors consume it).
 """

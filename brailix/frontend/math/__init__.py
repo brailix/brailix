@@ -1,6 +1,6 @@
 """Math frontend subsystem — one public entry point: :func:`parse_math_tree`.
 
-Source adapters (``latex`` / ``mathml`` / ``asciimath`` / ...) live in
+Source adapters (``latex`` / ``mathml`` / ``omml`` / ``mtef`` / ...) live in
 ``adapters/`` and are picked from an internal registry based on
 :class:`~brailix.core.context.MathContext`. The MathML tree returned
 by an adapter, after normalisation, is the math IR itself — there is no

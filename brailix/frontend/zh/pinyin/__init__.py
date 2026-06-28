@@ -1,10 +1,10 @@
 """Pinyin frontend subsystem — one public entry point: :func:`annotate`.
 
 Internally backed by a registry of pluggable resolvers
-(``null`` / ``pypinyin`` / ``g2pw`` / ``auto``). Callers go through
-:func:`annotate`; the right adapter is picked based on
+(``null`` / ``pypinyin`` / ``g2pm`` / ``g2pw`` / ``auto``). Callers go
+through :func:`annotate`; the right adapter is picked based on
 ``ctx.options["pinyin_resolver"]`` (defaults to ``"auto"`` which
-lazily prefers ``g2pw`` → ``pypinyin`` → ``null``).
+lazily prefers ``g2pm`` → ``g2pw`` → ``pypinyin`` → ``null``).
 """
 
 from __future__ import annotations

@@ -479,8 +479,9 @@ def _emit_multi_voice(
 
 _DISPATCH_PARTIAL = {
     "score-partwise": _emit_score_partwise,
-    # Score-timewise: not supported in M2.3 (would need a transform).
-    # M3+ will add normaliser-side conversion.
+    # Score-timewise: intentionally not converted — a timewise root
+    # passes through and falls to _emit_unsupported (one warning, no
+    # cells), since timewise scores are rare (see frontend normalizer).
     "part": _emit_part,
     "measure": _emit_measure,
 }

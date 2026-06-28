@@ -59,7 +59,7 @@ class BrailleProfile:
     math_digits_lower: dict[str, tuple[int, ...]] = field(default_factory=dict)
     # per-symbol (space_before, space_after) flags; missing entries default to (False, False).
     math_symbol_spacing: dict[str, tuple[bool, bool]] = field(default_factory=dict)
-    # Per-symbol role: one of "op"/"rel"/"delim"/"punct"/"shape"/"big_op".
+    # Per-symbol role: one of "op"/"rel"/"delim"/"punct"/"shape"/"big_op"/"accent".
     # Lookup defaults to ``None``.
     math_symbol_roles: dict[str, str] = field(default_factory=dict)
     # Contextual accent-mark kind for chars that render as a vector mark
@@ -186,8 +186,8 @@ class BrailleProfile:
 
     def math_symbol_role(self, ch: str) -> str | None:
         """Return the role of a math symbol — one of ``"op"``, ``"rel"``,
-        ``"delim"``, ``"punct"``, ``"shape"``, ``"big_op"``, or ``None``
-        if the character isn't in the symbols table."""
+        ``"delim"``, ``"punct"``, ``"shape"``, ``"big_op"``, ``"accent"``,
+        or ``None`` if the character isn't in the symbols table."""
         return self.math_symbol_roles.get(ch)
 
     def math_accent_mark_kind(self, ch: str) -> str | None:

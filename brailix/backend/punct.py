@@ -121,8 +121,8 @@ def translate_code_inline(
 
 
 # ---------------------------------------------------------------------------
-# Public helper — also used by :mod:`brailix.backend.latin` for the
-# non-letter fall-through path in Latin-word translation.
+# Internal helper: translate ``text`` one character at a time via
+# :func:`lookup_or_unknown` (the code-inline path above uses it).
 # ---------------------------------------------------------------------------
 
 
@@ -145,6 +145,9 @@ def lookup_or_unknown(
     """Look ``ch`` up in the punctuation table and return one BrailleCell
     *per cell* in its mapping (some punctuation, like the Chinese full stop ⠐⠆, is
     multi-cell). Unknown chars yield a single unknown cell + warning.
+
+    Public helper — also used by :mod:`brailix.backend.latin` for the
+    non-letter fall-through path in Latin-word translation.
     """
     cells = profile.punctuation.get(ch)
     if not cells:
