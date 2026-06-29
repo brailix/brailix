@@ -160,6 +160,38 @@ class TestFullWidthUnaffected:
         assert "⠜" not in out
 
 
+class TestBareNonAsciiMathSymbol:
+    """Non-ASCII math symbols (∈ ∉ ≤ …, Unicode category Sm) auto-route
+    through the math backend in bare prose, exactly like the ASCII operators:
+    no ``$...$`` wrap, no ``UNKNOWN_PUNCT``, the symbol's braille cells appear.
+    """
+
+    def test_element_of_translates(self, pipe):
+        r = pipe.translate_text("x∈A")
+        out = r.render()
+        # ∈ → ⠐⠪ (symbols.json "in" = c_5 c_246), not a blank unknown cell
+        assert "⠐⠪" in out
+        assert not any(
+            c == "UNKNOWN_PUNCT" and s == "∈" for c, s in _warn_codes(r)
+        )
+
+    def test_not_element_of_translates(self, pipe):
+        r = pipe.translate_text("x∉A")
+        out = r.render()
+        # ∉ → ⠘⠪ (symbols.json "notin" = c_45 c_246)
+        assert "⠘⠪" in out
+        assert not any(c == "UNKNOWN_PUNCT" for c, _ in _warn_codes(r))
+
+    def test_name_separator_unaffected(self, pipe):
+        # · (U+00B7) is the Chinese name separator 间隔号, NOT multiplication:
+        # category Po, so it stays on the prose punctuation path — never the
+        # math path — with no UNKNOWN and no math cells leaking in.
+        r = pipe.translate_text("卡尔·马克思")
+        codes = _warn_codes(r)
+        assert not any(c.startswith("MATH_") for c, _ in codes)
+        assert not any(c == "UNKNOWN_PUNCT" and s == "·" for c, s in codes)
+
+
 class TestProtectedMathUnaffected:
     """Formulas wrapped in `$...$`: these already go through the math
     frontend, and their behaviour is unchanged."""

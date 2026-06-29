@@ -39,9 +39,10 @@ ChineseAnalyzer):
 * ``punct``       — any single punctuation char.
 * ``space``       — whitespace run.
 * ``math_inline`` — protected ``$...$`` region.
-* ``math_op``     — a bare half-width math operator / delimiter
-  (one of ``()[]{}+-*/=<>|``); the Normalizer wraps it into a
-  degenerate ``MathInline``.
+* ``math_op``     — a bare math operator / delimiter: a half-width ASCII
+  one (``()[]{}+-*/=<>|``) or a non-ASCII Unicode math symbol
+  (category ``Sm``: ``∈`` ``≤`` ``∑`` ``→`` ...); the Normalizer wraps
+  each into a degenerate ``MathInline``.
 * ``phonetic_inline`` — protected ``/.../`` or ``[...]`` IPA transcription.
 * ``unknown``     — anything we don't classify.
 """
@@ -51,6 +52,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
+from brailix.core.chars import fold_fullwidth, is_math_symbol
 from brailix.core.context import FrontendContext
 from brailix.core.protocols import Segmenter
 from brailix.core.registry import Registry
@@ -168,6 +170,16 @@ def _category(ch: str) -> str:
         return "unknown"
     if ch in _BARE_MATH_OPERATORS:
         # Half-width math operator/delimiter in prose: half-width = math.
+        return "math_op"
+    # Non-ASCII math symbols (Unicode category Sm: ∈ ≤ ∀ ∑ → …) are bare
+    # math operators too, by the same "half-width = math" logic: route them
+    # to the math path so ``x∈A`` translates as mathematics instead of dying
+    # as an unknown cell. ASCII Sm chars (``~`` …) are deliberately left to
+    # the explicit set above; full-width forms (``＝``) are excluded so they
+    # keep their "use the half-width form" diagnostic (fold_fullwidth catches
+    # those). The middle dot ``·`` is category Po (not Sm), so the Chinese
+    # name separator 间隔号 stays prose punctuation, untouched.
+    if ord(ch) >= 0x80 and fold_fullwidth(ch) is None and is_math_symbol(ch):
         return "math_op"
     # Treat everything else (CJK punct, ASCII punct, symbols) as punct.
     # Normalizer/Backend will split on specific characters as needed.
