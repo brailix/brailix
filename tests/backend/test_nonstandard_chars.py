@@ -9,6 +9,7 @@ from brailix import Pipeline
 from brailix.core.chars import (
     INVISIBLE_CPS,
     fold_fullwidth,
+    is_math_symbol,
     nonstandard_char_hint,
 )
 
@@ -53,6 +54,41 @@ class TestProseAndMathSurfaceTheHint:
 
     def test_math_fullwidth_identifier_hints_halfwidth(self):
         hits = self._hits("$Ｘ + 1$", "MATH_UNKNOWN_IDENTIFIER")
+        assert hits and "half-width" in hits[0].message
+
+
+class TestProseMathSymbolWarning:
+    """A math symbol with no prose rule that the segmenter does NOT auto-route
+    to the math path (the ASCII tilde ~ is the standing example) gets the
+    actionable PROSE_MATH_SYMBOL code, not a bare UNKNOWN_PUNCT. Real math
+    symbols (∈) route to the math backend instead, so they never reach here;
+    full-width forms (＝) keep their "use the half-width form" hint."""
+
+    @staticmethod
+    def _translate(text):
+        return Pipeline(profile="cn_current").translate_text(text)
+
+    def test_tilde_warns_as_math_symbol(self):
+        res = self._translate("1~10")
+        hits = res.warnings.by_code("PROSE_MATH_SYMBOL")
+        assert hits and hits[0].surface == "~"
+        assert not res.warnings.by_code("UNKNOWN_PUNCT")
+
+    def test_element_of_routes_to_math_no_prose_warning(self):
+        # ∈ is auto-routed and translated (⠐⠪), so it never hits the prose
+        # unknown path — neither PROSE_MATH_SYMBOL nor UNKNOWN_*.
+        res = self._translate("x∈A")
+        assert not res.warnings.by_code("PROSE_MATH_SYMBOL")
+        assert not res.warnings.by_code("UNKNOWN_PUNCT")
+        assert not res.warnings.by_code("UNKNOWN_NODE")
+
+    def test_fullwidth_operator_keeps_halfwidth_hint(self):
+        # ＝ is category Sm but full-width: it keeps the UNKNOWN_PUNCT
+        # "use the half-width form" hint, never reclassified as a bare math
+        # symbol.
+        res = self._translate("得分＝95")
+        assert not res.warnings.by_code("PROSE_MATH_SYMBOL")
+        hits = res.warnings.by_code("UNKNOWN_PUNCT")
         assert hits and "half-width" in hits[0].message
 
 
@@ -133,6 +169,36 @@ class TestFoldFullwidth:
     def test_non_single_char_returns_none(self):
         assert fold_fullwidth("") is None
         assert fold_fullwidth("ＡＢ") is None
+
+
+class TestIsMathSymbol:
+    """is_math_symbol = single char & Unicode category Sm — the pure fact the
+    segmenter uses to auto-route bare math symbols (∈ ≤ ∑ …) to the math path,
+    and the prose backend uses to give a "looks like math" hint."""
+
+    def test_math_operators_are_math_symbols(self):
+        for ch in "∈∉≤≥≠∀∃∑∏∫√∞∂∇⊂⊃∪∩→←↔±×÷":
+            assert is_math_symbol(ch), ch
+
+    def test_ascii_relations_are_math_symbols(self):
+        # = < > + ~ are category Sm even when ASCII; the classifier is pure
+        # category (the segmenter scopes ASCII routing separately).
+        for ch in "=<>+~":
+            assert is_math_symbol(ch), ch
+
+    def test_name_separator_and_degree_are_not(self):
+        assert not is_math_symbol("·")  # U+00B7 MIDDLE DOT — category Po
+        assert not is_math_symbol("°")  # U+00B0 DEGREE SIGN — category So
+        assert not is_math_symbol("、")  # CJK comma — category Po
+
+    def test_letters_and_digits_are_not(self):
+        assert not is_math_symbol("x")
+        assert not is_math_symbol("α")  # Greek letter — category Ll
+        assert not is_math_symbol("5")
+
+    def test_non_single_char_is_not(self):
+        assert not is_math_symbol("")
+        assert not is_math_symbol("∈∈")
 
 
 class TestInvisibleCps:
