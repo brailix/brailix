@@ -17,7 +17,7 @@ was moved to its own layer in line with the architecture in
 
 from __future__ import annotations
 
-from brailix.core.chars import nonstandard_char_hint
+from brailix.core.chars import is_math_symbol, nonstandard_char_hint
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
@@ -97,17 +97,65 @@ def translate_connector(
     ]
 
 
-def translate_unknown(node: Unknown, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:
-    hint = nonstandard_char_hint(node.surface)
-    message = f"no translation for unknown node: {node.surface!r}"
-    if hint:
-        message = f"{message} — {hint}"
+def _warn_char_no_rule(
+    ctx: BackendContext,
+    *,
+    ch: str,
+    span: Span | None,
+    unknown_code: str,
+    unknown_message: str,
+) -> None:
+    """Warn that a single prose character has no braille rule.
+
+    Picks the code by what the character *is*:
+
+    * a **math symbol** (``∈`` ``~`` …, :func:`is_math_symbol`) with no
+      full-width / invisible hint of its own gets ``PROSE_MATH_SYMBOL`` — an
+      actionable "this is mathematics, wrap it in ``$…$``" instead of a bare
+      unknown. The common math symbols never arrive here: the segmenter
+      auto-routes a non-ASCII one through the math backend, where it either
+      translates or raises its own ``MATH_*`` warning. What is left is the
+      tail the math path doesn't claim (the ASCII tilde ``~`` is the standing
+      example).
+    * anything else keeps the caller's ``unknown_code`` /
+      ``unknown_message``, with a full-width / invisible hint
+      (:func:`nonstandard_char_hint`) appended when one applies — so a
+      full-width ``＝`` still reads "use the half-width form" rather than
+      being mistaken for a bare math symbol.
+
+    Never rewrites input; the caller still emits an unknown cell so layout
+    stays stable.
+    """
+    hint = nonstandard_char_hint(ch)
+    if hint is None and is_math_symbol(ch):
+        ctx.warnings.warn(
+            code="PROSE_MATH_SYMBOL",
+            message=(
+                f"math symbol {ch!r} has no rule in Chinese prose; "
+                f"wrap it in $...$ if it is part of a formula"
+            ),
+            surface=ch,
+            span=span,
+            source="backend.punct",
+        )
+        return
+    message = f"{unknown_message} — {hint}" if hint else unknown_message
     ctx.warnings.warn(
-        code="UNKNOWN_NODE",
+        code=unknown_code,
         message=message,
-        surface=node.surface,
-        span=node.span,
+        surface=ch,
+        span=span,
         source="backend.punct",
+    )
+
+
+def translate_unknown(node: Unknown, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:
+    _warn_char_no_rule(
+        ctx,
+        ch=node.surface,
+        span=node.span,
+        unknown_code="UNKNOWN_NODE",
+        unknown_message=f"no translation for unknown node: {node.surface!r}",
     )
     return [
         BrailleCell(dots=(), role="unknown", source_span=node.span, source_text=node.surface)
@@ -151,16 +199,12 @@ def lookup_or_unknown(
     """
     cells = profile.punctuation.get(ch)
     if not cells:
-        hint = nonstandard_char_hint(ch)
-        message = f"no punctuation mapping for {ch!r}"
-        if hint:
-            message = f"{message} — {hint}"
-        ctx.warnings.warn(
-            code="UNKNOWN_PUNCT",
-            message=message,
-            surface=ch,
+        _warn_char_no_rule(
+            ctx,
+            ch=ch,
             span=span,
-            source="backend.punct",
+            unknown_code="UNKNOWN_PUNCT",
+            unknown_message=f"no punctuation mapping for {ch!r}",
         )
         return [BrailleCell(dots=(), role="unknown", source_span=span, source_text=ch)]
     return [

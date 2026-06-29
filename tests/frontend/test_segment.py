@@ -253,6 +253,59 @@ class TestMathOp:
         assert _surfaces(s) == ["$f(x)$"]
 
 
+class TestNonAsciiMathSymbol:
+    """Non-ASCII Unicode math symbols (category Sm: ∈ ≤ ∀ ∑ → …) are bare
+    math operators too — the same "half-width = math" routing as the ASCII
+    ops, so ``x∈A`` reaches the math backend instead of dying as an unknown
+    cell.
+
+    The category-Sm boundary is doing real work: it is exactly what keeps the
+    Chinese name separator · (category Po) and the degree sign ° (So) out of
+    the math path, and what (with fold_fullwidth) excludes full-width ＝ so it
+    keeps its "use the half-width form" diagnostic.
+    """
+
+    @pytest.mark.parametrize("ch", list("∈∉≤≥≠∀∃∑∏∫√∞∂∇⊂⊃∪∩→←↔±×÷"))
+    def test_non_ascii_math_symbol_is_math_op(self, ch):
+        s = _segs(ch)
+        assert _types(s) == ["math_op"]
+        assert _surfaces(s) == [ch]
+
+    def test_element_of_between_operands(self):
+        s = _segs("x∈A")
+        assert _types(s) == ["latin_text", "math_op", "latin_text"]
+        assert _surfaces(s) == ["x", "∈", "A"]
+
+    def test_middle_dot_stays_punct(self):
+        # · (U+00B7, category Po) is the Chinese name separator 间隔号, not a
+        # multiplication dot — it must stay prose punctuation.
+        s = _segs("卡尔·马克思")
+        assert _types(s) == ["hanzi_text", "punct", "hanzi_text"]
+        assert _surfaces(s) == ["卡尔", "·", "马克思"]
+
+    def test_full_width_equals_stays_punct(self):
+        # ＝ (U+FF1D) is category Sm but a full-width form; fold_fullwidth
+        # catches it, so it is NOT routed to math and keeps its
+        # "use the half-width form" warning downstream.
+        s = _segs("＝")
+        assert _types(s) == ["punct"]
+        assert _surfaces(s) == ["＝"]
+
+    def test_ascii_tilde_stays_punct(self):
+        # ~ (U+007E) is category Sm but ASCII; the explicit _BARE_MATH_OPERATORS
+        # set governs ASCII and omits ~, so ~ stays prose punct.
+        s = _segs("1~10")
+        assert _types(s) == ["digit_run", "punct", "digit_run"]
+        assert _surfaces(s) == ["1", "~", "10"]
+
+    def test_degree_sign_stays_punct(self):
+        # ° (U+00B0, category So) is not a math symbol (Sm), so it is not
+        # routed to math.
+        s = _segs("30°")
+        assert _types(s) == ["digit_run", "punct"]
+        assert _surfaces(s) == ["30", "°"]
+
+
 class TestSpace:
     def test_space_run(self):
         s = _segs("a b")

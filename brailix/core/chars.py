@@ -21,6 +21,8 @@ done here; that is an editor's job.
 
 from __future__ import annotations
 
+import unicodedata
+
 # Invisible / zero-width formatting characters that almost always arrive as
 # paste artefacts from the web, a PDF, or Word: ZWSP / ZWNJ / ZWJ (U+200B–
 # U+200D), the word joiner (U+2060), the soft hyphen (U+00AD), and the
@@ -76,4 +78,33 @@ def nonstandard_char_hint(text: str) -> str | None:
     return None
 
 
-__all__ = ("INVISIBLE_CPS", "fold_fullwidth", "nonstandard_char_hint")
+def is_math_symbol(ch: str) -> bool:
+    """True when ``ch`` is a single Unicode *mathematical symbol* — general
+    category ``Sm`` (``∈`` ``≤`` ``∀`` ``∑`` ``→`` ``±`` ...).
+
+    A pure Unicode fact, like everything else here: it names *what the
+    character is*, with no knowledge of ``$…$`` source syntax, of any
+    braille profile, or of whether a given math backend can render it.
+    Two layers read it, and category ``Sm`` is exactly the line that
+    separates them from ordinary text / punctuation:
+
+    * the segmenter routes a bare non-ASCII math symbol in prose through
+      the math path (the project's "half-width = math" stance), so ``x∈A``
+      translates as mathematics instead of degrading to an unknown cell;
+    * the prose backend, for a math symbol it still can't place, warns
+      with an actionable "looks like math" hint instead of a bare unknown.
+
+    Category ``Sm`` is what lets the middle dot ``·`` (category ``Po`` — the
+    Chinese name separator 间隔号) and the degree sign ``°`` (``So``) fall
+    through to ordinary punctuation, with no hand-kept exclusion list to
+    drift.  Returns ``False`` for a multi-character string.
+    """
+    return len(ch) == 1 and unicodedata.category(ch) == "Sm"
+
+
+__all__ = (
+    "INVISIBLE_CPS",
+    "fold_fullwidth",
+    "is_math_symbol",
+    "nonstandard_char_hint",
+)
