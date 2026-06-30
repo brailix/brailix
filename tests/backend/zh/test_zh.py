@@ -267,6 +267,42 @@ class TestUangUengDistinctFinals:
         assert cells[1].dots == profile.tones["1"]
 
 
+class TestEAndOShareFinal:
+    """Current Chinese Braille writes e/o with the same final cell.
+
+    Orthographic ``bo`` must emit b + o(c_26), not b + Latin-like o(c_135).
+    The uo final keeps c_135, so zero-initial ``wo`` remains distinct.
+    """
+
+    def test_o_final_is_c_26(self, profile):
+        assert tuple(profile.finals["o"]) == (2, 6)
+
+    def test_e_and_o_share_final(self, profile):
+        assert profile.finals["o"] == profile.finals["e"]
+
+    def test_uo_final_stays_c_135(self, profile):
+        assert tuple(profile.finals["uo"]) == (1, 3, 5)
+
+    def test_bo1_emits_b_o_tone(self, ctx, profile):
+        cells = translate_hanzi_char(
+            HanziChar(surface="玻", reading="bo1", span=Span(0, 1)),
+            ctx, profile,
+        )
+        assert _roles(cells) == ["zh_initial", "zh_final", "zh_tone"]
+        assert cells[0].dots == profile.initials["b"]
+        assert tuple(cells[1].dots) == (2, 6)
+        assert cells[2].dots == profile.tones["1"]
+
+    def test_wo3_still_emits_uo_tone(self, ctx, profile):
+        cells = translate_hanzi_char(
+            HanziChar(surface="我", reading="wo3", span=Span(0, 1)),
+            ctx, profile,
+        )
+        assert _roles(cells) == ["zh_final", "zh_tone"]
+        assert tuple(cells[0].dots) == (1, 3, 5)
+        assert cells[1].dots == profile.tones["3"]
+
+
 class TestSyllabicNasalInterjections:
     """Regression for the silent-rime-drop bug.
 

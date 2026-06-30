@@ -2,10 +2,10 @@
   "schema": "brailix.table.final.v1",
   "name": "cn_current_final",
   "cell": "six_dot",
-  "_note": "Final (yun-mu) table for Current Chinese Braille. iao (c_345) and iang (c_1346) are distinct cells, as are uang (c_2356) and ueng (c_256) — easy to conflate.",
+  "_note": "Final (yun-mu) table for Current Chinese Braille. e/o share c_26; uo keeps c_135. iao (c_345) and iang (c_1346) are distinct cells, as are uang (c_2356) and ueng (c_256) — easy to conflate.",
   "finals": {
     "a":    "c_35",
-    "o":    "c_135",
+    "o":    "c_26",
     "e":    "c_26",
     "i":    "c_24",
     "u":    "c_136",
