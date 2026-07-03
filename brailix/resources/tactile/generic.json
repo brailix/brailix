@@ -1,0 +1,15 @@
+{
+  "schema": "tactile-profile/1",
+  "name": "generic",
+  "status": "stable",
+  "source": "device-independent defaults (A4)",
+  "dpi": 100,
+  "page_width_mm": 210.0,
+  "page_height_mm": 297.0,
+  "min_line_width_mm": 0.5,
+  "min_feature_spacing_mm": 2.5,
+  "braille_dot_radius_mm": 0.75,
+  "braille_dot_spacing_mm": 2.5,
+  "braille_cell_spacing_mm": 6.0,
+  "braille_line_spacing_mm": 10.0
+}
