@@ -128,6 +128,32 @@ class MusicContext:
 
 
 # ---------------------------------------------------------------------------
+# Graphics (tactile-graphics frontend sub-phase)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class GraphicsContext:
+    """Context for the tactile-graphics subsystem (source → SVG adapter).
+
+    Source-format adapters convert any graphics source (raw SVG, geometry
+    primitives, a raster image, a chart spec, ...) into a normalised SVG
+    string — that SVG tree itself is the graphics IR (see
+    :mod:`brailix.frontend.graphics` and
+    ``ARCHITECTURE.md``), exactly as MathML / MusicXML
+    are the IR for their verticals. ``profile`` names the tactile
+    rendering profile (millimetre adaptation params + DPI); unlike a
+    braille standard there is a sensible device-independent default, so it
+    is not required.
+    """
+
+    source: str = "svg"  # svg / primitives / image / chart / ...
+    profile: str = "generic"
+    warnings: WarningCollector = field(default_factory=WarningCollector)
+    options: dict[str, Any] = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
 # Backend
 # ---------------------------------------------------------------------------
 

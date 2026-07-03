@@ -226,6 +226,29 @@ class MusicSourceAdapter(Protocol):
 
 
 # ---------------------------------------------------------------------------
+# Graphics: source-format adapters
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class GraphicSourceAdapter(Protocol):
+    """Convert a graphic from one source format into SVG.
+
+    SVG is the normalized intermediate format for the tactile-graphics
+    subsystem. Adapters never emit a raster and never build an IR — the
+    SVG tree itself is the IR (see :mod:`brailix.frontend.graphics` and
+    ``ARCHITECTURE.md``), the exact analogue of MathML
+    for math and MusicXML for music.
+    """
+
+    source: str  # svg / primitives / image / chart / ...
+
+    def to_svg(
+        self, src: str | bytes, ctx: GraphicsContext | None = None
+    ) -> str: ...
+
+
+# ---------------------------------------------------------------------------
 # Backend support seam: inline-text translation
 # ---------------------------------------------------------------------------
 #
@@ -266,19 +289,39 @@ class InlineTextTranslator(Protocol):
 
 @runtime_checkable
 class Renderer(Protocol):
-    """Encode a braille IR into a concrete output.
+    """Encode an IR into a concrete output — the dumb-encoder layer.
 
     The return type is intentionally :data:`~typing.Any` — concrete
     renderers can produce Unicode braille (``str``), BRF (``bytes``),
     a list of :class:`~brailix.ir.braille.BrailleCell` instances,
-    HTML / JSON for proofreading tools, or anything else a downstream
-    pipeline cares about. Input is either a :class:`BrailleDocument`
-    (block-structured) or a :class:`BrailleSequence` (flat).
+    HTML / JSON for proofreading tools, BMP / PNG bytes for tactile
+    graphics, or anything else a downstream pipeline cares about.
+
+    Input is whatever IR the renderer consumes: a braille IR — a
+    :class:`BrailleDocument` (block-structured) or :class:`BrailleSequence`
+    (flat) — for the braille renderers (``unicode`` / ``brf`` / ``cells`` /
+    ``layout``), or a :class:`~brailix.ir.tactile.TactileRaster` for the
+    tactile-graphics renderers (``bmp`` / ``png`` / ``tactile_preview``).
+    Both kinds share the one ``renderer_registry`` and this single protocol;
+    each result type passes its own IR to the renderer it names (a braille
+    :class:`~brailix.pipeline.TranslationResult` to a braille renderer, a
+    :class:`~brailix.pipeline.GraphicResult` to a tactile one). A renderer
+    may declare the IR it consumes via a ``consumes`` attribute (``"braille"``
+    by default; ``"tactile_raster"`` for the graphics renderers) so a
+    braille-only front-end (the CLI) can list just the renderers that apply
+    to it.
+
+    The ``ir`` parameter is typed :data:`~typing.Any` on purpose: this one
+    protocol covers renderers consuming *different* IR types (a braille IR vs
+    a tactile raster), and no single non-``Any`` annotation lets all of them
+    structurally conform. Each concrete renderer narrows ``ir`` to the type it
+    actually accepts, and ``consumes`` records which that is; callers pass the
+    matching IR.
     """
 
     name: str
 
-    def render(self, bir: BrailleRenderable) -> Any: ...
+    def render(self, ir: Any) -> Any: ...
 
 
 # Forward declarations for context types that are defined in
@@ -287,6 +330,7 @@ class Renderer(Protocol):
 if TYPE_CHECKING:
     from brailix.core.context import (
         FrontendContext,
+        GraphicsContext,
         MathContext,
         MusicContext,
     )

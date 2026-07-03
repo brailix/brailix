@@ -20,6 +20,11 @@ pattern):
 * ``> quote`` (one ``>`` per quoted line) → :class:`Quote`.
 * Fenced code: ``\`\`\`lang`` ... ``\`\`\``` → :class:`CodeBlock` (the
   ``lang`` token, if present, is stored on the block).
+* Fenced graphic: ``\`\`\`graphic`` (or ``graphic-svg`` / ``graphic-figure``
+  / ``graphic-primitives``) ... ``\`\`\``` → :class:`GraphicBlock` — an inline
+  tactile figure whose fence body is the figure source (SVG / data spec). Lets
+  a chapter carry its figures inline so the document stays one portable file
+  (ARCHITECTURE.md G2).
 * ``$$display math$$`` → :class:`MathBlock` (``source="latex"``).
 * ``| col1 | col2 |`` lines on consecutive rows → :class:`Table`. A
   separator row (``| --- | --- |``) is recognised but doesn't change
@@ -54,6 +59,7 @@ from brailix.ir.document import (
     Block,
     CodeBlock,
     DocumentIR,
+    GraphicBlock,
     Heading,
     List,
     ListItem,
@@ -76,6 +82,34 @@ _ORDERED_RE = re.compile(r"^(\d+)[.)]\s+(.*)$")
 _QUOTE_RE = re.compile(r"^>\s?(.*)$")
 _FENCE_RE = re.compile(r"^```\s*(\S*)\s*$")
 _DOLLAR_FENCE = "$$"
+
+
+def is_closing_fence(line: str) -> bool:
+    """Whether ``line`` is a ``` ``` ``` fence delimiter (open or close).
+
+    The single public authority on what counts as a fence line, so a tool that
+    rewrites a fence's body can judge its closing line exactly as
+    :func:`_consume_fenced_code` does — an unclosed fence (tolerated by the
+    parser, span runs to EOF, last line is body not ``` ``` ```) is then not
+    mistaken for a closed one.
+    """
+    return bool(_FENCE_RE.match(line.strip()))
+
+# Fenced graphic block (ARCHITECTURE.md G2): a self-contained
+# tactile figure embedded in braille source, mirroring the ```code fence and
+# the ``$$math$$`` fence — the fence body IS the figure source, so the document
+# stays portable (no external file references travelling beside the .blx). The
+# info string names the graphics source format; ``graphic`` is the friendly
+# alias for SVG (the common inline case). Namespaced under ``graphic`` so a
+# figure fence can't be mistaken for an ordinary ```code fence. Keep the format
+# values in sync with the graphics source registry names
+# (brailix.frontend.graphics.graphic_source_registry).
+_GRAPHIC_FENCE_FORMATS = {
+    "graphic": "svg",
+    "graphic-svg": "svg",
+    "graphic-figure": "figure",
+    "graphic-primitives": "primitives",
+}
 _TABLE_RE = re.compile(r"^\s*\|(.+)\|\s*$")
 _TABLE_SEP_CHARS = re.compile(r"^[\s\-|:]+$")
 
@@ -234,15 +268,48 @@ def _iter_blocks(text: str) -> Iterable[Block]:
         yield _consume_paragraph(cur)
 
 
+def safe_block_insertion_offset(source: str, pos: int) -> int:
+    """Clamp ``pos`` to the nearest offset where a new top-level block can be
+    inserted without splitting an existing block.
+
+    ``pos`` is first clamped to ``0..len(source)``. If it then lands strictly
+    *inside* a parsed block's span (a fenced graphic / code block, a table, a
+    ``$$`` math block, a paragraph, …), it is moved to that block's ``span.end``
+    — just past the block — so an inserted fence can never bisect an atomic
+    block. Inserting into a ```graphic``` fence body otherwise makes the new
+    fence's opening line read as the *closing* line of the enclosing fence,
+    tearing the old figure apart. A ``pos`` already on a block boundary or in
+    inter-block whitespace is returned unchanged.
+
+    Pure structural query (format-independent — reads only the block spans),
+    so it belongs with the markdown parser; an editor calls it before splicing
+    a figure fence at the caret.
+    """
+    pos = max(0, min(pos, len(source)))
+    for block in _iter_blocks(source):
+        span = block.span
+        if span is not None and span.start < pos < span.end:
+            return span.end
+    return pos
+
+
 # ---------------------------------------------------------------------------
 # Per-block consumers
 # ---------------------------------------------------------------------------
 
 
-def _consume_fenced_code(cur: _LineCursor, language: str | None) -> CodeBlock:
+def _consume_fenced_code(
+    cur: _LineCursor, language: str | None
+) -> CodeBlock | GraphicBlock:
     r"""Eat the opening ``\`\`\``` fence, content lines, and the closing
     fence (if present). Missing closing fence is tolerated — we stop
     at EOF so a runaway fence doesn't swallow the rest of the doc.
+
+    A fence whose info string names a graphic format (```graphic /
+    ```graphic-figure / ...) yields a :class:`GraphicBlock` instead of a
+    :class:`CodeBlock` — an inline tactile figure whose body is the figure
+    source (ARCHITECTURE.md G2). Any other info string is an
+    ordinary code fence.
     """
     start = cur.i
     cur.consume()  # opening fence
@@ -251,16 +318,17 @@ def _consume_fenced_code(cur: _LineCursor, language: str | None) -> CodeBlock:
         line = cur.peek()
         if line is None:
             break
-        if _FENCE_RE.match(line.strip()):
+        if is_closing_fence(line):
             cur.consume()  # closing fence
             break
         body.append(line)
         cur.consume()
-    return CodeBlock(
-        language=language,
-        text="\n".join(body),
-        span=cur.span_of(start, cur.i),
-    )
+    span = cur.span_of(start, cur.i)
+    text = "\n".join(body)
+    graphic_format = _GRAPHIC_FENCE_FORMATS.get(language or "")
+    if graphic_format is not None:
+        return GraphicBlock(source=graphic_format, text=text, span=span)
+    return CodeBlock(language=language, text=text, span=span)
 
 
 def _consume_dollar_math(cur: _LineCursor) -> MathBlock | None:

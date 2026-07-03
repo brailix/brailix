@@ -18,7 +18,13 @@ from brailix.core.defaults import DEFAULT_RENDERER
 from brailix.core.errors import Warning, WarningCollector
 from brailix.ir.braille import BrailleBlock, BrailleDocument
 from brailix.ir.document import Block, DocumentIR
+from brailix.ir.tactile import TactileRaster
 from brailix.renderer import renderer_registry
+
+# Default tactile-graphics renderer for :meth:`GraphicResult.render` — the
+# embossable 8-bit grayscale BMP master (see ``ARCHITECTURE.md``
+# §1.1). Like the braille renderers, it lives in ``renderer_registry``.
+DEFAULT_TACTILE_RENDERER = "bmp"
 
 # ---------------------------------------------------------------------------
 # Result
@@ -67,6 +73,83 @@ class TranslationResult:
             "braille_ir": self.braille_ir.to_dict(),
             "warnings": self.warnings.to_list(),
         }
+
+
+@dataclass(slots=True)
+class GraphicResult:
+    """Output of one :meth:`Pipeline.translate_graphic` call — the tactile
+    vertical's counterpart to :class:`TranslationResult`.
+
+    Holds the :class:`~brailix.ir.tactile.TactileRaster` the tactile backend
+    produced and the normalised SVG tree (the graphics IR), exposed so an
+    editor can show / edit the object tree. A graphic **always** rasterises to
+    something — a malformed or unsupported source soft-fails to a blank raster
+    plus warnings, never to ``None`` (the "pipeline never crashes" rule, same
+    as braille). Concrete outputs (``.bmp`` / ``.png`` / a U+2800 braille-display
+    preview) are produced by :meth:`render`, through the **same**
+    ``renderer_registry`` the braille renderers use: a tactile renderer is just
+    another file there, selected by name — there is no parallel renderer
+    registry (see ``ARCHITECTURE.md``).
+    """
+
+    raster: TactileRaster
+    svg_tree: ET.Element | None = None
+    warnings: WarningCollector = field(default_factory=WarningCollector)
+    default_renderer: str = DEFAULT_TACTILE_RENDERER
+
+    def render(self, name: str | None = None) -> Any:
+        """Render the tactile raster through the named renderer.
+
+        ``name`` defaults to :attr:`default_renderer` (``"bmp"``). Returns
+        whatever the renderer produces — ``bytes`` for ``bmp`` / ``png``, a
+        ``str`` for the ``tactile_preview`` U+2800 readback. Raises
+        :class:`KeyError` if no renderer is registered under ``name``.
+        """
+        return renderer_registry.get(name or self.default_renderer).render(
+            self.raster
+        )
+
+
+@dataclass(slots=True)
+class TactilePageResult:
+    """Output of one :meth:`Pipeline.translate_document_to_pages` call — a
+    braille document with embedded figures laid onto tactile page rasters
+    (``ARCHITECTURE.md`` G3).
+
+    Holds one :class:`~brailix.ir.tactile.TactileRaster` per page: braille text
+    stamped as real dots plus the document's figures scaled into the flow
+    (output model A — a page *is* a raster; a mixed page does not round-trip to
+    BRF). ``warnings`` aggregates the per-block compile diagnostics. Concrete
+    bytes come from :meth:`render` / :meth:`render_all`, through the **same**
+    ``renderer_registry`` the standalone graphic and braille outputs use — a
+    page is just another :class:`TactileRaster`, so ``bmp`` / ``png`` / ``pdf``
+    / ``tactile_preview`` all accept it with no new renderer.
+    """
+
+    pages: list[TactileRaster] = field(default_factory=list)
+    warnings: WarningCollector = field(default_factory=WarningCollector)
+    default_renderer: str = DEFAULT_TACTILE_RENDERER
+
+    @property
+    def page_count(self) -> int:
+        return len(self.pages)
+
+    def render(self, name: str | None = None, *, page: int = 0) -> Any:
+        """Render one page (default the first) through the named renderer.
+
+        ``name`` defaults to :attr:`default_renderer` (``"bmp"``). Raises
+        :class:`IndexError` if ``page`` is out of range, :class:`KeyError` if
+        no renderer is registered under ``name``."""
+        return renderer_registry.get(name or self.default_renderer).render(
+            self.pages[page]
+        )
+
+    def render_all(self, name: str | None = None) -> list[Any]:
+        """Render every page through the named renderer, in order — one output
+        per page (e.g. a list of ``.bmp`` byte strings ready to write as
+        ``page-1.bmp`` … ``page-N.bmp``)."""
+        renderer = renderer_registry.get(name or self.default_renderer)
+        return [renderer.render(p) for p in self.pages]
 
 
 # ---------------------------------------------------------------------------
@@ -131,3 +214,11 @@ class CompiledBlock:
     compiled_at: datetime = field(
         default_factory=lambda: datetime.now(UTC)
     )
+    # Tactile-graphics inline embedding (ARCHITECTURE.md G1):
+    # a :class:`~brailix.ir.document.GraphicBlock` rasterises to a
+    # :class:`TactileRaster` through the SAME incremental pipeline that
+    # compiles text blocks (no separate ``translate_graphic`` call), and it
+    # rides here alongside the (empty) ``braille_blocks`` placeholder that
+    # holds the figure's place in the block flow.  ``None`` for every text
+    # block — only a figure block carries a raster.
+    raster: TactileRaster | None = None
