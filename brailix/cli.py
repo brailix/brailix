@@ -41,7 +41,12 @@ from brailix.core.errors import BrailixError
 from brailix.frontend.ja.analyzer import list_analyzers as list_ja_analyzers
 from brailix.frontend.zh.analyzer import list_analyzers as list_zh_analyzers
 from brailix.frontend.zh.pinyin import list_resolvers
-from brailix.renderer import LayoutOptions, LayoutRenderer, renderer_registry
+from brailix.renderer import (
+    LayoutOptions,
+    LayoutRenderer,
+    braille_renderer_names,
+    renderer_registry,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -83,8 +88,14 @@ def build_parser() -> argparse.ArgumentParser:
     ``--resolver`` stay free-form strings (validated at run time against
     their registries) so language- and third-party adapters that register a
     name are selectable without changing this parser.
+
+    Only the braille renderers are offered: the CLI translates text to
+    braille, so the tactile-graphics renderers (``bmp`` / ``png`` /
+    ``tactile_preview``) — which share ``renderer_registry`` but consume a
+    raster, reached via the library's :meth:`~brailix.pipeline.GraphicResult.render`
+    — are filtered out by :func:`~brailix.renderer.braille_renderer_names`.
     """
-    renderers = renderer_registry.names()
+    renderers = braille_renderer_names()
     parser = argparse.ArgumentParser(
         prog="brailix",
         description="Compile text, Markdown, Word, and MusicXML into braille.",
@@ -260,7 +271,7 @@ def _handle_discovery(args: argparse.Namespace) -> int | None:
             print(name)
         return 0
     if args.list_renderers:
-        for name in renderer_registry.names():
+        for name in braille_renderer_names():
             print(name)
         return 0
     return None
