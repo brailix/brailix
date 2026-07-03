@@ -19,6 +19,7 @@ Hierarchy:
       ├── PhoneticInline    # IPA transcription; ``surface`` holds the raw phoneme run
       ├── MathInline        # ``math`` field holds the normalised MathML ET.Element tree
       ├── MusicInline       # ``score`` field holds the normalised MusicXML ET.Element tree
+      ├── GraphicInline     # ``svg`` field holds the normalised SVG ET.Element tree (graphics IR carrier)
       ├── Space
       ├── Connector         # synthetic connector ⠤: letter↔hanzi compound (x轴 / T恤)
       └── Unknown           # fallback, never lets the pipeline crash
@@ -211,6 +212,31 @@ class MusicInline(InlineNode):
 
 
 @dataclass(slots=True)
+class GraphicInline(InlineNode):
+    """In-children carrier of :class:`~brailix.ir.document.GraphicBlock`,
+    mirroring how :class:`MathInline` carries a :class:`MathBlock`'s tree
+    and :class:`MusicInline` a score's (see ``ARCHITECTURE.md``).
+
+    ``svg`` carries the normalised SVG tree as an :class:`ET.Element` once
+    the graphics frontend has run; until then it stays ``None`` and only the
+    raw surface + source format are recorded. The SVG tree itself is the
+    graphics IR — there is no separate vector model, exactly as MathML is the
+    math IR and MusicXML the music IR.
+
+    Unlike :class:`MathInline` / :class:`MusicInline`, this node is **not** on
+    the braille dispatch table: a tactile graphic does not translate to braille
+    cells. It is rasterised to a :class:`~brailix.ir.tactile.TactileRaster` by
+    :meth:`~brailix.pipeline.Pipeline.translate_graphic` via the tactile
+    backend; this node is only the tree carrier between frontend and that
+    backend.
+    """
+
+    type: ClassVar[str] = "graphic_inline"
+    source: str = "svg"  # svg / primitives / figure
+    svg: ET.Element | None = None
+
+
+@dataclass(slots=True)
 class Space(InlineNode):
     type: ClassVar[str] = "space"
 
@@ -320,6 +346,7 @@ _INLINE_REGISTRY: dict[str, type[InlineNode]] = {
         PhoneticInline,
         MathInline,
         MusicInline,
+        GraphicInline,
         Space,
         Connector,
         Unknown,
@@ -416,6 +443,7 @@ def _serialize_value(value: Any) -> Any:
 _XML_TREE_FIELDS: dict[str, tuple[str, str]] = {
     "math": ("MathInline.math", "MathML"),
     "score": ("MusicInline.score", "MusicXML"),
+    "svg": ("GraphicInline.svg", "SVG"),
 }
 
 
@@ -480,7 +508,7 @@ def _deserialize_value(key: str, value: Any) -> Any:
         return [from_dict(v) for v in value]
     if key == "number" and isinstance(value, dict):
         return from_dict(value)
-    if key in ("math", "score"):
+    if key in ("math", "score", "svg"):
         return _deserialize_xml_tree(key, value)
     _reject_unhandled_nested_payload(key, value)
     return value

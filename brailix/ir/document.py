@@ -263,6 +263,26 @@ class ImageAlt(Block):
     type: ClassVar[str] = "image_alt"
 
 
+@dataclass(slots=True)
+class GraphicBlock(Block):
+    """A tactile graphic. ``source`` is the format the raw graphic in
+    ``text`` is written in (``svg`` / ``primitives`` / ``figure``). The
+    normalised SVG tree (the graphics IR) is filled by
+    ``Pipeline._populate_block`` into ``children=[GraphicInline(svg=tree)]``
+    — the same children-carrier indirection as :class:`MathBlock` →
+    :class:`~brailix.ir.inline.MathInline` and :class:`ScoreBlock` →
+    :class:`~brailix.ir.inline.MusicInline` (see
+    ``ARCHITECTURE.md``).
+
+    A tactile graphic does **not** translate to braille cells; it compiles
+    to a :class:`~brailix.ir.tactile.TactileRaster` via
+    :meth:`~brailix.pipeline.Pipeline.translate_graphic`, so this block is
+    not routed through the braille backend dispatcher."""
+
+    type: ClassVar[str] = "graphic"
+    source: str = "svg"  # svg / primitives / figure
+
+
 # ---------------------------------------------------------------------------
 # Document root
 # ---------------------------------------------------------------------------
@@ -316,6 +336,7 @@ _BLOCK_REGISTRY: dict[str, type[Block]] = {
         ScoreBlock,
         MusicBlock,
         ImageAlt,
+        GraphicBlock,
     )
 }
 

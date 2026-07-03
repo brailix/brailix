@@ -29,6 +29,7 @@ from brailix.ir.document import (
     CodeBlock,
     DocumentIR,
     Footnote,
+    GraphicBlock,
     Heading,
     ImageAlt,
     List,
@@ -47,6 +48,7 @@ from brailix.ir.inline import (
     CodeInline,
     Connector,
     Date,
+    GraphicInline,
     HanziChar,
     HanziMarker,
     InlineNode,
@@ -65,6 +67,13 @@ from brailix.ir.inline import (
     Word,
 )
 
+# Note: ``TactileRaster`` (the tactile-graphics backend product) is deliberately
+# NOT re-exported here. This shallow surface is the braille Frontend↔Backend
+# contract; the graphics vertical's raster lives in — and is imported from —
+# ``brailix.ir.tactile``. The graphics *document-model* node types
+# (:class:`GraphicBlock`, :class:`GraphicInline`) are re-exported, like
+# Math/Music, because they are first-class document IR citizens.
+
 __all__ = (
     # braille
     "BLANK_CELL",
@@ -80,6 +89,7 @@ __all__ = (
     "CodeBlock",
     "DocumentIR",
     "Footnote",
+    "GraphicBlock",
     "Heading",
     "ImageAlt",
     "List",
@@ -97,6 +107,7 @@ __all__ = (
     "CodeInline",
     "Connector",
     "Date",
+    "GraphicInline",
     "HanziChar",
     "HanziMarker",
     "InlineNode",

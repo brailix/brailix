@@ -39,6 +39,7 @@ from brailix.ir.document import (
     Block,
     DocumentIR,
     Footnote,
+    GraphicBlock,
     List,
     ListItem,
     Table,
@@ -108,6 +109,18 @@ def expand_block(
         return _expand_list(block, ctx, profile)
     if isinstance(block, Table):
         return _expand_table(block, ctx, profile)
+    if isinstance(block, GraphicBlock):
+        # A tactile figure carries no braille cells — it rasterises to a
+        # TactileRaster (attached to the CompiledBlock by
+        # Pipeline.translate_block, ARCHITECTURE.md G1).  Emit an
+        # empty "graphic" block so the figure holds its place in the block
+        # flow WITHOUT translating its GraphicInline child, which has no
+        # braille cells and would otherwise warn UNHANDLED_NODE_TYPE.
+        return [
+            BrailleBlock(
+                block_type=block.type, id=block.id, align=block.align
+            )
+        ]
     # All other block kinds (Paragraph, Heading, Quote, MathBlock,
     # CodeBlock, Footnote, ImageAlt) flow through the simple path —
     # translate inline children and stamp the block type. Pipeline
