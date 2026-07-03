@@ -25,7 +25,12 @@ from brailix.core.config import iter_builtin_profiles
 from brailix.frontend.ja.analyzer import list_analyzers as ja_list_analyzers
 from brailix.frontend.zh.analyzer import list_analyzers as zh_list_analyzers
 from brailix.frontend.zh.pinyin import list_resolvers
-from brailix.renderer import LayoutOptions, LayoutRenderer, renderer_registry
+from brailix.renderer import (
+    LayoutOptions,
+    LayoutRenderer,
+    braille_renderer_names,
+    renderer_registry,
+)
 
 # --------------------------------------------------------------------------
 # Oracles + stdin fakes
@@ -240,7 +245,15 @@ def test_list_profiles(capsys):
 def test_list_renderers(capsys):
     rc = main(["--list-renderers"])
     assert rc == 0
-    assert capsys.readouterr().out.split() == renderer_registry.names()
+    # The CLI is text→braille, so it lists only the braille renderers; the
+    # tactile-graphics renderers (bmp / png / tactile_preview) share
+    # renderer_registry but consume a raster (reached via GraphicResult.render),
+    # so they're filtered out of --to / --list-renderers.
+    out = capsys.readouterr().out.split()
+    assert out == braille_renderer_names()
+    assert "unicode" in out
+    assert "bmp" not in out
+    assert "bmp" in renderer_registry.names()  # present, just not CLI-listed
 
 
 def test_list_resolvers(capsys):

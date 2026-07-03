@@ -5,7 +5,7 @@ performed here so we don't assert on inline shape."""
 
 import pytest
 
-from brailix.input.markdown import parse_markdown
+from brailix.input.markdown import parse_markdown, safe_block_insertion_offset
 from brailix.ir.document import (
     CodeBlock,
     Heading,
@@ -321,6 +321,41 @@ class TestSpans:
         text = "段一\n\n段二"
         doc = parse_markdown(text, profile="cn_current", language="zh-CN")
         assert doc.blocks[0].span.end <= doc.blocks[1].span.start
+
+
+CIRCLE = '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>'
+
+
+class TestSafeBlockInsertionOffset:
+    def test_caret_inside_graphic_fence_snaps_past_it(self):
+        src = f"intro\n\n```graphic-svg\n{CIRCLE}\n```\n\nafter"
+        doc = parse_markdown(src, profile="cn_current", language="zh-CN")
+        fence = next(b for b in doc.blocks if b.span and "```" in src[b.span.start : b.span.end])
+        inside = src.index("<circle")
+        assert fence.span.start < inside < fence.span.end
+        assert safe_block_insertion_offset(src, inside) == fence.span.end
+
+    def test_caret_in_interblock_gap_is_unchanged(self):
+        src = "para one\n\npara two"
+        gap = src.index("\n\npara two")
+        assert safe_block_insertion_offset(src, gap) == gap
+
+    def test_caret_inside_paragraph_snaps_to_its_end(self):
+        src = "a long paragraph here\n\ntail"
+        doc = parse_markdown(src, profile="cn_current", language="zh-CN")
+        para = doc.blocks[0]
+        mid = 5
+        assert para.span.start < mid < para.span.end
+        assert safe_block_insertion_offset(src, mid) == para.span.end
+
+    def test_out_of_range_is_clamped(self):
+        src = "abc"
+        assert safe_block_insertion_offset(src, -5) == 0
+        assert safe_block_insertion_offset(src, 999) == len(src)
+
+    def test_empty_source_returns_clamped(self):
+        assert safe_block_insertion_offset("", 0) == 0
+        assert safe_block_insertion_offset("   ", 1) == 1
 
 
 class TestMetadata:
