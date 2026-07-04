@@ -43,9 +43,39 @@ from brailix.core.errors import WarningCollector
 from brailix.ir.braille import BrailleCell
 from brailix.ir.tactile import TactileRaster
 
-__all__ = ("PageText", "PageFigure", "PageItem", "compose_pages")
+__all__ = (
+    "PageText",
+    "PageFigure",
+    "PageItem",
+    "compose_pages",
+    "line_width_cells",
+)
 
 _MM_PER_INCH = 25.4
+
+
+def line_width_cells(
+    profile: TactileProfile, *, margin_mm: float | None = None
+) -> int:
+    """Braille cells that fit across one usable tactile-page line.
+
+    (page width minus two margins) in millimetres, divided by the
+    cell-to-cell advance, floored — so a full line never spills past the
+    usable box into the right margin. ``margin_mm`` defaults to one cell
+    advance, the same default :func:`compose_pages` applies, so the wrap
+    width and the stamp geometry agree.
+
+    The one shared definition of "cells per page line":
+    :meth:`brailix.pipeline.Pipeline.translate_document_to_pages` wraps
+    with it, and a front-end composing pages from already-compiled blocks
+    must use it too — a hand-copied formula would silently drift from the
+    compositor's margins.
+    """
+    margin = (
+        profile.braille_cell_spacing_mm if margin_mm is None else margin_mm
+    )
+    usable_w_mm = profile.page_width_mm - 2 * margin
+    return max(1, int(usable_w_mm // profile.braille_cell_spacing_mm))
 
 
 # ---------------------------------------------------------------------------

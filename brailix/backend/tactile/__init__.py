@@ -69,6 +69,7 @@ from brailix.backend.tactile.page import (
     PageItem,
     PageText,
     compose_pages,
+    line_width_cells,
 )
 from brailix.backend.tactile.profile import TactileProfile
 from brailix.core.errors import WarningCollector
@@ -78,6 +79,7 @@ from brailix.ir.tactile import TactileRaster
 __all__ = (
     "rasterize",
     "compose_pages",
+    "line_width_cells",
     "PageText",
     "PageFigure",
     "PageItem",

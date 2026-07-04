@@ -18,6 +18,7 @@ from brailix.backend.tactile.page import (
     PageFigure,
     PageText,
     compose_pages,
+    line_width_cells,
 )
 from brailix.backend.tactile.profile import (
     TactileProfile,
@@ -327,6 +328,34 @@ class TestRasterCap:
         )[0]
         assert not any(w.code == "GRAPHICS_RASTER_CLAMPED" for w in warn)
         assert page.dpi == _profile().dpi
+
+
+class TestLineWidthCells:
+    """The shared cells-per-line rule (``line_width_cells``) — the single
+    definition both ``Pipeline.translate_document_to_pages`` and a front-end
+    composing from already-compiled blocks wrap with."""
+
+    def test_default_margin_is_one_cell_advance(self) -> None:
+        # 60 mm page, 6 mm cell advance: margin 6 → usable 48 → 8 cells.
+        assert line_width_cells(_profile()) == 8
+        # Explicitly passing the same margin must agree with the default.
+        assert line_width_cells(
+            _profile(), margin_mm=_profile().braille_cell_spacing_mm
+        ) == 8
+
+    def test_margin_override(self) -> None:
+        # Zero margin: the full 60 mm is usable → 10 cells.
+        assert line_width_cells(_profile(), margin_mm=0.0) == 10
+
+    def test_floors_partial_cell(self) -> None:
+        # 61 mm page: usable 49 mm holds 8 whole cells, the 1 mm remainder
+        # must not round up into the right margin.
+        assert line_width_cells(_profile(page_width_mm=61.0)) == 8
+
+    def test_never_below_one_cell(self) -> None:
+        # A page narrower than its margins still wraps at one cell instead
+        # of a zero/negative width.
+        assert line_width_cells(_profile(page_width_mm=5.0)) == 1
 
 
 if __name__ == "__main__":  # pragma: no cover
