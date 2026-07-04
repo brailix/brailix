@@ -98,8 +98,9 @@ Each layer answers exactly one question:
 1. A **text** dialect (OMML, Word EQ field, LaTeX, ABC) is kept raw in the input layer and deferred to the frontend — block-level as `MathBlock(source=...)`, inline as a source-tagged `$...$` island (`brailix.core.inline_math`) embedded in `Block.text`. Both are converted by the frontend's `parse_math_tree` (via `Pipeline._attach_math` / `_populate_math_block`).
 2. A **binary** dialect (MathType MTEF, MIDI, the `.mxl` ZIP) is decoded at the input boundary, because the text IR carries no binary payload. This is the deliberate exception to the rule, not an asymmetry.
 3. **Self-synthesized MathML** (an `<msup>` / `<msub>` tree reconstructed from Word super/subscript formatting) is not a foreign dialect at all, so the input layer builds the tree directly.
+4. A **reference** payload (a tactile graphic's `<image href>`): a bitmap or an external SVG file lives outside the document container — the fence body carries only a textual path / spec — so it stays a *reference* in the IR. The graphics frontend's image adapter reads only the file's dimensions (to set the `viewBox` and physical size); pixel decoding is deferred to the tactile backend at rasterize time (`backend/tactile/_image.py` resolves the href — data URI and filesystem path alike). A deliberate exception to rule 2: the binary never enters the IR and is not decoded at input, at the cost that a graphic IR is not self-contained (moving the referenced file makes a recompile soft-fail to a blank raster plus a `GRAPHICS_IMAGE_LOAD_FAILED` warning, never a crash), in exchange for sources and project files that don't balloon with embedded bitmaps.
 
-So the input layer imports no math/music source registry from the frontend (except the one binary-decode site), and the dependency is strictly one-way: the frontend never imports the input layer.
+So the input layer imports no math/music source registry from the frontend (except the one binary-decode site), and the dependency is strictly one-way: the frontend never imports the input layer. The graphics fence likewise stays registry-free on the input side — a purely **structural** rule (bare ```` ```graphic ```` is the SVG alias; ```` ```graphic-<name> ```` carries `<name>` verbatim as the source name, the same shape as inline math's dialect-tagged islands), so a newly registered graphics source gets a fence tag with no input-layer change and an unknown name soft-fails at compile time (`GRAPHICS_ADAPTER_MISSING` plus a blank raster). Both directions of the fence grammar have one owner, `input/markdown.py` (`graphic_fence_source` / `graphic_fence_open`) — an editor re-tagging a fence never spells the tag itself.
 
 A document flows top to bottom. The input layer turns any source into one `DocumentIR` whose blocks still hold raw text. The frontend detects inline regions, tags numbers, dates, and units, and routes each region down its own track. An IR builder merges everything into a complete `DocumentIR`, an IR validator checks structural validity, and the backend dispatches each node by type to a translator. The renderer then lays out and encodes the resulting cells, alongside a `WarningCollector`. Two properties of that flow matter most:
 
@@ -150,13 +151,18 @@ brailix/
 │   │   │   ├── normalizer.py     # MathML normalization (emits ET.Element, i.e. the IR)
 │   │   │   ├── registry.py        # math_source_registry
 │   │   │   └── adapters/         # latex / mathml / omml / mtef / eq_field / chem
-│   │   └── music/          # source → MusicXML tree (= IR)
-│   │       ├── normalizer.py / registry.py  # music_source_registry
-│   │       └── adapters/         # musicxml / mxl / midi / abc / plain
+│   │   ├── music/          # source → MusicXML tree (= IR)
+│   │   │   ├── normalizer.py / registry.py  # music_source_registry
+│   │   │   └── adapters/         # musicxml / mxl / midi / abc / plain
+│   │   └── graphics/       # source → SVG tree (= IR, tactile graphics)
+│   │       ├── normalizer.py / registry.py  # graphic_source_registry
+│   │       ├── generate.py       # figure spec → primitives spec generators (pure stdlib)
+│   │       └── adapters/         # svg / primitives / figure / image (image needs the graphics extra)
 │   ├── ir/
 │   │   ├── document.py       # DocumentIR: block level (incl. MathBlock / CodeBlock / ScoreBlock ...)
 │   │   ├── inline.py         # InlineIR: inline tokens (incl. MathInline.math: ET.Element)
-│   │   └── braille.py        # BrailleIR: cell sequence
+│   │   ├── braille.py        # BrailleIR: cell sequence
+│   │   └── tactile.py        # TactileRaster: tactile dot grid (tactile-backend product, the graphics counterpart of BrailleIR)
 │   ├── backend/              # IR → BrailleIR
 │   │   ├── dispatch.py       # dispatch by node type; prose nodes then pick a LanguageBackend by profile.language
 │   │   ├── number.py         # language-agnostic translator (numbers / dates / percent / quantities)
@@ -169,11 +175,13 @@ brailix/
 │   │   │   └── pinyin_parser.py   # pinyin syllable → (initial, final, tone)
 │   │   ├── ja/               # Japanese kana → cells (LanguageBackend)
 │   │   ├── math/            # math braille state machine (chem / context / dispatch / handlers / utils)
-│   │   └── music/          # music braille (handlers/ split into files by BANA chapter)
+│   │   ├── music/          # music braille (handlers/ split into files by BANA chapter)
+│   │   └── tactile/        # SVG tree → TactileRaster (tactile rasterizer; page.py mixed-page compositor + profile.py TactileProfile)
 │   ├── renderer/            # BrailleIR → output format
 │   │   ├── unicode_braille.py / brf.py / cells.py
 │   │   ├── layout.py        # line breaks / indent / pagination
-│   │   └── music_layout.py / _page_digits.py
+│   │   ├── music_layout.py / _page_digits.py
+│   │   └── bmp.py / png.py / pdf.py / tactile_preview.py  # tactile renderers (consume TactileRaster; same renderer_registry, self-described via ``consumes``)
 │   ├── profiles/
 │   │   ├── cn_current.json   # Current Chinese Braille (default)
 │   │   ├── cn_ncb.json       # National Common Braille
@@ -184,6 +192,7 @@ brailix/
 │       ├── latin/ / greek/   # neutral alphabets (shared, scheme/language-agnostic)
 │       ├── phonetic.json     # English IPA phonetic symbols → cells (shared, English-Braille letter/digraph values, scheme-agnostic)
 │       ├── music/            # music resources (BANA 2015 tables + instruments/ + vocal/, international)
+│       ├── tactile/          # tactile profiles (generic / letter: millimetre adaptation params + the one DPI dial)
 │       ├── cn/               # Chinese braille resources
 │       │   ├── compounds.json # letter+hanzi compound-word lexicon (a Chinese-language fact, scheme-agnostic)
 │       │   ├── current/      # Current Chinese Braille: initials / finals / tones / punct + math/
@@ -377,6 +386,8 @@ latex  = ["latex2mathml"]                      # LaTeX → MathML
 docx   = ["python-docx", "lxml", "olefile"]   # Word .docx / .docm (incl. OMML / MathType)
 midi   = ["mido", "partitura"]                 # MIDI scores → MusicXML
 abc    = ["abc-xml-converter"]                 # ABC scores → MusicXML
+graphics = ["pillow"]                          # tactile graphics: read an external bitmap
+graphics-svg-raster = ["resvg-py", "pillow"]   # tactile graphics: full-fidelity external-SVG render
 ja     = ["janome"]                            # light, offline Japanese
 all    = [...]                                 # every tool + each language's default analyzer
 ```
@@ -400,6 +411,7 @@ The first batch of adapters in the box — the profile always selects which one 
 | Japanese analysis | `kana` (no extra) / `janome` / `fugashi` / `sudachi` (plus `auto`) | `janome` (light) |
 | Math sources | `mathml` (stdlib passthrough) / `latex` (`latex2mathml`) / `omml` / `mtef` / `eq_field` / `chem` | LaTeX + MathML; OMML / MTEF / EqField land with Word |
 | Music sources | `musicxml` (stdlib) / `mxl` (zip unpack) / `midi` (`partitura`) / `abc` (`abc-xml-converter`) / `plain` | MusicXML and `.mxl` |
+| Graphic sources | `svg` (stdlib tag-walk) / `primitives` / `figure` (both stdlib) / `image` (`pillow`; full external-SVG render adds `resvg-py`) | SVG and primitives |
 | Document input | plain text / Markdown (pure-stdlib reader) / Word `.docx` / `.doc` (`python-docx` + `olefile`) / score files | enable per scenario |
 
 ### 6.5 Adding a tool is one file
@@ -477,9 +489,11 @@ Two finer invariants keep the layers clean: the MathML tree stays pure structure
 
 ---
 
-## 8. The music subsystem
+## 8. The music and tactile-graphics subsystems
 
 The music path mirrors the math path exactly. A source — MusicXML, a compressed `.mxl`, MIDI, or ABC — goes through an adapter into a normalized **MusicXML tree** (`ET.Element`), which is the music IR. The MusicBraille backend dispatches by element tag and runs a contextual state machine implementing BANA 2015 braille music. The code lives in the frontend `frontend/music/`, the backend `backend/music/` (whose `handlers/` subpackage is split into files by BANA chapter), the resources `resources/music/`, and the input adapter `input/music_xml.py`. Because it reuses the same adapter-plus-mediator shape, adding a new score format is, again, one adapter file.
+
+The tactile-graphics path reuses the same shape with a different product. A source — raw SVG, a primitives spec, a figure spec, or an external image reference — goes through an adapter into a normalized **SVG tree** (`ET.Element`), which is the graphics IR. The tactile backend (`backend/tactile/`) dispatches by element tag and rasterizes the tree into a `TactileRaster` (`ir/tactile.py`) — a grid of raise levels, the graphics counterpart of BrailleIR — driven by a `TactileProfile` (millimetre adaptation parameters plus one device dial, DPI; JSON under `resources/tactile/`). A graphic never becomes braille cells; its `<text>` labels are translated through an injected `LabelTranslator` callable (the same dependency-injection seam as `InlineTextTranslator`, §14) and stamped as physically-sized braille dots. The rasters render to `.bmp` / `.png` / `.pdf` / a U+2800 preview through the **same** `renderer_registry` as the braille renderers — each renderer self-describes what it consumes. The entry point is the **module-level** `brailix.translate_graphic`: a graphic's compile needs no braille standard (its product is a raster, not cells; only `<text>` label translation touches braille), so it stands Pipeline-free, and `Pipeline.translate_graphic` merely delegates, reusing its own text path for labels when the standards match; `Pipeline.translate_document_to_pages` composes mixed pages. External `<image href>` assets resolve at rasterize time (§3, payload rule 4).
 
 ---
 
@@ -706,6 +720,7 @@ These are the invariants that keep each component swappable — each does exactl
 - The **MathParser** (adapter + normalizer) emits only a MathML tree.
 - The **Backend** consumes IR forward-only: it reads the `children` the Pipeline pre-filled (math frontend → `MathInline`, code → `CodeInline`; see §11.1) and translates them — segmentation and language selection already happened upstream. **One controlled seam**: music `<words>` / embedded lyrics and the Chinese inside chemical-reaction conditions need their embedded prose rendered to braille, so the Backend consumes a callable the `Pipeline` injects into `BackendContext.options` implementing the `InlineTextTranslator` protocol (read via `BackendContext.inline_text_translator()`, key constant `INLINE_TEXT_TRANSLATOR_KEY`). That is dependency injection, so the Backend stays importable and unit-testable on its own; with nothing injected, the handler emits a warning plus a placeholder marker.
 - The **Renderer**'s only job is encoding cells into bytes.
+- The tactile-graphics vertical holds the same lines: a **GraphicSourceAdapter** emits only an SVG string; the **tactile backend** consumes the normalized SVG tree (the graphics IR) and never imports the frontend — a graphic's `<text>` labels are translated through an injected `LabelTranslator` callable, the same DI seam as `InlineTextTranslator`; the **tactile renderers** consume only a `TactileRaster`. External `<image href>` assets resolve in the tactile backend at rasterize time — the sanctioned exception spelled out as payload rule 4 in §3.
 
 Keeping each component to its own job is what lets any one of them be swapped or rewritten in isolation.
 
