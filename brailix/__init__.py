@@ -8,10 +8,12 @@ from brailix.pipeline import (  # noqa: E402
     TranslationResult,
     TreeSubcache,
     block_hash,
+    translate_graphic,
 )
 
 __all__ = [
     "Pipeline",
+    "translate_graphic",
     "TranslationResult",
     "CompiledBlock",
     "TreeSubcache",
