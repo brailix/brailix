@@ -15,7 +15,7 @@ import struct
 
 import pytest
 
-from brailix import Pipeline
+from brailix import Pipeline, translate_graphic
 from brailix.backend.tactile.profile import load_tactile_profile
 from brailix.core.errors import WarningCollector
 from brailix.ir.braille import BrailleCell
@@ -162,14 +162,20 @@ class TestSourceSoftFail:
     (the pipeline contract: a graphic always rasterises to *something*)."""
 
     def test_unknown_source_format_soft_fails(self):
+        # The frontend's single entry (parse_graphic_tree) owns adapter
+        # resolution and warns GRAPHICS_ADAPTER_MISSING — the same shape as
+        # math / music's *_ADAPTER_MISSING — then degrades to an error tree
+        # the backend surfaces as GRAPHICS_SOFT_FAIL.
         warn = WarningCollector()
         result = _compile("<svg/>", source="does_not_exist", warnings=warn)
         assert result.raster is not None
-        assert any(w.code == "GRAPHICS_BLOCK_PARSE_FAILED" for w in warn)
+        codes = {w.code for w in warn}
+        assert "GRAPHICS_ADAPTER_MISSING" in codes
+        assert "GRAPHICS_SOFT_FAIL" in codes
 
     def test_non_utf8_bytes_soft_fail(self):
-        # A latin-1 SVG with a 0xE9 byte — the eager UTF-8 decode used to crash
-        # here; now it soft-fails to a blank raster.
+        # A latin-1 SVG with a 0xE9 byte — the source adapters own the byte
+        # decode and its soft-failure; it must yield a blank raster, not crash.
         raw = (
             '<?xml version="1.0" encoding="ISO-8859-1"?>'
             "<svg><text>café</text></svg>"
@@ -177,6 +183,47 @@ class TestSourceSoftFail:
         result = _compile(raw)
         assert result.raster is not None
         assert result.raster.width > 0 and result.raster.height > 0
+
+
+class TestModuleLevelEntry:
+    """The Pipeline-free entry: a graphic's compile needs no braille standard
+    (its product is a raster, not cells), so ``brailix.translate_graphic``
+    stands alone — ``Pipeline.translate_graphic`` merely delegates to it."""
+
+    def test_compiles_without_any_braille_profile(self):
+        result = translate_graphic(CIRCLE)
+        assert result.raster.raised_count() > 0
+        assert result.render("bmp")[:2] == b"BM"
+        assert result.svg_tree is not None and result.svg_tree.tag == "svg"
+
+    def test_label_without_translation_source_warns_and_skips(self):
+        labelled = (
+            '<svg viewBox="0 0 100 100" width="50mm" height="50mm">'
+            '<circle cx="50" cy="50" r="40"/>'
+            '<text x="6" y="12">A</text></svg>'
+        )
+        warn = WarningCollector()
+        result = translate_graphic(labelled, warnings=warn)
+        assert result.raster.raised_count() > 0  # the circle still draws
+        assert any(w.code == "GRAPHICS_LABEL_NO_PROFILE" for w in warn)
+
+    def test_braille_profile_translates_labels(self):
+        labelled = (
+            '<svg viewBox="0 0 100 100" width="50mm" height="50mm">'
+            '<circle cx="50" cy="50" r="40"/>'
+            '<text x="6" y="12">A</text></svg>'
+        )
+        plain = translate_graphic(labelled)
+        with_labels = translate_graphic(labelled, braille_profile="cn_current")
+        # Stamped label dots only ever add raised cells (set_raise is a max).
+        assert (
+            with_labels.raster.raised_count() > plain.raster.raised_count()
+        )
+
+    def test_pipeline_method_delegates_to_same_result(self):
+        via_module = translate_graphic(CIRCLE)
+        via_pipeline = _compile(CIRCLE)
+        assert via_pipeline.raster.data == via_module.raster.data
 
 
 class TestBraillePreview:

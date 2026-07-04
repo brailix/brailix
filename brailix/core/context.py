@@ -141,14 +141,14 @@ class GraphicsContext:
     string — that SVG tree itself is the graphics IR (see
     :mod:`brailix.frontend.graphics` and
     ``ARCHITECTURE.md``), exactly as MathML / MusicXML
-    are the IR for their verticals. ``profile`` names the tactile
-    rendering profile (millimetre adaptation params + DPI); unlike a
-    braille standard there is a sensible device-independent default, so it
-    is not required.
+    are the IR for their verticals. The tactile rendering profile
+    (millimetre adaptation params + DPI) is deliberately **not** carried
+    here: it is a backend concern, applied at rasterize time
+    (:func:`brailix.backend.tactile.rasterize`), so the source adapters
+    stay device-independent.
     """
 
     source: str = "svg"  # svg / primitives / image / chart / ...
-    profile: str = "generic"
     warnings: WarningCollector = field(default_factory=WarningCollector)
     options: dict[str, Any] = field(default_factory=dict)
 

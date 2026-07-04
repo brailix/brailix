@@ -135,10 +135,17 @@ class TestFencedGraphicSyntax:
         assert graphics[0].text.strip() == CIRCLE
 
     def test_format_variants(self) -> None:
+        # ``graphic-<source>`` carries the source name verbatim (structural
+        # rule) — including sources registered after the fence syntax landed
+        # (``image``) and ones that don't exist yet: the fence grammar needs
+        # no per-source enumeration, the graphics frontend soft-fails an
+        # unknown name at compile time.
         for fence, fmt in (
             ("graphic-svg", "svg"),
             ("graphic-figure", "figure"),
             ("graphic-primitives", "primitives"),
+            ("graphic-image", "image"),
+            ("graphic-not-registered-yet", "not-registered-yet"),
         ):
             doc = parse_markdown(
                 f"```{fence}\nbody\n```", profile="cn_current", language="zh-CN"
@@ -148,12 +155,31 @@ class TestFencedGraphicSyntax:
             assert blk.source == fmt
 
     def test_ordinary_code_fence_stays_code(self) -> None:
-        # A real code fence must NOT become a figure.
+        # A real code fence must NOT become a figure — nor may the bare
+        # ``graphic-`` prefix with an empty source name.
+        for info in ("python", "graphic-"):
+            doc = parse_markdown(
+                f"```{info}\nx = 1\n```", profile="cn_current", language="zh-CN"
+            )
+            assert isinstance(doc.blocks[0], CodeBlock)
+            assert not any(isinstance(b, GraphicBlock) for b in doc.blocks)
+
+    def test_unknown_source_fence_soft_fails_at_compile(self) -> None:
+        # An unregistered source name parses fine (structural fence rule) and
+        # soft-fails at compile: GRAPHICS_ADAPTER_MISSING + a blank raster —
+        # never a crash, and never a code block full of literal SVG braille.
+        pipe = Pipeline(profile="cn_current", analyzer="char", resolver="null")
         doc = parse_markdown(
-            "```python\nx = 1\n```", profile="cn_current", language="zh-CN"
+            "```graphic-doesnotexist\nbody\n```",
+            profile="cn_current",
+            language="zh-CN",
         )
-        assert isinstance(doc.blocks[0], CodeBlock)
-        assert not any(isinstance(b, GraphicBlock) for b in doc.blocks)
+        figure = next(b for b in doc.blocks if isinstance(b, GraphicBlock))
+        compiled = pipe.translate_block(figure)
+        assert isinstance(compiled.raster, TactileRaster)
+        codes = {w.code for w in compiled.warnings}
+        assert "GRAPHICS_ADAPTER_MISSING" in codes
+        assert "GRAPHICS_SOFT_FAIL" in codes
 
     def test_figure_interleaves_with_prose(self) -> None:
         src = f"第一章\n\n```graphic\n{CIRCLE}\n```\n\n第二段"

@@ -20,11 +20,15 @@ pattern):
 * ``> quote`` (one ``>`` per quoted line) → :class:`Quote`.
 * Fenced code: ``\`\`\`lang`` ... ``\`\`\``` → :class:`CodeBlock` (the
   ``lang`` token, if present, is stored on the block).
-* Fenced graphic: ``\`\`\`graphic`` (or ``graphic-svg`` / ``graphic-figure``
-  / ``graphic-primitives``) ... ``\`\`\``` → :class:`GraphicBlock` — an inline
-  tactile figure whose fence body is the figure source (SVG / data spec). Lets
-  a chapter carry its figures inline so the document stays one portable file
-  (ARCHITECTURE.md G2).
+* Fenced graphic: ``\`\`\`graphic`` (the SVG alias) or
+  ``\`\`\`graphic-<source>`` carrying a graphics source name verbatim
+  (``graphic-svg`` / ``graphic-figure`` / ``graphic-primitives`` /
+  ``graphic-image`` / any registered adapter) ... ``\`\`\``` →
+  :class:`GraphicBlock` — an inline tactile figure whose fence body is the
+  figure source (SVG / data spec / image path). Lets a chapter carry its
+  figures inline so the document stays one portable file
+  (ARCHITECTURE.md G2). See :func:`graphic_fence_source` /
+  :func:`graphic_fence_open`, the two directions of the fence grammar.
 * ``$$display math$$`` → :class:`MathBlock` (``source="latex"``).
 * ``| col1 | col2 |`` lines on consecutive rows → :class:`Table`. A
   separator row (``| --- | --- |``) is recognised but doesn't change
@@ -98,18 +102,51 @@ def is_closing_fence(line: str) -> bool:
 # Fenced graphic block (ARCHITECTURE.md G2): a self-contained
 # tactile figure embedded in braille source, mirroring the ```code fence and
 # the ``$$math$$`` fence — the fence body IS the figure source, so the document
-# stays portable (no external file references travelling beside the .blx). The
-# info string names the graphics source format; ``graphic`` is the friendly
-# alias for SVG (the common inline case). Namespaced under ``graphic`` so a
-# figure fence can't be mistaken for an ordinary ```code fence. Keep the format
-# values in sync with the graphics source registry names
-# (brailix.frontend.graphics.graphic_source_registry).
-_GRAPHIC_FENCE_FORMATS = {
-    "graphic": "svg",
-    "graphic-svg": "svg",
-    "graphic-figure": "figure",
-    "graphic-primitives": "primitives",
-}
+# stays portable (no external file references travelling beside the .blx).
+#
+# The info string carries the graphics source name **structurally**:
+# ``graphic-<source>`` maps to ``<source>`` verbatim (``graphic-svg`` /
+# ``graphic-figure`` / ``graphic-primitives`` / ``graphic-image`` / any
+# future adapter), and the bare ``graphic`` tag is the friendly alias for
+# SVG (the common inline case) — the same shape as inline math's
+# dialect-tagged islands, where the tag *is* the source name. Namespaced
+# under ``graphic`` so a figure fence can't be mistaken for an ordinary
+# ```code fence. The input layer stays registry-free (ARCHITECTURE §7.3):
+# a name no adapter answers to soft-fails at compile time as
+# ``GRAPHICS_ADAPTER_MISSING`` plus a blank raster, so registering a new
+# graphics source needs no input-layer change at all.
+_GRAPHIC_FENCE_PREFIX = "graphic-"
+_GRAPHIC_FENCE_DEFAULT_SOURCE = "svg"
+
+
+def graphic_fence_source(info: str | None) -> str | None:
+    """Graphics source name for a fence info string, or ``None`` when the
+    fence is not a graphic fence (an ordinary ```code fence).
+
+    The parse direction of the fence grammar: ``graphic`` → ``svg`` (the
+    friendly alias), ``graphic-<source>`` → ``<source>`` verbatim. The
+    name is not validated here — the graphics frontend owns the adapter
+    registry and soft-fails an unknown name at compile time."""
+    if not info:
+        return None
+    if info == "graphic":
+        return _GRAPHIC_FENCE_DEFAULT_SOURCE
+    if info.startswith(_GRAPHIC_FENCE_PREFIX):
+        return info[len(_GRAPHIC_FENCE_PREFIX) :] or None
+    return None
+
+
+def graphic_fence_open(source: str) -> str:
+    """The opening fence line for a graphics ``source`` name — the compose
+    direction of the fence grammar, inverse of :func:`graphic_fence_source`.
+
+    Always the explicit ``\\`\\`\\`graphic-<source>`` form (unambiguous on
+    round-trip; the bare ``graphic`` alias is accepted on parse only). An
+    editor writing or re-tagging a figure fence uses this instead of
+    spelling the tag itself, so the grammar has one owner."""
+    return f"```{_GRAPHIC_FENCE_PREFIX}{source}"
+
+
 _TABLE_RE = re.compile(r"^\s*\|(.+)\|\s*$")
 _TABLE_SEP_CHARS = re.compile(r"^[\s\-|:]+$")
 
@@ -325,7 +362,7 @@ def _consume_fenced_code(
         cur.consume()
     span = cur.span_of(start, cur.i)
     text = "\n".join(body)
-    graphic_format = _GRAPHIC_FENCE_FORMATS.get(language or "")
+    graphic_format = graphic_fence_source(language)
     if graphic_format is not None:
         return GraphicBlock(source=graphic_format, text=text, span=span)
     return CodeBlock(language=language, text=text, span=span)

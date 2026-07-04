@@ -36,11 +36,12 @@ are re-exported here so ``brailix.pipeline.<name>`` keeps resolving:
   :func:`cache_lookup`, :func:`cache_record`.
 
 The cohesive :class:`Pipeline` orchestrator stays here, together with
-:data:`_frontend_parse_math_tree` / :data:`_frontend_parse_music_tree`,
-which tests monkeypatch via ``brailix.pipeline.*`` — a patch only
-affects callers that look the name up in *this* namespace, and
-:meth:`Pipeline._populate_block` / :meth:`Pipeline._attach_math` are
-those callers, so both the names and the class must live together here.
+:data:`_frontend_parse_math_tree` / :data:`_frontend_parse_music_tree` /
+:data:`_frontend_parse_graphic_tree`, which tests monkeypatch via
+``brailix.pipeline.*`` — a patch only affects callers that look the name
+up in *this* namespace, and :meth:`Pipeline._populate_block` /
+:meth:`Pipeline._attach_math` / :func:`translate_graphic` are those
+callers, so both the names and the class must live together here.
 """
 
 from __future__ import annotations
@@ -81,6 +82,9 @@ from brailix.frontend import language_frontend_registry
 from brailix.frontend import normalize as _frontend_normalize
 from brailix.frontend import parse_math_tree as _frontend_parse_math_tree
 from brailix.frontend import segment as _frontend_segment
+from brailix.frontend.graphics import (
+    parse_graphic_tree as _frontend_parse_graphic_tree,
+)
 from brailix.frontend.music import parse_music_tree as _frontend_parse_music_tree
 from brailix.frontend.normalize import normalizer_registry
 from brailix.frontend.segment import segmenter_registry
@@ -125,6 +129,7 @@ from brailix.pipeline._results import (
 
 __all__ = [
     "Pipeline",
+    "translate_graphic",
     "TranslationResult",
     "GraphicResult",
     "TactilePageResult",
@@ -137,6 +142,7 @@ __all__ = [
     "_block_surface",
     "_frontend_parse_math_tree",
     "_frontend_parse_music_tree",
+    "_frontend_parse_graphic_tree",
 ]
 
 
@@ -383,65 +389,32 @@ class Pipeline:
     ) -> GraphicResult:
         """Compile a tactile graphic into a :class:`GraphicResult`.
 
-        The tactile vertical's counterpart to :meth:`translate_text`: the
-        graphic source (``source_format`` ∈ ``svg`` / ``primitives`` /
-        ``figure``) is wrapped as a :class:`~brailix.ir.document.GraphicBlock`,
-        the **graphics frontend** normalises it into the SVG-tree IR (same path
-        :meth:`translate_text` runs for prose, math, music — a block whose tree
-        is built in :meth:`_populate_block`), and the **tactile backend**
-        rasterises that tree into a :class:`~brailix.ir.tactile.TactileRaster`.
-        Concrete bytes (``.bmp`` / ``.png`` / U+2800 preview) come from
-        :meth:`GraphicResult.render` through the shared ``renderer_registry``.
+        Convenience delegation to the module-level
+        :func:`translate_graphic` — a graphic's own compile needs no
+        braille standard (its product is a raster, not cells), so the
+        real entry is Pipeline-free. Going through a Pipeline buys one
+        thing: when ``braille_profile`` matches this pipeline's own
+        profile, ``<text>`` labels translate through **this** pipeline's
+        text path instead of spinning up a second one.
 
-        ``tactile_profile`` names a tactile profile (mm adaptation params +
-        DPI) or is an already-loaded ``TactileProfile``. Text labels
-        (``<text>``) translate to braille and stamp onto the raster only when a
-        translation source is given — pass ``braille_profile`` (a braille
-        standard, wired through this pipeline's text path) or a ready
-        ``label_translator``; without either, labels are warned and skipped.
-        ``record_provenance`` records which pixels each SVG element drew for an
-        editor's cross-pane highlight (off by default — export pays nothing).
+        See :func:`translate_graphic` for the parameter contract.
         """
-        from brailix.ir.document import GraphicBlock
-
-        warns = warnings if warnings is not None else WarningCollector(mode=self.mode)
-        ctx = FrontendContext(
-            profile=self.profile,
-            mode=self.mode,
-            warnings=warns,
-            options=self._frontend_options(),
-        )
-        if isinstance(source, str):
-            text, src_format = source, source_format
-        else:
-            try:
-                text, src_format = source.decode("utf-8"), source_format
-            except UnicodeDecodeError:
-                # Non-UTF-8 bytes: mirror the source adapters' own bytes
-                # soft-fail (a blank error-marked SVG) instead of crashing the
-                # whole call — the eager decode here would otherwise defeat the
-                # adapters' ``except UnicodeDecodeError`` handling.
-                from brailix.frontend.graphics.adapters.svg import (
-                    svg_error_wrap,
-                )
-
-                text = svg_error_wrap(repr(source), reason="non-utf8 bytes")
-                src_format = "svg"
-        block = GraphicBlock(text=text, source=src_format)
-        self._populate_graphic_block(block, ctx)
-
         translator = label_translator
         if translator is None and braille_profile is not None:
             translator = self._graphic_label_translator(braille_profile)
-
-        raster, tree = self._rasterize_graphic(
-            block,
-            warns,
+        return translate_graphic(
+            source,
+            source_format=source_format,
             tactile_profile=tactile_profile,
             label_translator=translator,
             record_provenance=record_provenance,
+            warnings=(
+                warnings
+                if warnings is not None
+                else WarningCollector(mode=self.mode)
+            ),
+            mode=self.mode,
         )
-        return GraphicResult(raster=raster, svg_tree=tree, warnings=warns)
 
     def _rasterize_graphic(
         self,
@@ -578,6 +551,7 @@ class Pipeline:
             PageItem,
             PageText,
             compose_pages,
+            line_width_cells,
         )
         from brailix.backend.tactile.profile import load_tactile_profile
         from brailix.ir.document import GraphicBlock
@@ -588,20 +562,14 @@ class Pipeline:
             if isinstance(tactile_profile, str)
             else tactile_profile
         )
-        # Cells that fit across the usable page width: (page - two margins) in
-        # millimetres, divided by the cell-to-cell advance. Floored, so a full
-        # line never spills past the usable box into the right margin. The
-        # compositor stamps at the same cell advance, so the wrap width and the
-        # stamp geometry agree.
-        margin = (
-            tprof.braille_cell_spacing_mm if margin_mm is None else margin_mm
-        )
-        usable_w_mm = tprof.page_width_mm - 2 * margin
-        line_width_cells = max(
-            1, int(usable_w_mm // tprof.braille_cell_spacing_mm)
-        )
+        # Wrap width = the one shared cells-per-line rule (``line_width_cells``);
+        # the compositor stamps at the same cell advance, so the wrap width and
+        # the stamp geometry agree.
         layout = LayoutRenderer(
-            options=LayoutOptions(line_width=line_width_cells, page_height=None)
+            options=LayoutOptions(
+                line_width=line_width_cells(tprof, margin_mm=margin_mm),
+                page_height=None,
+            )
         )
 
         warnings = WarningCollector(mode=self.mode)
@@ -1166,15 +1134,15 @@ class Pipeline:
 
         Mirrors :meth:`_populate_math_block` / :meth:`_populate_music_block`
         for the tactile-graphics subsystem (``ARCHITECTURE.md``): the block holds only ``source``; the parsed SVG tree lives on
-        the child carrier. The source adapters soft-fail to an SVG bearing a
-        ``data-bk-error`` marker rather than raising, so the tactile backend
-        can surface ``GRAPHICS_SOFT_FAIL`` — ``block.children`` always ends up
-        populated and the pipeline keeps running. Shares the ``("graphic", …)``
-        tree sub-cache domain alongside math / music.
+        the child carrier. Parsing goes through the module-level
+        ``_frontend_parse_graphic_tree`` alias — the graphics frontend's
+        single public entry, same shape as math / music — which never
+        raises: a missing adapter or adapter failure degrades to an SVG
+        bearing a ``data-bk-error`` marker, so the tactile backend can
+        surface ``GRAPHICS_SOFT_FAIL`` — ``block.children`` always ends up
+        populated and the pipeline keeps running. Shares the
+        ``("graphic", …)`` tree sub-cache domain alongside math / music.
         """
-        from brailix.frontend.graphics.normalizer import normalize as _normalize_svg
-        from brailix.frontend.graphics.registry import graphic_source_registry
-
         text, span, _had_span = _ensure_block_span(block)
 
         cache_key = ("graphic", block.source, text)
@@ -1182,29 +1150,22 @@ class Pipeline:
         if cached_tree is not None:
             tree: ET.Element | None = cached_tree
         else:
+            # The tactile profile (mm + DPI) is a backend concern applied
+            # at rasterize time, never at the frontend — the context
+            # carries only source / warnings / options.
+            gctx = GraphicsContext(
+                source=block.source,
+                warnings=ctx.warnings,
+                options=dict(ctx.options),
+            )
             try:
-                # Resolve the adapter inside the try so an unknown source or a
-                # missing extra (e.g. 'image' with no Pillow installed) soft-
-                # fails to an error SVG like any other adapter failure, instead
-                # of crashing the whole document compile. MissingExtraError /
-                # UnknownAdapterError both subclass BrailixError (not
-                # StrictModeError), so they land in the wide except below.
-                adapter = graphic_source_registry.get(block.source)
-                # GraphicsContext.profile is the *tactile* profile (mm + DPI),
-                # not a braille standard, and the source adapters don't read it
-                # — only ``source`` / ``warnings`` matter at the frontend.
-                # Leave its device-independent default; the tactile profile is
-                # applied later by the backend (rasterize), not here.
-                gctx = GraphicsContext(
-                    source=block.source,
-                    warnings=ctx.warnings,
-                    options=dict(ctx.options),
-                )
-                tree = _normalize_svg(adapter.to_svg(text, gctx))
+                tree = _frontend_parse_graphic_tree(text, gctx)
             except StrictModeError:
                 # See _populate_music_block: keep the real code, don't rewrap.
                 raise
             except Exception as exc:  # noqa: BLE001 — adapter errors are wide
+                # Backstop for a frontend that raises anyway (the registry is
+                # open; a test may monkeypatch the alias with a raising fake).
                 ctx.warnings.error(
                     code="GRAPHICS_BLOCK_PARSE_FAILED",
                     message=f"graphic block parse failed: {exc!r}",
@@ -1212,10 +1173,9 @@ class Pipeline:
                     span=span,
                     source="pipeline",
                 )
-                # Soft-fail to an error-marked SVG (never None), mirroring the
-                # source adapters: the tactile backend turns this into a blank
-                # raster + GRAPHICS_SOFT_FAIL, so a graphic always rasterises to
-                # *something* and the pipeline keeps running.
+                # Soft-fail to an error-marked SVG (never None): the tactile
+                # backend turns this into a blank raster + GRAPHICS_SOFT_FAIL,
+                # so a graphic always rasterises to *something*.
                 tree = ET.Element("svg", {"data-bk-error": repr(exc)})
 
         cache_record(tree_out, cache_key, tree)
@@ -1425,3 +1385,76 @@ class Pipeline:
         )
         braille_doc = translate_document(doc, backend_ctx, self._profile)
         return braille_doc.all_cells()
+
+
+# ---------------------------------------------------------------------------
+# Module-level tactile-graphics entry
+# ---------------------------------------------------------------------------
+
+
+def translate_graphic(
+    source: str | bytes,
+    *,
+    source_format: str = "svg",
+    tactile_profile: str | Any = "generic",
+    braille_profile: str | None = None,
+    label_translator: Callable[[str], list[BrailleCell]] | None = None,
+    record_provenance: bool = False,
+    warnings: WarningCollector | None = None,
+    mode: RunMode | str = RunMode.NORMAL,
+) -> GraphicResult:
+    """Compile a tactile graphic into a :class:`GraphicResult`.
+
+    The tactile vertical's standalone entry: the **graphics frontend**
+    (:data:`_frontend_parse_graphic_tree`, the same single-callable shape as
+    math / music) normalises the source (``source_format`` ∈ ``svg`` /
+    ``primitives`` / ``figure`` / ``image``) into the SVG-tree IR, and the
+    **tactile backend** rasterises that tree into a
+    :class:`~brailix.ir.tactile.TactileRaster`. Concrete bytes (``.bmp`` /
+    ``.png`` / ``.pdf`` / U+2800 preview) come from
+    :meth:`GraphicResult.render` through the shared ``renderer_registry``.
+
+    A module-level function, not a :class:`Pipeline` method, because a
+    graphic's own compile needs **no braille standard** — its product is a
+    raster, not cells (math / music, whose product *is* braille, keep their
+    Pipeline entries). Only ``<text>`` label translation touches braille:
+    pass ``braille_profile`` (a braille standard; a label pipeline is built
+    on it) or a ready ``label_translator`` callable — with neither, labels
+    are warned (``GRAPHICS_LABEL_NO_PROFILE``) and skipped.
+    :meth:`Pipeline.translate_graphic` delegates here, wiring its own text
+    path as the label translator when the standards match.
+
+    ``tactile_profile`` names a tactile profile (mm adaptation params + DPI)
+    or is an already-loaded ``TactileProfile``. ``record_provenance``
+    records which pixels each SVG element drew for an editor's cross-pane
+    highlight (off by default — export pays nothing). Bytes input goes to
+    the source adapters as-is; they own the decode and its soft-failure.
+    """
+    from brailix.backend.tactile import rasterize
+    from brailix.backend.tactile.profile import load_tactile_profile
+
+    warns = (
+        warnings
+        if warnings is not None
+        else WarningCollector(mode=normalize_run_mode(mode))
+    )
+    gctx = GraphicsContext(source=source_format, warnings=warns)
+    tree = _frontend_parse_graphic_tree(source, gctx)
+    if tree is None:  # a monkeypatched / fake frontend may return None
+        tree = ET.Element("svg", {"data-bk-error": "no graphic tree"})
+
+    translator = label_translator
+    if translator is None and braille_profile is not None:
+        translator = Pipeline(
+            profile=braille_profile, mode=mode
+        )._translate_inline_text
+
+    prof = (
+        load_tactile_profile(tactile_profile)
+        if isinstance(tactile_profile, str)
+        else tactile_profile
+    )
+    raster = rasterize(
+        tree, prof, warns, translator, record_provenance=record_provenance
+    )
+    return GraphicResult(raster=raster, svg_tree=tree, warnings=warns)
