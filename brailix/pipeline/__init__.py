@@ -51,11 +51,12 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from brailix.backend.block import expand_block, translate_document
 from brailix.core.config import BrailleProfile, load_profile
 from brailix.core.context import (
+    GRAPHIC_ASSET_RESOLVER_KEY,
     INLINE_TEXT_TRANSLATOR_KEY,
     BackendContext,
     FrontendContext,
@@ -119,6 +120,9 @@ from brailix.pipeline._results import (
     TranslationResult,
     TreeSubcache,
 )
+
+if TYPE_CHECKING:
+    from brailix.core.protocols import GraphicAssetResolver
 
 # Note: brailix is the pure compiler — it knows nothing about front-end
 # concepts like Override / WarningCase / Identity.  Callers that want
@@ -249,6 +253,17 @@ class Pipeline:
     # hashable / frozen-friendly even though :class:`Pipeline` itself
     # is mutable.
     extra_profile_paths: tuple[str, ...] = ()
+    # Resolves a graphic's asset reference (``media/image1.png``) to raw
+    # bytes when the referenced image lives in the document rather than on
+    # disk — an image imported from a ``.docx`` rides in memory. Injected onto
+    # every ``GraphicsContext`` the pipeline builds (inline ``graphic-image``
+    # fences and standalone ``translate_graphic`` alike), so the ``image``
+    # source adapter can inline it as a ``data:`` URI. ``None`` (the default)
+    # leaves the adapter to read the reference as a filesystem path — the bare
+    # library and every test that omits it are unaffected. See
+    # :class:`~brailix.core.protocols.GraphicAssetResolver` and §2.2 of
+    # ``ARCHITECTURE.md``.
+    asset_resolver: GraphicAssetResolver | None = None
     _profile: BrailleProfile = field(init=False, default=None)  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -414,6 +429,10 @@ class Pipeline:
                 else WarningCollector(mode=self.mode)
             ),
             mode=self.mode,
+            # An image graphic's reference resolves against this pipeline's
+            # document assets (a figure edited in isolation still shows its
+            # embedded picture in the live preview).
+            asset_resolver=self.asset_resolver,
         )
 
     def _rasterize_graphic(
@@ -1221,6 +1240,15 @@ class Pipeline:
             f"{lang}_analyzer": self.analyzer,
             "pinyin_resolver": self.resolver,
             "user_pinyin_dict": self.user_pinyin_dict,
+            # Forwarded onto the GraphicsContext (built from a copy of these
+            # options in _populate_graphic_block) so a graphic-image fence's
+            # image reference resolves to in-document bytes. Omitted when
+            # None so a bare run carries no spurious key.
+            **(
+                {GRAPHIC_ASSET_RESOLVER_KEY: self.asset_resolver}
+                if self.asset_resolver is not None
+                else {}
+            ),
         }
 
     def _run_frontend(
@@ -1402,6 +1430,7 @@ def translate_graphic(
     record_provenance: bool = False,
     warnings: WarningCollector | None = None,
     mode: RunMode | str = RunMode.NORMAL,
+    asset_resolver: GraphicAssetResolver | None = None,
 ) -> GraphicResult:
     """Compile a tactile graphic into a :class:`GraphicResult`.
 
@@ -1429,6 +1458,9 @@ def translate_graphic(
     records which pixels each SVG element drew for an editor's cross-pane
     highlight (off by default — export pays nothing). Bytes input goes to
     the source adapters as-is; they own the decode and its soft-failure.
+    ``asset_resolver`` resolves an ``image`` source's reference to
+    in-document bytes (see :class:`~brailix.core.protocols.
+    GraphicAssetResolver`); ``None`` leaves it to read a filesystem path.
     """
     from brailix.backend.tactile import rasterize
     from brailix.backend.tactile.profile import load_tactile_profile
@@ -1438,7 +1470,15 @@ def translate_graphic(
         if warnings is not None
         else WarningCollector(mode=normalize_run_mode(mode))
     )
-    gctx = GraphicsContext(source=source_format, warnings=warns)
+    gctx = GraphicsContext(
+        source=source_format,
+        warnings=warns,
+        options=(
+            {GRAPHIC_ASSET_RESOLVER_KEY: asset_resolver}
+            if asset_resolver is not None
+            else {}
+        ),
+    )
     tree = _frontend_parse_graphic_tree(source, gctx)
     if tree is None:  # a monkeypatched / fake frontend may return None
         tree = ET.Element("svg", {"data-bk-error": "no graphic tree"})

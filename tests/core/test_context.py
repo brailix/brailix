@@ -1,6 +1,11 @@
 import pytest
 
-from brailix.core.context import BackendContext, FrontendContext, MathContext
+from brailix.core.context import (
+    BackendContext,
+    FrontendContext,
+    GraphicsContext,
+    MathContext,
+)
 from brailix.core.errors import RunMode, WarningCollector
 
 
@@ -108,6 +113,29 @@ class TestMathContext:
         assert ctx.mode == "display"
         assert ctx.source == "latex"
         assert ctx.surrounding_text == ("设 ", "，其中 x 为变量。")
+
+
+class TestGraphicsContext:
+    def test_defaults(self):
+        ctx = GraphicsContext()
+        assert ctx.source == "svg"
+        assert isinstance(ctx.warnings, WarningCollector)
+
+    def test_asset_resolver_absent_returns_none(self):
+        # Bare run — no resolver injected (the image adapter then reads the
+        # reference as a filesystem path).
+        assert GraphicsContext(source="image").asset_resolver() is None
+
+    def test_asset_resolver_reads_injected_callable(self):
+        from brailix.core.context import GRAPHIC_ASSET_RESOLVER_KEY
+
+        ctx = GraphicsContext(
+            source="image",
+            options={GRAPHIC_ASSET_RESOLVER_KEY: lambda name: b"bytes:" + name.encode()},
+        )
+        fn = ctx.asset_resolver()
+        assert fn is not None
+        assert fn("media/x.png") == b"bytes:media/x.png"
 
 
 class TestSharedWarningCollector:

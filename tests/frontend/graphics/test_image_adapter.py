@@ -15,6 +15,10 @@ pytest.importorskip("PIL")
 
 from PIL import Image  # noqa: E402
 
+from brailix.core.context import (  # noqa: E402
+    GRAPHIC_ASSET_RESOLVER_KEY,
+    GraphicsContext,
+)
 from brailix.frontend.graphics.adapters.image import (  # noqa: E402
     ImageSourceAdapter,
     image_to_svg,
@@ -27,6 +31,14 @@ def _make_png(tmp_path, w: int, h: int, value: int = 0):
     im = Image.new("L", (w, h), value)
     im.save(p, format="PNG")
     return p
+
+
+def _png_bytes(w: int, h: int, value: int = 0) -> bytes:
+    from io import BytesIO
+
+    buf = BytesIO()
+    Image.new("L", (w, h), value).save(buf, format="PNG")
+    return buf.getvalue()
 
 
 def _parse(svg_str: str) -> ET.Element:
@@ -146,6 +158,103 @@ class TestSvgSource:
         img = _parse(image_to_svg(json.dumps({"path": path, "mode": "edge"})))[0]
         assert img.get("href") == path
         assert img.get("data-bk-mode") == "edge"
+
+
+class TestAssetResolver:
+    """The injected :class:`GraphicAssetResolver`: an in-document image
+    reference resolves to bytes inlined as a ``data:`` URI, so no file is
+    read; an unresolved name falls back to the filesystem path (I2)."""
+
+    def test_resolved_reference_becomes_data_uri(self):
+        png = _png_bytes(16, 8)
+        root = _parse(
+            image_to_svg(
+                '{"path": "media/image1.png"}',
+                lambda name: png if name == "media/image1.png" else None,
+            )
+        )
+        assert root.get("data-bk-error") is None
+        # Size is read from the resolved bytes, not any file.
+        assert root.get("viewBox") == "0 0 16 8"
+        img = root[0]
+        assert img.get("href").startswith("data:image/png;base64,")
+
+    def test_bare_path_reference_resolved(self):
+        png = _png_bytes(4, 4)
+        img = _parse(
+            image_to_svg("logo.png", lambda name: png)
+        )[0]
+        assert img.get("href").startswith("data:image/png;base64,")
+
+    def test_unresolved_name_falls_back_to_path(self, tmp_path):
+        # Resolver returns None → the reference is read as a filesystem path,
+        # exactly as with no resolver at all.
+        p = _make_png(tmp_path, 10, 10)
+        img = _parse(image_to_svg(str(p), lambda name: None))[0]
+        assert img.get("href") == str(p)
+
+    def test_resolver_spec_keeps_mode_and_size(self):
+        png = _png_bytes(30, 10)
+        root = _parse(
+            image_to_svg(
+                json.dumps(
+                    {"path": "a.png", "mode": "edge", "width_mm": 90}
+                ),
+                lambda name: png,
+            )
+        )
+        img = root[0]
+        assert img.get("data-bk-mode") == "edge"
+        assert root.get("width") == "90mm"  # aspect 3:1 → 30mm tall
+        assert root.get("height") == "30mm"
+
+    def test_resolved_svg_bytes_sized_from_viewbox(self):
+        svg = (
+            b'<svg xmlns="http://www.w3.org/2000/svg" '
+            b'viewBox="0 0 50 25"><rect/></svg>'
+        )
+        root = _parse(image_to_svg("fig.svg", lambda name: svg))
+        assert root.get("viewBox") == "0 0 50 25"
+        assert root[0].get("href").startswith("data:image/svg+xml;base64,")
+
+    def test_adapter_reads_resolver_from_context(self):
+        png = _png_bytes(8, 8)
+        ctx = GraphicsContext(
+            source="image",
+            options={GRAPHIC_ASSET_RESOLVER_KEY: lambda name: png},
+        )
+        out = ImageSourceAdapter().to_svg('{"path": "x.png"}', ctx)
+        assert "data:image/png;base64," in out
+
+    def test_adapter_without_context_uses_no_resolver(self, tmp_path):
+        # No ctx → no resolver → path behaviour unchanged.
+        p = _make_png(tmp_path, 6, 6)
+        img = _parse(ImageSourceAdapter().to_svg(str(p)))[0]
+        assert img.get("href") == str(p)
+
+
+class TestCaptionTitle:
+    """A spec ``title`` (I4 — the alt text of a converted picture) becomes the
+    SVG's ``<title>``, so the figure keeps a caption a screen-reader announces."""
+
+    def test_title_becomes_svg_title_element(self, tmp_path):
+        p = _make_png(tmp_path, 8, 8)
+        root = _parse(image_to_svg(json.dumps({"path": str(p), "title": "一张地图"})))
+        # <title> is a direct child of the root svg (where the caption reader
+        # looks) and precedes the <image>.
+        assert root[0].tag == "title"
+        assert root[0].text == "一张地图"
+        assert root[1].tag == "image"
+
+    def test_desc_is_accepted_as_title_alias(self, tmp_path):
+        p = _make_png(tmp_path, 8, 8)
+        root = _parse(image_to_svg(json.dumps({"path": str(p), "desc": "说明"})))
+        assert root[0].tag == "title" and root[0].text == "说明"
+
+    def test_no_title_when_absent_or_blank(self, tmp_path):
+        p = _make_png(tmp_path, 8, 8)
+        root = _parse(image_to_svg(json.dumps({"path": str(p), "title": "  "})))
+        assert root[0].tag == "image"  # no <title> prepended
 
 
 class TestRoundTrip:

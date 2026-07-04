@@ -18,7 +18,10 @@ from typing import TYPE_CHECKING, Any, Literal
 from brailix.core.errors import RunMode, WarningCollector, normalize_run_mode
 
 if TYPE_CHECKING:
-    from brailix.core.protocols import InlineTextTranslator
+    from brailix.core.protocols import (
+        GraphicAssetResolver,
+        InlineTextTranslator,
+    )
 
 # ---------------------------------------------------------------------------
 # Frontend
@@ -131,6 +134,14 @@ class MusicContext:
 # Graphics (tactile-graphics frontend sub-phase)
 # ---------------------------------------------------------------------------
 
+# Key under which a caller stashes the graphic-asset resolver on
+# ``GraphicsContext.options``. Read it via
+# :meth:`GraphicsContext.asset_resolver`, never by the literal string —
+# see :class:`brailix.core.protocols.GraphicAssetResolver` and
+# ARCHITECTURE §12 (the same inject-a-callable seam as the inline-text
+# translator).
+GRAPHIC_ASSET_RESOLVER_KEY = "graphic_asset_resolver"
+
 
 @dataclass(slots=True)
 class GraphicsContext:
@@ -151,6 +162,18 @@ class GraphicsContext:
     source: str = "svg"  # svg / primitives / image / chart / ...
     warnings: WarningCollector = field(default_factory=WarningCollector)
     options: dict[str, Any] = field(default_factory=dict)
+
+    def asset_resolver(self) -> GraphicAssetResolver | None:
+        """The caller-injected asset resolver, or ``None``.
+
+        The ``image`` source adapter calls this to turn a document-relative
+        asset name (``media/image1.png``) into raw bytes — an image embedded
+        in a ``.docx`` lives only in memory, so there is no path to read.
+        ``None`` in a bare run (a hand-authored figure that references a
+        real file, a unit test), where the adapter falls back to resolving
+        the reference as a filesystem path. The sanctioned injection seam
+        (ARCHITECTURE §12) — the callable is handed in, never imported."""
+        return self.options.get(GRAPHIC_ASSET_RESOLVER_KEY)
 
 
 # ---------------------------------------------------------------------------

@@ -32,15 +32,20 @@ the other source adapters.
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from brailix.core.context import GraphicsContext
 from brailix.frontend.graphics.adapters.svg import svg_error_wrap
+
+if TYPE_CHECKING:
+    from brailix.core.protocols import GraphicAssetResolver
 
 # The opening ``<svg …>`` tag, for reading an external SVG's intrinsic size
 # from its viewBox / width / height without a full parse (avoids DOCTYPE /
@@ -102,6 +107,13 @@ def _svg_dimensions(path: str) -> tuple[int, int]:
         text = Path(path).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return (0, 0)
+    return _svg_dimensions_from_text(text)
+
+
+def _svg_dimensions_from_text(text: str) -> tuple[int, int]:
+    """Intrinsic ``(width, height)`` from an SVG document's text — the shared
+    core of :func:`_svg_dimensions` (from a file) and the in-memory
+    resolved-bytes path, so both read the viewBox / width-height identically."""
     m = _SVG_OPEN_TAG.search(text)
     if not m:
         return (0, 0)
@@ -156,6 +168,62 @@ def _read_dimensions(path: str) -> tuple[int, int] | None:
     return None
 
 
+def _read_dimensions_from_bytes(raw: bytes) -> tuple[int, int] | None:
+    """``(px_w, px_h)`` for a resolved image / SVG blob, or ``None``.
+
+    The in-memory twin of :func:`_read_dimensions`: an image the caller
+    resolved (a ``.docx``-embedded picture never touches the filesystem) is
+    sized straight from its bytes — SVG from its viewBox via stdlib, a raster
+    from Pillow over a :class:`~io.BytesIO`. Same "aspect only" contract; the
+    real render resolution comes from the device box at rasterize time."""
+    if b"<svg" in raw[:2048].lower():
+        w, h = _svg_dimensions_from_text(raw.decode("utf-8", errors="replace"))
+        return (w, h) if w > 0 and h > 0 else None
+    from PIL import Image  # surfaced via the registry's extra= when missing
+
+    try:
+        with Image.open(BytesIO(raw)) as im:
+            if im.width > 0 and im.height > 0:
+                return (im.width, im.height)
+    except Exception:  # noqa: BLE001 — Pillow raises many open / decode types
+        return None
+    return None
+
+
+# Magic-number → MIME sniff for the data-URI label. Only cosmetic to the
+# backend (``_resolve_href`` decodes any ``data:`` payload and re-sniffs SVG
+# vs raster on the decoded bytes), but an honest MIME keeps the tree readable
+# and lets any other consumer of the SVG treat the href correctly.
+_IMAGE_MAGIC: tuple[tuple[bytes, str], ...] = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+    (b"BM", "image/bmp"),
+)
+
+
+def _data_uri(raw: bytes) -> str:
+    """A base64 ``data:`` URI for ``raw`` — how a resolved (in-memory) image
+    rides into the SVG ``<image href>`` without an external file. The backend
+    (:func:`brailix.backend.tactile._image._resolve_href`) decodes it back to
+    bytes at rasterize time."""
+    return f"data:{_guess_image_mime(raw)};base64," + base64.b64encode(
+        raw
+    ).decode("ascii")
+
+
+def _guess_image_mime(raw: bytes) -> str:
+    for magic, mime in _IMAGE_MAGIC:
+        if raw.startswith(magic):
+            return mime
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return "image/webp"
+    if b"<svg" in raw[:2048].lower():
+        return "image/svg+xml"
+    return "application/octet-stream"
+
+
 def _physical_size(
     px_w: int, px_h: int, width_mm: Any, height_mm: Any
 ) -> tuple[float, float]:
@@ -175,7 +243,9 @@ def _physical_size(
     return _DEFAULT_LONGEST_MM * aspect, _DEFAULT_LONGEST_MM
 
 
-def image_to_svg(src: str) -> str:
+def image_to_svg(
+    src: str, resolver: GraphicAssetResolver | None = None
+) -> str:
     """Build an SVG ``<image>`` wrapper from an image path / JSON spec.
 
     The pure builder behind :class:`ImageSourceAdapter`; a Python caller
@@ -186,6 +256,15 @@ def image_to_svg(src: str) -> str:
     for an empty / malformed source or an unreadable image. A raster needs
     Pillow (the ``graphics`` extra) for its pixel size; an SVG's size is read
     from its viewBox (stdlib).
+
+    ``resolver`` (the caller's :class:`~brailix.core.protocols.
+    GraphicAssetResolver`, injected from ``ctx``) is consulted first with the
+    reference: when it yields bytes — an image embedded in the document, with
+    no file on disk — they are inlined as a ``data:`` URI and sized in memory.
+    When it returns ``None`` (or is absent), the reference is read as a
+    filesystem path, exactly as before. So a ``.docx``-embedded picture and a
+    hand-authored path both work, and neither the adapter nor the SVG tree
+    needs to know which case it is.
     """
     text = src.strip()
     if not text:
@@ -196,6 +275,7 @@ def image_to_svg(src: str) -> str:
     invert = False
     width_mm: Any = None
     height_mm: Any = None
+    title: Any = None
     if text.startswith("{"):
         try:
             spec = json.loads(text)
@@ -214,10 +294,25 @@ def image_to_svg(src: str) -> str:
         invert = bool(spec.get("invert", False))
         width_mm = spec.get("width_mm")
         height_mm = spec.get("height_mm")
+        # Optional caption: emitted as the SVG's ``<title>`` so the tactile
+        # backend / inline preview announce what the figure *is* (a converted
+        # image keeps its Word alt text this way). ``desc`` is accepted as an
+        # alias for a longer description.
+        title = spec.get("title") or spec.get("desc")
     else:
         path = text
 
-    dims = _read_dimensions(path)
+    # Resolve the reference to bytes first (an in-document asset), else fall
+    # back to treating it as a filesystem path. The resolved bytes become the
+    # href (a data: URI) so nothing external has to be re-read at rasterize
+    # time; the source spec still carries only the lightweight reference.
+    resolved = resolver(path) if resolver is not None else None
+    if resolved is not None:
+        dims = _read_dimensions_from_bytes(resolved)
+        href = _data_uri(resolved)
+    else:
+        dims = _read_dimensions(path)
+        href = path
     if dims is None:
         return svg_error_wrap(path, reason="cannot read image / SVG size")
     px_w, px_h = dims
@@ -230,8 +325,13 @@ def image_to_svg(src: str) -> str:
     svg.set("viewBox", f"0 0 {px_w} {px_h}")
     svg.set("width", f"{_fmt(pw_mm)}mm")
     svg.set("height", f"{_fmt(ph_mm)}mm")
+    # ``<title>`` first (a direct child of the root svg) so the figure's caption
+    # reader — which takes the first direct <title> — finds it, and the tactile
+    # backend treats it as non-drawing metadata (not a shape to rasterize).
+    if isinstance(title, str) and title.strip():
+        ET.SubElement(svg, "title").text = title.strip()
     img = ET.SubElement(svg, "image")
-    img.set("href", path)
+    img.set("href", href)
     img.set("x", "0")
     img.set("y", "0")
     img.set("width", str(px_w))
@@ -264,7 +364,8 @@ class ImageSourceAdapter:
                     reason="image source must be a path / spec string, "
                     "not raw image bytes",
                 )
-        return image_to_svg(src if isinstance(src, str) else "")
+        resolver = ctx.asset_resolver() if ctx is not None else None
+        return image_to_svg(src if isinstance(src, str) else "", resolver)
 
 
 def _load() -> ImageSourceAdapter:
