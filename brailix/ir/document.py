@@ -258,9 +258,18 @@ class MusicBlock(Block):
 
 @dataclass(slots=True)
 class ImageAlt(Block):
-    """Block-level alt text for an image."""
+    """Block-level placeholder for an image that has **not** been converted
+    to a tactile graphic: ``text`` carries the alt text (translated to
+    braille like ordinary prose), ``target`` the image reference — a
+    document-asset name (``media/image1.png``, resolved against
+    :attr:`DocumentIR.assets` / the document's asset store) or a plain
+    filesystem path. The backend flags each one as ``IMAGE_NOT_CONVERTED``
+    so the user can decide, image by image, whether to convert it into a
+    ``graphic-image`` fence (ARCHITECTURE.md). ``target``
+    is ``None`` for a bare alt-text block with no locatable image."""
 
     type: ClassVar[str] = "image_alt"
+    target: str | None = None
 
 
 @dataclass(slots=True)
@@ -291,11 +300,23 @@ class GraphicBlock(Block):
 @dataclass(slots=True)
 class DocumentIR:
     """Root container. ``metadata`` carries language, profile name, and
-    any free-form annotations the Input layer wants to preserve."""
+    any free-form annotations the Input layer wants to preserve.
+
+    ``assets`` carries binary side-payloads a *binary* input container
+    embedded next to its text — today the images a ``.docx`` packs under
+    ``word/media/`` — keyed by an asset name (``media/image1.png``) that
+    blocks reference via :attr:`ImageAlt.target` (and, once converted, a
+    ``graphic-image`` fence's ``path``). It is the document-level side
+    table OOXML itself uses, decoded eagerly at the input boundary per
+    the ARCHITECTURE §1 rule that the text IR carries no binary payload;
+    :meth:`to_dict` deliberately excludes it (that is the text-IR view —
+    a container format that persists a document's assets serialises them
+    itself, in its own encoding)."""
 
     version: str = "1.0"
     metadata: dict[str, Any] = field(default_factory=dict)
     blocks: list[Block] = field(default_factory=list)
+    assets: dict[str, bytes] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {

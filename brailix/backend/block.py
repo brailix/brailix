@@ -40,6 +40,7 @@ from brailix.ir.document import (
     DocumentIR,
     Footnote,
     GraphicBlock,
+    ImageAlt,
     List,
     ListItem,
     Table,
@@ -121,6 +122,25 @@ def expand_block(
                 block_type=block.type, id=block.id, align=block.align
             )
         ]
+    if isinstance(block, ImageAlt):
+        # An image that hasn't been turned into a tactile graphic. Its alt
+        # text still translates as prose (the simple path below), but the
+        # picture itself is absent from the braille — flag it so the user can
+        # decide, image by image, whether to convert it into a graphic-image
+        # fence (ARCHITECTURE.md). The warnings panel is the
+        # reader's running list of not-yet-converted images; ignoring one is
+        # the ordinary "ignore warning" action. Fall through (no return) to
+        # translate the alt text.
+        ctx.warnings.warn(
+            code="IMAGE_NOT_CONVERTED",
+            message=(
+                "image not converted to a tactile graphic: "
+                + (block.target or block.text or "(untitled)")
+            ),
+            surface=block.text or block.target or None,
+            span=block.span,
+            source="backend.block",
+        )
     # All other block kinds (Paragraph, Heading, Quote, MathBlock,
     # CodeBlock, Footnote, ImageAlt) flow through the simple path —
     # translate inline children and stamp the block type. Pipeline

@@ -90,6 +90,7 @@ from typing import Any
 
 from brailix.core.errors import MissingExtraError, ParseError
 from brailix.input.docx._blocks import _iter_body_blocks
+from brailix.input.docx._media import _build_image_blob_map
 from brailix.input.docx._ole import _build_ole_blob_map, _is_equation_ole
 from brailix.input.docx._xml import _INLINE_MATH_CLOSE, _INLINE_MATH_OPEN
 from brailix.ir.document import Block, DocumentIR
@@ -210,10 +211,16 @@ def parse_docx(
         raise ParseError(f"not a valid .docx file: {p} ({e})") from e
 
     ole_blobs = _build_ole_blob_map(document)
+    image_blobs = _build_image_blob_map(document)
     body = document.element.body
     try:
         blocks = list(
-            _iter_body_blocks(body, ole_blobs=ole_blobs, chem_detection=chem_detection)
+            _iter_body_blocks(
+                body,
+                ole_blobs=ole_blobs,
+                chem_detection=chem_detection,
+                image_blobs=image_blobs,
+            )
         )
     except RecursionError as e:
         # The block walkers recurse through wrapper elements (ins/del/sdt/
@@ -227,6 +234,10 @@ def parse_docx(
     result = DocumentIR(
         metadata={"language": language, "profile": profile},
         blocks=blocks,
+        # The pictures the body references, keyed by the asset name each
+        # ImageAlt.target carries — decoded eagerly here because the text IR
+        # carries no binary payload (ARCHITECTURE §1, same rule as MTEF).
+        assets={name: blob for name, blob in image_blobs.values()},
     )
 
     if mathtype_fallback == "auto":

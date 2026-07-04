@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 
 from brailix.core import inline_math
+from brailix.input.docx._media import _convert_drawing, _convert_pict
 from brailix.input.docx._ole import _ole_object_to_inline_math
 from brailix.input.docx._xml import (
     _INLINE_MATH_OPEN,
@@ -36,6 +37,7 @@ from brailix.input.docx._xml import (
 from brailix.ir.document import (
     Block,
     Heading,
+    ImageAlt,
     List,
     ListItem,
     MathBlock,
@@ -100,6 +102,7 @@ def _iter_body_blocks(
     *,
     ole_blobs: dict[str, bytes] | None = None,
     chem_detection: bool = False,
+    image_blobs: dict[str, tuple[str, bytes]] | None = None,
 ):
     """Yield IR blocks from ``w:body`` in document order.
 
@@ -113,9 +116,17 @@ def _iter_body_blocks(
     Equation 3.0 formulas to their MTEF payload. ``None`` skips OLE
     handling entirely (kept for callers that build a body element
     outside of :func:`parse_docx`).
+
+    ``image_blobs`` maps relationship ids to ``(asset name, bytes)`` for
+    every embedded picture (:func:`._media._build_image_blob_map`) —
+    used to stamp :attr:`ImageAlt.target` when a ``<w:drawing>`` /
+    ``<w:pict>`` is met. ``None`` still *detects* pictures (the
+    placeholder and its alt text survive) but leaves ``target`` unset.
     """
     if ole_blobs is None:
         ole_blobs = {}
+    if image_blobs is None:
+        image_blobs = {}
     pending_list: list[ListItem] = []
     pending_list_ordered: bool | None = None
 
@@ -133,7 +144,10 @@ def _iter_body_blocks(
         tag = _local(child.tag)
         if tag == "p":
             blocks = _convert_paragraph(
-                child, ole_blobs=ole_blobs, chem_detection=chem_detection
+                child,
+                ole_blobs=ole_blobs,
+                chem_detection=chem_detection,
+                image_blobs=image_blobs,
             )
             for blk in blocks:
                 if isinstance(blk, ListItem):
@@ -152,7 +166,10 @@ def _iter_body_blocks(
         elif tag == "tbl":
             yield from flush_list()
             yield _convert_table(
-                child, ole_blobs=ole_blobs, chem_detection=chem_detection
+                child,
+                ole_blobs=ole_blobs,
+                chem_detection=chem_detection,
+                image_blobs=image_blobs,
             )
         elif tag == "oMathPara":
             yield from flush_list()
@@ -174,6 +191,7 @@ def _convert_paragraph(
     *,
     ole_blobs: dict[str, bytes] | None = None,
     chem_detection: bool = False,
+    image_blobs: dict[str, tuple[str, bytes]] | None = None,
 ) -> list[Block]:
     """Convert a single ``<w:p>`` into one or more IR blocks.
 
@@ -182,7 +200,10 @@ def _convert_paragraph(
     :class:`Paragraph` (or :class:`Heading` / :class:`ListItem` based
     on style hints). Display-math children inside an otherwise-textual
     paragraph are extracted and emitted between paragraph slices so
-    the math still renders as display, not inline.
+    the math still renders as display, not inline. An embedded picture
+    (``<w:drawing>`` / ``<w:pict>``) splits the paragraph the same way:
+    braille has no inline images, so the :class:`ImageAlt` placeholder
+    surfaces at block level in document order.
     """
     if ole_blobs is None:
         ole_blobs = {}
@@ -208,12 +229,15 @@ def _convert_paragraph(
                 )
             text_parts = []
 
-    for run_text, math_block in _walk_paragraph_content(
-        p, ole_blobs=ole_blobs, chem_detection=chem_detection
+    for run_text, block_out in _walk_paragraph_content(
+        p,
+        ole_blobs=ole_blobs,
+        chem_detection=chem_detection,
+        image_blobs=image_blobs,
     ):
-        if math_block is not None:
+        if block_out is not None:
             flush_text()
-            blocks_out.append(math_block)
+            blocks_out.append(block_out)
         else:
             text_parts.append(run_text)
     flush_text()
@@ -276,15 +300,18 @@ def _walk_paragraph_content(
     *,
     ole_blobs: dict[str, bytes] | None = None,
     chem_detection: bool = False,
+    image_blobs: dict[str, tuple[str, bytes]] | None = None,
 ):
-    """Yield ``(text_piece, math_block | None)`` for each content unit.
+    """Yield ``(text_piece, block | None)`` for each content unit.
 
     ``text_piece`` is the contribution to surrounding paragraph text
-    (empty string when the unit is a standalone display block).
-    ``math_block`` is non-None only for display equations
-    (``m:oMathPara`` children); inline ``m:oMath`` produces a text piece
-    carrying a deferred source-tagged inline-math island
-    (:mod:`brailix.core.inline_math`) the frontend converts later.
+    (empty string when the unit is a standalone block). ``block`` is
+    non-None for display equations (``m:oMathPara`` children) and for
+    embedded pictures (``<w:drawing>`` / ``<w:pict>`` → :class:`ImageAlt`
+    — braille has no inline images, so a picture surfaces as its own
+    block); inline ``m:oMath`` produces a text piece carrying a deferred
+    source-tagged inline-math island (:mod:`brailix.core.inline_math`)
+    the frontend converts later.
 
     ``<w:object>`` elements containing a MathType / Equation 3.0 OLE
     object are extracted from ``ole_blobs`` and — because MTEF is binary,
@@ -307,11 +334,16 @@ def _walk_paragraph_content(
     """
     if ole_blobs is None:
         ole_blobs = {}
-    tokens = _iter_paragraph_tokens(p, ole_blobs)
+    tokens = _iter_paragraph_tokens(p, ole_blobs, image_blobs=image_blobs)
     yield from _coalesce_script_clusters(tokens, chem_detection=chem_detection)
 
 
-def _iter_paragraph_tokens(p: Element, ole_blobs: dict[str, bytes]):
+def _iter_paragraph_tokens(
+    p: Element,
+    ole_blobs: dict[str, bytes],
+    *,
+    image_blobs: dict[str, tuple[str, bytes]] | None = None,
+):
     """Lower a ``<w:p>`` into a flat token stream for the coalescer.
 
     Each token is one of:
@@ -321,7 +353,8 @@ def _iter_paragraph_tokens(p: Element, ole_blobs: dict[str, bytes]):
     * ``("math", str)`` — an already-formed inline-math island, opaque to
       script coalescing: a deferred source-tagged island (inline OMML / EQ
       field) or an eager ``$<math>...$`` one (OLE MTEF);
-    * ``("block", MathBlock)`` — a standalone display equation.
+    * ``("block", MathBlock | ImageAlt)`` — a standalone display equation,
+      or an embedded picture's placeholder (both split the paragraph).
 
     This is the old body of :func:`_walk_paragraph_content`, re-expressed
     so the run-level vertical-alignment survives down to the coalescer
@@ -334,7 +367,9 @@ def _iter_paragraph_tokens(p: Element, ole_blobs: dict[str, bytes]):
     # run-container wrappers (revision tracking, content controls, smart tags)
     # so their inline math / scripts survive instead of being scraped to text.
     for child in p:
-        yield from _emit_child_tokens(child, ole_blobs, field_state)
+        yield from _emit_child_tokens(
+            child, ole_blobs, field_state, image_blobs=image_blobs
+        )
     # A field still open at paragraph end never reached its `end`: its
     # instruction was never assembled and its visible-fallback text was held
     # back. Flush that text so an unclosed or cross-paragraph field doesn't
@@ -354,7 +389,9 @@ _TRANSPARENT_RUN_WRAPPERS = frozenset(
 )
 
 
-def _emit_child_tokens(child: Element, ole_blobs, field_state):
+def _emit_child_tokens(
+    child: Element, ole_blobs, field_state, *, image_blobs=None
+):
     """Yield paragraph tokens for one direct child of a ``<w:p>`` (or of a
     transparent run-container wrapper).
 
@@ -374,15 +411,23 @@ def _emit_child_tokens(child: Element, ole_blobs, field_state):
         yield ("math", _inline_math_as_text(child))
     elif tag == "r":
         vert = _run_vert_align(child)
-        for piece in _walk_run(child, ole_blobs, field_state):
-            if _is_inline_math(piece):
+        for piece in _walk_run(
+            child, ole_blobs, field_state, image_blobs=image_blobs
+        ):
+            if isinstance(piece, ImageAlt):
+                # An embedded picture: surface as a block token so the
+                # paragraph splits around it (braille has no inline images).
+                yield ("block", piece)
+            elif _is_inline_math(piece):
                 yield ("math", piece)
             else:
                 yield ("text", piece, vert)
     elif tag == "hyperlink":
         # A hyperlink wraps ordinary runs / math — transparent to content.
         for hyper_child in child:
-            yield from _emit_child_tokens(hyper_child, ole_blobs, field_state)
+            yield from _emit_child_tokens(
+                hyper_child, ole_blobs, field_state, image_blobs=image_blobs
+            )
     elif tag == "object":
         text = _ole_object_to_inline_math(child, ole_blobs)
         if text:
@@ -407,14 +452,18 @@ def _emit_child_tokens(child: Element, ole_blobs, field_state):
         # Revision tracking / smart tag / custom XML: recurse into the inline
         # content the wrapper carries.
         for sub in child:
-            yield from _emit_child_tokens(sub, ole_blobs, field_state)
+            yield from _emit_child_tokens(
+                sub, ole_blobs, field_state, image_blobs=image_blobs
+            )
     elif tag == "sdt":
         # Structured-document tag (content control): inline content lives under
         # <w:sdtContent>; <w:sdtPr> / <w:sdtEndPr> are properties, skip them.
         content = _first_local(child, "sdtContent")
         if content is not None:
             for sub in content:
-                yield from _emit_child_tokens(sub, ole_blobs, field_state)
+                yield from _emit_child_tokens(
+                    sub, ole_blobs, field_state, image_blobs=image_blobs
+                )
     elif tag == "pPr":
         # Paragraph properties — already consumed by style / list detection.
         return
@@ -427,7 +476,9 @@ def _emit_child_tokens(child: Element, ole_blobs, field_state):
         # inside a <w:r>, which the 'r' branch above walks; property sub-trees
         # (rPr/pPr/...) recurse to nothing, so this stays safe.
         for sub in child:
-            yield from _emit_child_tokens(sub, ole_blobs, field_state)
+            yield from _emit_child_tokens(
+                sub, ole_blobs, field_state, image_blobs=image_blobs
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -747,22 +798,28 @@ def _walk_run(
     r: Element,
     ole_blobs: dict[str, bytes],
     field_state: _FieldState | None = None,
+    *,
+    image_blobs: dict[str, tuple[str, bytes]] | None = None,
 ):
-    """Yield text pieces inside a ``<w:r>``, including any OLE objects.
+    """Yield the pieces inside a ``<w:r>``: text strings, plus an
+    :class:`ImageAlt` for each embedded picture.
 
     Word commonly nests ``<w:object>`` inside a run when the equation
-    is inline with text. Returning a list keeps the caller's
-    ``(text, math)`` contract intact — every yielded piece is a string
-    that gets appended to the surrounding paragraph text.
+    is inline with text; every math piece stays a string appended to
+    the surrounding paragraph text. A ``<w:drawing>`` / ``<w:pict>``
+    picture yields an :class:`ImageAlt` object instead — callers that
+    can only carry text (:func:`_walk_alt_subtree`) filter it out, the
+    paragraph token walker lifts it to a block token.
 
     ``field_state`` (when provided) tracks ``w:fldChar`` boundaries
     across runs so EQ fields whose instruction spans multiple runs
-    still parse correctly. Text inside the field's cached-result
+    still parse correctly. Content inside the field's cached-result
     section (between ``separate`` and ``end``) is silently dropped so
     Word's visible-text fallback doesn't end up duplicated alongside
-    the converted math.
+    the converted math (a cached-result picture — e.g. INCLUDEPICTURE —
+    is deliberately suppressed with it).
     """
-    parts: list[str] = []
+    parts: list[str | ImageAlt] = []
     for child in r:
         tag = _local(child.tag)
         if tag == "fldChar":
@@ -804,6 +861,14 @@ def _walk_run(
             parts.append("\n")
         elif tag == "tab":
             parts.append(" ")
+        elif tag == "drawing":
+            image = _convert_drawing(child, image_blobs or {})
+            if image is not None:
+                parts.append(image)
+        elif tag == "pict":
+            image = _convert_pict(child, image_blobs or {})
+            if image is not None:
+                parts.append(image)
         elif tag == "object":
             text = _ole_object_to_inline_math(child, ole_blobs)
             if text:
@@ -889,7 +954,11 @@ def _walk_alt_subtree(
             yield "", _math_block_from_omath_para(child)
         elif tag == "r":
             for piece in _walk_run(child, ole_blobs, field_state):
-                yield piece, None
+                # The (piece, math) contract carries text only; a picture
+                # inside an AlternateContent branch (shape / canvas fill)
+                # is out of scope here — drop its placeholder, keep text.
+                if isinstance(piece, str):
+                    yield piece, None
         elif tag == "fldSimple":
             # Word's simple-field form: the EQ instruction lives in the
             # w:instr attribute, not the (cached visual result) children.
@@ -1051,6 +1120,7 @@ def _convert_table(
     *,
     ole_blobs: dict[str, bytes] | None = None,
     chem_detection: bool = False,
+    image_blobs: dict[str, tuple[str, bytes]] | None = None,
 ) -> Table:
     rows: list[TableRow] = []
     # Descend transparently through revision-tracking / content-control
@@ -1067,7 +1137,10 @@ def _convert_table(
                 continue
             cells.append(
                 _convert_table_cell(
-                    tc, ole_blobs=ole_blobs, chem_detection=chem_detection
+                    tc,
+                    ole_blobs=ole_blobs,
+                    chem_detection=chem_detection,
+                    image_blobs=image_blobs,
                 )
             )
         if cells:
@@ -1080,6 +1153,7 @@ def _convert_table_cell(
     *,
     ole_blobs: dict[str, bytes] | None = None,
     chem_detection: bool = False,
+    image_blobs: dict[str, tuple[str, bytes]] | None = None,
 ) -> TableCell:
     """Flatten a cell's paragraphs into one TableCell text.
 
@@ -1096,7 +1170,10 @@ def _convert_table_cell(
         tag = _local(child.tag)
         if tag == "p":
             paragraph_blocks = _convert_paragraph(
-                child, ole_blobs=ole_blobs, chem_detection=chem_detection
+                child,
+                ole_blobs=ole_blobs,
+                chem_detection=chem_detection,
+                image_blobs=image_blobs,
             )
             for blk in paragraph_blocks:
                 if isinstance(blk, MathBlock):
@@ -1107,13 +1184,21 @@ def _convert_table_cell(
                     # dialect) for the frontend's math pass to convert.
                     parts.append(inline_math.wrap(blk.source, blk.text or ""))
                 else:
+                    # A picture in a table cell folds in as its alt text —
+                    # ImageAlt.text — the same flat-text constraint that
+                    # folds display math; the placeholder (and with it the
+                    # per-image convert affordance) exists at block level
+                    # only.
                     parts.append(blk.text or "")
         elif tag == "tbl":
             # Nested table: the braille cell renderer wants flat text, so
             # fold the inner grid's cells into this cell (each inner cell
             # is one newline-separated chunk) instead of dropping them.
             nested = _convert_table(
-                child, ole_blobs=ole_blobs, chem_detection=chem_detection
+                child,
+                ole_blobs=ole_blobs,
+                chem_detection=chem_detection,
+                image_blobs=image_blobs,
             )
             for row in nested.rows:
                 for inner_cell in row.cells:

@@ -30,6 +30,16 @@ pattern):
   (ARCHITECTURE.md G2). See :func:`graphic_fence_source` /
   :func:`graphic_fence_open`, the two directions of the fence grammar.
 * ``$$display math$$`` → :class:`MathBlock` (``source="latex"``).
+* ``![alt](target)`` alone on a line → :class:`ImageAlt` — the
+  placeholder for an image that is **not** (yet) a tactile graphic: the
+  alt text translates as ordinary prose, ``target`` names the image (a
+  document-asset name like ``media/image1.png``, or a filesystem path)
+  so a later, explicitly user-triggered conversion can turn the line
+  into a ``graphic-image`` fence (ARCHITECTURE.md).
+  This is *not* graphics syntax — a figure is always a fence; see
+  :func:`image_alt_line`, the compose direction. An inline ``![...]``
+  inside prose stays literal text (subset rule, same as inline
+  formatting below).
 * ``| col1 | col2 |`` lines on consecutive rows → :class:`Table`. A
   separator row (``| --- | --- |``) is recognised but doesn't change
   rendering — alignment is a future enhancement.
@@ -65,6 +75,7 @@ from brailix.ir.document import (
     DocumentIR,
     GraphicBlock,
     Heading,
+    ImageAlt,
     List,
     ListItem,
     MathBlock,
@@ -145,6 +156,30 @@ def graphic_fence_open(source: str) -> str:
     editor writing or re-tagging a figure fence uses this instead of
     spelling the tag itself, so the grammar has one owner."""
     return f"```{_GRAPHIC_FENCE_PREFIX}{source}"
+
+
+# A whole line that is exactly one markdown image: ``![alt](target)``.
+# The block form only — inline images inside prose are not part of the
+# subset (they stay literal text). ``alt`` excludes ``]`` (no escape
+# support); ``target`` is greedy so a path containing ``)`` still ends at
+# the line's final paren, and may be empty (an alt-only placeholder whose
+# image bytes were unrecoverable — round-trips as ``![alt]()``).
+_IMAGE_RE = re.compile(r"^!\[([^\]]*)\]\((.*)\)$")
+
+
+def image_alt_line(alt: str, target: str | None) -> str:
+    """The ``![alt](target)`` line for an image placeholder — the compose
+    direction of the image grammar, inverse of the ``_IMAGE_RE`` parse.
+
+    A serialiser (the Word importer, the figure-conversion tool) uses this
+    instead of spelling the syntax itself, so the grammar has one owner —
+    the same single-ownership rule as :func:`graphic_fence_open`. ``alt``
+    is flattened to the subset the parse direction can read back:
+    newlines collapse to spaces and ``]`` (unescapable in this grammar)
+    becomes ``)``. ``None`` / empty ``target`` emits ``![alt]()``, the
+    alt-only placeholder."""
+    safe_alt = " ".join((alt or "").split()).replace("]", ")")
+    return f"![{safe_alt}]({target or ''})"
 
 
 _TABLE_RE = re.compile(r"^\s*\|(.+)\|\s*$")
@@ -291,6 +326,19 @@ def _iter_blocks(text: str) -> Iterable[Block]:
         # Ordered / unordered list.
         if _UNORDERED_RE.match(line) or _ORDERED_RE.match(line):
             yield _consume_list(cur)
+            continue
+
+        # Image placeholder — a whole line of ``![alt](target)``.
+        m_img = _IMAGE_RE.match(stripped)
+        if m_img:
+            start = cur.i
+            cur.consume()
+            target = m_img.group(2).strip()
+            yield ImageAlt(
+                text=m_img.group(1).strip(),
+                target=target or None,
+                span=cur.span_of(start, start + 1),
+            )
             continue
 
         # Table.
@@ -568,10 +616,10 @@ def _starts_block(line: str, stripped: str) -> bool:
     at the next block boundary.
 
     Mirrors the prefix dispatch in :func:`_iter_blocks` (heading / list /
-    quote / fenced code / ``$$`` display math). List markers must match the
-    raw ``line`` (they sit at column 0); the rest match the ``stripped``
-    form. Kept as one predicate so the paragraph terminator and the block
-    dispatcher can't fall out of sync.
+    quote / fenced code / image placeholder / ``$$`` display math). List
+    markers must match the raw ``line`` (they sit at column 0); the rest
+    match the ``stripped`` form. Kept as one predicate so the paragraph
+    terminator and the block dispatcher can't fall out of sync.
 
     Table is deliberately *not* here even though :func:`_iter_blocks`
     recognises one: a lone ``|`` in prose (``Ctrl|Alt``) must not end a
@@ -585,6 +633,7 @@ def _starts_block(line: str, stripped: str) -> bool:
         or _ORDERED_RE.match(line)
         or _QUOTE_RE.match(stripped)
         or _FENCE_RE.match(stripped)
+        or _IMAGE_RE.match(stripped)
         or stripped.startswith(_DOLLAR_FENCE)
     )
 

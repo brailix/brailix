@@ -5,10 +5,15 @@ performed here so we don't assert on inline shape."""
 
 import pytest
 
-from brailix.input.markdown import parse_markdown, safe_block_insertion_offset
+from brailix.input.markdown import (
+    image_alt_line,
+    parse_markdown,
+    safe_block_insertion_offset,
+)
 from brailix.ir.document import (
     CodeBlock,
     Heading,
+    ImageAlt,
     List,
     MathBlock,
     Paragraph,
@@ -356,6 +361,90 @@ class TestSafeBlockInsertionOffset:
     def test_empty_source_returns_clamped(self):
         assert safe_block_insertion_offset("", 0) == 0
         assert safe_block_insertion_offset("   ", 1) == 1
+
+
+class TestImagePlaceholder:
+    """``![alt](target)`` on its own line → :class:`ImageAlt` (the
+    not-yet-converted-image placeholder, ARCHITECTURE.md).
+    A figure is always a fence; this is a *placeholder*, not graphics syntax."""
+
+    def test_line_becomes_image_alt(self):
+        doc = parse_markdown(
+            "![一张地图](media/image1.png)", profile="cn_current", language="zh-CN"
+        )
+        (block,) = doc.blocks
+        assert isinstance(block, ImageAlt)
+        assert block.text == "一张地图"
+        assert block.target == "media/image1.png"
+
+    def test_empty_target_is_none(self):
+        # An alt-only placeholder (image bytes were unrecoverable at import).
+        doc = parse_markdown("![描述]()", profile="cn_current", language="zh-CN")
+        (block,) = doc.blocks
+        assert isinstance(block, ImageAlt)
+        assert block.text == "描述"
+        assert block.target is None
+
+    def test_span_covers_the_line(self):
+        doc = parse_markdown(
+            "![x](p.png)", profile="cn_current", language="zh-CN"
+        )
+        assert doc.blocks[0].span is not None
+        assert doc.blocks[0].span.start == 0
+
+    def test_inline_image_in_prose_stays_paragraph(self):
+        # Only a whole-line image is a placeholder; an inline ``![...]`` is
+        # ordinary text (the subset rule), never a block.
+        doc = parse_markdown(
+            "见 ![图](p.png) 所示", profile="cn_current", language="zh-CN"
+        )
+        (block,) = doc.blocks
+        assert isinstance(block, Paragraph)
+        assert not any(isinstance(b, ImageAlt) for b in doc.blocks)
+
+    def test_image_line_splits_a_preceding_paragraph(self):
+        # An image line right after a paragraph line (no blank line) still
+        # starts its own block — _starts_block knows the image prefix.
+        doc = parse_markdown(
+            "正文\n![图](p.png)", profile="cn_current", language="zh-CN"
+        )
+        kinds = [type(b).__name__ for b in doc.blocks]
+        assert kinds == ["Paragraph", "ImageAlt"]
+
+    def test_target_with_paren_survives(self):
+        # The greedy target group ends at the line's final paren, so a path
+        # containing ')' round-trips.
+        doc = parse_markdown(
+            "![p](a(1).png)", profile="cn_current", language="zh-CN"
+        )
+        assert doc.blocks[0].target == "a(1).png"
+
+
+class TestImageAltLine:
+    """``image_alt_line`` — the compose direction, single owner of the
+    grammar (mirrors ``graphic_fence_open``)."""
+
+    def test_round_trips_through_parse(self):
+        line = image_alt_line("说明文字", "media/image2.jpeg")
+        doc = parse_markdown(line, profile="cn_current", language="zh-CN")
+        (block,) = doc.blocks
+        assert isinstance(block, ImageAlt)
+        assert block.text == "说明文字"
+        assert block.target == "media/image2.jpeg"
+
+    def test_none_target_emits_alt_only_form(self):
+        assert image_alt_line("alt", None) == "![alt]()"
+
+    def test_newline_and_bracket_in_alt_are_flattened(self):
+        # The parse direction can't read a newline (line-based) or a ']'
+        # (unescapable), so compose collapses / substitutes them and the
+        # result must still round-trip to one placeholder.
+        line = image_alt_line("多\n行[标签]", "p.png")
+        assert "\n" not in line
+        doc = parse_markdown(line, profile="cn_current", language="zh-CN")
+        (block,) = doc.blocks
+        assert isinstance(block, ImageAlt)
+        assert block.target == "p.png"
 
 
 class TestMetadata:

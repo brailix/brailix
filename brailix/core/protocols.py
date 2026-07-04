@@ -276,6 +276,25 @@ class InlineTextTranslator(Protocol):
     def __call__(self, text: str) -> list[BrailleCell]: ...
 
 
+@runtime_checkable
+class GraphicAssetResolver(Protocol):
+    """Resolve a graphic's asset reference to its raw bytes.
+
+    Injected onto :class:`~brailix.core.context.GraphicsContext` so the
+    ``image`` source adapter can turn a document-relative asset name
+    (``media/image1.png`` — the name :attr:`brailix.ir.document.
+    ImageAlt.target` and :attr:`~brailix.ir.document.DocumentIR.assets`
+    share) into pixels without knowing *where* the bytes live: an image
+    embedded in a ``.docx`` rides in memory, one authored by hand sits
+    beside the source file. Returns ``None`` when the name is unknown, so
+    the adapter can fall back to reading a filesystem path. This is the
+    same inject-a-callable seam as :class:`InlineTextTranslator`
+    (ARCHITECTURE §12) — the resolver is handed in, never imported.
+    """
+
+    def __call__(self, name: str) -> bytes | None: ...
+
+
 # ---------------------------------------------------------------------------
 # Renderer
 # ---------------------------------------------------------------------------
