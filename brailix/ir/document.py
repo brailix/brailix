@@ -275,7 +275,7 @@ class ImageAlt(Block):
 @dataclass(slots=True)
 class GraphicBlock(Block):
     """A tactile graphic. ``source`` is the format the raw graphic in
-    ``text`` is written in (``svg`` / ``primitives`` / ``figure``). The
+    ``text`` is written in (``svg`` / ``primitives`` / ``figure`` / ``image``). The
     normalised SVG tree (the graphics IR) is filled by
     ``FrontendDriver.populate_block`` into ``children=[GraphicInline(svg=tree)]``
     — the same children-carrier indirection as :class:`MathBlock` →
@@ -289,7 +289,7 @@ class GraphicBlock(Block):
     not routed through the braille backend dispatcher."""
 
     type: ClassVar[str] = "graphic"
-    source: str = "svg"  # svg / primitives / figure
+    source: str = "svg"  # svg / primitives / figure / image
 
 
 # ---------------------------------------------------------------------------

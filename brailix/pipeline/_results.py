@@ -85,8 +85,9 @@ class GraphicResult:
     editor can show / edit the object tree. A graphic **always** rasterises to
     something — a malformed or unsupported source soft-fails to a blank raster
     plus warnings, never to ``None`` (the "pipeline never crashes" rule, same
-    as braille). Concrete outputs (``.bmp`` / ``.png`` / a U+2800 braille-display
-    preview) are produced by :meth:`render`, through the **same**
+    as braille). Concrete outputs (``.bmp`` / ``.png`` / ``.pdf`` / a U+2800
+    braille-display preview) are produced by :meth:`render`, through the
+    **same**
     ``renderer_registry`` the braille renderers use: a tactile renderer is just
     another file there, selected by name — there is no parallel renderer
     registry (see ``ARCHITECTURE.md``).
@@ -101,8 +102,8 @@ class GraphicResult:
         """Render the tactile raster through the named renderer.
 
         ``name`` defaults to :attr:`default_renderer` (``"bmp"``). Returns
-        whatever the renderer produces — ``bytes`` for ``bmp`` / ``png``, a
-        ``str`` for the ``tactile_preview`` U+2800 readback. Raises
+        whatever the renderer produces — ``bytes`` for ``bmp`` / ``png`` / ``pdf``,
+        a ``str`` for the ``tactile_preview`` U+2800 readback. Raises
         :class:`KeyError` if no renderer is registered under ``name``.
         """
         return renderer_registry.get(name or self.default_renderer).render(
@@ -157,13 +158,14 @@ class TactilePageResult:
 # ---------------------------------------------------------------------------
 
 # Reuse pool for parsed MathML / MusicXML trees, keyed by
-# ``(domain, source, surface)`` where ``domain`` is ``"math"`` or
-# ``"music"``.  An incremental recompile passes the prior compile's pool
+# ``(domain, source, surface)`` where ``domain`` is ``"math"``,
+# ``"music"``, or ``"graphic"``.  An incremental recompile passes the
+# prior compile's pool
 # back in so a node whose source didn't change (e.g. an override edit
 # that leaves the formula / score text untouched) reuses the cached tree
 # instead of re-parsing it — the dominant cost for large scores.  The
-# domain prefix keeps math and music entries from colliding on a shared
-# ``source`` value such as ``"plain"``.
+# domain prefix keeps math, music and graphic entries from colliding on a
+# shared ``source`` value such as ``"plain"``.
 TreeSubcache = dict[tuple[str, str, str], ET.Element]
 
 
@@ -185,14 +187,15 @@ class CompiledBlock:
       a 1-element list; composite blocks (List / Table) expand to N
       elements (one per item / row).
     * ``warnings`` — diagnostics emitted while compiling this block.
-    * ``tree_subcache`` — parsed MathML / MusicXML tree cache keyed by
-      ``(domain, source, surface)`` (``domain`` ∈ ``{"math", "music"}``).
+    * ``tree_subcache`` — parsed MathML / MusicXML / graphic-SVG tree cache
+      keyed by ``(domain, source, surface)`` (``domain`` ∈ ``{"math",
+      "music", "graphic"}``).
       Populated for every math / music node parsed during this compile;
       reuseable by a future :meth:`Pipeline.translate_block` call (pass
       the dict in via the ``tree_subcache`` parameter) so the same
       formula / score isn't parsed twice when surrounding text — or an
       unrelated override — changes.  Empty when the block has no
-      math or music.
+      math, music, or graphic.
     * ``source_hash`` — stable digest of ``(block text, profile name)``.
       Front-ends use this as the base of their cache key; if a
       front-end wants override-aware caching (a proofreading front-end), it composes

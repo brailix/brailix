@@ -232,7 +232,7 @@ class GraphicInline(InlineNode):
     """
 
     type: ClassVar[str] = "graphic_inline"
-    source: str = "svg"  # svg / primitives / figure
+    source: str = "svg"  # svg / primitives / figure / image
     svg: ET.Element | None = None
 
 

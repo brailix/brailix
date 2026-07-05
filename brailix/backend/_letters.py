@@ -19,9 +19,8 @@ words and quantity units — NOT to math. A math identifier run is not
 embedded English: it keeps a single capital sign even when all-capital
 (``ABC`` → ⠠⠁⠃⠉), the per-class run structure alone carrying the case.
 
-Consumers — :func:`iter_letter_runs`: the math identifier emitter
-(``backend.math.handlers.leaves._emit_letter_runs``) and the
-quantity-unit emitter (``backend.number.translate_quantity``).
+Consumers — :func:`iter_letter_runs`: the quantity-unit emitter
+(``backend.number.translate_quantity``).
 :func:`letter_sign_repeats`: the quantity-unit emitter and the Latin
 text backend's whole-word-capitals branch (``backend.latin``).
 """

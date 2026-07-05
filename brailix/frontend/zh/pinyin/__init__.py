@@ -1,4 +1,5 @@
-"""Pinyin frontend subsystem — one public entry point: :func:`annotate`.
+"""Pinyin frontend subsystem — two public entry points: :func:`annotate` and
+:func:`list_resolvers` (registry enumeration for CLI / editor pickers).
 
 Internally backed by a registry of pluggable resolvers
 (``null`` / ``pypinyin`` / ``g2pm`` / ``g2pw`` / ``auto``). Callers go

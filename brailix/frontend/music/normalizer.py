@@ -6,7 +6,8 @@ special cases to handle:
 
 * drop XML namespaces from element tags so the backend can match on
   bare local names (``note``, ``pitch``, ...) instead of Clark notation;
-* drop XML declarations / DOCTYPEs that some vendors prepend;
+* (XML declarations / DOCTYPEs are stripped upstream by the musicxml
+  adapter's ``_strip_xml_prolog``, not here);
 * ``<score-timewise>`` is NOT transposed to ``<score-partwise>`` here —
   a timewise root passes through unchanged and the backend dispatch falls
   to ``_emit_unsupported`` (one ``MUSIC_UNSUPPORTED_NOTATION`` warning, no

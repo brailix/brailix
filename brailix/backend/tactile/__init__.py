@@ -23,13 +23,13 @@ Coordinate mapping
   device-dependent dial is the profile's ``dpi``; everything else is
   device independent (``ARCHITECTURE.md``).
 
-This first increment covers the primitive subset the graphics frontend
-emits — ``line`` / ``rect`` / ``circle`` / ``ellipse`` / ``polyline`` /
-``polygon`` plus ``<g>`` grouping. ``<path>`` data, ``transform``
-matrices, and ``<text>`` labels (which become braille) arrive in later
-phases; until then they are skipped with a one-time warning rather than
-guessed at. Soft-failure contract: an unsupported element or malformed
-attribute never crashes — it is warned and skipped, mirroring the
+The backend walks the primitive tags the graphics frontend emits — ``line``
+/ ``rect`` / ``circle`` / ``ellipse`` / ``polyline`` / ``polygon`` / ``path``
+plus ``<g>`` grouping, ``transform`` matrices, ``<text>`` labels (translated
+to braille when a label translator is supplied) and ``<image>`` rasters (with
+the ``graphics`` extra). Still deferred: ``<use>`` / ``<defs>`` flattening and
+nested-viewBox semantics. Soft-failure contract: an unsupported element or
+malformed attribute never crashes — it is warned and skipped, mirroring the
 "pipeline never crashes" rule of the math / music backends.
 """
 
@@ -121,8 +121,8 @@ def _round_finite(v: float) -> int:
     return round(v) if math.isfinite(v) else 0
 
 
-# Container tags whose children are walked in place (grouping only — their
-# own ``transform`` / nested-viewBox semantics are a later phase).
+# Container tags whose children are walked in place. Their own ``transform``
+# is applied during the walk; nested-viewBox semantics are still a later phase.
 _CONTAINERS = frozenset({"g", "a", "svg", "switch"})
 
 # Non-drawing tags skipped silently (no geometry to render).

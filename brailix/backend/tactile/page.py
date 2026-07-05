@@ -18,7 +18,7 @@ round-trip to BRF: a cell stream can't hold a 2-D figure, so the raster is
 the authoritative form.
 
 Layering: this stays in the tactile **backend** — it produces a
-``TactileRaster`` (a backend product) and reuses ``LabelStamper``, importing
+``TactileRaster`` (a Product IR) and reuses ``LabelStamper``, importing
 neither the renderer nor the frontend. The caller (``Pipeline``) does the
 cell **wrapping** with the layout renderer and hands the finished lines here,
 so the renderer→backend dependency the compositor would otherwise need never

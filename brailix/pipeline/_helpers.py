@@ -135,8 +135,8 @@ def cache_lookup(
     """Return the cached parsed tree for ``key``, or ``None`` on a miss.
 
     A ``None`` reuse pool — the non-incremental call paths that pass no
-    ``tree_subcache`` — reads as a miss. Shared by the math / music
-    populate paths and :meth:`FrontendDriver.attach_math` so all three keep
+    ``tree_subcache`` — reads as a miss. Shared by the math / music / graphic
+    populate paths and :meth:`FrontendDriver.attach_math` so they all keep
     identical lookup semantics; see :meth:`Pipeline.translate_block` for
     the pool contract.
     """
@@ -153,7 +153,7 @@ def cache_record(
     No-op when there is no output pool, or when nothing parsed
     (``tree is None``) — so a failed parse never poisons the pool with a
     ``None`` a later compile would mistake for a hit. The single writer
-    behind all three tree-caching call sites.
+    behind all the tree-caching call sites.
     """
     if tree is not None and tree_out is not None:
         tree_out[key] = tree

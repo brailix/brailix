@@ -9,8 +9,7 @@ soft-failure (a blank raster) rather than crashing — mirroring the math
 ``<merror>`` / music ``<music-error>`` convention.
 
 The :func:`svg_error_wrap` helper is exposed at module level so sibling
-adapters (primitives / image / chart, later phases) share one soft-fail
-shape.
+adapters (primitives / image / figure) share one soft-fail shape.
 """
 
 from __future__ import annotations

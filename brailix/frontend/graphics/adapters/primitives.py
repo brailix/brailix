@@ -28,10 +28,10 @@ touchable width regardless. A closed shape (rect / circle / ellipse /
 polygon) may carry ``"fill"`` — a texture name (``"hatch"`` / ``"dots"`` /
 ``"cross"`` / ...) or any colour — to be filled with a touch-distinguishable
 texture rather than left as an outline; distinct fills get distinct
-textures. A ``label`` becomes an SVG ``<text>`` — it is
-carried through faithfully now, though it only becomes a braille label
-once the label phase (T2) lands; until then the backend warns and skips
-it. Unknown shape types are skipped with a warning.
+textures. A ``label`` becomes an SVG ``<text>`` — carried
+through faithfully and, when a label translator is supplied, rendered to
+braille dots by the tactile backend. Unknown shape types are skipped with a
+warning.
 
 The SVG is assembled with :mod:`xml.etree.ElementTree` so attribute
 escaping and well-formedness come for free.

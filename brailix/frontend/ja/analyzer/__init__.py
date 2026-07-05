@@ -1,8 +1,9 @@
 """Japanese morphological-analysis subsystem.
 
-Two public callables, both consumed by the Japanese
-:class:`~brailix.core.protocols.LanguageFrontend` (``_JaFrontend`` in
-:mod:`brailix.frontend`):
+Three public callables. :func:`analyze` and :func:`tokens_to_inline` feed the
+Japanese :class:`~brailix.core.protocols.LanguageFrontend` (``_JaFrontend`` in
+:mod:`brailix.frontend`); :func:`list_analyzers` instead serves the CLI's
+analyzer picker:
 
 * :func:`analyze` — text → ``list[JapaneseToken]`` via the analyzer
   adapter selected by ``ctx.options["ja_analyzer"]``. ``"auto"`` lazily

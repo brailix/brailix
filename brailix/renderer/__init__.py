@@ -70,7 +70,7 @@ def braille_renderer_names() -> list[str]:
 
     A renderer self-describes via a ``consumes`` attribute (``"braille"`` by
     default; the tactile-graphics renderers set ``"tactile_raster"``), so the
-    tactile renderers (``bmp`` / ``png`` / ``tactile_preview``) — reached via
+    tactile renderers (``bmp`` / ``png`` / ``pdf`` / ``tactile_preview``) — reached via
     :meth:`~brailix.pipeline.GraphicResult.render`, not text translation — are
     excluded here. A renderer whose loader fails (a missing optional
     dependency) is skipped: it isn't selectable anyway. The builtin renderers

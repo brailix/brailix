@@ -18,11 +18,11 @@ from brailix.ir.braille import BrailleCell
 # Pitch / duration mapping
 # ---------------------------------------------------------------------------
 #
-# MusicXML ``<type>`` values (whole / half / quarter / eighth / 16th /
-# 32nd / 64th / 128th / 256th) collapse to four BANA families, since
-# BANA reuses one cell shape for two durations (whole == 16th,
-# half == 32nd, ...). 256th notes are the exception: they take a
-# leading value-sign prefix (``;<1``, see Par. 2.4.1).
+# MusicXML ``<type>`` values (breve / whole / half / quarter / eighth /
+# 16th / 32nd / 64th / 128th / 256th) map to BANA duration families. The
+# four common values reuse one cell shape for two durations (whole == 16th,
+# half == 32nd, ...); 256th takes a leading value-sign prefix (``;<1``, see
+# Par. 2.4.1) and breve its own suffix cell (see the dict below).
 
 _TYPE_TO_FAMILY: dict[str, str] = {
     "whole":   "whole_or_16th",
