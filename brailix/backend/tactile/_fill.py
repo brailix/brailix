@@ -15,6 +15,7 @@ texture pattern. Pure standard library, like the rest of the backend.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from brailix.ir.tactile import TactileRaster
 
@@ -82,16 +83,26 @@ def _point_in_polygon(x: int, y: int, pts: Sequence[tuple[int, int]]) -> bool:
     return inside
 
 
+@dataclass(frozen=True, slots=True)
+class FillStyle:
+    """The parameters every texture fill shares: which touch ``texture`` to
+    stamp, the pattern's line ``spacing`` and ``thickness`` in device pixels,
+    and the raise ``level`` to write. Built once per element by
+    ``_State.fill_style`` so one value travels to every ``fill_*`` call."""
+
+    texture: str
+    spacing: int
+    thickness: int
+    level: int
+
+
 def fill_rect(
     raster: TactileRaster,
     x0: int,
     y0: int,
     x1: int,
     y1: int,
-    texture: str,
-    spacing: int,
-    thickness: int,
-    level: int,
+    style: FillStyle,
 ) -> None:
     """Texture-fill the axis-aligned rectangle ``[x0, x1] × [y0, y1]``."""
     lo_x, hi_x = sorted((x0, x1))
@@ -101,8 +112,8 @@ def fill_rect(
     hi_y = min(raster.height - 1, hi_y)
     for y in range(lo_y, hi_y + 1):
         for x in range(lo_x, hi_x + 1):
-            if _hit(texture, x, y, spacing, thickness):
-                raster.set_raise(x, y, level)
+            if _hit(style.texture, x, y, style.spacing, style.thickness):
+                raster.set_raise(x, y, style.level)
 
 
 def fill_ellipse(
@@ -111,10 +122,7 @@ def fill_ellipse(
     cy: int,
     rx: int,
     ry: int,
-    texture: str,
-    spacing: int,
-    thickness: int,
-    level: int,
+    style: FillStyle,
 ) -> None:
     """Texture-fill the ellipse centred at ``(cx, cy)`` with radii
     ``rx`` / ``ry`` (a circle when ``rx == ry``)."""
@@ -128,18 +136,15 @@ def fill_ellipse(
         for x in range(lo_x, hi_x + 1):
             dx = x - cx
             if dx * dx * ry2 + dy * dy * rx2 <= rx2 * ry2 and _hit(
-                texture, x, y, spacing, thickness
+                style.texture, x, y, style.spacing, style.thickness
             ):
-                raster.set_raise(x, y, level)
+                raster.set_raise(x, y, style.level)
 
 
 def fill_polygon(
     raster: TactileRaster,
     pts: Sequence[tuple[int, int]],
-    texture: str,
-    spacing: int,
-    thickness: int,
-    level: int,
+    style: FillStyle,
 ) -> None:
     """Texture-fill the polygon through ``pts`` (device coordinates)."""
     if len(pts) < 3:
@@ -151,18 +156,15 @@ def fill_polygon(
     for y in range(lo_y, hi_y + 1):
         for x in range(lo_x, hi_x + 1):
             if _point_in_polygon(x, y, pts) and _hit(
-                texture, x, y, spacing, thickness
+                style.texture, x, y, style.spacing, style.thickness
             ):
-                raster.set_raise(x, y, level)
+                raster.set_raise(x, y, style.level)
 
 
 def fill_polygons(
     raster: TactileRaster,
     rings: Sequence[Sequence[tuple[int, int]]],
-    texture: str,
-    spacing: int,
-    thickness: int,
-    level: int,
+    style: FillStyle,
 ) -> None:
     """Texture-fill a multi-ring region via the even-odd rule: a pixel is
     inside when it lies within an odd number of rings, so inner subpaths
@@ -178,5 +180,5 @@ def fill_polygons(
     for y in range(lo_y, hi_y + 1):
         for x in range(lo_x, hi_x + 1):
             inside = sum(_point_in_polygon(x, y, ring) for ring in valid) % 2 == 1
-            if inside and _hit(texture, x, y, spacing, thickness):
-                raster.set_raise(x, y, level)
+            if inside and _hit(style.texture, x, y, style.spacing, style.thickness):
+                raster.set_raise(x, y, style.level)
