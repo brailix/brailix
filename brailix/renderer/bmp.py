@@ -18,7 +18,8 @@ feeds them all.
 Physical scale: the BMP header records pixels-per-metre from the raster's
 ``dpi``, so embossing software reproduces the drawing at its true
 millimetre size. The encoder is pure standard library (``struct``); only
-*reading* external bitmaps (a later phase) needs a third-party library.
+*reading* external bitmaps (in the tactile backend, behind the ``graphics``
+extra) needs a third-party library.
 
 The output type is ``bytes`` — BMP files are written in binary mode.
 """

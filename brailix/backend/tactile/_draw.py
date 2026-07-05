@@ -4,9 +4,10 @@ The built-in rasterizer paints geometry into a
 :class:`~brailix.ir.tactile.TactileRaster` using nothing but integer
 Bresenham line walking and disk stamping — pure standard library, so the
 tactile vertical keeps core's "zero third-party parser dependency"
-guarantee even with no optional rasterization library installed. (A full
-external-SVG rasterizer behind an extra is a later phase; this primitive
-set covers the shapes the graphics frontend emits.)
+guarantee even with no optional rasterization library installed. (Full
+external-SVG rasterization lives in ``_image`` behind the
+``graphics-svg-raster`` extra, for ``<image>`` references; this primitive
+set covers the inline shapes the graphics frontend emits.)
 
 Every stroke is drawn by stamping a small filled disk at each point along
 its centre line. Disk stamping gives round caps and joins for free and

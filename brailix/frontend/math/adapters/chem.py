@@ -392,7 +392,7 @@ def _emit_formula(inner: str, _depth: int = 0) -> str:
     (reversible ⇌), gas / precipitate arrows (``<mo>``), ionic charges
     (``Na+`` / ``SO4^2-`` → ``<msup>``; see :func:`_match_charge`), and
     parenthesised groups with a multiplier (``Ca(OH)2``; see
-    :func:`_parenthesised_group`). Element casing and the chemical-formula
+    :func:`_bracketed_group`). Element casing and the chemical-formula
     indicator are decided downstream by the backend.
 
     ``+`` is the addition operator when it separates two species — either

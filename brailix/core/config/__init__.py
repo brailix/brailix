@@ -25,7 +25,7 @@ Two table-cell schemas are accepted, transparently:
 
 Reserved keys at the top of each table file are ignored as metadata:
 ``schema``, ``name``, ``cell``, ``status``, ``source``, ``version``,
-and any ``_*``.
+``reference``, and any ``_*``.
 
 Missing entries are simply absent — the backend treats a missing key
 as "unknown" and emits a warning rather than crashing.

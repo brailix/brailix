@@ -385,7 +385,7 @@ def _emit_condition_side(
 ) -> None:
     """One condition side. A heat mark renders as the inline ``chem.heat``
     symbol; everything else takes the big-operator over/under form
-    (46-prefix + indicator + content) via :func:`handlers._emit_big_op_side`.
+    (46-prefix + indicator + content), mirroring the big-op script form.
     """
     if _is_heat(content):
         for dots in mctx.profile.math_structure("chem.heat"):

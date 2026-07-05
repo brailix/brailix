@@ -1,8 +1,8 @@
 """Route inline IR nodes to the correct translator.
 
 The dispatcher is the only piece of the Backend that knows the full
-inline-type-to-translator map. Each translator submodule (zh, number,
-punct, latin, math, music) exposes pure functions; the dispatcher
+inline-type-to-translator map. Each translator submodule (zh, ja, number,
+punct, latin, phonetic, math, music) exposes pure functions; the dispatcher
 composes them via a ``type -> translator`` table.
 
 Block-level translation (``translate_block`` / ``translate_document``

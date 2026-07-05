@@ -1338,8 +1338,9 @@ class Pipeline:
         ``(0, child_idx, ...)``.
 
         ``tree_subcache`` is an optional parsed-tree cache shared by the
-        math and music frontends: keys are ``(domain, source, surface)``
-        (``domain`` ∈ ``{"math", "music"}``), values are the normalised
+        math, music and graphic frontends: keys are ``(domain, source,
+        surface)`` (``domain`` ∈ ``{"math", "music", "graphic"}``), values are
+        the normalised
         MathML / MusicXML :class:`ET.Element` trees from a previous
         compile.  When the frontend encounters a math / music node whose
         key matches an entry, it reuses the cached tree instead of
