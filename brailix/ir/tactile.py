@@ -2,14 +2,15 @@
 backend writes and the tactile renderers consume.
 
 This is the tactile-graphics vertical's counterpart to
-:mod:`brailix.ir.braille` — a backend **product**, not a semantic IR.
-The semantic IR for graphics is the SVG tree itself (an
+:mod:`brailix.ir.braille` — a **Product IR** (what the backend produces
+for the renderer to encode), not the *semantic* IR. The semantic IR for
+graphics is the SVG tree itself (an
 :class:`xml.etree.ElementTree.Element`; see
 :mod:`brailix.frontend.graphics`), exactly as MathML is the math IR and
 MusicXML the music IR. The tactile backend rasterizes that SVG tree into
 a :class:`TactileRaster` (a 2-D grid of *raise levels*), and the tactile
 renderers encode the raster into bytes (``.bmp``) or a refreshable-display
-preview (U+2800 braille, a later phase).
+preview (U+2800 braille).
 
 Coordinate / value model
 ------------------------
