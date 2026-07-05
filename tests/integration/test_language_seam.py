@@ -48,31 +48,24 @@ class TestLanguageSelectedAdapters:
     registered under the language subtag (default Chinese has none)."""
 
     def test_segmenter_defaults_when_no_language_specific(self):
-        opts = Pipeline(profile="cn_current")._frontend_options()
+        opts = Pipeline(profile="cn_current")._frontend.frontend_options()
         assert opts["segmenter"] == "default"
         assert opts["normalizer"] == "default"
 
     def test_language_registered_segmenter_is_auto_selected(self):
         # cn_current is language zh-CN → subtag "zh".
-        segmenter_registry.register("zh", DefaultSegmenter)
-        try:
-            assert Pipeline(profile="cn_current")._frontend_options()["segmenter"] == "zh"
-        finally:
-            segmenter_registry.unregister("zh")
+        with segmenter_registry.overriding("zh", DefaultSegmenter):
+            assert Pipeline(profile="cn_current")._frontend.frontend_options()["segmenter"] == "zh"
 
     def test_explicit_segmenter_overrides_language_selection(self):
-        segmenter_registry.register("zh", DefaultSegmenter)
-        try:
-            opts = Pipeline(profile="cn_current", segmenter="default")._frontend_options()
+        with segmenter_registry.overriding("zh", DefaultSegmenter):
+            opts = Pipeline(profile="cn_current", segmenter="default")._frontend.frontend_options()
             # Passing the default name reads as "auto", so the language one
             # still wins; an explicit *non-default* name would override.
             assert opts["segmenter"] == "zh"
             segmenter_registry.register("custom", DefaultSegmenter)
-            opts2 = Pipeline(profile="cn_current", segmenter="custom")._frontend_options()
+            opts2 = Pipeline(profile="cn_current", segmenter="custom")._frontend.frontend_options()
             assert opts2["segmenter"] == "custom"
-        finally:
-            segmenter_registry.unregister("zh")
-            segmenter_registry.unregister("custom")
 
 
 class TestChineseStillRoutes:

@@ -402,11 +402,11 @@ class TestRaisingAdapterBackstop:
             def to_musicxml(self, src, ctx=None):
                 raise RuntimeError("boom")
 
-        music_source_registry.register("boom-raise-test", _Boom)
-        ctx = MusicContext(profile="cn_current", source="boom-raise-test")
-        tree = parse_music_tree(b"\x00", ctx)
-        assert tree is not None
-        assert _has_music_error(tree)
+        with music_source_registry.overriding("boom-raise-test", _Boom):
+            ctx = MusicContext(profile="cn_current", source="boom-raise-test")
+            tree = parse_music_tree(b"\x00", ctx)
+            assert tree is not None
+            assert _has_music_error(tree)
 
 
 class TestMxlUnreadableArchives:

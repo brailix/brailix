@@ -109,9 +109,10 @@ def test_pipeline_preserves_multi_char_confidence():
                 )
             ]
 
-    analyzer_registry.register("confidence-test", _OneWordAnalyzer)
-    resolver_registry.register("confidence-test", _ConfidenceResolver)
-    try:
+    with (
+        analyzer_registry.overriding("confidence-test", _OneWordAnalyzer),
+        resolver_registry.overriding("confidence-test", _ConfidenceResolver),
+    ):
         result = Pipeline(
             profile="cn_current",
             analyzer="confidence-test",
@@ -121,6 +122,3 @@ def test_pipeline_preserves_multi_char_confidence():
 
         assert isinstance(child, Word)
         assert child.confidence == 0.67
-    finally:
-        analyzer_registry.unregister("confidence-test")
-        resolver_registry.unregister("confidence-test")

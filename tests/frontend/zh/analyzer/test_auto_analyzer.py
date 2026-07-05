@@ -92,13 +92,10 @@ def test_auto_falls_through_model_not_installed_candidate():
     def _needs_model():
         raise ModelNotInstalledError("fake-model", "/nowhere")
 
-    analyzer_registry.register("fake_mni", _needs_model)
-    try:
+    with analyzer_registry.overriding("fake_mni", _needs_model):
         analyzer = AutoChineseAnalyzer(preferred=("fake_mni", "char"))
         tokens = analyzer.analyze("我")
         assert [t.surface for t in tokens] == ["我"]  # degraded to char
-    finally:
-        analyzer_registry.unregister("fake_mni")
 
 
 def test_hanlp_load_failure_surfaces_as_model_not_installed(monkeypatch, tmp_path):

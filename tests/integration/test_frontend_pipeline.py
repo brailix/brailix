@@ -194,11 +194,8 @@ class TestAdapterSwap:
             def resolve(self, tokens, ctx=None):
                 return [replace(t, pinyin="xx") for t in tokens]
 
-        resolver_registry.register("stub-swap-test", _StubResolver)
-        try:
+        with resolver_registry.overriding("stub-swap-test", _StubResolver):
             b, _ = _run_frontend(text, pinyin="stub-swap-test")
-        finally:
-            resolver_registry.unregister("stub-swap-test")
 
         # Structure invariant across the swap...
         assert [type(x).__name__ for x in a] == [type(x).__name__ for x in b]

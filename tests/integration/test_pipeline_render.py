@@ -96,34 +96,25 @@ class _BytesRenderer:
 
 class TestCustomRenderer:
     def test_cells_list_renderer(self):
-        renderer_registry.register("cell-list-test", _CellListRenderer)
-        try:
+        with renderer_registry.overriding("cell-list-test", _CellListRenderer):
             pipe = Pipeline(profile="cn_current")
             result = pipe.translate_text("。")  # 。 = ⠐⠆ → two cells, no blank
             cells = result.render("cell-list-test")
             assert cells == [(5,), (2, 3)]
-        finally:
-            renderer_registry.unregister("cell-list-test")
 
     def test_bytes_renderer(self):
-        renderer_registry.register("bytes-test", _BytesRenderer)
-        try:
+        with renderer_registry.overriding("bytes-test", _BytesRenderer):
             pipe = Pipeline(profile="cn_current")
             result = pipe.translate_text("。")  # ⠐ sums to 5, ⠆ sums to 5
             out = result.render("bytes-test")
             assert isinstance(out, bytes)
             assert out == bytes([5, 5])
-        finally:
-            renderer_registry.unregister("bytes-test")
 
     def test_pipeline_default_can_be_a_custom_renderer(self):
-        renderer_registry.register("cell-list-test", _CellListRenderer)
-        try:
+        with renderer_registry.overriding("cell-list-test", _CellListRenderer):
             pipe = Pipeline(profile="cn_current", default_renderer="cell-list-test")
             result = pipe.translate_text("。")
             assert result.render() == [(5,), (2, 3)]
-        finally:
-            renderer_registry.unregister("cell-list-test")
 
 
 # ---------------------------------------------------------------------------
@@ -133,8 +124,7 @@ class TestCustomRenderer:
 
 class TestMultiFormat:
     def test_same_result_renders_multiple_formats(self):
-        renderer_registry.register("cell-list-test", _CellListRenderer)
-        try:
+        with renderer_registry.overriding("cell-list-test", _CellListRenderer):
             pipe = Pipeline(profile="cn_current")
             result = pipe.translate_text("。")
             unicode_out = result.render("unicode")
@@ -144,8 +134,6 @@ class TestMultiFormat:
             assert cells_out == [(5,), (2, 3)]
             # The braille IR itself is shared and unchanged.
             assert result.braille_ir is result.braille_ir
-        finally:
-            renderer_registry.unregister("cell-list-test")
 
 
 # ---------------------------------------------------------------------------
@@ -193,8 +181,7 @@ class TestSegmenterAndNormalizerFields:
                 # default normalizer wraps it as a single Punct node.
                 return [Segment(type="punct", surface=text, span=Span(0, len(text)))]
 
-        segmenter_registry.register("all-punct-test", _OneBigPunctSegmenter)
-        try:
+        with segmenter_registry.overriding("all-punct-test", _OneBigPunctSegmenter):
             pipe = Pipeline(profile="cn_current", segmenter="all-punct-test")
             # Pipe a single known-punct char through and confirm it
             # actually went through our segmenter.
@@ -202,8 +189,6 @@ class TestSegmenterAndNormalizerFields:
             # Default normalizer converts punct segment → Punct node → cells.
             # 。 = ⠐⠆ is two cells with no trailing space.
             assert len(result.render()) == 2
-        finally:
-            segmenter_registry.unregister("all-punct-test")
 
     def test_custom_normalizer_via_field(self):
         from dataclasses import dataclass
@@ -218,14 +203,11 @@ class TestSegmenterAndNormalizerFields:
             def normalize(self, segments, ctx=None):
                 return []  # drop all segments
 
-        normalizer_registry.register("drop-test", _DropEverythingNormalizer)
-        try:
+        with normalizer_registry.overriding("drop-test", _DropEverythingNormalizer):
             pipe = Pipeline(profile="cn_current", normalizer="drop-test")
             result = pipe.translate_text("。")
             # Nothing came through the normalizer → no cells rendered.
             assert result.render() == ""
-        finally:
-            normalizer_registry.unregister("drop-test")
 
 
 class TestUnhandledSegmentType:
@@ -246,14 +228,11 @@ class TestUnhandledSegmentType:
             def segment(self, block, ctx):
                 return [Segment(type="kanji_text", surface=block.text, span=Span(0, len(block.text)))]
 
-        segmenter_registry.register("mystery", _MysterySegmenter)
-        try:
+        with segmenter_registry.overriding("mystery", _MysterySegmenter):
             pipe = Pipeline(profile="cn_current", segmenter="mystery")
             result = pipe.translate_text("X")
             codes = {w.code for w in result.warnings}
             assert "UNHANDLED_SEGMENT_TYPE" in codes
-        finally:
-            segmenter_registry.unregister("mystery")
 
     def test_string_strict_mode_promotes_warning(self):
         from brailix import Pipeline
