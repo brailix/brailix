@@ -113,30 +113,7 @@ def load_profile(
     base = root if root is not None else PACKAGE_ROOT
     extras = tuple(Path(p) for p in (extra_search_paths or ()))
 
-    profile_path: Path | None = None
-    # User-folder search paths win — a same-named user profile shadows
-    # the builtin.  Builtin path comes last as the fallback.
-    for candidate_dir in extras:
-        candidate = candidate_dir / f"{name}.json"
-        if candidate.exists():
-            profile_path = candidate
-            break
-    if profile_path is None:
-        builtin_path = base / "profiles" / f"{name}.json"
-        if builtin_path.exists():
-            profile_path = builtin_path
-
-    if profile_path is None:
-        available = _list_available_profiles(base, extras)
-        if available:
-            hint = f"; available: {', '.join(available)}"
-        else:
-            searched = ", ".join(
-                str(p) for p in (*extras, base / "profiles")
-            )
-            hint = f"; no profiles found under {searched}"
-        target = base / "profiles" / f"{name}.json"
-        raise FileNotFoundError(f"profile not found: {target}{hint}")
+    profile_path = _resolve_profile_path(name, base, extras)
 
     payload = _read_json(profile_path)
     # Up-front shape check: catches the catastrophic cases (root not a
@@ -193,33 +170,9 @@ def load_profile(
     )
     zh_compounds = _load_compounds(base, t("compounds"))
 
-    # Generic per-language table slot (ARCHITECTURE §7.6). For any
-    # non-zh language, load every cell-sequence table declared under
-    # ``tables.<lang>`` into ``lang_tables[<lang>]`` keyed by the same
-    # name. zh keeps its welded loaders above (initials / finals /
-    # tones / exceptions / compounds); when zh migrates to this slot,
-    # drop the guard. The subtag is taken before the hyphen so
-    # ``ja-JP`` -> ``ja``.
-    lang_tables: dict[
-        str, dict[str, dict[str, tuple[tuple[int, ...], ...]]]
-    ] = {}
-    lang_subtag = payload["language"].split("-")[0]
-    lang_section = tables.get(lang_subtag)
-    if lang_subtag != "zh" and isinstance(lang_section, dict):
-        loaded: dict[str, dict[str, tuple[tuple[int, ...], ...]]] = {}
-        for tbl_key, ref in lang_section.items():
-            # ``_note`` / other ``_*`` metadata keys carry doc strings, not
-            # table paths; skip them so a documented ``tables.<lang>`` block
-            # doesn't try to load the metadata value as a resource file
-            # (a raw FileNotFoundError would otherwise escape load_profile).
-            if _is_metadata_key(tbl_key):
-                continue
-            if isinstance(ref, str):
-                loaded[tbl_key] = _load_lang_table(
-                    base, tbl_key, ref, cells_pool
-                )
-        if loaded:
-            lang_tables[lang_subtag] = loaded
+    # Generic per-language table slot (ARCHITECTURE §7.6): load every
+    # ``tables.<lang>`` cell-sequence table for a non-zh language.
+    lang_tables = _load_lang_tables(base, payload, tables, cells_pool)
 
     features = dict(payload.get("features", {}))
 
@@ -305,6 +258,44 @@ def _load_lang_table(
     return _resolve_table(src, cells_pool)
 
 
+def _load_lang_tables(
+    base: Path,
+    payload: dict[str, Any],
+    tables: dict[str, Any],
+    cells_pool: dict[str, tuple[int, ...]],
+) -> dict[str, dict[str, dict[str, tuple[tuple[int, ...], ...]]]]:
+    """Load the generic per-language table slot (ARCHITECTURE §7.6).
+
+    For any non-zh language, load every cell-sequence table declared
+    under ``tables.<lang>`` into ``{<lang>: {<name>: table}}`` keyed by
+    the same name. zh keeps its welded loaders (initials / finals /
+    tones / exceptions / compounds); when zh migrates to this slot, drop
+    the guard. The subtag is taken before the hyphen so ``ja-JP`` ->
+    ``ja``.
+    """
+    lang_tables: dict[
+        str, dict[str, dict[str, tuple[tuple[int, ...], ...]]]
+    ] = {}
+    lang_subtag = payload["language"].split("-")[0]
+    lang_section = tables.get(lang_subtag)
+    if lang_subtag != "zh" and isinstance(lang_section, dict):
+        loaded: dict[str, dict[str, tuple[tuple[int, ...], ...]]] = {}
+        for tbl_key, ref in lang_section.items():
+            # ``_note`` / other ``_*`` metadata keys carry doc strings, not
+            # table paths; skip them so a documented ``tables.<lang>`` block
+            # doesn't try to load the metadata value as a resource file
+            # (a raw FileNotFoundError would otherwise escape load_profile).
+            if _is_metadata_key(tbl_key):
+                continue
+            if isinstance(ref, str):
+                loaded[tbl_key] = _load_lang_table(
+                    base, tbl_key, ref, cells_pool
+                )
+        if loaded:
+            lang_tables[lang_subtag] = loaded
+    return lang_tables
+
+
 def iter_builtin_profiles(
     root: Path | None = None,
     *,
@@ -346,6 +337,31 @@ def load_builtin_numbers_table() -> dict[str, Any]:
     )
 
 
+def _resolve_profile_path(
+    name: str, base: Path, extras: tuple[Path, ...]
+) -> Path:
+    """Locate ``<name>.json``. User-folder ``extras`` win — a same-named
+    user profile shadows the builtin — then ``base/profiles`` as the
+    fallback. Raises :class:`FileNotFoundError`, listing the union of
+    available profile names, when it is found in none of them."""
+    for candidate_dir in extras:
+        candidate = candidate_dir / f"{name}.json"
+        if candidate.exists():
+            return candidate
+    builtin_path = base / "profiles" / f"{name}.json"
+    if builtin_path.exists():
+        return builtin_path
+
+    available = _list_available_profiles(base, extras)
+    if available:
+        hint = f"; available: {', '.join(available)}"
+    else:
+        searched = ", ".join(str(p) for p in (*extras, base / "profiles"))
+        hint = f"; no profiles found under {searched}"
+    target = base / "profiles" / f"{name}.json"
+    raise FileNotFoundError(f"profile not found: {target}{hint}")
+
+
 def _list_available_profiles(
     base: Path, extras: tuple[Path, ...] = ()
 ) -> list[str]:
@@ -381,6 +397,7 @@ __all__ = (
     "_list_available_profiles",
     "_load_cells_pool",
     "_load_lang_table",
+    "_load_lang_tables",
     "_load_letters_table",
     "_load_math_table",
     "_load_music_tables",
@@ -404,6 +421,7 @@ __all__ = (
     "_resolve_dots_table",
     "_resolve_music_cells",
     "_resolve_nested_structures",
+    "_resolve_profile_path",
     "_resolve_single",
     "_resolve_table",
     "_section",

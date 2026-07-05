@@ -164,8 +164,7 @@ class TestMissingExtraPath:
         def _loader():
             raise ImportError("synthetic: optional dependency absent")
 
-        music_source_registry.register("fake-optional", _loader, extra="midi")
-        try:
+        with music_source_registry.overriding("fake-optional", _loader, extra="midi"):
             ctx = MusicContext(profile="cn_current", source="fake-optional")
             tree = parse_music_tree(b"\x00", ctx)
             assert tree is None
@@ -175,5 +174,3 @@ class TestMissingExtraPath:
                 if w.code == "MUSIC_ADAPTER_MISSING"
             )
             assert "pip install brailix[midi]" in warning.message
-        finally:
-            music_source_registry.unregister("fake-optional")

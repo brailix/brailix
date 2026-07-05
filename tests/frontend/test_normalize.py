@@ -62,7 +62,7 @@ class TestAtomicConversions:
     def test_math_op_becomes_prefilled_mathinline(self):
         # Half-width ( inside Chinese prose → single-character MathInline, with
         # the math field pre-filled as the single-element <math><mo>(</mo></math>.
-        # When Pipeline._attach_math sees math already filled, it skips the math
+        # When FrontendDriver.attach_math sees math already filled, it skips the math
         # frontend and does not call latex2mathml.
         out = _normalize_text("(")
         assert len(out) == 1

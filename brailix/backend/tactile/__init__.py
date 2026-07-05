@@ -47,6 +47,7 @@ from brailix.backend.tactile._draw import (
 )
 from brailix.backend.tactile._fill import (
     TEXTURES,
+    FillStyle,
     fill_ellipse,
     fill_polygon,
     fill_polygons,
@@ -322,6 +323,17 @@ class _State:
             self.fill_map[fill] = tex
         return tex
 
+    def fill_style(self, fill: str) -> FillStyle:
+        """The :class:`FillStyle` for an SVG ``fill`` value at this state:
+        the mapped texture plus the profile-derived spacing / thickness and
+        the current raise level, bundled so one value reaches every fill."""
+        return FillStyle(
+            texture=self.texture_for(fill),
+            spacing=self.tex_spacing,
+            thickness=self.tex_thickness,
+            level=self.level,
+        )
+
     def warn_once(self, *, key: str, code: str, message: str) -> None:
         # ``code`` is passed as a ``code="..."`` literal at each call site
         # (not threaded through a variable) so a static scan of the source
@@ -350,10 +362,7 @@ def _h_rect(
     corners = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
     pts = [st.dev(cx, cy) for cx, cy in corners]
     if fill is not None:
-        fill_polygon(
-            raster, pts, st.texture_for(fill), st.tex_spacing,
-            st.tex_thickness, st.level,
-        )
+        fill_polygon(raster, pts, st.fill_style(fill))
     draw_polyline(raster, pts, radius, st.level, closed=True)
 
 
@@ -370,10 +379,7 @@ def _h_circle(
     dcx, dcy = st.dev(cx, cy)
     dr = st.lx(r * st.len_scale())
     if fill is not None:
-        fill_ellipse(
-            raster, dcx, dcy, dr, dr,
-            st.texture_for(fill), st.tex_spacing, st.tex_thickness, st.level,
-        )
+        fill_ellipse(raster, dcx, dcy, dr, dr, st.fill_style(fill))
     draw_circle(raster, dcx, dcy, dr, radius, st.level)
 
 
@@ -387,10 +393,7 @@ def _h_ellipse(
     dcx, dcy = st.dev(cx, cy)
     drx, dry = st.lx(rx * st.len_scale()), st.ly(ry * st.len_scale())
     if fill is not None:
-        fill_ellipse(
-            raster, dcx, dcy, drx, dry,
-            st.texture_for(fill), st.tex_spacing, st.tex_thickness, st.level,
-        )
+        fill_ellipse(raster, dcx, dcy, drx, dry, st.fill_style(fill))
     draw_ellipse(raster, dcx, dcy, drx, dry, radius, st.level)
 
 
@@ -406,10 +409,7 @@ def _h_polygon(
 ) -> None:
     pts = [st.dev(x, y) for x, y in _parse_points(elem.get("points"))]
     if fill is not None and len(pts) >= 3:
-        fill_polygon(
-            raster, pts, st.texture_for(fill), st.tex_spacing,
-            st.tex_thickness, st.level,
-        )
+        fill_polygon(raster, pts, st.fill_style(fill))
     draw_polyline(raster, pts, radius, st.level, closed=True)
 
 
@@ -425,10 +425,7 @@ def _h_path(
     if fill is not None:
         rings = [p for p, closed in dev_subs if closed and len(p) >= 3]
         if rings:
-            fill_polygons(
-                raster, rings, st.texture_for(fill), st.tex_spacing,
-                st.tex_thickness, st.level,
-            )
+            fill_polygons(raster, rings, st.fill_style(fill))
     for pts, closed in dev_subs:
         draw_polyline(raster, pts, radius, st.level, closed=closed)
 

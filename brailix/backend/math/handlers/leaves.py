@@ -14,7 +14,11 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from brailix.backend._digits import DigitRoles, emit_digit_run
+from brailix.backend._digits import (
+    DigitRoles,
+    DigitRunPolicy,
+    emit_digit_run,
+)
 from brailix.backend._inline import rebase_translated_cells
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.utils import (
@@ -33,6 +37,16 @@ from brailix.ir.braille import BLANK_CELL, LINE_BREAK_CELL, BrailleCell
 # Math <mn> digit runs are labelled "math_digit"; the shared emitter owns
 # the number-sign / decimal / thousands / full-width-digit logic.
 _MATH_DIGIT_ROLES = DigitRoles(digit="math_digit")
+_MATH_DIGIT_POLICY = DigitRunPolicy(
+    roles=_MATH_DIGIT_ROLES,
+    # A full-width digit inside a formula is a source writing error —
+    # warn instead of silently normalising it (matches the policy for
+    # full-width letters / operators).
+    fold_nonascii=False,
+    warn_source="backend.math",
+    unknown_code="MATH_UNKNOWN_DIGIT",
+    missing_code="MATH_MISSING_NUMBER_PART",
+)
 
 
 def _warn_unknown_char(
@@ -282,19 +296,12 @@ def _emit_mn(
         text,
         profile=profile,
         warnings=mctx.backend.warnings,
-        roles=_MATH_DIGIT_ROLES,
+        policy=_MATH_DIGIT_POLICY,
         want_number_sign=(
             mctx.need_number_sign and profile.feature("math.number_sign", True)
         ),
-        # A full-width digit inside a formula is a source writing error —
-        # warn instead of silently normalising it (matches the policy for
-        # full-width letters / operators).
-        fold_nonascii=False,
         span_at=lambda _i: mctx.span,
         number_sign_span=mctx.span,
-        warn_source="backend.math",
-        unknown_code="MATH_UNKNOWN_DIGIT",
-        missing_code="MATH_MISSING_NUMBER_PART",
     )
     mctx.need_number_sign = False
 

@@ -296,7 +296,7 @@ class TestEndToEndBrailleRendering:
 
 
 class TestPipelineAttachMath:
-    """``Pipeline._attach_math`` is idempotent: if the MathInline
+    """``FrontendDriver.attach_math`` is idempotent: if the MathInline
     already has its ``math`` populated, the second call is a no-op.
     This pins that behaviour so re-running a partially-completed
     pipeline doesn't double-parse."""
@@ -310,7 +310,7 @@ class TestPipelineAttachMath:
         tree = ET.fromstring("<math><mi>x</mi></math>")
         node = MathInline(surface="x", source="mathml", math=tree)
         # Sentinel: same object identity should survive.
-        pipe._attach_math(node, ctx)
+        pipe._frontend.attach_math(node, ctx)
         assert node.math is tree
 
 

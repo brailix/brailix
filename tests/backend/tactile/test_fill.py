@@ -5,6 +5,7 @@ from __future__ import annotations
 from brailix.backend.tactile import _State
 from brailix.backend.tactile._fill import (
     TEXTURES,
+    FillStyle,
     _hit,
     _point_in_polygon,
     fill_ellipse,
@@ -74,7 +75,7 @@ class TestPointInPolygon:
 class TestFillRect:
     def test_horizontal_hatch(self):
         r = _raster(10, 10)
-        fill_rect(r, 0, 0, 9, 9, "hatch_horizontal", 4, 1, 255)
+        fill_rect(r, 0, 0, 9, 9, FillStyle("hatch_horizontal", 4, 1, 255))
         # rows 0, 4, 8 fully raised → 30 pixels.
         assert r.raised_count() == 30
         assert r.get(5, 0) and r.get(5, 4) and r.get(5, 8)
@@ -82,7 +83,7 @@ class TestFillRect:
 
     def test_clipped_to_bounds(self):
         r = _raster(10, 10)
-        fill_rect(r, -5, -5, 100, 100, "hatch_horizontal", 4, 1, 255)
+        fill_rect(r, -5, -5, 100, 100, FillStyle("hatch_horizontal", 4, 1, 255))
         # No crash; rows 0/4/8 across the whole 10-wide raster.
         assert r.raised_count() == 30
 
@@ -90,14 +91,14 @@ class TestFillRect:
 class TestFillEllipse:
     def test_pattern_clipped_to_interior(self):
         r = _raster(21, 21)
-        fill_ellipse(r, 10, 10, 8, 8, "hatch_horizontal", 4, 1, 255)
+        fill_ellipse(r, 10, 10, 8, 8, FillStyle("hatch_horizontal", 4, 1, 255))
         assert r.get(10, 8)  # inside, on a hatch row
         assert not r.get(10, 9)  # inside, off the hatch row
         assert not r.get(10, 0)  # outside the ellipse
 
     def test_degenerate_noop(self):
         r = _raster()
-        fill_ellipse(r, 5, 5, 0, 5, "stipple", 4, 1, 255)
+        fill_ellipse(r, 5, 5, 0, 5, FillStyle("stipple", 4, 1, 255))
         assert r.raised_count() == 0
 
 
@@ -105,13 +106,13 @@ class TestFillPolygon:
     def test_triangle_interior(self):
         r = _raster(12, 12)
         tri = [(0, 0), (11, 0), (0, 11)]
-        fill_polygon(r, tri, "hatch_horizontal", 2, 1, 255)
+        fill_polygon(r, tri, FillStyle("hatch_horizontal", 2, 1, 255))
         assert r.raised_count() > 0
         assert not r.get(10, 10)  # outside the hypotenuse
 
     def test_too_few_points_noop(self):
         r = _raster()
-        fill_polygon(r, [(0, 0), (5, 5)], "stipple", 4, 1, 255)
+        fill_polygon(r, [(0, 0), (5, 5)], FillStyle("stipple", 4, 1, 255))
         assert r.raised_count() == 0
 
 
@@ -145,6 +146,6 @@ def test_fill_polygons_even_odd_hole():
     r = TactileRaster.blank(40, 40, dpi=100.0, page_width_mm=10.0, page_height_mm=10.0)
     outer = [(5, 5), (35, 5), (35, 35), (5, 35)]
     inner = [(15, 15), (25, 15), (25, 25), (15, 25)]
-    fill_polygons(r, [outer, inner], "hatch_horizontal", 2, 1, 255)
+    fill_polygons(r, [outer, inner], FillStyle("hatch_horizontal", 2, 1, 255))
     assert r.get(20, 20) == 0  # inside both rings -> even -> hole
     assert r.get(10, 20) > 0   # inside outer only -> odd -> filled band

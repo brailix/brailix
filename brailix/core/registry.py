@@ -17,7 +17,8 @@ who forget required methods.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
 from brailix.core.errors import MissingExtraError, UnknownAdapterError
 
@@ -141,3 +142,50 @@ class Registry[T]:
     def clear_cache(self) -> None:
         """Drop cached instances; loaders remain registered."""
         self._cache.clear()
+
+    @contextmanager
+    def overriding(
+        self,
+        name: str | None = None,
+        loader: Callable[[], T] | None = None,
+        *,
+        extra: str | None = None,
+    ) -> Iterator[Registry[T]]:
+        """Temporarily install an adapter, restoring the prior state on exit.
+
+        The test-support replacement for the ``register(...); try: ...;
+        finally: unregister(...)`` dance: it snapshots the registry's
+        registrations on entry and restores them on exit, so a temporarily
+        installed (or removed) adapter never leaks into a later test — even
+        when the body raises.
+
+        With ``name`` (and ``loader``) it registers that one adapter for the
+        block. With no arguments it only snapshots, so the body may
+        ``register`` / ``unregister`` several names and all are rolled back::
+
+            with segmenter_registry.overriding("zh", ZhSegmenter):
+                ...  # "zh" is gone again out here
+
+            with segmenter_registry.overriding():
+                segmenter_registry.register("zh", ZhSegmenter)
+                segmenter_registry.register("custom", CustomSegmenter)
+                ...  # both gone out here
+        """
+        with self._lock:
+            saved = (
+                dict(self._loaders),
+                dict(self._cache),
+                dict(self._extras),
+            )
+        try:
+            if name is not None:
+                if loader is None:
+                    raise ValueError("overriding(name=...) requires a loader")
+                self.register(name, loader, extra=extra)
+            yield self
+        finally:
+            loaders, cache, extras = saved
+            with self._lock:
+                self._loaders = loaders
+                self._cache = cache
+                self._extras = extras

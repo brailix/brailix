@@ -103,6 +103,53 @@ class TestBasicRegistration:
         reg.unregister("x")
         assert not reg.has("x")
 
+    def test_overriding_registers_then_restores(self):
+        reg: Registry[Greeter] = Registry("greeters")
+        with reg.overriding("x", GoodGreeter):
+            assert reg.has("x")
+        assert not reg.has("x")
+
+    def test_overriding_restores_on_exception(self):
+        reg: Registry[Greeter] = Registry("greeters")
+
+        def boom():
+            with reg.overriding("x", GoodGreeter):
+                assert reg.has("x")
+                raise RuntimeError
+
+        with pytest.raises(RuntimeError):
+            boom()
+        assert not reg.has("x")
+
+    def test_overriding_scope_rolls_back_every_registration(self):
+        reg: Registry[Greeter] = Registry("greeters")
+        with reg.overriding():
+            reg.register("x", GoodGreeter)
+            reg.register("y", GoodGreeter)
+            assert reg.has("x") and reg.has("y")
+        assert not reg.has("x")
+        assert not reg.has("y")
+
+    def test_overriding_restores_the_prior_loader(self):
+        reg: Registry[Greeter] = Registry("greeters")
+        reg.register("x", GoodGreeter)
+        original = reg.get("x")
+        with reg.overriding("x", GoodGreeter):
+            # A freshly-registered loader shadows the original in the block.
+            assert reg.get("x") is not original
+        # ...and the original (same cached instance) is back afterwards.
+        assert reg.get("x") is original
+
+    def test_overriding_requires_loader_with_name(self):
+        reg: Registry[Greeter] = Registry("greeters")
+
+        def use():
+            with reg.overriding("x"):
+                pass
+
+        with pytest.raises(ValueError, match="requires a loader"):
+            use()
+
     def test_clear_cache(self):
         calls: list[int] = []
 

@@ -65,10 +65,9 @@ class TestAdapterMissing:
         def _loader() -> object:
             raise ImportError("no such dependency")
 
-        graphic_source_registry.register(
+        with graphic_source_registry.overriding(
             "_test_missing_extra", _loader, extra="graphics"
-        )
-        try:
+        ):
             warn = WarningCollector()
             tree = parse_graphic_tree(
                 "spec",
@@ -82,8 +81,6 @@ class TestAdapterMissing:
             # The message carries the pip-extra fix, straight from
             # MissingExtraError.
             assert "graphics" in missing[0].message
-        finally:
-            graphic_source_registry.unregister("_test_missing_extra")
 
     def test_strict_mode_raises_on_missing_adapter(self) -> None:
         warn = WarningCollector(mode=RunMode.STRICT)
@@ -100,15 +97,12 @@ class TestAdapterFailureBackstop:
             def to_svg(self, src, ctx=None):  # noqa: ANN001, ANN201
                 raise RuntimeError("third-party adapter bug")
 
-        graphic_source_registry.register(
+        with graphic_source_registry.overriding(
             "_test_exploding", lambda: _Exploding()
-        )
-        try:
+        ):
             tree = parse_graphic_tree(CIRCLE, _ctx("_test_exploding"))
             assert tree.tag == "svg"
             assert "adapter failure" in (tree.get("data-bk-error") or "")
-        finally:
-            graphic_source_registry.unregister("_test_exploding")
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -45,6 +45,23 @@ class DigitRoles:
     number_sign: str = "number_sign"
 
 
+@dataclass(frozen=True, slots=True)
+class DigitRunPolicy:
+    """Per-caller policy for a digit run.
+
+    The parts that stay constant for a given caller but differ between
+    the prose-number and math backends: the role labels, the non-ASCII
+    decimal digit rule (prose folds ``２`` -> ``2``, math warns — see the
+    module docstring), and the warning provenance / codes.
+    """
+
+    roles: DigitRoles
+    fold_nonascii: bool
+    warn_source: str
+    unknown_code: str
+    missing_code: str
+
+
 def ascii_decimal_digit(ch: str) -> str | None:
     """ASCII key for a Unicode *decimal* digit (``２`` → ``"2"``), or
     ``None`` when ``ch`` has no decimal value.
@@ -65,13 +82,9 @@ def emit_digit_run(
     *,
     profile: BrailleProfile,
     warnings: WarningCollector,
-    roles: DigitRoles,
+    policy: DigitRunPolicy,
     want_number_sign: bool,
-    fold_nonascii: bool,
     span_at: Callable[[int], Span | None],
-    warn_source: str,
-    unknown_code: str,
-    missing_code: str,
     number_sign_span: Span | None = None,
 ) -> None:
     """Append the braille cells for ``digits`` onto ``cells``.
@@ -79,12 +92,14 @@ def emit_digit_run(
     ``want_number_sign`` is the caller's already-feature-gated decision
     (the number backend gates on ``number_sign``, the math backend on
     ``math.number_sign`` *and* its per-run latch); the leading sign still
-    only fires when the profile actually defines one. ``fold_nonascii``
-    chooses the non-ASCII decimal digit policy (see the module docstring:
-    prose folds, math warns). ``span_at(i)`` gives the source span for the
-    i-th character's cell — per-char for prose numbers, a constant inline
-    span for math. Unknown / unmapped chars get a warning (under
-    ``unknown_code`` / ``missing_code`` + ``warn_source``) plus a blank
+    only fires when the profile actually defines one. ``policy`` carries
+    the per-caller constants — role labels, the non-ASCII decimal digit
+    rule (``policy.fold_nonascii``: prose folds, math warns — see the
+    module docstring), and the warning provenance / codes. ``span_at(i)``
+    gives the source span for the i-th character's cell — per-char for
+    prose numbers, a constant inline span for math. Unknown / unmapped
+    chars get a warning (under ``policy.unknown_code`` /
+    ``policy.missing_code`` + ``policy.warn_source``) plus a blank
     ``unknown`` cell so proofreaders see the gap.
     """
     if not digits:
@@ -100,60 +115,60 @@ def emit_digit_run(
     starts_clean = (
         first == "."
         or first in profile.digits
-        or (fold_nonascii and ascii_decimal_digit(first) in profile.digits)
+        or (policy.fold_nonascii and ascii_decimal_digit(first) in profile.digits)
     )
     if want_number_sign and profile.number_sign:
         if starts_clean:
             cells.append(
                 BrailleCell(
                     dots=profile.number_sign,
-                    role=roles.number_sign,
+                    role=policy.roles.number_sign,
                     source_span=number_sign_span,
                 )
             )
         else:
             warnings.warn(
-                code=missing_code,
+                code=policy.missing_code,
                 message=(
                     f"digit run {digits!r} does not start with a digit or "
                     f"decimal point; number sign suppressed"
                 ),
                 surface=digits,
                 span=span_at(0),
-                source=warn_source,
+                source=policy.warn_source,
             )
     for i, ch in enumerate(digits):
         sp = span_at(i)
         if ch == ".":
-            dots, role = profile.decimal_point, roles.decimal_point
+            dots, role = profile.decimal_point, policy.roles.decimal_point
         elif ch == ",":
-            dots, role = profile.thousands_sep, roles.thousands_sep
+            dots, role = profile.thousands_sep, policy.roles.thousands_sep
         else:
             key: str | None = ch
             if ch not in profile.digits:
-                key = ascii_decimal_digit(ch) if fold_nonascii else None
+                key = ascii_decimal_digit(ch) if policy.fold_nonascii else None
             if key is None or key not in profile.digits:
                 warnings.warn(
-                    code=unknown_code,
+                    code=policy.unknown_code,
                     message=f"no braille mapping for digit-run char {ch!r}",
                     surface=ch,
                     span=sp,
-                    source=warn_source,
+                    source=policy.warn_source,
                 )
                 cells.append(
                     BrailleCell(dots=(), role="unknown", source_span=sp, source_text=ch)
                 )
                 continue
-            dots, role = profile.digits[key], roles.digit
+            dots, role = profile.digits[key], policy.roles.digit
         # Profile may legitimately lack a decimal_point / thousands_sep
         # mapping (empty tuple): warn rather than emit a meaningless dots=().
         if not dots:
             warnings.warn(
-                code=missing_code,
+                code=policy.missing_code,
                 message=f"profile has no cells for {role!r} (char {ch!r})",
                 surface=ch,
                 span=sp,
-                source=warn_source,
+                source=policy.warn_source,
             )
             cells.append(
                 BrailleCell(dots=(), role="unknown", source_span=sp, source_text=ch)
