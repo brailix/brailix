@@ -54,7 +54,7 @@ def _island_mathml(island: str) -> str:
 
     Inline OMML / EQ math is no longer converted in the input layer; it
     travels as a source-tagged island that the frontend's math pass turns
-    into a tree (exactly as ``Pipeline._attach_math`` does). Running that
+    into a tree (exactly as ``FrontendDriver.attach_math`` does). Running that
     same conversion here lets a docx test assert the resulting MathML and
     so prove deferral is lossless.
     """
@@ -249,27 +249,27 @@ class TestNumPrLevel:
 
     def test_missing_val_defaults_to_level_zero(self) -> None:
         # <w:ilvl/> with no val must not crash (old code did int(None)).
-        from brailix.input.docx._blocks import _paragraph_list_info
+        from brailix.input.docx._props import _paragraph_list_info
 
         assert _paragraph_list_info(self._list_para("<w:ilvl/>")) == (0, False)
 
     def test_bare_val_without_prefix_is_read(self) -> None:
         # Some emitters write a bare ``val`` with no ``w:`` prefix.
-        from brailix.input.docx._blocks import _paragraph_list_info
+        from brailix.input.docx._props import _paragraph_list_info
 
         assert _paragraph_list_info(
             self._list_para('<w:ilvl val="2"/>')
         ) == (2, False)
 
     def test_normal_namespaced_val(self) -> None:
-        from brailix.input.docx._blocks import _paragraph_list_info
+        from brailix.input.docx._props import _paragraph_list_info
 
         assert _paragraph_list_info(
             self._list_para('<w:ilvl w:val="1"/>')
         ) == (1, False)
 
     def test_non_integer_val_defaults_to_zero(self) -> None:
-        from brailix.input.docx._blocks import _paragraph_list_info
+        from brailix.input.docx._props import _paragraph_list_info
 
         assert _paragraph_list_info(
             self._list_para('<w:ilvl w:val="x"/>')
@@ -292,7 +292,7 @@ class TestParagraphStyle:
         return etree.fromstring(p_xml)
 
     def test_normal_namespaced_val(self) -> None:
-        from brailix.input.docx._blocks import _paragraph_style
+        from brailix.input.docx._props import _paragraph_style
 
         assert (
             _paragraph_style(self._styled_para('<w:pStyle w:val="Heading1"/>'))
@@ -302,7 +302,7 @@ class TestParagraphStyle:
     def test_bare_val_without_prefix_is_read(self) -> None:
         # Regression: a bare-val pStyle returned None, so heading / list-by-
         # style detection silently failed and the paragraph became body text.
-        from brailix.input.docx._blocks import _paragraph_style
+        from brailix.input.docx._props import _paragraph_style
 
         assert (
             _paragraph_style(self._styled_para('<w:pStyle val="Heading1"/>'))
@@ -2049,20 +2049,20 @@ class TestJcAlignmentValues:
         )
 
     def test_end_maps_to_right(self) -> None:
-        from brailix.input.docx._blocks import _paragraph_alignment
+        from brailix.input.docx._props import _paragraph_alignment
 
         assert _paragraph_alignment(self._para("end")) == "right"
 
     def test_start_has_no_align(self) -> None:
         # ``start`` is the LTR default (flush-left) — no braille marker.
-        from brailix.input.docx._blocks import _paragraph_alignment
+        from brailix.input.docx._props import _paragraph_alignment
 
         assert _paragraph_alignment(self._para("start")) is None
 
     def test_bare_val_without_prefix_is_read(self) -> None:
         # Some emitters drop the ``w:`` prefix; the value must still resolve
         # (exercises the _ns_attr bare-name fallback on w:jc).
-        from brailix.input.docx._blocks import _paragraph_alignment
+        from brailix.input.docx._props import _paragraph_alignment
 
         p = etree.fromstring(
             f'<w:p xmlns:w="{_W_NS}"><w:pPr><w:jc val="center"/></w:pPr></w:p>'
