@@ -22,7 +22,11 @@ date rule lives in this module (ARCHITECTURE §7.6 / §12).
 
 from __future__ import annotations
 
-from brailix.backend._digits import DigitRoles, emit_digit_run
+from brailix.backend._digits import (
+    DigitRoles,
+    DigitRunPolicy,
+    emit_digit_run,
+)
 from brailix.backend._letters import iter_letter_runs, letter_sign_repeats
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
@@ -33,6 +37,14 @@ from brailix.ir.inline import Date, HanziMarker, InlineNode, Number, Percent, Qu
 # Role labels for prose number digit runs (the math backend uses
 # "math_digit"); the shared emitter handles the rest.
 _NUMBER_ROLES = DigitRoles(digit="digit")
+_NUMBER_DIGIT_POLICY = DigitRunPolicy(
+    roles=_NUMBER_ROLES,
+    # Full-width digits are routine typography in CJK prose — fold.
+    fold_nonascii=True,
+    warn_source="backend.number",
+    unknown_code="UNKNOWN_DIGIT",
+    missing_code="MISSING_NUMBER_PART",
+)
 
 # ---------------------------------------------------------------------------
 # Public entry points (one per IR node type)
@@ -258,14 +270,9 @@ def _digits_to_cells(
         digits,
         profile=profile,
         warnings=ctx.warnings,
-        roles=_NUMBER_ROLES,
+        policy=_NUMBER_DIGIT_POLICY,
         want_number_sign=profile.feature("number_sign", True),
-        # Full-width digits are routine typography in CJK prose — fold.
-        fold_nonascii=True,
         span_at=span_at,
-        warn_source="backend.number",
-        unknown_code="UNKNOWN_DIGIT",
-        missing_code="MISSING_NUMBER_PART",
     )
     return cells
 
