@@ -211,84 +211,115 @@ def _emit_harmony(
                 source_text=f"{source_label}/alter:{root_alter}",
             )
 
-    # Kind suffix.
+    _emit_kind_suffix(cells, mctx, elem, source_label)
+    _emit_bass(cells, mctx, elem, source_label)
+
+
+def _emit_kind_suffix(
+    cells: list[BrailleCell],
+    mctx: MusicBrailleContext,
+    elem: ET.Element,
+    source_label: str,
+) -> None:
+    """Emit the ``<kind>`` suffix cells (BANA Table 23) per the
+    ``kind_spec`` recipe read via
+    ``profile.music_spec("chord_symbols", "kind_spec")``.
+
+    ``entity`` routes to a chord_symbols entity; ``letters`` synthesises
+    lowercase letters (via ``profile.bare_letter``) and lower-row digits
+    (via the numerals table). An unknown ``<kind>`` warns and emits
+    nothing — the caller has already emitted the bare root.
+    """
     kind_raw = first_child_text(elem, "kind") or ""
     kind = kind_raw.strip().lower()
-    if kind:
-        spec = (mctx.profile.music_spec("chord_symbols", "kind_spec") or {}).get(
-            kind
+    if not kind:
+        return
+    spec = (mctx.profile.music_spec("chord_symbols", "kind_spec") or {}).get(
+        kind
+    )
+    if spec is None:
+        mctx.warn(
+            code="MUSIC_UNSUPPORTED_NOTATION",
+            message=(
+                f"<harmony><kind>{kind_raw!r}</kind> not in S7 spec "
+                f"(emitting bare root)"
+            ),
+            source="backend.music",
         )
-        if spec is None:
-            mctx.warn(
-                code="MUSIC_UNSUPPORTED_NOTATION",
-                message=(
-                    f"<harmony><kind>{kind_raw!r}</kind> not in S7 spec "
-                    f"(emitting bare root)"
-                ),
-                source="backend.music",
+        return
+    for spec_kind, payload in spec:
+        if spec_kind == "entity":
+            emit_cells_for_entity(
+                cells, mctx,
+                topic="chord_symbols", entity=payload,
+                role="music_chord_symbol",
+                source_text=f"{source_label}/{kind}",
             )
-        else:
-            for spec_kind, payload in spec:
-                if spec_kind == "entity":
-                    emit_cells_for_entity(
+        elif spec_kind == "letters":
+            for ch in payload:
+                if ch.isdigit():
+                    # Lower-row digit cell.
+                    emit_dot_seq(
                         cells, mctx,
-                        topic="chord_symbols", entity=payload,
+                        [numeral_dots(mctx.profile, f"digit_lower_{ch}")],
                         role="music_chord_symbol",
                         source_text=f"{source_label}/{kind}",
                     )
-                elif spec_kind == "letters":
-                    for ch in payload:
-                        if ch.isdigit():
-                            # Lower-row digit cell.
-                            emit_dot_seq(
-                                cells, mctx,
-                                [numeral_dots(mctx.profile, f"digit_lower_{ch}")],
-                                role="music_chord_symbol",
-                                source_text=f"{source_label}/{kind}",
-                            )
-                        else:
-                            dots = mctx.profile.bare_letter(ch)
-                            if dots is not None:
-                                emit_dot_seq(
-                                    cells, mctx, [dots],
-                                    role="music_chord_symbol",
-                                    source_text=f"{source_label}/{kind}",
-                                )
+                else:
+                    dots = mctx.profile.bare_letter(ch)
+                    if dots is not None:
+                        emit_dot_seq(
+                            cells, mctx, [dots],
+                            role="music_chord_symbol",
+                            source_text=f"{source_label}/{kind}",
+                        )
 
-    # Bass note (chord-over-bass, "C/G" form).
+
+def _emit_bass(
+    cells: list[BrailleCell],
+    mctx: MusicBrailleContext,
+    elem: ET.Element,
+    source_label: str,
+) -> None:
+    """Emit the optional bass note (chord-over-bass ``C/G`` form): a
+    slash separator, the bass letter, and the bass accidental when
+    nonzero. No ``<bass>`` (or no ``<bass-step>``) emits nothing."""
     bass_elem = elem.find("bass")
-    if bass_elem is not None:
-        bass_step = first_child_text(bass_elem, "bass-step")
-        if bass_step:
-            # Slash separator.
-            emit_cells_for_entity(
-                cells, mctx,
-                topic="chord_symbols", entity="slash",
-                role="music_chord_symbol",
-                source_text=f"{source_label}/bass:{bass_step}",
-            )
-            bass_dots = mctx.profile.bare_letter(bass_step.lower())
-            if bass_dots is not None:
-                emit_dot_seq(
-                    cells, mctx, [bass_dots],
-                    role="music_chord_symbol",
-                    source_text=f"{source_label}/bass:{bass_step}",
-                )
-            # Bass alter.
-            bass_alter_raw = first_child_text(bass_elem, "bass-alter")
-            try:
-                bass_alter = int(bass_alter_raw) if bass_alter_raw else 0
-            except ValueError:
-                bass_alter = 0
-            if bass_alter != 0:
-                acc_entity = _HARMONY_ACC_ENTITY.get(bass_alter)
-                if acc_entity is not None:
-                    emit_cells_for_entity(
-                        cells, mctx,
-                        topic="chord_symbols", entity=acc_entity,
-                        role="music_chord_symbol",
-                        source_text=f"{source_label}/bass-alter:{bass_alter}",
-                    )
+    if bass_elem is None:
+        return
+    bass_step = first_child_text(bass_elem, "bass-step")
+    if not bass_step:
+        return
+    # Slash separator.
+    emit_cells_for_entity(
+        cells, mctx,
+        topic="chord_symbols", entity="slash",
+        role="music_chord_symbol",
+        source_text=f"{source_label}/bass:{bass_step}",
+    )
+    bass_dots = mctx.profile.bare_letter(bass_step.lower())
+    if bass_dots is not None:
+        emit_dot_seq(
+            cells, mctx, [bass_dots],
+            role="music_chord_symbol",
+            source_text=f"{source_label}/bass:{bass_step}",
+        )
+    # Bass alter (only when nonzero — natural is implicit).
+    bass_alter_raw = first_child_text(bass_elem, "bass-alter")
+    try:
+        bass_alter = int(bass_alter_raw) if bass_alter_raw else 0
+    except ValueError:
+        bass_alter = 0
+    if bass_alter == 0:
+        return
+    acc_entity = _HARMONY_ACC_ENTITY.get(bass_alter)
+    if acc_entity is not None:
+        emit_cells_for_entity(
+            cells, mctx,
+            topic="chord_symbols", entity=acc_entity,
+            role="music_chord_symbol",
+            source_text=f"{source_label}/bass-alter:{bass_alter}",
+        )
 
 
 _DISPATCH_PARTIAL = {
