@@ -21,7 +21,7 @@ again.
 
 This module is **purely backend** — it never reaches back into the
 Frontend. MathBlock and CodeBlock children are pre-populated by
-:meth:`brailix.pipeline.Pipeline._populate_block` (MathBlock children
+:meth:`brailix.pipeline.FrontendDriver.populate_block` (MathBlock children
 become :class:`MathInline` nodes with parsed MathML; CodeBlock
 children become :class:`CodeInline`). expand_block then dispatches
 them like any other inline children.

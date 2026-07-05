@@ -289,7 +289,7 @@ class TestMathBlock:
         self, pipe, monkeypatch
     ):
         # When the math frontend raises (rather than returning <merror>),
-        # Pipeline._populate_math_block catches it, records a
+        # FrontendDriver._populate_math_block catches it, records a
         # ``MATH_BLOCK_PARSE_FAILED`` warning, and populates per-char
         # Unknown nodes so the backend emits one cell per source char
         # (layout stays stable). _populate_math_block parses via the

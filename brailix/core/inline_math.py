@@ -5,7 +5,7 @@ document (Word OMML, a legacy EQ field, ...) it does **not** convert it.
 Instead it embeds the *raw* fragment, tagged with its source dialect, as
 a text *island* inside the surrounding paragraph's ``Block.text``. The
 frontend's math pass (:func:`brailix.frontend.math.parse_math_tree`,
-driven from ``Pipeline._attach_math``) then converts that island exactly
+driven from ``FrontendDriver.attach_math``) then converts that island exactly
 as it converts a user-typed ``$...$`` fragment — so the input layer never
 imports the math frontend, and inline math defers just like a display
 :class:`~brailix.ir.document.MathBlock` does.

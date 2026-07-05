@@ -69,8 +69,8 @@ def _ensure_block_span(block: Any) -> tuple[str, Span, bool]:
 
     Mutates ``block.span`` when it was None (single source of truth for
     "every populated block ends up with a span"). Shared by
-    :meth:`Pipeline._populate_math_block` and
-    :meth:`Pipeline._populate_music_block` — see those for context.
+    :meth:`FrontendDriver._populate_math_block` and
+    :meth:`FrontendDriver._populate_music_block` — see those for context.
     """
     text = block.text or ""
     had_span = block.span is not None
@@ -136,7 +136,7 @@ def cache_lookup(
 
     A ``None`` reuse pool — the non-incremental call paths that pass no
     ``tree_subcache`` — reads as a miss. Shared by the math / music
-    populate paths and :meth:`Pipeline._attach_math` so all three keep
+    populate paths and :meth:`FrontendDriver.attach_math` so all three keep
     identical lookup semantics; see :meth:`Pipeline.translate_block` for
     the pool contract.
     """

@@ -121,7 +121,7 @@ def _inline_math_as_text(omath: Element) -> str:
     The raw OMML is *not* converted here — it is serialised and wrapped
     as a source-tagged island (:func:`brailix.core.inline_math.wrap`), so
     the OMML→MathML conversion runs later in the frontend's math pass
-    (``Pipeline._attach_math``), exactly as a display ``MathBlock`` with
+    (``FrontendDriver.attach_math``), exactly as a display ``MathBlock`` with
     ``source="omml"`` defers. Keeping the conversion out of the input
     layer is what lets this module take no math-frontend dependency; see
     the docx ``__init__`` "Math handling" note and ARCHITECTURE §1.

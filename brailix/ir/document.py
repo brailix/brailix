@@ -237,7 +237,7 @@ class MathBlock(Block):
 @dataclass(slots=True)
 class ScoreBlock(Block):
     """Full score (metadata + parts + measures). Holds only ``source``;
-    the parsed MusicXML tree is filled by ``Pipeline._populate_block``
+    the parsed MusicXML tree is filled by ``FrontendDriver.populate_block``
     into ``children=[MusicInline(score=tree)]`` — same indirection as
     :class:`MathBlock` → :class:`~brailix.ir.inline.MathInline` (see
     ``ARCHITECTURE.md``)."""
@@ -277,7 +277,7 @@ class GraphicBlock(Block):
     """A tactile graphic. ``source`` is the format the raw graphic in
     ``text`` is written in (``svg`` / ``primitives`` / ``figure``). The
     normalised SVG tree (the graphics IR) is filled by
-    ``Pipeline._populate_block`` into ``children=[GraphicInline(svg=tree)]``
+    ``FrontendDriver.populate_block`` into ``children=[GraphicInline(svg=tree)]``
     — the same children-carrier indirection as :class:`MathBlock` →
     :class:`~brailix.ir.inline.MathInline` and :class:`ScoreBlock` →
     :class:`~brailix.ir.inline.MusicInline` (see

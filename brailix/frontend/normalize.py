@@ -340,7 +340,7 @@ def _try_atomic(seg: Segment) -> InlineNode | None:
     if seg.type == "space":
         return Space(surface=seg.surface, span=seg.span)
     if seg.type == "math_inline":
-        # The MathParser fills the ``math`` field later (Pipeline._attach_math).
+        # The MathParser fills the ``math`` field later (FrontendDriver.attach_math).
         # A *tagged* island is deferred inline math the input layer extracted
         # but did not convert (Word OMML / EQ field); decode it back to its
         # raw payload + source dialect so the right adapter runs later. This
@@ -372,7 +372,7 @@ def _try_atomic(seg: Segment) -> InlineNode | None:
     if seg.type == "math_op":
         # Single half-width math operator (`(`, `)`, `+`, `=`, ...) in
         # prose. Build the trivial MathML tree directly so the math
-        # frontend's parser is never invoked — Pipeline._attach_math
+        # frontend's parser is never invoked — FrontendDriver.attach_math
         # short-circuits when ``MathInline.math`` is already filled.
         # Bare tags only (no ``xmlns`` attribute): the backend dispatches
         # on local names, and the IR round-trip (ET.tostring -> fromstring)

@@ -23,7 +23,7 @@ MusicXML:
 
 Both store the resulting MusicXML string as the block's ``text`` with
 ``source="musicxml"`` (conversion is eager, at input time, exactly as
-``.mxl`` is); ``Pipeline._populate_music_block`` then parses that text
+``.mxl`` is); ``FrontendDriver._populate_music_block`` then parses that text
 through the music frontend → MusicInline + ET.Element tree.
 
 Neither opens .sib / .musx / .dorico / .mscz — proprietary formats stay
