@@ -1,30 +1,33 @@
 """Music score file input adapters.
 
 Read a score file from disk and wrap it as a single-block
-:class:`DocumentIR` carrying a :class:`ScoreBlock`. Two entry points,
-split by how the source reaches MusicXML:
+:class:`DocumentIR` carrying a :class:`ScoreBlock`. Three entry points,
+split by how — and *when* — the source reaches MusicXML (ARCHITECTURE §1,
+the input/frontend payload-shape boundary):
 
-:func:`parse_musicxml` — the MusicXML family (no adapter needed):
+:func:`parse_musicxml` — the MusicXML family (no source adapter needed):
 
-* ``.musicxml`` / ``.xml`` → read UTF-8 text, ``source="musicxml"``
-* ``.mxl``                → ZIP container, unzipped via the existing
-  frontend :class:`~brailix.frontend.music.adapters.mxl.MxlSourceAdapter`
-  to extract the inner XML, then ``source="musicxml"`` (the
-  decompressed text is plain MusicXML so the backend doesn't need to
-  re-unzip later).
+* ``.musicxml`` / ``.xml`` → read UTF-8/UTF-16 text, ``source="musicxml"``
+* ``.mxl``                → ZIP container (binary), unzipped eagerly via the
+  existing frontend
+  :class:`~brailix.frontend.music.adapters.mxl.MxlSourceAdapter` to extract
+  the inner XML, then ``source="musicxml"`` (the decompressed text is plain
+  MusicXML so the backend doesn't need to re-unzip later).
 
-:func:`parse_score_file` — formats that need a source adapter to reach
-MusicXML:
+:func:`parse_score_file` — *binary* dialects decoded eagerly at the input
+boundary, because the text IR can't carry binary bytes (§1 rule 2, the same
+exception ``.mxl`` / MTEF take):
 
-* ``.mid`` / ``.midi`` → MIDI bytes converted via the ``midi`` adapter
-  (needs the ``midi`` extra)
-* ``.abc``            → ABC text converted via the ``abc`` adapter
-  (needs the ``abc`` extra)
+* ``.mid`` / ``.midi`` → MIDI bytes converted through the ``midi`` adapter
+  (needs the ``midi`` extra); ``source`` normalised to ``"musicxml"``.
 
-Both store the resulting MusicXML string as the block's ``text`` with
-``source="musicxml"`` (conversion is eager, at input time, exactly as
-``.mxl`` is); ``FrontendDriver._populate_music_block`` then parses that text
-through the music frontend → MusicInline + ET.Element tree.
+:func:`parse_deferred_score` — *text* dialects kept **raw** and deferred to
+the frontend (§1 rule 1), exactly as ``MathBlock(source="latex")`` defers
+LaTeX; the input layer imports no frontend for these:
+
+* ``.abc`` → stored verbatim as ``ScoreBlock(source="abc")``;
+  ``FrontendDriver._populate_music_block`` runs the ``abc`` adapter later,
+  where a missing ``abc`` extra soft-fails instead of raising at read time.
 
 Neither opens .sib / .musx / .dorico / .mscz — proprietary formats stay
 outside brailix per ``ARCHITECTURE.md``
@@ -43,19 +46,27 @@ _MXL_SUFFIXES = frozenset({".mxl"})
 
 MUSIC_SUFFIXES = _MUSICXML_TEXT_SUFFIXES | _MXL_SUFFIXES
 
-# Score formats that aren't MusicXML text and need a source adapter to
-# get there. Suffix → music source name; binary suffixes are read as
-# bytes (MIDI), the rest as UTF-8 text (ABC). Kept as data so a new
-# score format is one more entry plus its registered adapter — no new
-# branch (ARCHITECTURE.md, adapter pattern).
-_ADAPTER_SCORE_SOURCES: dict[str, str] = {
+# Binary score dialects: decoded eagerly at the input boundary because the
+# text IR can't carry binary bytes (ARCHITECTURE §1 rule 2 — the same
+# exception MTEF and the ``.mxl`` ZIP take). Suffix → music source name;
+# kept as data so a new binary score format is one more entry plus its
+# registered adapter — no new branch (ARCHITECTURE.md, adapter pattern).
+_BINARY_SCORE_SOURCES: dict[str, str] = {
     ".mid": "midi",
     ".midi": "midi",
+}
+BINARY_SCORE_SUFFIXES = frozenset(_BINARY_SCORE_SOURCES)
+
+# Text score dialects: kept RAW at input and deferred to the frontend
+# (ARCHITECTURE §1 rule 1), exactly as ``MathBlock(source="latex")`` defers
+# LaTeX. ABC is UTF-8 text, so it fits the text IR and rides the
+# defer-to-frontend seam rather than the binary eager path — the input layer
+# holds no frontend import for it. Suffix → music source name (the block's
+# ``source``, which the frontend later hands to ``music_source_registry``).
+_DEFERRED_SCORE_SOURCES: dict[str, str] = {
     ".abc": "abc",
 }
-_BINARY_SCORE_SUFFIXES = frozenset({".mid", ".midi"})
-
-ADAPTER_SCORE_SUFFIXES = frozenset(_ADAPTER_SCORE_SOURCES)
+DEFERRED_SCORE_SUFFIXES = frozenset(_DEFERRED_SCORE_SOURCES)
 
 
 def _read_xml_text(p: Path) -> str:
@@ -124,23 +135,28 @@ def parse_score_file(
     language: str,
     profile: str,
 ) -> DocumentIR:
-    """Read a non-MusicXML score file (``.mid`` / ``.midi`` / ``.abc``)
-    and return a single-block :class:`DocumentIR`.
+    """Read a *binary* score file (``.mid`` / ``.midi``) and eagerly decode
+    it to MusicXML at the input boundary.
 
-    The matching music source adapter converts the raw source to a
-    MusicXML string at input time (eager, the same strategy
-    :func:`parse_musicxml` uses for ``.mxl``): MIDI is read as bytes and
-    run through the ``midi`` adapter, ABC as UTF-8 text through the
-    ``abc`` adapter. The result is wrapped as a ``ScoreBlock`` whose
-    ``source`` is normalised to ``"musicxml"`` — by the time the block
-    lands, its ``text`` is plain MusicXML, so the rest of the pipeline
-    treats it exactly like a MusicXML file. A malformed source comes
-    back as a ``<music-error>`` placeholder per the music subsystem's
-    soft-failure contract.
+    Binary dialects are the deliberate §1-rule-2 exception: the text IR
+    can't carry raw bytes, so the matching music source adapter (the
+    ``midi`` adapter, needing the ``midi`` extra) runs here at input time —
+    the same strategy :func:`parse_musicxml` uses for ``.mxl``. The result
+    is wrapped as a ``ScoreBlock`` whose ``source`` is normalised to
+    ``"musicxml"``; by the time the block lands, its ``text`` is plain
+    MusicXML, so the rest of the pipeline treats it exactly like a MusicXML
+    file. A malformed source comes back as a ``<music-error>`` placeholder
+    per the music subsystem's soft-failure contract.
+
+    Text dialects (``.abc``) do **not** come here — they stay raw and defer
+    to the frontend via :func:`parse_deferred_score` (ARCHITECTURE §1 rule
+    1), so this function imports the music source registry only for the
+    binary-decode exception.
 
     Raises :class:`FileNotFoundError` if the path is missing,
     :class:`ValueError` for a suffix this function doesn't handle (use
-    :func:`parse_musicxml` for the MusicXML family), and
+    :func:`parse_deferred_score` for ``.abc``, :func:`parse_musicxml` for
+    the MusicXML family), and
     :class:`~brailix.core.errors.MissingExtraError` when the format's
     optional dependency isn't installed — the message names the extra
     (for example ``pip install brailix[midi]``).
@@ -149,27 +165,75 @@ def parse_score_file(
 
     p = Path(path)
     suffix = p.suffix.lower()
-    source = _ADAPTER_SCORE_SOURCES.get(suffix)
+    source = _BINARY_SCORE_SOURCES.get(suffix)
     if source is None:
         raise ValueError(
-            f"unsupported score file extension {suffix!r} "
-            f"(expected {sorted(_ADAPTER_SCORE_SOURCES)}; "
-            f"use parse_musicxml for .musicxml / .xml / .mxl)"
+            f"unsupported binary score extension {suffix!r} "
+            f"(expected {sorted(_BINARY_SCORE_SOURCES)}; "
+            f"use parse_deferred_score for {sorted(_DEFERRED_SCORE_SOURCES)}, "
+            f"parse_musicxml for .musicxml / .xml / .mxl)"
         )
-    payload: str | bytes = (
-        p.read_bytes()
-        if suffix in _BINARY_SCORE_SUFFIXES
-        else _read_xml_text(p)  # BOM-aware (UTF-16 / UTF-8); see parse_musicxml
-    )
     # registry.get raises MissingExtraError (naming the extra) when the
     # adapter's optional dependency is absent — surfaced loudly here, the
     # same way parse_docx surfaces a missing ``docx`` extra.
     adapter = music_source_registry.get(source)
     musicxml = adapter.to_musicxml(
-        payload, MusicContext(source=source, profile=profile)
+        p.read_bytes(), MusicContext(source=source, profile=profile)
     )
 
     block = ScoreBlock(text=musicxml, source="musicxml")
+    return DocumentIR(
+        metadata={"language": language, "profile": profile},
+        blocks=[block],
+    )
+
+
+def parse_deferred_score(
+    path: str | os.PathLike[str],
+    *,
+    language: str,
+    profile: str,
+) -> DocumentIR:
+    """Read a *text-dialect* score file (``.abc``) and store it **raw**,
+    deferring conversion to the frontend.
+
+    ABC is UTF-8 text, so — unlike the binary MIDI path — it fits in the
+    text IR and follows ARCHITECTURE §1 rule 1 (text dialects are kept raw
+    at input and converted in the frontend), exactly as a
+    ``MathBlock(source="latex")`` defers LaTeX. The ``ScoreBlock`` carries
+    the raw source with ``source`` set to the dialect name (``"abc"``); the
+    matching music source adapter runs later in
+    ``FrontendDriver._populate_music_block``, where a missing ``abc`` extra
+    soft-fails to a ``MUSIC_ADAPTER_MISSING`` warning and a malformed source
+    to a ``<music-error>`` tree — the pipeline keeps running either way.
+
+    Crucially, this function imports **no** frontend: the input layer keeps
+    no math/music frontend for a text dialect (only the binary decoders in
+    :func:`parse_score_file` / :func:`parse_musicxml` reach across).
+    Conversion, the ``abc`` extra, and its failure modes all live at
+    frontend time.
+
+    Raises :class:`FileNotFoundError` if the path is missing and
+    :class:`ValueError` for a suffix this function doesn't handle (use
+    :func:`parse_score_file` for ``.mid`` / ``.midi``, :func:`parse_musicxml`
+    for the MusicXML family). It never raises
+    :class:`~brailix.core.errors.MissingExtraError`: no adapter is touched
+    here, so reading a ``.abc`` needs no optional dependency installed.
+    """
+    p = Path(path)
+    suffix = p.suffix.lower()
+    source = _DEFERRED_SCORE_SOURCES.get(suffix)
+    if source is None:
+        raise ValueError(
+            f"unsupported deferred score extension {suffix!r} "
+            f"(expected {sorted(_DEFERRED_SCORE_SOURCES)}; "
+            f"use parse_score_file for .mid / .midi, "
+            f"parse_musicxml for .musicxml / .xml / .mxl)"
+        )
+    # BOM-aware text read (UTF-16 / UTF-8), matching parse_musicxml; ABC is
+    # plain text, so it lands in the block verbatim — no adapter, no frontend.
+    text = _read_xml_text(p)
+    block = ScoreBlock(text=text, source=source)
     return DocumentIR(
         metadata={"language": language, "profile": profile},
         blocks=[block],

@@ -2,9 +2,10 @@
 
 Covers ``parse_musicxml`` directly + suffix dispatch through
 ``parse_file``: ``.musicxml`` / ``.xml`` (UTF-8 text) and ``.mxl``
-(ZIP container, unzipped through the frontend MxlSourceAdapter), plus
-``parse_score_file`` for the adapter-converted score formats
-(``.mid`` / ``.midi`` as bytes, ``.abc`` as text).
+(ZIP container, unzipped through the frontend MxlSourceAdapter),
+``parse_score_file`` for the eager binary score formats (``.mid`` /
+``.midi`` as bytes), and ``parse_deferred_score`` for the deferred text
+dialect (``.abc``, kept raw for the frontend).
 """
 
 from __future__ import annotations
@@ -17,7 +18,12 @@ import pytest
 
 from brailix.core import MissingExtraError
 from brailix.core.registry import Registry
-from brailix.input import parse_file, parse_musicxml, parse_score_file
+from brailix.input import (
+    parse_deferred_score,
+    parse_file,
+    parse_musicxml,
+    parse_score_file,
+)
 from brailix.ir.document import DocumentIR, ScoreBlock
 
 
@@ -232,20 +238,13 @@ class TestParseScoreFileDispatch:
         assert fake.received == b"MThd\x00\x00\x00\x06"
         assert fake.ctx_source == "midi"
 
-    def test_abc_reads_text_and_normalises_to_musicxml(
-        self, tmp_path, monkeypatch
-    ):
-        fake = _RecordingAdapter("abc")
-        monkeypatch.setattr(Registry, "get", lambda self, name: fake)
-
+    def test_parse_score_file_rejects_abc(self, tmp_path):
+        # ABC is a text dialect handled by parse_deferred_score now; the
+        # binary parse_score_file rejects it.
         p = tmp_path / "tune.abc"
         p.write_text("X:1\nK:C\nCDEF|", encoding="utf-8")
-        doc = parse_file(p, profile="cn_current", language="zh-CN")
-
-        assert doc.blocks[0].source == "musicxml"
-        # ABC is text — the adapter receives a str, not bytes.
-        assert fake.received == "X:1\nK:C\nCDEF|"
-        assert fake.ctx_source == "abc"
+        with pytest.raises(ValueError, match="unsupported binary score"):
+            parse_score_file(p, profile="cn_current", language="zh-CN")
 
     def test_midi_long_suffix_maps_to_midi_source(self, tmp_path, monkeypatch):
         captured: list[str] = []
@@ -284,12 +283,51 @@ class TestParseScoreFileMissingExtra:
         with pytest.raises(MissingExtraError):
             parse_file(p, profile="cn_current", language="zh-CN")
 
-    @pytest.mark.skipif(
-        _has("abc_xml_converter"),
-        reason="abc-xml-converter installed — can't test the missing-extra path",
-    )
-    def test_abc_without_abc_extra_raises(self, tmp_path):
+
+class TestParseDeferredScore:
+    """.abc is a text dialect: stored raw at input and deferred to the
+    frontend (ARCHITECTURE §1 rule 1), exactly as a LaTeX MathBlock — the
+    input layer runs no adapter and imports no frontend for it."""
+
+    def test_abc_via_parse_file_stored_raw(self, tmp_path):
         p = tmp_path / "tune.abc"
         p.write_text("X:1\nK:C\nCDEF|", encoding="utf-8")
-        with pytest.raises(MissingExtraError):
-            parse_file(p, profile="cn_current", language="zh-CN")
+        doc = parse_file(p, profile="cn_current", language="zh-CN")
+
+        block = doc.blocks[0]
+        assert isinstance(block, ScoreBlock)
+        # Deferred, not converted: source stays the dialect name and text is
+        # the verbatim ABC (a converted block would be source="musicxml"
+        # carrying <score-partwise>).
+        assert block.source == "abc"
+        assert block.text == "X:1\nK:C\nCDEF|"
+
+    def test_parse_deferred_score_direct(self, tmp_path):
+        p = tmp_path / "tune.abc"
+        p.write_text("X:1\nK:C\nCDEF|", encoding="utf-8")
+        doc = parse_deferred_score(p, profile="cn_current", language="zh-CN")
+        assert doc.blocks[0].source == "abc"
+        assert doc.blocks[0].text == "X:1\nK:C\nCDEF|"
+
+    def test_abc_touches_no_source_adapter(self, tmp_path, monkeypatch):
+        # The deferral must not reach the registry at all: a get() that
+        # explodes proves parse_file never resolves an adapter for .abc
+        # (so a missing abc extra can't raise at input time either).
+        def boom(self, name):
+            raise AssertionError(
+                f"input must not resolve adapter {name!r} for a deferred .abc"
+            )
+
+        monkeypatch.setattr(Registry, "get", boom)
+        p = tmp_path / "tune.abc"
+        p.write_text("X:1\nK:C\nCDEF|", encoding="utf-8")
+        doc = parse_file(p, profile="cn_current", language="zh-CN")
+        assert doc.blocks[0].source == "abc"
+
+    def test_parse_deferred_score_rejects_binary(self, tmp_path):
+        # .mid is parse_score_file's job (binary, eager); the deferred path
+        # rejects it.
+        p = tmp_path / "song.mid"
+        p.write_bytes(b"MThd")
+        with pytest.raises(ValueError, match="unsupported deferred score"):
+            parse_deferred_score(p, profile="cn_current", language="zh-CN")

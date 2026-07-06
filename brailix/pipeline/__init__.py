@@ -1285,7 +1285,8 @@ class Pipeline:
         ``.docm`` → :func:`brailix.input.parse_docx`; ``.doc`` →
         :func:`brailix.input.parse_doc`; ``.musicxml`` / ``.mxl`` (and
         a ``.xml`` that sniffs as a score) → :func:`brailix.input.parse_musicxml`;
-        ``.mid`` / ``.midi`` / ``.abc`` → :func:`brailix.input.parse_score_file`;
+        ``.mid`` / ``.midi`` → :func:`brailix.input.parse_score_file`;
+        ``.abc`` → :func:`brailix.input.parse_deferred_score`;
         everything else (including ``.txt`` and no suffix) → plain. The
         Pipeline's ``profile`` and ``language`` are baked into the IR
         metadata.
