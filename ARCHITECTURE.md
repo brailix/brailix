@@ -134,7 +134,7 @@ brailix/
 │   ├── input/                # document input adapters (dispatched by extension)
 │   │   ├── plain.py / markdown.py   # markdown is a pure-stdlib reader (no extra)
 │   │   ├── docx/             # .docx/.docm package (__init__ + _blocks + _ole + _xml; incl. OMML / MTEF / EqField math extraction)
-│   │   └── music_xml.py      # .musicxml / .xml / .mxl direct; .mid/.midi/.abc via source adapters
+│   │   └── music_xml.py      # .musicxml / .xml / .mxl direct; .mid/.midi eager (binary); .abc deferred (text)
 │   ├── frontend/             # text → structured IR
 │   │   ├── segment.py        # block segmentation + inline-region detection
 │   │   ├── normalize.py      # tag numbers / dates / units / percent signs
@@ -342,7 +342,7 @@ There is deliberately **no `Backend` protocol**. The backend isn't a pluggable-b
 
 Each subsystem keeps a name→implementation registry, and **an adapter is imported only when it is first requested**, so a user who hasn't installed HanLP can still run a jieba-only path.
 
-> **Exception: the input layer's format dispatch keeps no core registry.** Every other subsystem has its implementation chosen *by name from the profile* (`zh_analyzer: "hanlp"`), so the registry naturally lives in core. But *which adapter parses a given file* is decided by the file itself (extension / content), not a profile option — so core `brailix.input` ships the `parse_*` adapter functions plus a `parse_file` data table mapping a suffix set to a handler (adding a format is one more row), and the format-dispatch layer keeps no name→implementation registry. Which formats an application offers — file-dialog filters, fallback rules, third-party adapter discovery — is an application concern, wired through a registry the application builds over these functions. On-demand loading is achieved with in-function imports (`parse_docx` does `import docx` only when called). (Where input genuinely has competing implementations — handing `.mxl` / `.mid` / `.abc` to a music source adapter — it still uses `music_source_registry`, exactly as the registry pattern prescribes. Like the backend's node-type dispatcher in §6.1, the format seam is a deliberate non-registry choice.)
+> **Exception: the input layer's format dispatch keeps no core registry.** Every other subsystem has its implementation chosen *by name from the profile* (`zh_analyzer: "hanlp"`), so the registry naturally lives in core. But *which adapter parses a given file* is decided by the file itself (extension / content), not a profile option — so core `brailix.input` ships the `parse_*` adapter functions plus a `parse_file` data table mapping a suffix set to a handler (adding a format is one more row), and the format-dispatch layer keeps no name→implementation registry. Which formats an application offers — file-dialog filters, fallback rules, third-party adapter discovery — is an application concern, wired through a registry the application builds over these functions. On-demand loading is achieved with in-function imports (`parse_docx` does `import docx` only when called). (Where input genuinely has competing implementations — handing `.mxl` / `.mid` to a music source adapter — it still uses `music_source_registry`, exactly as the registry pattern prescribes; `.abc` is a text dialect, kept raw and deferred to the frontend per §1 rule 1, so it is not decoded on the input side. Like the backend's node-type dispatcher in §6.1, the format seam is a deliberate non-registry choice.)
 
 ```python
 # frontend/zh/analyzer/registry.py

@@ -7,13 +7,14 @@ populated. Inline content stays as raw ``Block.text`` until the
 Pipeline's frontend runs over it.
 
 Embedded foreign math / music sources follow one boundary rule
-(ARCHITECTURE §1). A **text** dialect (Word OMML / EQ field) is left raw
-and deferred to the frontend — inline ones travel as a source-tagged
-island (:mod:`brailix.core.inline_math`) inside ``Block.text``, block
-ones as ``MathBlock(source=...)``. A **binary** dialect (MathType MTEF,
-MIDI, the ``.mxl`` ZIP) is decoded here at the input boundary, because
-the text IR can't carry binary. So this layer imports no math / music
-*frontend* for the text dialects; only the binary decoders reach across.
+(ARCHITECTURE §1). A **text** dialect (Word OMML / EQ field, LaTeX, ABC)
+is left raw and deferred to the frontend — inline ones travel as a
+source-tagged island (:mod:`brailix.core.inline_math`) inside
+``Block.text``, block ones as ``MathBlock(source=...)`` /
+``ScoreBlock(source=...)``. A **binary** dialect (MathType MTEF, MIDI,
+the ``.mxl`` ZIP) is decoded here at the input boundary, because the text
+IR can't carry binary. So this layer imports no math / music *frontend*
+for the text dialects; only the binary decoders reach across.
 
 Currently shipping:
 
@@ -25,8 +26,8 @@ Currently shipping:
   OOXML, incl. OMML / MathType / Equation 3.0 math) and legacy ``.doc``
   via LibreOffice ``soffice``.
 * :mod:`brailix.input.music_xml` — score files: ``.musicxml`` / ``.xml``
-  / ``.mxl`` directly, and ``.mid`` / ``.midi`` / ``.abc`` converted to
-  MusicXML through the matching music source adapter.
+  / ``.mxl`` directly, ``.mid`` / ``.midi`` decoded to MusicXML at input
+  (binary), and ``.abc`` kept raw and deferred to the frontend (text).
 
 To plug in a new format, write an adapter that returns a
 ``DocumentIR``. Which adapter handles a given file is driven by the
@@ -55,9 +56,11 @@ from pathlib import Path
 from brailix.input.docx import parse_doc, parse_docx
 from brailix.input.markdown import parse_markdown
 from brailix.input.music_xml import (
-    ADAPTER_SCORE_SUFFIXES,
+    BINARY_SCORE_SUFFIXES,
+    DEFERRED_SCORE_SUFFIXES,
     MUSIC_SUFFIXES,
     _read_xml_text,
+    parse_deferred_score,
     parse_musicxml,
     parse_score_file,
 )
@@ -71,6 +74,7 @@ __all__ = (
     "parse_doc",
     "parse_musicxml",
     "parse_score_file",
+    "parse_deferred_score",
     "parse_file",
 )
 
@@ -174,11 +178,21 @@ def _route_musicxml(ctx: _FileCtx) -> DocumentIR:
     return parse_musicxml(ctx.path, language=ctx.language, profile=ctx.profile)
 
 
-def _route_score(ctx: _FileCtx) -> DocumentIR:
-    # .mid / .midi (bytes) / .abc (text) reach MusicXML via a source adapter;
-    # parse_score_file reads the file in the right mode itself, so this stays
-    # a path handler and the binary ones are never UTF-8 decoded.
+def _route_binary_score(ctx: _FileCtx) -> DocumentIR:
+    # .mid / .midi (binary) → MusicXML via the midi source adapter, eagerly
+    # at input (§1 rule 2: the text IR can't carry binary). parse_score_file
+    # reads the bytes itself, so this stays a path handler (never UTF-8
+    # decoded).
     return parse_score_file(ctx.path, language=ctx.language, profile=ctx.profile)
+
+
+def _route_deferred_score(ctx: _FileCtx) -> DocumentIR:
+    # .abc (text) → kept raw, deferred to the frontend (§1 rule 1), exactly
+    # like a LaTeX MathBlock. parse_deferred_score reads the text (BOM-aware)
+    # and imports no frontend, so no music adapter / extra is touched here.
+    return parse_deferred_score(
+        ctx.path, language=ctx.language, profile=ctx.profile
+    )
 
 
 def _route_xml(ctx: _FileCtx) -> DocumentIR:
@@ -216,7 +230,8 @@ _FORMAT_ROUTES: tuple[tuple[frozenset[str], _Handler], ...] = (
     (_DOCX_SUFFIXES, _route_docx),
     (_DOC_SUFFIXES, _route_doc),
     (_MUSIC_SUFFIXES, _route_musicxml),
-    (ADAPTER_SCORE_SUFFIXES, _route_score),
+    (BINARY_SCORE_SUFFIXES, _route_binary_score),
+    (DEFERRED_SCORE_SUFFIXES, _route_deferred_score),
     (_SNIFFED_XML_SUFFIXES, _route_xml),
     (_MARKDOWN_SUFFIXES, _route_markdown),
 )
@@ -248,10 +263,11 @@ def parse_file(
       document head looks like a MusicXML score
       (``<score-partwise>`` / ``<score-timewise>``); otherwise treated
       as plain text, since ``.xml`` is a generic container
-    * ``.mid`` / ``.midi`` / ``.abc`` → :func:`parse_score_file`
-      (converted to MusicXML through the matching music source adapter;
-      ``.mid`` / ``.midi`` need the ``midi`` extra, ``.abc`` the ``abc``
-      extra)
+    * ``.mid`` / ``.midi`` → :func:`parse_score_file` (binary, decoded to
+      MusicXML at input; needs the ``midi`` extra)
+    * ``.abc`` → :func:`parse_deferred_score` (text, kept raw and deferred
+      to the frontend; the ``abc`` extra is needed at frontend time, not
+      here)
     * everything else (including ``.txt`` and no suffix) → :func:`parse_plain`
 
     Word formats are read as bytes by the underlying adapters; text
@@ -275,8 +291,9 @@ def parse_file(
     Errors propagate as-is: :class:`FileNotFoundError` when ``path``
     doesn't exist, :class:`UnicodeDecodeError` when text bytes aren't
     valid UTF-8, :class:`MissingExtraError` when a needed extra (``docx``
-    for Word, ``midi`` / ``abc`` for those score formats) isn't
-    installed, :class:`ParseError` for malformed Word documents.
+    for Word, ``midi`` for MIDI) isn't installed at input time — ``.abc``
+    defers its ``abc`` extra to frontend time, so reading one never raises
+    here — :class:`ParseError` for malformed Word documents.
     """
     ctx = _FileCtx(
         path=Path(path),
