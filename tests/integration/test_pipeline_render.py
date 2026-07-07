@@ -243,6 +243,7 @@ class TestUnhandledSegmentType:
             pipe.translate_text("重庆")
 
 
+@pytest.mark.requires("latex2mathml")
 class TestRunModeEndToEnd:
     """End-to-end mode contrast through the Pipeline.
 

@@ -254,6 +254,7 @@ class TestMathSubcache:
     same block is edited.
     """
 
+    @pytest.mark.requires("latex2mathml")
     def test_inline_math_is_recorded_in_output_subcache(
         self, pipe: Pipeline
     ) -> None:
@@ -274,6 +275,7 @@ class TestMathSubcache:
         out = pipe.translate_block(Paragraph(text="我是中国"))
         assert out.tree_subcache == {}
 
+    @pytest.mark.requires("latex2mathml")
     def test_cached_tree_reused_when_passed_back_in(
         self, pipe: Pipeline, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -306,6 +308,7 @@ class TestMathSubcache:
         # caller to use next round.
         assert second.tree_subcache[key] is out_tree
 
+    @pytest.mark.requires("latex2mathml")
     def test_changing_formula_surface_misses_cache(
         self, pipe: Pipeline
     ) -> None:
@@ -319,6 +322,7 @@ class TestMathSubcache:
         assert ("math", "latex", "$x^2$") not in second.tree_subcache
         assert ("math", "latex", "$x^3$") in second.tree_subcache
 
+    @pytest.mark.requires("latex2mathml")
     def test_math_block_uses_cache(self, pipe: Pipeline) -> None:
         """``MathBlock`` (display math) goes through the same caching
         path as inline math, keyed by ``("math", source, text)``."""
@@ -330,6 +334,7 @@ class TestMathSubcache:
         key = ("math", "latex", "\\sum x_i")
         assert key in first.tree_subcache
 
+    @pytest.mark.requires("latex2mathml")
     def test_empty_input_subcache_is_equivalent_to_none(
         self, pipe: Pipeline
     ) -> None:
@@ -430,6 +435,7 @@ class TestMusicSubcache:
         assert ("music", "musicxml", other_xml) in second.tree_subcache
 
 
+@pytest.mark.requires("latex2mathml")
 class TestTreeSubcacheCrossDomain:
     """Math and music share one reuse pool; the domain prefix keeps
     their keys from colliding even when ``source`` / ``surface`` would

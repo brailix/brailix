@@ -42,6 +42,7 @@ def pipe() -> Pipeline:
 
 
 class TestNoFrontendPollution:
+    @pytest.mark.requires("latex2mathml")
     def test_math_block_uses_math_frontend_not_chinese(self, pipe):
         from brailix.ir.inline import MathInline
 

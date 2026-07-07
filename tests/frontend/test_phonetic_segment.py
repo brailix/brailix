@@ -10,6 +10,8 @@ the bare phoneme run.
 
 from __future__ import annotations
 
+import pytest
+
 from brailix.core.config import load_profile
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
@@ -185,6 +187,7 @@ class TestEndToEnd:
         assert result.render() == "⠅⠩⠞"
         assert not result.warnings
 
+    @pytest.mark.requires("jieba")
     def test_mixed_with_chinese(self):
         pipe = Pipeline(profile="cn_current", mode="normal")
         result = pipe.translate_text("猫 /kæt/")
