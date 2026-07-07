@@ -118,6 +118,9 @@ packages = ["brailix"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-ra --strict-markers"
+markers = [
+    "requires(module): skip unless the named optional-dependency module imports — lets a partial install run green; e.g. `@pytest.mark.requires('latex2mathml')`. CI installs every extra (see .github/workflows/ci.yml), so nothing skips there.",
+]
 
 [tool.ruff]
 line-length = 100

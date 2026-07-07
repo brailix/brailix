@@ -124,6 +124,7 @@ class TestBareOperatorsBetweenLetters:
             c == "UNKNOWN_PUNCT" and s == "-" for c, s in _warn_codes(r)
         )
 
+    @pytest.mark.requires("latex2mathml")
     def test_minus_after_equals_inside_dollar_math(self, pipe):
         # `$x=-5$` goes through latex2mathml parsing, so the whole span
         # lands in one MathML tree and the math backend applies
@@ -135,6 +136,7 @@ class TestBareOperatorsBetweenLetters:
         # ⠰⠭ + ⠀ + ⠶ + ⠤ + ⠼⠑
         assert out == "⠰⠭⠀⠶⠤⠼⠑"
 
+    @pytest.mark.requires("latex2mathml")
     def test_binary_minus_inside_dollar_math_keeps_space(self, pipe):
         # `$a-b$`: - is a binary minus with operand a in front, so it
         # should keep its space_before. This case guards against the

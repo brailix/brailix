@@ -55,10 +55,12 @@ class TestNormalizerTagsRepeatedOperators:
 
 
 class TestRepeatedOperatorEndToEnd:
+    @pytest.mark.requires("latex2mathml")
     def test_double_equals_in_latex_warns(self):
         res = Pipeline(profile="cn_current").translate_text("设 $a == b$ 成立")
         assert res.warnings.by_code("MATH_REPEATED_OPERATOR")
 
+    @pytest.mark.requires("latex2mathml")
     def test_much_less_than_hint(self):
         res = Pipeline(profile="cn_current").translate_text("$a << b$")
         hits = res.warnings.by_code("MATH_REPEATED_OPERATOR")

@@ -103,6 +103,77 @@ __all__ = (
 
 
 # ---------------------------------------------------------------------------
+# Archive resource caps (zip-bomb / OOM guard)
+# ---------------------------------------------------------------------------
+#
+# python-docx — and the media / OLE indexers that run right after it — pull
+# every package part into memory, so an unbounded ``.docx`` is a local
+# denial-of-service: a few-KB archive can declare (or inflate to) gigabytes of
+# parts and OOM or freeze the process before any parse. The ``.mxl`` adapter
+# and the MTEF OLE reader already cap their inputs (64 MiB members); DOCX was
+# the last unbounded container. A real document — even a long, image-heavy
+# book — sits far under these; they only reject pathological input. Since every
+# embedded image is itself a ``word/media/*`` archive member, the per-member
+# cap doubles as the per-image cap and the total cap bounds all image bytes at
+# once, so nothing downstream needs its own image budget.
+_MAX_DOCX_FILE_BYTES = 256 * 1024 * 1024  # the .docx on disk
+_MAX_DOCX_MEMBERS = 8192  # parts in the package
+_MAX_DOCX_MEMBER_BYTES = 64 * 1024 * 1024  # one decompressed part
+_MAX_DOCX_TOTAL_BYTES = 512 * 1024 * 1024  # all parts, decompressed
+_DOCX_READ_CHUNK = 1024 * 1024
+
+
+def _preflight_docx_archive(p: Path) -> None:
+    """Reject an over-large or bomb-like ``.docx`` before python-docx reads it.
+
+    Counts the *actual* decompressed bytes of each member (chunked, then
+    discarded — peak cost is one chunk, not the whole part) and aborts
+    mid-inflate once a member or the running total crosses its cap, mirroring
+    :func:`brailix.frontend.music.adapters.mxl._read_member_capped`.
+    ``ZipInfo.file_size`` is only advisory — a crafted archive can understate
+    it — so the count is on the real stream, not the metadata.
+
+    A non-ZIP / corrupt file is *not* rejected here: it falls through so the
+    ``Document(...)`` call below raises the canonical "not a valid .docx"
+    :class:`ParseError` with its usual message, keeping one error surface.
+    """
+    if p.stat().st_size > _MAX_DOCX_FILE_BYTES:
+        raise ParseError(
+            f"not a valid .docx file: {p} (archive is over the "
+            f"{_MAX_DOCX_FILE_BYTES}-byte limit)"
+        )
+    try:
+        with zipfile.ZipFile(p) as zf:
+            members = [i for i in zf.infolist() if not i.is_dir()]
+            if len(members) > _MAX_DOCX_MEMBERS:
+                raise ParseError(
+                    f"not a valid .docx file: {p} ({len(members)} members, "
+                    f"over the {_MAX_DOCX_MEMBERS} limit)"
+                )
+            total = 0
+            for info in members:
+                member = 0
+                with zf.open(info) as fh:
+                    while chunk := fh.read(_DOCX_READ_CHUNK):
+                        member += len(chunk)
+                        total += len(chunk)
+                        if member > _MAX_DOCX_MEMBER_BYTES:
+                            raise ParseError(
+                                f"not a valid .docx file: {p} (member "
+                                f"{info.filename!r} inflates past the "
+                                f"{_MAX_DOCX_MEMBER_BYTES}-byte limit)"
+                            )
+                        if total > _MAX_DOCX_TOTAL_BYTES:
+                            raise ParseError(
+                                f"not a valid .docx file: {p} (parts inflate "
+                                f"past the {_MAX_DOCX_TOTAL_BYTES}-byte total "
+                                f"limit)"
+                            )
+    except zipfile.BadZipFile:
+        return  # not a zip → Document() raises the canonical ParseError
+
+
+# ---------------------------------------------------------------------------
 # Public entry points
 # ---------------------------------------------------------------------------
 
@@ -204,6 +275,10 @@ def parse_docx(
         bad_docx += (Exception,)
     else:
         bad_docx += (PackageNotFoundError,)
+
+    # Bound the archive before python-docx materialises every part in memory
+    # (zip-bomb / OOM guard). A non-ZIP falls through to the canonical error.
+    _preflight_docx_archive(p)
 
     try:
         document = Document(str(p))

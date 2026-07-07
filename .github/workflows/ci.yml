@@ -52,16 +52,24 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
 
-      # Installs the project + the `dev` dependency group (pytest plus the
-      # tokenizer / pinyin / LaTeX adapters the core test suite exercises),
-      # plus the light optional extras whose tests would otherwise skip:
-      # docx input (python-docx/lxml/olefile), MIDI + ABC score input
-      # (mido/partitura/abc-xml-converter) and the Japanese analyzers
-      # (fugashi/sudachi with their dictionaries). The heavyweight ML
-      # extras (hanlp / g2pw) stay out — their adapters are thin wrappers
-      # and the model downloads dwarf the suite.
+      # Install every adapter the suite exercises so nothing skips: the light
+      # Chinese engines (jieba / thulac / g2pM + numpy / pypinyin via ``zh``),
+      # LaTeX math (latex2mathml), docx input (python-docx / lxml / olefile),
+      # the music sources (mido / partitura / abc-xml-converter) and all three
+      # Japanese analyzers (janome / fugashi / sudachi). The `dev` group
+      # (pytest etc.) comes in by default.
+      #
+      # The two heavyweight neural Chinese engines — ``hanlp`` and ``g2pw`` —
+      # are deliberately left OUT: no test exercises their inference (only
+      # path / error-string tests touch them), they drag in torch, and hanlp
+      # is currently broken against recent transformers (BertTokenizer dropped
+      # ``encode_plus``), which the ``auto`` analyzer would hit if installed.
       - name: Install dependencies
-        run: uv sync --extra docx --extra music --extra fugashi --extra sudachi
+        run: >-
+          uv sync
+          --extra zh --extra thulac --extra g2pm --extra latex
+          --extra docx --extra music
+          --extra ja --extra fugashi --extra sudachi
 
       - name: Run the test suite
         run: uv run pytest

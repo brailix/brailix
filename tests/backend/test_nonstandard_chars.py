@@ -5,6 +5,8 @@ points, so the translator names the problem instead of papering over it."""
 
 from __future__ import annotations
 
+import pytest
+
 from brailix import Pipeline
 from brailix.core.chars import (
     INVISIBLE_CPS,
@@ -52,6 +54,7 @@ class TestProseAndMathSurfaceTheHint:
         hits = self._hits("a​b", "UNKNOWN_NODE")
         assert hits and "zero-width" in hits[0].message
 
+    @pytest.mark.requires("latex2mathml")
     def test_math_fullwidth_identifier_hints_halfwidth(self):
         hits = self._hits("$Ｘ + 1$", "MATH_UNKNOWN_IDENTIFIER")
         assert hits and "half-width" in hits[0].message
@@ -92,6 +95,7 @@ class TestProseMathSymbolWarning:
         assert hits and "half-width" in hits[0].message
 
 
+@pytest.mark.requires("latex2mathml")
 class TestMathFullwidthPunctuation:
     """A full-width comma / paren / semicolon (``，（）；``) typed via a Chinese
     IME inside a formula is wrong input. The math backend must NOT borrow the

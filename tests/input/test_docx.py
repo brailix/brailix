@@ -11,6 +11,7 @@ the adapter is gated on the ``docx`` extras group.
 from __future__ import annotations
 
 import re
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -21,8 +22,14 @@ pytest.importorskip("lxml")
 from docx import Document  # noqa: E402
 from lxml import etree  # noqa: E402
 
+import brailix.input.docx as docx_adapter  # noqa: E402
 from brailix.core import inline_math  # noqa: E402
-from brailix.input.docx import parse_doc, parse_docx  # noqa: E402
+from brailix.core.errors import ParseError  # noqa: E402
+from brailix.input.docx import (  # noqa: E402
+    _preflight_docx_archive,
+    parse_doc,
+    parse_docx,
+)
 from brailix.ir.document import (  # noqa: E402
     Heading,
     List,
@@ -2127,3 +2134,78 @@ class TestRunBreaksAndHyperlink:
         islands = _inline_math_islands(text)
         assert len(islands) == 1 and inline_math.unwrap(islands[0])[0] == "omml"
         assert "<msup>" in _island_mathml(islands[0])
+
+
+class TestArchiveResourceCaps:
+    """A ``.docx`` must be bounded before python-docx materialises every part
+    in memory: a few-KB archive can declare (or inflate to) gigabytes and
+    OOM / freeze the process.  Caps are monkeypatched tiny so the tests stay
+    fast; every embedded image is a ``word/media/*`` member, so the member cap
+    doubles as the per-image cap."""
+
+    @staticmethod
+    def _write_zip(path: Path, members: dict[str, bytes]) -> None:
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, data in members.items():
+                zf.writestr(name, data)
+
+    def test_valid_small_archive_passes(self, tmp_path: Path) -> None:
+        p = tmp_path / "ok.docx"
+        self._write_zip(p, {"word/document.xml": b"<xml/>"})
+        _preflight_docx_archive(p)  # no raise
+
+    def test_file_size_cap(self, tmp_path: Path, monkeypatch) -> None:
+        p = tmp_path / "big.docx"
+        self._write_zip(p, {"word/document.xml": b"<xml/>"})
+        monkeypatch.setattr(docx_adapter, "_MAX_DOCX_FILE_BYTES", 1)
+        with pytest.raises(ParseError, match="over the"):
+            _preflight_docx_archive(p)
+
+    def test_member_inflate_cap_counts_decompressed_bytes(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # "A" * 4096 deflates to a few dozen bytes on disk but inflates to
+        # 4096 on read — the cap is on the inflated stream, not ZipInfo.
+        p = tmp_path / "bomb.docx"
+        self._write_zip(p, {"word/document.xml": b"A" * 4096})
+        assert p.stat().st_size < 4096  # really compressed small on disk
+        monkeypatch.setattr(docx_adapter, "_MAX_DOCX_MEMBER_BYTES", 64)
+        with pytest.raises(ParseError, match="inflates past"):
+            _preflight_docx_archive(p)
+
+    def test_total_inflate_cap(self, tmp_path: Path, monkeypatch) -> None:
+        p = tmp_path / "bomb.docx"
+        self._write_zip(
+            p, {"a.bin": b"A" * 512, "b.bin": b"B" * 512, "c.bin": b"C" * 512}
+        )
+        monkeypatch.setattr(docx_adapter, "_MAX_DOCX_MEMBER_BYTES", 4096)
+        monkeypatch.setattr(docx_adapter, "_MAX_DOCX_TOTAL_BYTES", 1000)
+        with pytest.raises(ParseError, match="total"):
+            _preflight_docx_archive(p)
+
+    def test_member_count_cap(self, tmp_path: Path, monkeypatch) -> None:
+        p = tmp_path / "many.docx"
+        self._write_zip(p, {f"part{i}.xml": b"x" for i in range(5)})
+        monkeypatch.setattr(docx_adapter, "_MAX_DOCX_MEMBERS", 2)
+        with pytest.raises(ParseError, match="members"):
+            _preflight_docx_archive(p)
+
+    def test_non_zip_falls_through_quietly(self, tmp_path: Path) -> None:
+        # Not a ZIP → the gate returns; Document() downstream raises the
+        # canonical "not a valid .docx" error instead (one error surface).
+        p = tmp_path / "notzip.docx"
+        p.write_bytes(b"this is plainly not a zip archive")
+        _preflight_docx_archive(p)  # no raise
+
+    def test_parse_docx_wires_the_preflight(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # End-to-end: a real, valid docx is rejected by parse_docx once the
+        # cap is tightened below its size, proving the gate is on the path.
+        p = tmp_path / "real.docx"
+        doc = Document()
+        doc.add_paragraph("hello world")
+        doc.save(str(p))
+        monkeypatch.setattr(docx_adapter, "_MAX_DOCX_FILE_BYTES", 1)
+        with pytest.raises(ParseError, match="over the"):
+            parse_docx(p, profile="cn_current", language="zh-CN")
