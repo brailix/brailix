@@ -9,6 +9,7 @@ here because :func:`_build_tmpl` selects between them.
 
 from __future__ import annotations
 
+import logging
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from typing import Any
@@ -16,6 +17,8 @@ from typing import Any
 from brailix.frontend.math.adapters._atoms import classify_math_token
 from brailix.frontend.math.adapters.mtef._reader import _MtefParseError
 from brailix.frontend.math.utils import mrow_wrap, mtext
+
+_LOG = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Common helpers — building MathML
@@ -206,6 +209,20 @@ def _build_tmpl(
     except _MtefParseError:
         raise
     except Exception:  # noqa: BLE001 — never crash a template
+        # A *known* handler raising is abnormal: an unrecognised selector is
+        # already served by the passthrough above (before this try), so we get
+        # here only on malformed slot data or a handler bug. Degrade to
+        # passthrough as before — but log it, because a silent passthrough
+        # emits plausible-but-wrong MathML a blind proofreader can't catch by
+        # eye. No ``ctx`` reaches here to raise a user-facing warning, so the
+        # module log is the seam a developer greps when a formula looks off.
+        _LOG.warning(
+            "MTEF TMPL handler failed (selector=%r, version=%d); "
+            "falling back to slot passthrough",
+            selector,
+            version,
+            exc_info=True,
+        )
         return _tmpl_passthrough(slots)
 
 
