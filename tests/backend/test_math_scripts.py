@@ -248,6 +248,18 @@ class TestScriptsExtras:
         sup = next(c for c in cells if c.role == "math_superscript")
         assert sup.dots == (3, 4)
 
+    def test_msup_circle_renders_degree_sign(self, profile):
+        # latex2mathml turns 144^\circ into msup(144, ∘). In superscript
+        # position this is a degree sign, not an exponent or bare \circ.
+        cells, wc = emit(
+            mml("<math><msup><mn>144</mn><mo>∘</mo></msup></math>"), profile
+        )
+        seq = [(c.role, c.dots) for c in cells]
+        assert ("math_superscript", (3, 4)) not in seq
+        assert ("math_punct", (5,)) in seq
+        assert ("math_punct", (3, 5, 6)) in seq
+        assert "MATH_UNKNOWN_SYMBOL" not in [w.code for w in wc]
+
     def test_msubsup_both_simple(self, profile):
         cells, _ = emit(
             mml("<math><msubsup><mi>x</mi><mn>1</mn><mn>2</mn></msubsup></math>"),

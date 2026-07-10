@@ -182,6 +182,22 @@ class TestSingletonMrowCollapse:
         assert root[0].tag == "mrow"
 
 
+class TestDegreeCircleRewrite:
+    def test_numeric_msup_ring_rewritten_to_degree_sign(self):
+        root = normalize("<math><msup><mn>144</mn><mo>∘</mo></msup></math>")
+
+        assert [child.tag for child in root] == ["mn", "mo"]
+        assert root[0].text == "144"
+        assert root[1].text == "°"
+
+    def test_symbolic_msup_ring_left_unchanged(self):
+        root = normalize("<math><msup><mi>A</mi><mo>∘</mo></msup></math>")
+
+        assert len(root) == 1
+        assert root[0].tag == "msup"
+        assert [child.tag for child in root[0]] == ["mi", "mo"]
+
+
 class TestWhitespaceStripping:
     def test_drops_whitespace_only_text(self):
         src = (

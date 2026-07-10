@@ -546,6 +546,13 @@ class TestGeometry:
         # relation / digits.
         assert render(pipe, r"$\angle ABC = 90$") == "⠫⠪⠠⠁⠃⠉⠀⠶⠼⠊⠚"
 
+    def test_angle_equation_with_latex_degree(self, pipe):
+        # latex2mathml emits ^\circ as a superscripted small circle (∘);
+        # in this position it should read the same as a degree sign.
+        res = pipe.translate_text(r"$\angle C=144^\circ$")
+        assert res.render() == "⠫⠪⠠⠉⠀⠶⠼⠁⠙⠙⠐⠴"
+        assert not any(w.code == "MATH_UNKNOWN_SYMBOL" for w in res.warnings)
+
     def test_triangle_with_letters(self, pipe):
         # triangle △ABC: same as the angle, ⠫⠲ + ⠠ABC (no space, single
         # capital sign for the all-capital run).
