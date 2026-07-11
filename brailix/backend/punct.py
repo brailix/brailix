@@ -21,7 +21,7 @@ from brailix.core.chars import is_math_symbol, nonstandard_char_hint
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
-from brailix.ir.braille import BLANK_CELL, BrailleCell
+from brailix.ir.braille import BrailleCell, blank_cell
 from brailix.ir.inline import (
     CodeInline,
     Connector,
@@ -35,9 +35,15 @@ def translate_punct(node: Punct, ctx: BackendContext, profile: BrailleProfile) -
     out: list[BrailleCell] = list(lookup_or_unknown(node.surface, node.span, ctx, profile))
     space_before, space_after = profile.punctuation_spaces(node.surface)
     if space_before:
-        out.insert(0, BLANK_CELL)
+        # The auto-space belongs to the punctuation that triggers it; trace it
+        # to a zero-width span at the punct's leading edge.
+        out.insert(
+            0, blank_cell(Span(node.span.start, node.span.start) if node.span else None)
+        )
     if space_after:
-        out.append(BLANK_CELL)
+        out.append(
+            blank_cell(Span(node.span.end, node.span.end) if node.span else None)
+        )
     return out
 
 

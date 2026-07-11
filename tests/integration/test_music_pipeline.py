@@ -233,15 +233,12 @@ class TestSoftFailure:
         # with score=None — the backend then degrades that to
         # ``MUSIC_NO_IR`` instead of letting the exception abort the
         # whole document. Mirror of the display-math guard in
-        # tests/backend/test_block.py. _populate_music_block parses via
-        # the module-level ``_frontend_parse_music_tree`` alias, so patch
-        # it there.
-        import brailix.pipeline as pipeline_mod
-
+        # tests/backend/test_block.py. _populate_music_block parses via the
+        # injected ``_parse_music_tree``, so replace it on the instance.
         def _boom(*_a, **_kw):
             raise RuntimeError("synthetic music adapter crash")
 
-        monkeypatch.setattr(pipeline_mod, "_frontend_parse_music_tree", _boom)
+        monkeypatch.setattr(pipe._frontend, "_parse_music_tree", _boom)
 
         doc = DocumentIR(
             blocks=[ScoreBlock(text=SIMPLE_SCORE_XML, source="musicxml")]

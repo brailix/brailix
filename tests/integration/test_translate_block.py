@@ -293,10 +293,9 @@ class TestMathSubcache:
                 "parse_math_tree should not be called for a cached formula"
             )
 
-        # Patch at the lookup site used by ``_attach_math``.
-        monkeypatch.setattr(
-            "brailix.pipeline._frontend_parse_math_tree", explode
-        )
+        # Inject at the lookup site used by ``attach_math`` (on the instance,
+        # so monkeypatch restores it after the test).
+        monkeypatch.setattr(pipe._frontend, "_parse_math_tree", explode)
 
         second = pipe.translate_block(
             Paragraph(text="$x^2$ 是"), tree_subcache=cached
@@ -405,9 +404,7 @@ class TestMusicSubcache:
                 "parse_music_tree should not be called for a cached score"
             )
 
-        monkeypatch.setattr(
-            "brailix.pipeline._frontend_parse_music_tree", explode
-        )
+        monkeypatch.setattr(pipe._frontend, "_parse_music_tree", explode)
 
         second = pipe.translate_block(
             ScoreBlock(text=_SCORE_XML, source="musicxml"),

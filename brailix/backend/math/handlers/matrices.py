@@ -29,11 +29,11 @@ from brailix.backend.math.utils import (
     _is_typed_slash_mrow,
 )
 from brailix.ir.braille import (
-    BLANK_CELL,
-    HANG_CLOSE_CELL,
-    HANG_OPEN_CELL,
-    LINE_BREAK_CELL,
     BrailleCell,
+    blank_cell,
+    hang_close_cell,
+    hang_open_cell,
+    line_break_cell,
 )
 
 # Fence chars that delimit a matrix / determinant. The matching close char
@@ -153,19 +153,19 @@ def _emit_mtable_linear(
             source="backend.math",
         )
         return
-    cells.append(HANG_OPEN_CELL)
+    cells.append(hang_open_cell(mctx.span))
     first_row = True
     for row in mtable:
         if row.tag != "mtr":
             continue
         if not first_row:
-            cells.append(LINE_BREAK_CELL)
+            cells.append(line_break_cell(mctx.span))
         first_row = False
         _emit_as_mo(cells, mctx, open_char)
         mctx.need_number_sign = True
         _emit_row_cells(cells, mctx, row)
         _emit_as_mo(cells, mctx, close_char)
-    cells.append(HANG_CLOSE_CELL)
+    cells.append(hang_close_cell(mctx.span))
     mctx.need_number_sign = True
 
 
@@ -189,7 +189,7 @@ def _emit_row_cells(
         if tcell.tag != "mtd":
             continue
         if not first:
-            cells.append(BLANK_CELL)
+            cells.append(blank_cell(mctx.span))
             mctx.need_number_sign = True
             # The blank cell separates columns: adjacent cells are distinct
             # entries, so a letter ending one cell and a letter starting the
@@ -232,11 +232,11 @@ def _emit_mtable_cases(
         _emit_row_cells(cells, mctx, rows[0])
         mctx.need_number_sign = True
         return
-    cells.append(HANG_OPEN_CELL)
+    cells.append(hang_open_cell(mctx.span))
     last = len(rows) - 1
     for idx, row in enumerate(rows):
         if idx:
-            cells.append(LINE_BREAK_CELL)
+            cells.append(line_break_cell(mctx.span))
         if idx == 0:
             segment = "cases.first"
         elif idx == last:
@@ -244,10 +244,10 @@ def _emit_mtable_cases(
         else:
             segment = "cases.middle"
         _emit_structure(cells, mctx, segment, role="math_delim")
-        cells.append(BLANK_CELL)
+        cells.append(blank_cell(mctx.span))
         mctx.need_number_sign = True
         _emit_row_cells(cells, mctx, row)
-    cells.append(HANG_CLOSE_CELL)
+    cells.append(hang_close_cell(mctx.span))
     mctx.need_number_sign = True
 
 
