@@ -75,16 +75,31 @@ class MissingExtraError(BrailixError):
     would fix it.
     """
 
-    def __init__(self, adapter: str, extra: str, hint: str | None = None):
+    def __init__(
+        self,
+        adapter: str,
+        extra: str,
+        hint: str | None = None,
+        *,
+        missing_module: str | None = None,
+    ):
         msg = (
             f"adapter '{adapter}' requires optional dependency group "
             f"'{extra}'. Install it with: pip install brailix[{extra}]"
         )
+        if missing_module:
+            # The concrete import that failed — usually the extra's own
+            # top-level package, but sometimes a transitive dependency the
+            # extra pulls in (e.g. g2pM importing numpy). Surfacing it turns
+            # a "which package is actually missing?" diagnosis from a guess
+            # into a fact.
+            msg = f"{msg}\n(the missing import was: {missing_module})"
         if hint:
             msg = f"{msg}\n{hint}"
         super().__init__(msg)
         self.adapter = adapter
         self.extra = extra
+        self.missing_module = missing_module
 
 
 class UnknownAdapterError(BrailixError, KeyError):
