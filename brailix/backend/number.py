@@ -273,6 +273,11 @@ def _digits_to_cells(
         policy=_NUMBER_DIGIT_POLICY,
         want_number_sign=profile.feature("number_sign", True),
         span_at=span_at,
+        # The number sign has no surface char; anchor it to the run's leading
+        # edge (a zero-width span) so it traces back to source without landing
+        # in the compact source-text override map. Without any span it was the
+        # one number cell with no provenance at all.
+        number_sign_span=Span(span.start, span.start) if span else None,
     )
     return cells
 

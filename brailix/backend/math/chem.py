@@ -39,7 +39,7 @@ from brailix.backend.math.utils import (
     _last_is_blank,
     _unknown_cell,
 )
-from brailix.ir.braille import BLANK_CELL, BrailleCell
+from brailix.ir.braille import BrailleCell, blank_cell
 
 # Gas / precipitate arrows attach to the formula with no leading space —
 # unlike ``+`` / ``=`` / ⇌, which keep ordinary maths operator spacing.
@@ -319,7 +319,7 @@ def emit_operator(
         # (``chem.arrow_reverse`` ⠠⠶⠂), spaced like the forward connector — a
         # leading blank — NOT the math left arrow ⠫⠒ (``larr``).
         if cells and not _last_is_blank(cells):
-            cells.append(BLANK_CELL)
+            cells.append(blank_cell(mctx.span))
         for dots in mctx.profile.math_structure("chem.arrow_reverse"):
             cells.append(
                 BrailleCell(

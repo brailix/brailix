@@ -119,11 +119,20 @@ def emit_digit_run(
     )
     if want_number_sign and profile.number_sign:
         if starts_clean:
+            # The number sign has no surface char of its own, so its
+            # ``source_text`` is empty; its span is whatever the caller passes
+            # (the P1 bidirectional-tracking contract — never span-less). The
+            # prose path collapses it to the run's leading edge so a zero-width
+            # source recovery matches the empty text and the sign stays out of
+            # the compact source-text override map; the math path passes the
+            # element's own data-bk-span so the sign traces to the same source
+            # range as the digits it prefixes.
             cells.append(
                 BrailleCell(
                     dots=profile.number_sign,
                     role=policy.roles.number_sign,
                     source_span=number_sign_span,
+                    source_text="",
                 )
             )
         else:

@@ -292,15 +292,12 @@ class TestMathBlock:
         # FrontendDriver._populate_math_block catches it, records a
         # ``MATH_BLOCK_PARSE_FAILED`` warning, and populates per-char
         # Unknown nodes so the backend emits one cell per source char
-        # (layout stays stable). _populate_math_block parses via the
-        # module-level ``_frontend_parse_math_tree`` alias, so patch
-        # it there.
-        import brailix.pipeline as pipeline_mod
-
+        # (layout stays stable). _populate_math_block parses via the injected
+        # ``_parse_math_tree``, so replace it on the instance.
         def _boom(*_a, **_kw):
             raise RuntimeError("synthetic adapter crash")
 
-        monkeypatch.setattr(pipeline_mod, "_frontend_parse_math_tree", _boom)
+        monkeypatch.setattr(pipe._frontend, "_parse_math_tree", _boom)
 
         mb = MathBlock(source="latex", text="abc", span=Span(0, 3))
         out = pipe.translate_block(mb)
@@ -321,12 +318,10 @@ class TestMathBlock:
     ):
         # When the source block has no span, fallback Unknown nodes
         # also have no span — preserved through to per-cell source_span.
-        import brailix.pipeline as pipeline_mod
-
         def _boom(*_a, **_kw):
             raise RuntimeError("boom")
 
-        monkeypatch.setattr(pipeline_mod, "_frontend_parse_math_tree", _boom)
+        monkeypatch.setattr(pipe._frontend, "_parse_math_tree", _boom)
 
         mb = MathBlock(source="latex", text="xy", span=None)
         out = pipe.translate_block(mb)
@@ -346,20 +341,24 @@ class TestFootnoteRefEdges:
         # so we lock that behaviour too.
         from brailix.backend.block import _footnote_ref_cells
 
-        assert _footnote_ref_cells("", profile) == []
+        assert _footnote_ref_cells("", None, profile) == []
 
     def test_digit_after_letter_re_emits_number_sign(self, profile):
         # A ref like ``1a2`` must re-emit the number sign before the
         # trailing ``2`` so it isn't read as a letter; deduping on "any
         # number_sign already present" dropped it.
         from brailix.backend.block import _footnote_ref_cells
+        from brailix.core.span import Span
 
-        cells = _footnote_ref_cells("1a2", profile)
+        cells = _footnote_ref_cells("1a2", Span(0, 3), profile)
         roles = [c.role for c in cells]
         assert roles.count("number_sign") == 2  # two separate digit runs
         twos = [i for i, c in enumerate(cells) if c.source_text == "2"]
         assert twos, "no cell carrying digit '2'"
         assert cells[twos[0] - 1].role == "number_sign"
+        # Every ref cell — including the inserted number sign and the
+        # trailing blank — traces back to source (P1 contract).
+        assert all(c.source_span is not None for c in cells)
 
     def test_letter_after_digit_carries_letter_sign(self, profile):
         # bare_letter("a") == the digit "1" cell in cn_current, so a ref
@@ -368,8 +367,9 @@ class TestFootnoteRefEdges:
         # letter must carry its letter-sign prefix so it's unambiguously
         # a letter (and the digit run is broken).
         from brailix.backend.block import _footnote_ref_cells
+        from brailix.core.span import Span
 
-        cells = _footnote_ref_cells("1a", profile)
+        cells = _footnote_ref_cells("1a", Span(0, 2), profile)
         a_cells = [c for c in cells if c.source_text == "a"]
         assert len(a_cells) == 2  # letter-sign prefix + the bare letter
         assert a_cells[-1].dots == profile.bare_letter("a")

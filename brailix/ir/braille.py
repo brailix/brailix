@@ -38,8 +38,13 @@ class BrailleCell:
     tag describing what the cell represents (``number_sign``,
     ``zh_initial``, ``zh_final``, ``tone``, ``punct``, ``math_op``,
     ...). ``source_span`` and ``source_text`` enable back-tracing for
-    proofreading; both may be omitted for cells inserted by the
-    Backend (e.g. number sign, capital indicator).
+    proofreading. The fields stay ``Optional`` for deserialization and
+    hand-built cells, but the Backend gives EVERY cell it emits a span —
+    including the control / spacing cells it inserts (number sign, blanks,
+    matrix row breaks, hanging-indent brackets), built via the span-carrying
+    factories below (:func:`blank_cell` / :func:`line_break_cell` /
+    :func:`hang_open_cell` / :func:`hang_close_cell`) — so a compiled document
+    upholds "every cell maps to a source span" (ARCHITECTURE.md §3).
     """
 
     dots: tuple[int, ...] = ()
@@ -108,6 +113,48 @@ LINE_BREAK_CELL = BrailleCell(dots=(), role="line_break")
 # count. The plain unicode / BRF renderers print nothing for them.
 HANG_OPEN_CELL = BrailleCell(dots=(), role="hang_open")
 HANG_CLOSE_CELL = BrailleCell(dots=(), role="hang_close")
+
+
+# --- Span-carrying factories for the control / spacing cells ----------------
+#
+# Every BrailleCell must be back-traceable to a source span (ARCHITECTURE.md:
+# "每个 BrailleIR cell 都有 source_span"). The zero-width sentinels above share
+# one span-less instance, which breaks that contract for the cell a proofreader
+# clicks — a blank between two words, a matrix row break — leaving it with no
+# way back to source. These factories build the SAME role of cell (renderers
+# key on ``role``, never on object identity) carrying the emitter's span. The
+# ``source_span`` argument is mandatory — no default — so an emitter can't
+# silently fall back to a span-less cell; pass the triggering node's span, or a
+# zero-width span collapsed to the relevant boundary when the cell sits between
+# source positions (mirroring :func:`brailix.backend.punct.translate_space`).
+def blank_cell(source_span: Span | None) -> BrailleCell:
+    """A blank (space) cell carrying ``source_span`` — the traceable
+    counterpart of :data:`BLANK_CELL`."""
+    return BrailleCell(dots=(), role="space", source_span=source_span, source_text="")
+
+
+def line_break_cell(source_span: Span | None) -> BrailleCell:
+    """A forced-line-break cell carrying ``source_span`` — the traceable
+    counterpart of :data:`LINE_BREAK_CELL`."""
+    return BrailleCell(
+        dots=(), role="line_break", source_span=source_span, source_text=""
+    )
+
+
+def hang_open_cell(source_span: Span | None) -> BrailleCell:
+    """A hanging-indent-open cell carrying ``source_span`` — the traceable
+    counterpart of :data:`HANG_OPEN_CELL`."""
+    return BrailleCell(
+        dots=(), role="hang_open", source_span=source_span, source_text=""
+    )
+
+
+def hang_close_cell(source_span: Span | None) -> BrailleCell:
+    """A hanging-indent-close cell carrying ``source_span`` — the traceable
+    counterpart of :data:`HANG_CLOSE_CELL`."""
+    return BrailleCell(
+        dots=(), role="hang_close", source_span=source_span, source_text=""
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -32,7 +32,7 @@ from brailix.backend.math.utils import (
     _unknown_cell,
 )
 from brailix.core.chars import nonstandard_char_hint
-from brailix.ir.braille import BLANK_CELL, LINE_BREAK_CELL, BrailleCell
+from brailix.ir.braille import BrailleCell, blank_cell, line_break_cell
 
 # Math <mn> digit runs are labelled "math_digit"; the shared emitter owns
 # the number-sign / decimal / thousands / full-width-digit logic.
@@ -439,7 +439,7 @@ def _emit_mo(
         and not _last_is_blank(cells)
         and not _previous_suppresses_space_before(cells)
     ):
-        cells.append(BLANK_CELL)
+        cells.append(blank_cell(mctx.span))
     indicator = profile.math_symbol_indicator(text)
     if indicator is not None:
         # Category marker (⠫ symbol / ⠰ operation / ⠈ negation), emitted
@@ -462,7 +462,7 @@ def _emit_mo(
     # rather than separating list items, so it reads tight.
     tight = elem.get("data-bk-tight") is not None
     if spacing_enabled and space_after and not tight:
-        cells.append(BLANK_CELL)
+        cells.append(blank_cell(mctx.span))
     # A tight thousands comma is part of ONE quantity, so it must NOT restart
     # the number sign (1,000 = ⠼⠁⠐⠚⠚⠚, a single number sign). Every other
     # number-breaking role — operators, relations, shapes, big-ops, delimiters
@@ -489,7 +489,7 @@ def _emit_mspace(
         return
     mctx.break_letter_run()
     if not (cells and cells[-1].role == "line_break"):
-        cells.append(LINE_BREAK_CELL)
+        cells.append(line_break_cell(mctx.span))
     mctx.need_number_sign = True
 
 
@@ -550,7 +550,7 @@ def _emit_mtext_per_char(
     profile = mctx.profile
     for ch in text:
         if ch in (" ", "\u00a0"):
-            cells.append(BLANK_CELL)
+            cells.append(blank_cell(mctx.span))
             continue
         dots_seq = profile.math_symbol(ch)
         if dots_seq is None:

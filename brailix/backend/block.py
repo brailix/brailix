@@ -34,7 +34,13 @@ from brailix.backend.dispatch import translate_node
 from brailix.backend.latin import english_run_role
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
-from brailix.ir.braille import BLANK_CELL, BrailleBlock, BrailleCell, BrailleDocument
+from brailix.core.span import Span
+from brailix.ir.braille import (
+    BrailleBlock,
+    BrailleCell,
+    BrailleDocument,
+    blank_cell,
+)
 from brailix.ir.document import (
     Block,
     DocumentIR,
@@ -148,7 +154,7 @@ def expand_block(
     # Footnote optionally gets a reference marker prepended.
     cells: list[BrailleCell] = []
     if isinstance(block, Footnote) and block.ref:
-        cells.extend(_footnote_ref_cells(block.ref, profile))
+        cells.extend(_footnote_ref_cells(block.ref, block.span, profile))
     cells.extend(_translate_children(block.children, ctx, profile))
     return [
         BrailleBlock(
@@ -256,15 +262,25 @@ def _list_marker_cells(
         cells.extend(
             number_backend.translate_number(digits_node, sub_ctx, profile)
         )
-        cells.extend(_marker_punct_cells(profile.list_marker_ordered_char(), profile))
+        cells.extend(
+            _marker_punct_cells(
+                profile.list_marker_ordered_char(), item.span, profile
+            )
+        )
     else:
-        cells.extend(_marker_punct_cells(profile.list_marker_unordered_char(), profile))
+        cells.extend(
+            _marker_punct_cells(
+                profile.list_marker_unordered_char(), item.span, profile
+            )
+        )
         # No profile bullet → silently fall through; the layout still
         # produces a usable line with just the content.
     return cells
 
 
-def _marker_punct_cells(ch: str, profile: BrailleProfile) -> list[BrailleCell]:
+def _marker_punct_cells(
+    ch: str, span: Span | None, profile: BrailleProfile
+) -> list[BrailleCell]:
     """Render ``ch`` as a list marker with the punct table's own
     cells + spacing flags (role=``list_marker`` instead of ``punct``).
 
@@ -276,15 +292,18 @@ def _marker_punct_cells(ch: str, profile: BrailleProfile) -> list[BrailleCell]:
     punct_cells = profile.punctuation.get(ch)
     if not punct_cells:
         return []
+    # The bullet / number is print structure at the item's leading edge, not a
+    # literal char inside the item text — trace it to a zero-width span there.
+    edge = Span(span.start, span.start) if span else None
     out: list[BrailleCell] = [
-        BrailleCell(dots=dots, role="list_marker", source_text=ch)
+        BrailleCell(dots=dots, role="list_marker", source_span=edge, source_text=ch)
         for dots in punct_cells
     ]
     space_before, space_after = profile.punctuation_spaces(ch)
     if space_before:
-        out.insert(0, BLANK_CELL)
+        out.insert(0, blank_cell(edge))
     if space_after:
-        out.append(BLANK_CELL)
+        out.append(blank_cell(edge))
     return out
 
 
@@ -306,8 +325,14 @@ def _expand_table(
         cells: list[BrailleCell] = []
         for j, table_cell in enumerate(row.cells):
             if j > 0:
-                cells.append(BLANK_CELL)
-                cells.append(BLANK_CELL)
+                # Column separator: trace to the column's leading edge.
+                edge = (
+                    Span(table_cell.span.start, table_cell.span.start)
+                    if table_cell.span
+                    else None
+                )
+                cells.append(blank_cell(edge))
+                cells.append(blank_cell(edge))
             cells.extend(_translate_children(table_cell.children, ctx, profile))
         blocks.append(
             BrailleBlock(
@@ -322,7 +347,9 @@ def _expand_table(
 # ---- Footnote -------------------------------------------------------------
 
 
-def _footnote_ref_cells(ref: str, profile: BrailleProfile) -> list[BrailleCell]:
+def _footnote_ref_cells(
+    ref: str, span: Span | None, profile: BrailleProfile
+) -> list[BrailleCell]:
     """Render a footnote ref (``"1"``, ``"a"``, ``"*"``) as a marker.
 
     V1 just spells the ref characters out via the profile's punct /
@@ -331,13 +358,19 @@ def _footnote_ref_cells(ref: str, profile: BrailleProfile) -> list[BrailleCell]:
     """
     if not ref:
         return []
+    base = span.start if span else 0
+
+    def sp(i: int) -> Span | None:
+        # Each ref char traces to its own position in the footnote's span.
+        return Span(base + i, base + i + 1) if span else None
+
     cells: list[BrailleCell] = []
     # Track whether the previous emitted cell was part of a digit run so a
     # number sign is re-emitted whenever digits resume after a letter /
     # punctuation (a ref like ``1a2`` must not read its trailing ``2`` as a
     # letter); scanning "any number_sign already in cells" deduped too broadly.
     prev_was_digit = False
-    for ch in ref:
+    for i, ch in enumerate(ref):
         letter = profile.letter(ch)
         if letter is not None:
             # Use the letter-sign-prefixed form, not the bare cell: in
@@ -348,7 +381,9 @@ def _footnote_ref_cells(ref: str, profile: BrailleProfile) -> list[BrailleCell]:
             # repeats per letter here; footnote refs are short — sharing
             # one sign across a multi-letter run is a later refinement.)
             cells.extend(
-                BrailleCell(dots=dots, role="footnote_ref", source_text=ch)
+                BrailleCell(
+                    dots=dots, role="footnote_ref", source_span=sp(i), source_text=ch
+                )
                 for dots in letter
             )
             prev_was_digit = False
@@ -356,7 +391,9 @@ def _footnote_ref_cells(ref: str, profile: BrailleProfile) -> list[BrailleCell]:
         punct = profile.punctuation.get(ch)
         if punct:
             cells.extend(
-                BrailleCell(dots=dots, role="footnote_ref", source_text=ch)
+                BrailleCell(
+                    dots=dots, role="footnote_ref", source_span=sp(i), source_text=ch
+                )
                 for dots in punct
             )
             prev_was_digit = False
@@ -368,18 +405,27 @@ def _footnote_ref_cells(ref: str, profile: BrailleProfile) -> list[BrailleCell]:
             # mode and needs the sign again.
             if profile.number_sign and not prev_was_digit:
                 cells.append(
-                    BrailleCell(dots=profile.number_sign, role="number_sign")
+                    BrailleCell(
+                        dots=profile.number_sign,
+                        role="number_sign",
+                        source_span=sp(i),
+                    )
                 )
             cells.append(
-                BrailleCell(dots=digit, role="footnote_ref", source_text=ch)
+                BrailleCell(
+                    dots=digit, role="footnote_ref", source_span=sp(i), source_text=ch
+                )
             )
             prev_was_digit = True
             continue
         cells.append(
-            BrailleCell(dots=(), role="unknown", source_text=ch)
+            BrailleCell(dots=(), role="unknown", source_span=sp(i), source_text=ch)
         )
         prev_was_digit = False
-    cells.append(BLANK_CELL)
+    # Trailing separator blank — trace to the ref's trailing edge.
+    cells.append(
+        blank_cell(Span(base + len(ref), base + len(ref)) if span else None)
+    )
     return cells
 
 

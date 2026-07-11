@@ -65,15 +65,14 @@ class TestInlineMathAdapterCrash:
     warning + placeholder rather than propagating the exception."""
 
     def test_raising_adapter_degrades_not_crashes(self, monkeypatch):
-        import brailix.pipeline as pipeline_mod
-
         def _boom(surface, ctx):
             raise ValueError("adapter blew up")
 
-        # _attach_math calls the module-level parse alias; make it raise.
-        monkeypatch.setattr(pipeline_mod, "_frontend_parse_math_tree", _boom)
         pipe = Pipeline(profile="cn_current", mode="normal")
-        # Inline $...$ math flows through _attach_math (math=None at first).
+        # attach_math calls the injected math parser; make it raise (on the
+        # instance, so monkeypatch restores it — pipe may be a shared fixture).
+        monkeypatch.setattr(pipe._frontend, "_parse_math_tree", _boom)
+        # Inline $...$ math flows through attach_math (math=None at first).
         result = pipe.translate_text("看 $x^2$ 完")
         # Must NOT raise; the surrounding prose still renders.
         assert result.render()
@@ -84,7 +83,6 @@ class TestInlineMathAdapterCrash:
         # StrictModeError carrying the real code. The pipeline must let it
         # propagate unchanged, not catch it in the broad adapter-error handler
         # and reclassify it as MATH_*_PARSE_FAILED (which masked the real code).
-        import brailix.pipeline as pipeline_mod
         from brailix.core.errors import StrictModeError, Warning, WarningLevel
 
         def _boom(surface, ctx):
@@ -96,8 +94,8 @@ class TestInlineMathAdapterCrash:
                 )
             )
 
-        monkeypatch.setattr(pipeline_mod, "_frontend_parse_math_tree", _boom)
         pipe = Pipeline(profile="cn_current", mode="strict")
+        monkeypatch.setattr(pipe._frontend, "_parse_math_tree", _boom)
         with pytest.raises(StrictModeError) as ei:
             pipe.translate_text("看 $x^2$ 完")
         assert ei.value.warning.code == "MATH_ADAPTER_MISSING"

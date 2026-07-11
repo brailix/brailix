@@ -21,7 +21,7 @@ from brailix.backend.math.utils import (
     _fraction_simplifiable,
     _last_is_blank,
 )
-from brailix.ir.braille import BLANK_CELL, BrailleCell
+from brailix.ir.braille import BrailleCell, blank_cell
 
 
 def _emit_mfrac(
@@ -102,7 +102,7 @@ def _emit_fraction(
     if numerator is not None:
         _emit_element(cells, mctx, numerator)
     if not simplifiable and not _last_is_blank(cells):
-        cells.append(BLANK_CELL)
+        cells.append(blank_cell(mctx.span))
     _emit_structure(cells, mctx, "fraction.bar", role="math_fraction_bar")
     mctx.need_number_sign = True
     if denominator is not None:

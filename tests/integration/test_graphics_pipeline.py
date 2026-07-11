@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import struct
+from pathlib import Path
 
 import pytest
 
@@ -390,3 +391,73 @@ class TestImageImport:
             encoding="utf-8",
         )
         assert _raster(str(svg), source="image").raised_count() > 0
+
+
+class TestCrossProfileLabelInheritsConfig:
+    """A graphic label whose braille standard differs from the pipeline's own
+    must still translate under the PARENT pipeline's full adapter configuration
+    — analyzer, resolver, user pinyin dictionary, extra profile paths — not a
+    bare default pipeline.
+
+    Regression: :meth:`Pipeline._graphic_label_translator` built the
+    cross-profile sub-pipeline as ``Pipeline(profile=braille_profile,
+    mode=self.mode)``, silently dropping every other configured adapter, so a
+    label in a non-document braille standard lost the user's pinyin dictionary
+    and any custom tokenizer / profile-search path. The fix derives it with
+    :func:`dataclasses.replace`, inheriting all config and swapping only the
+    braille standard.
+    """
+
+    @staticmethod
+    def _configured_parent(**over):
+        base = dict(
+            profile="cn_current",
+            resolver="null",
+            analyzer="char",
+            user_pinyin_dict={"重庆": "chong2 qing4"},
+            extra_profile_paths=("nonexistent-user-dir",),
+        )
+        base.update(over)
+        return Pipeline(**base)
+
+    def test_sub_pipeline_inherits_every_config_field(self):
+        parent = self._configured_parent()
+        # The returned translator is a bound method; its ``__self__`` is the
+        # derived sub-pipeline.
+        child = parent._graphic_label_translator("cn_ncb").__self__
+        assert child.profile == "cn_ncb"  # only the braille standard changes
+        assert child.resolver == parent.resolver
+        assert child.analyzer == parent.analyzer
+        assert child.segmenter == parent.segmenter
+        assert child.normalizer == parent.normalizer
+        assert child.user_pinyin_dict == parent.user_pinyin_dict
+        assert child.extra_profile_paths == parent.extra_profile_paths
+        assert child.mode == parent.mode
+
+    def test_same_profile_reuses_parent_text_path(self):
+        parent = self._configured_parent()
+        # No second pipeline when the standard already matches.
+        assert parent._graphic_label_translator("cn_current").__self__ is parent
+
+    def test_custom_user_profile_loads_only_via_inherited_search_path(
+        self, tmp_path
+    ):
+        # Behavioural proof, extras-independent: give the label a braille
+        # standard that exists ONLY in a user-folder drop the parent knows
+        # about via ``extra_profile_paths``. Building its translator must
+        # succeed and actually translate — which is possible only if the
+        # sub-pipeline inherited that search path. With the old bare
+        # ``Pipeline(profile=...)`` the child had no extra paths, so
+        # ``load_profile`` raised ``FileNotFoundError`` for the user profile.
+        import brailix
+
+        src = Path(brailix.__file__).parent / "profiles" / "cn_ncb.json"
+        (tmp_path / "cn_user_label.json").write_text(
+            src.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        parent = Pipeline(
+            profile="cn_current", extra_profile_paths=(str(tmp_path),)
+        )
+        translator = parent._graphic_label_translator("cn_user_label")
+        cells = translator("AB")
+        assert isinstance(cells, list) and cells  # profile loaded, label ran
