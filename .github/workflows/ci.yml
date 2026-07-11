@@ -71,5 +71,46 @@ jobs:
           --extra docx --extra music
           --extra ja --extra fugashi --extra sudachi
 
+      # Branch-coverage gate. ``[tool.coverage.run]`` in pyproject already sets
+      # ``branch = true`` and ``source = ["brailix"]``; here we fail the build
+      # if a change drags core coverage below 93%, so coverage can't silently
+      # erode. The ceiling is ~93.4%, not higher, because this job omits the
+      # graphics extra (Pillow / resvg): the tactile-graphics code counts in
+      # ``source = brailix`` but its tests ``importorskip``, so it stays
+      # uncovered here. Raising the gate would mean installing that extra so
+      # graphics is exercised. ``term-missing`` prints the uncovered lines.
       - name: Run the test suite
-        run: uv run pytest
+        run: >-
+          uv run pytest
+          --cov=brailix --cov-report=term-missing --cov-fail-under=93
+
+  wheel:
+    name: wheel build + clean-install smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Build the wheel
+        run: uv build --wheel
+
+      # Install the built wheel into a fresh, dependency-free venv (no dev
+      # group, no extras) and drive the CLI. This catches packaging faults the
+      # editable dev install hides: a missing entry point, or profile /
+      # resource JSON left out of the wheel (a bare core install must still
+      # load a profile and translate). Number-only input needs no optional
+      # adapter, so the core wheel alone must render it end to end.
+      - name: Clean-install the wheel and smoke-test the CLI
+        run: |
+          uv venv --python 3.13 /tmp/smoke
+          uv pip install --python /tmp/smoke/bin/python dist/*.whl
+          /tmp/smoke/bin/brailix --version
+          /tmp/smoke/bin/brailix --list-profiles
+          out=$(/tmp/smoke/bin/brailix "123" --profile cn_current)
+          printf 'translated output: %s\n' "$out"
+          test -n "$out"
