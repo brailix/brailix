@@ -53,6 +53,14 @@ latex = ["latex2mathml"]
 # we don't add it as a Python dep because it's a system binary.
 docx = ["python-docx", "lxml", "olefile"]
 
+# Tactile graphics: the graphics vertical's core is zero-dependency — only
+# *reading* an external bitmap into raise levels needs a decoder (Pillow), and
+# rasterizing a complex external SVG (gradients / filters / clipPath) hands it
+# to resvg → PNG, which Pillow then decodes into the same grayscale/threshold
+# pipeline. See docs/tactile-graphics-plan.md.
+graphics = ["pillow"]
+graphics-svg-raster = ["resvg-py", "pillow"]
+
 # Music sources:
 # MusicXML / .mxl parsing uses stdlib xml.etree + zipfile, so the music
 # subsystem core has no third-party requirement. MIDI / ABC adapters need
@@ -79,6 +87,7 @@ all = [
     "latex2mathml",
     "python-docx", "lxml", "olefile",
     "mido", "partitura", "abc-xml-converter",
+    "pillow", "resvg-py",
 ]
 
 # Console entry point — the ``brailix`` command (and ``python -m brailix``)
