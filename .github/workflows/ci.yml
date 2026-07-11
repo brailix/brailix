@@ -55,9 +55,12 @@ jobs:
       # Install every adapter the suite exercises so nothing skips: the light
       # Chinese engines (jieba / thulac / g2pM + numpy / pypinyin via ``zh``),
       # LaTeX math (latex2mathml), docx input (python-docx / lxml / olefile),
-      # the music sources (mido / partitura / abc-xml-converter) and all three
-      # Japanese analyzers (janome / fugashi / sudachi). The `dev` group
-      # (pytest etc.) comes in by default.
+      # the music sources (mido / partitura / abc-xml-converter), tactile
+      # graphics (Pillow decodes bitmaps, resvg rasterizes external SVGs), and
+      # all three Japanese analyzers (janome / fugashi / sudachi). The `dev`
+      # group (pytest etc.) comes in by default. Installing graphics matters
+      # for coverage too: without it the tactile-graphics tests importorskip
+      # and that whole vertical counts as uncovered.
       #
       # The two heavyweight neural Chinese engines — ``hanlp`` and ``g2pw`` —
       # are deliberately left OUT: no test exercises their inference (only
@@ -68,21 +71,18 @@ jobs:
         run: >-
           uv sync
           --extra zh --extra thulac --extra g2pm --extra latex
-          --extra docx --extra music
+          --extra docx --extra music --extra graphics --extra graphics-svg-raster
           --extra ja --extra fugashi --extra sudachi
 
       # Branch-coverage gate. ``[tool.coverage.run]`` in pyproject already sets
       # ``branch = true`` and ``source = ["brailix"]``; here we fail the build
-      # if a change drags core coverage below 93%, so coverage can't silently
-      # erode. The ceiling is ~93.4%, not higher, because this job omits the
-      # graphics extra (Pillow / resvg): the tactile-graphics code counts in
-      # ``source = brailix`` but its tests ``importorskip``, so it stays
-      # uncovered here. Raising the gate would mean installing that extra so
-      # graphics is exercised. ``term-missing`` prints the uncovered lines.
+      # if a change drags core coverage below 94% (it currently sits around
+      # 94.9%), so coverage can't silently erode. ``term-missing`` prints the
+      # uncovered lines in the log for whoever has to close the gap.
       - name: Run the test suite
         run: >-
           uv run pytest
-          --cov=brailix --cov-report=term-missing --cov-fail-under=93
+          --cov=brailix --cov-report=term-missing --cov-fail-under=94
 
   wheel:
     name: wheel build + clean-install smoke
