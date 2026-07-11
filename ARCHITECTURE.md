@@ -651,11 +651,12 @@ result.warnings           # WarningCollector
 result.proofread_json()   # JSON proofreading structure (incl. IR, warnings)
 ```
 
-A CLI is planned:
+A CLI landed 2026-06-07 — a thin shell over `Pipeline` plus the renderer registry, invoked as `brailix` or `python -m brailix`. It is built on `argparse` with option `choices` enumerated dynamically from the registries (`--list-profiles` / `--list-analyzers` / `--list-resolvers` / `--list-renderers` print and exit), takes the text as an argument, from `--file` (dispatched by suffix), or from piped stdin (UTF-8), and follows an exit-code contract (`0` success / `1` translation error / `2` bad invocation):
 
 ```bash
-brailix translate input.md --profile cn_current --out out.brf
-brailix translate input.txt --format unicode --proofread out.json
+brailix "我在重庆。" --profile cn_current
+brailix --file input.md --profile cn_current --to brf --output out.brf
+echo "文本" | brailix --profile cn_current --to unicode
 ```
 
 ### 11.1 What the Pipeline does
