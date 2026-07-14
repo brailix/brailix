@@ -21,6 +21,10 @@ cases to handle:
 * drop the MathML XML namespace from every element tag so callers can
   match on bare local names (``mi``, ``mrow``, ...) instead of
   Clark-notation names.
+* rewrite latex2mathml's numeric degree spelling
+  (``<msup><mn>144</mn><mo>∘</mo></msup>``) to a baseline degree sign
+  (``<mn>144</mn><mo>°</mo>``), while leaving symbolic ``A^∘``-style
+  superscripts alone.
 
 The normalizer never raises — malformed input is wrapped into a single
 ``<merror>`` and returned. The backend turns that into an unknown cell
@@ -84,6 +88,7 @@ def normalize(mathml: str) -> ET.Element:
     strip_whitespace_text(root)
     _flag_repeated_operators(root)
     _tag_thousands_separators(root)
+    _rewrite_numeric_degree_circles(root)
     return root
 
 
@@ -100,6 +105,8 @@ def normalize(mathml: str) -> ET.Element:
 _INVISIBLE_OPERATORS: frozenset[str] = frozenset(
     {"\u2061", "\u2062", "\u2063", "\u2064"}
 )
+_RING_OPERATOR = "∘"
+_DEGREE_SIGN = "°"
 
 
 def _is_invisible_mo(elem: ET.Element) -> bool:
@@ -251,3 +258,44 @@ def _tag_thousands_separators(elem: ET.Element) -> None:
             and len((nxt.text or "").strip()) == 3
         ):
             node.set("data-bk-tight", "1")
+
+
+def _is_numeric_degree_circle_msup(node: ET.Element) -> bool:
+    return (
+        node.tag == "msup"
+        and len(node) == 2
+        and node[0].tag == "mn"
+        and node[1].tag == "mo"
+        and (node[1].text or "").strip() == _RING_OPERATOR
+    )
+
+
+def _rewrite_numeric_degree_circles(elem: ET.Element) -> None:
+    """In-place: normalize latex2mathml's numeric ``^\\circ`` shape.
+
+    latex2mathml renders ``144^\\circ`` as a superscripted U+2218 small
+    circle. For numeric bases that denotes degrees, so expose it to the
+    backend as an ordinary degree operator. A symbolic base such as
+    ``A^\\circ`` can be an actual ring superscript and is left unchanged.
+    """
+    for child in list(elem):
+        _rewrite_numeric_degree_circles(child)
+
+    new_children: list[ET.Element] = []
+    changed = False
+    for child in list(elem):
+        if _is_numeric_degree_circle_msup(child):
+            base = child[0]
+            degree = ET.Element("mo")
+            degree.text = _DEGREE_SIGN
+            degree.tail = child.tail
+            new_children.extend([base, degree])
+            changed = True
+        else:
+            new_children.append(child)
+
+    if changed:
+        for child in list(elem):
+            elem.remove(child)
+        for child in new_children:
+            elem.append(child)
