@@ -32,7 +32,7 @@ from brailix.core.context import (
     MusicContext,
 )
 from brailix.core.defaults import DEFAULT_NORMALIZER, DEFAULT_SEGMENTER
-from brailix.core.errors import StrictModeError
+from brailix.core.errors import PROGRAMMING_ERRORS, StrictModeError
 from brailix.core.span import Span
 from brailix.frontend import apply_boundary as _apply_boundary
 from brailix.frontend import language_frontend_registry
@@ -347,6 +347,11 @@ class FrontendDriver:
                 # already raised this carrying its real code; don't reclassify
                 # it as *_PARSE_FAILED — let it propagate unchanged.
                 raise
+            except PROGRAMMING_ERRORS:
+                # A code defect (AttributeError / NameError / AssertionError) is
+                # never a "bad score" — surface it instead of burying it in a
+                # MUSIC_BLOCK_PARSE_FAILED warning. See brailix.core.errors.
+                raise
             except Exception as exc:  # noqa: BLE001 — adapter failures are wide
                 ctx.warnings.error(
                     code="MUSIC_BLOCK_PARSE_FAILED",
@@ -415,6 +420,10 @@ class FrontendDriver:
                 tree = self._parse_math_tree(text, math_ctx)
             except StrictModeError:
                 # See _populate_music_block: keep the real code, don't rewrap.
+                raise
+            except PROGRAMMING_ERRORS:
+                # A code defect is never a "bad formula" — surface it rather
+                # than degrade to per-char Unknown. See brailix.core.errors.
                 raise
             except Exception as exc:  # noqa: BLE001 — adapter errors are wide
                 ctx.warnings.error(
@@ -489,6 +498,10 @@ class FrontendDriver:
                 tree = self._parse_graphic_tree(text, gctx)
             except StrictModeError:
                 # See _populate_music_block: keep the real code, don't rewrap.
+                raise
+            except PROGRAMMING_ERRORS:
+                # A code defect is never a "bad graphic" — surface it rather
+                # than degrade to an error-marked SVG. See brailix.core.errors.
                 raise
             except Exception as exc:  # noqa: BLE001 — adapter errors are wide
                 # Backstop for a frontend that raises anyway (the registry is
@@ -668,6 +681,10 @@ class FrontendDriver:
             tree = self._parse_math_tree(node.surface, math_ctx)
         except StrictModeError:
             # See _populate_music_block: keep the real code, don't rewrap.
+            raise
+        except PROGRAMMING_ERRORS:
+            # A code defect is never a "bad formula" — surface it rather than
+            # degrade the inline node to None. See brailix.core.errors.
             raise
         except Exception as exc:  # noqa: BLE001 — adapter errors are wide
             ctx.warnings.error(

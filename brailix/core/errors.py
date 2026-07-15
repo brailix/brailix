@@ -142,6 +142,37 @@ class ModelNotInstalledError(BrailixError):
 
 
 # ---------------------------------------------------------------------------
+# Programming-error classification (soft-failure boundaries)
+# ---------------------------------------------------------------------------
+
+# Exception types that signal a *code defect*, never a legitimate response to
+# bad input, so a soft-failure boundary must let them PROPAGATE rather than
+# disguise them as a recoverable "bad input" warning.
+#
+# Brailix's design deliberately soft-fails on malformed input (a broken formula
+# / score degrades to a placeholder + warning so one bad element can't fail a
+# whole document — the "pipeline never crashes" rule). The hazard of that
+# pattern is a broad ``except Exception`` at the boundary swallowing a regression
+# (``AttributeError`` on a ``None``, a fired ``assert``, a typo'd name) and
+# reporting it as "unreadable input" — a green pipeline silently hiding a
+# maintainer's bug, which is worse than a loud, locatable crash.
+#
+# Only the *unambiguous* code-defect types are listed. ``TypeError`` /
+# ``ValueError`` / ``KeyError`` are deliberately EXCLUDED: the adapter
+# registries are open (third-party math / music parsers, latex2mathml, …) and
+# those libraries legitimately raise them on malformed input, where a
+# soft-failure — not a crash — is the correct behaviour the design intends. An
+# adapter that finds its dependency raising an ``AttributeError`` on bad input
+# should catch that *locally* with an explicit reason, not rely on the global
+# backstop to paper over every defect.
+PROGRAMMING_ERRORS: tuple[type[BaseException], ...] = (
+    AttributeError,
+    NameError,
+    AssertionError,
+)
+
+
+# ---------------------------------------------------------------------------
 # Warning record
 # ---------------------------------------------------------------------------
 
