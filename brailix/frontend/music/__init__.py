@@ -16,7 +16,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 
 from brailix.core.context import MusicContext
-from brailix.core.errors import MissingExtraError
+from brailix.core.errors import PROGRAMMING_ERRORS, MissingExtraError
 from brailix.frontend.music.adapters.musicxml import music_error_wrap
 from brailix.frontend.music.normalizer import normalize
 
@@ -65,6 +65,13 @@ def parse_music_tree(
     try:
         musicxml = adapter.to_musicxml(src, ctx)
         return normalize(musicxml, ctx)
+    except PROGRAMMING_ERRORS:
+        # A genuine code defect (AttributeError / NameError / AssertionError) is
+        # never the right response to bad music input — let it crash loudly
+        # instead of hiding it behind a <music-error> the maintainer would never
+        # notice. Input errors (a corrupt .mxl, malformed MusicXML, an
+        # unsupported construct) raise other types and still soft-fail below.
+        raise
     except Exception as e:  # noqa: BLE001 — pipeline must never crash
         # Adapters promise soft failure (<music-error> + warning) and
         # the normalizer promises never to raise, but the registry is

@@ -12,6 +12,8 @@ import io
 import xml.etree.ElementTree as ET
 import zipfile
 
+import pytest
+
 from brailix.core.context import MusicContext
 from brailix.frontend.music import parse_music_tree
 
@@ -437,6 +439,26 @@ class TestMxlUnreadableArchives:
         tree = parse_music_tree(buf.getvalue(), ctx)
         assert tree is not None
         assert _has_music_error(tree)
+
+    def test_programming_error_is_not_masked(self, monkeypatch):
+        # A code regression inside the adapter (here an AttributeError, the
+        # stand-in for TypeError / KeyError / AssertionError) must PROPAGATE,
+        # not be disguised as a soft "unreadable .mxl" music-error. The narrow
+        # except only soft-fails genuine input errors; masking a maintainer's
+        # bug behind a green pipeline is exactly what the widened catch used to
+        # do. Inject the fault at the same read seam the encrypted-entry test
+        # uses so only the except clause — not the call site — differs.
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("score.xml", b"<score-partwise/>")
+
+        def _bug(self, name, *args, **kwargs):
+            raise AttributeError("regression: 'NoneType' has no attribute 'read'")
+
+        monkeypatch.setattr(zipfile.ZipFile, "open", _bug)
+        ctx = MusicContext(profile="cn_current", source="mxl")
+        with pytest.raises(AttributeError):
+            parse_music_tree(buf.getvalue(), ctx)
 
     def test_ambiguous_duration_warns_and_skips(self):
         # divisions=2, duration=3 → dotted quarter: not a plain type.

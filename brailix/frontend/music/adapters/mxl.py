@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 from dataclasses import dataclass
 
 from brailix.core._xml import safe_fromstring
@@ -106,12 +107,26 @@ class MxlSourceAdapter:
                     )
         except zipfile.BadZipFile as e:
             return music_error_wrap("", reason=f"not a valid ZIP: {e}")
-        except Exception as e:  # noqa: BLE001 — soft-failure contract
-            # zipfile raises more than BadZipFile: RuntimeError for an
-            # encrypted entry, zlib.error for a corrupt deflate stream,
-            # NotImplementedError for an unsupported compression
-            # method.  Each means "this .mxl can't be read" — degrade
-            # like every other adapter instead of crashing the pipeline.
+        except (
+            zlib.error,
+            NotImplementedError,
+            RuntimeError,
+            EOFError,
+            ValueError,
+        ) as e:
+            # zipfile raises more than BadZipFile for an *unreadable input*:
+            # RuntimeError for an encrypted entry, zlib.error for a corrupt
+            # deflate stream, NotImplementedError for an unsupported compression
+            # method, EOFError / ValueError for a truncated or malformed stream.
+            # Each means "this .mxl can't be read" — degrade like every other
+            # adapter instead of crashing the pipeline.
+            #
+            # Deliberately NOT ``except Exception``: a programming error inside
+            # this adapter (an AttributeError / TypeError / KeyError from a code
+            # regression) must surface as a real crash, not be disguised as
+            # "unreadable .mxl". A green pipeline silently hiding a maintainer's
+            # bug behind a soft-failure is worse than a loud, locatable failure —
+            # only genuine *input* errors are soft-failed here.
             return music_error_wrap("", reason=f"unreadable .mxl: {e!r}")
         return MusicXMLSourceAdapter().to_musicxml(inner_bytes, ctx)
 
