@@ -1,0 +1,116 @@
+# Scheduled smoke test for the heavy neural Chinese engines (hanlp, g2pw) that
+# the main CI deliberately skips — they pull in PyTorch, download models on
+# first use, and hanlp is currently incompatible with recent transformers.
+#
+# This job does NOT block pull requests: it runs weekly (and on demand),
+# installs each engine independently, loads its model once and runs a minimal
+# inference through the public Pipeline API, and opens an issue if one can no
+# longer load / infer. So a regression (or a fix) is noticed without every
+# ordinary PR paying the multi-gigabyte install. Each engine is a separate
+# matrix leg (fail-fast: false) so one being broken never masks the other.
+name: Heavyweight adapters
+
+on:
+  schedule:
+    # Mondays 06:00 UTC — a low-traffic window; adjust freely.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  smoke:
+    name: ${{ matrix.adapter }} (${{ matrix.kind }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      # One engine being broken must not cancel the other's result.
+      fail-fast: false
+      matrix:
+        include:
+          - adapter: hanlp
+            kind: analyzer
+          - adapter: g2pw
+            kind: resolver
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install brailix + ${{ matrix.adapter }}
+        run: uv sync --extra ${{ matrix.adapter }} --extra zh
+
+      - name: Load model + minimal inference
+        env:
+          ADAPTER: ${{ matrix.adapter }}
+          KIND: ${{ matrix.kind }}
+        run: |
+          uv run python - <<'PY'
+          import os
+          from brailix import Pipeline
+
+          name, kind = os.environ["ADAPTER"], os.environ["KIND"]
+          # Exercise only the engine under test: pair the analyzer with a
+          # no-op resolver (and vice versa) so a hanlp run doesn't also
+          # download g2pw's model, and each leg fails for exactly one reason.
+          kwargs = {kind: name}
+          if kind == "analyzer":
+              kwargs["resolver"] = "null"
+          else:
+              kwargs["analyzer"] = "char"
+
+          pipe = Pipeline(profile="cn_current", **kwargs)
+          out = pipe.translate_text("我在重庆").render()
+          assert out, f"{name}: empty braille output"
+          print(f"OK {name} ({kind}): {out}")
+          PY
+
+      - name: Open an issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const adapter = process.env.ADAPTER;
+            const label = "heavyweight-adapter-ci";
+            const title = `Heavyweight adapter smoke failing: ${adapter}`;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `The scheduled smoke test for the \`${adapter}\` extra failed`,
+              `(model load or minimal inference through the public Pipeline API).`,
+              ``,
+              `Run: ${runUrl}`,
+              ``,
+              `This engine is experimental — it pulls in PyTorch and downloads a`,
+              `model on first use, so the main CI does not exercise it. Pull requests`,
+              `are not blocked by this job. Close this issue once the engine loads and`,
+              `infers again; the next scheduled run reopens one if it is still broken.`,
+            ].join("\n");
+            // Dedupe: if an open issue for this adapter already exists, leave it
+            // be (don't spam a weekly comment) — its mere openness says "still
+            // broken". Only file one when none is open.
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: label,
+              per_page: 100,
+            });
+            if (open.data.some((i) => i.title === title)) {
+              core.info(`An open issue for ${adapter} already exists; not filing another.`);
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: [label],
+            });
+        env:
+          ADAPTER: ${{ matrix.adapter }}
