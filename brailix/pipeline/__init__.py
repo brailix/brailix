@@ -778,21 +778,26 @@ class Pipeline:
 
         Pipeline keeps **no cache of its own** — the caller consults its
         own block cache via ``source_hash`` before calling this method. The
-        hash covers ``(block surface, profile)`` only; callers that want
-        override-aware cache keys should compose ``source_hash`` with their
-        own override-list salt at the caller layer.
+        hash covers ``(block surface, profile, structure)`` and is safe as a
+        cache key on its own (a same-text Heading and Paragraph, or two
+        differently-shaped tables, hash apart); callers that ALSO want
+        override-aware cache keys compose ``source_hash`` with their own
+        override-list salt at the caller layer.
 
-        Pass a **fresh, unpopulated** block each call. The backend always
-        re-runs, but the frontend does not: a block that already has
-        ``children`` is treated as already frontend-processed, and
-        :meth:`FrontendDriver.populate_block` short-circuits over it (the
-        parsed math / music tree can't be rebuilt from flattened children).
-        So mutating ``block.text`` on a block whose ``children`` are already
-        filled and re-compiling reuses the STALE children — and ``source_hash``,
-        keyed on the reconstructed child surface, may not change either. An
-        editing front-end avoids this by re-parsing the source into fresh
-        blocks on every compile; a caller that holds IR blocks across edits
-        must rebuild (or clear ``children`` on) any block whose text changed.
+        The backend always re-runs; the frontend does not, when it safely can
+        skip: a block that already has ``children`` is treated as already
+        frontend-processed and :meth:`FrontendDriver.populate_block`
+        short-circuits over it (the parsed math / music tree can't be rebuilt
+        from flattened children, so re-running would lose it). ``block.text`` is
+        the authoritative raw source, though, so this skip is **guarded**: if
+        you mutate ``block.text`` on a block whose ``children`` were built from
+        the old text, populate detects the mismatch (the reconstructed child
+        surface no longer equals ``block.text``), drops the stale children, and
+        re-runs the frontend on the current text — so the re-compile reflects
+        your edit and ``source_hash`` changes with it, rather than silently
+        reusing stale braille. Passing a fresh, unpopulated block each call is
+        still the cheapest path (an editing front-end re-parses source into
+        fresh blocks anyway); the guard only makes reuse *safe*, not free.
         """
         # One fresh collector + matching contexts for this block.  The
         # backend context is stamped with this block's type up front — the

@@ -57,6 +57,7 @@ from brailix.ir.inline import (
 )
 from brailix.pipeline._helpers import (
     _all_prose_types,
+    _block_surface,
     _ensure_block_span,
     _resolve_language_adapter,
     cache_lookup,
@@ -247,6 +248,23 @@ class FrontendDriver:
                         _shift_node_spans(cell, cell_offset)
                     cell_offset += _table_cell_source_len(cell) + _TABLE_CELL_GAP
             return
+        # Self-heal a stale re-entry (the P1-2 footgun): a caller that mutated
+        # ``block.text`` on a block whose ``children`` were already built from
+        # the OLD text.  The populate step below short-circuits on existing
+        # children, so without this the stale children — and the ``source_hash``
+        # keyed on their reconstructed surface, which also would not change —
+        # would be reused, silently emitting braille for the old text.  Detect
+        # it with the SAME surface the cache key uses (:func:`_block_surface`):
+        # when the reconstructed child surface no longer equals the current raw
+        # text, the block was edited after population, so drop the children and
+        # let the populate path below rebuild them from the authoritative
+        # ``block.text``.  A block whose children still reflect its text — the
+        # normal re-translate case — is untouched, preserving the
+        # "re-translation skips the frontend cost" optimization
+        # (:meth:`Pipeline.translate_document`).
+        if block.text and block.children and _block_surface(block) != block.text:
+            block.children = []
+
         # Leaf block.  Populate children from raw ``text`` only when it's
         # present and nothing has filled them yet; the per-kind branches
         # below differ only in *how* they populate.
@@ -284,13 +302,15 @@ class FrontendDriver:
         # prose alike — so the pre-populated "text + children, no span"
         # case can't drift per kind.
         #
-        # Contract note: a MathBlock/ScoreBlock/MusicBlock handed in already-
-        # filled (children present) does NOT get its parse tree recorded into
-        # ``tree_out`` here — the ET tree isn't reconstructable from the
-        # flattened children without re-parsing, which would defeat the cache.
-        # This is safe today because callers parse fresh, unfilled blocks each
-        # run and so hit the populate path above; a future caller that reuses
-        # pre-filled IR blocks must thread the tree via ``tree_in`` rather than
+        # Contract note: a MathBlock/ScoreBlock/MusicBlock that arrives already
+        # filled AND whose children still match its text — the consistent
+        # re-translate case; a STALE edit (text changed after population) is
+        # self-healed above by dropping the children so the populate path
+        # re-parses — does NOT get its parse tree re-recorded into ``tree_out``
+        # here: the ET tree isn't reconstructable from the flattened children
+        # without re-parsing, which would defeat the cache.  A caller that
+        # reuses such consistent pre-filled IR blocks and needs the tree in the
+        # next compile's reuse pool must thread it via ``tree_in`` rather than
         # rely on this method to re-record it.
         if block.span is None and block.text:
             block.span = Span(0, len(block.text))
