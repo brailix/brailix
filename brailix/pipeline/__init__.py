@@ -85,6 +85,7 @@ from brailix.frontend.graphics import (
     parse_graphic_tree as _frontend_parse_graphic_tree,
 )
 from brailix.frontend.music import parse_music_tree as _frontend_parse_music_tree
+from brailix.input import DEFAULT_INPUT_LIMITS, InputLimits
 from brailix.input import parse_file as _parse_file
 from brailix.input import parse_markdown as _parse_markdown
 from brailix.input import parse_plain as _parse_plain
@@ -604,6 +605,8 @@ class Pipeline:
     def translate_file(
         self,
         path: str | os.PathLike[str],
+        *,
+        limits: InputLimits = DEFAULT_INPUT_LIMITS,
     ) -> TranslationResult:
         """Read ``path`` and translate end-to-end.
 
@@ -617,12 +620,15 @@ class Pipeline:
         :class:`TranslationResult` is indistinguishable from one
         produced by :meth:`translate_text` on the same source.
 
+        ``limits`` bounds the input file size (see :meth:`parse_file`).
+
         IO errors propagate as-is (:class:`FileNotFoundError`,
+        :class:`~brailix.input.InputTooLargeError`,
         :class:`UnicodeDecodeError`, ``PermissionError``); pre-parse
         the file yourself and call :meth:`translate_document` if you
         need to catch them at a different layer.
         """
-        doc = self.parse_file(path)
+        doc = self.parse_file(path, limits=limits)
         return self.translate_document(doc)
 
     def parse_text(
@@ -683,6 +689,8 @@ class Pipeline:
     def parse_file(
         self,
         path: str | os.PathLike[str],
+        *,
+        limits: InputLimits = DEFAULT_INPUT_LIMITS,
     ) -> DocumentIR:
         """Read ``path`` as UTF-8 / bytes and parse to :class:`DocumentIR`.
 
@@ -696,6 +704,11 @@ class Pipeline:
         everything else (including ``.txt`` and no suffix) → plain. The
         Pipeline's ``profile`` and ``language`` are baked into the IR
         metadata.
+
+        ``limits`` bounds the input file size (see
+        :class:`brailix.input.InputLimits`): the default is generous, a
+        service handling untrusted uploads tightens it, and
+        :meth:`~brailix.input.InputLimits.unlimited` opts out.
 
         Use this when you need the unpopulated :class:`DocumentIR`
         from a file for incremental compilation (the incremental-compilation
@@ -712,6 +725,7 @@ class Pipeline:
             chem_detection=self._profile.feature(
                 "input.docx.detect_chemistry", False
             ),
+            limits=limits,
         )
 
     def translate_block(

@@ -521,6 +521,13 @@ def parse_doc(
     ``soffice`` then ``libreoffice`` (the two common LibreOffice
     launchers across platforms). Both accept the same headless flags.
 
+    Security note: this is a **trusted-local-tool** capability. LibreOffice
+    is a large document parser and the bounded timeout is not a security
+    boundary against a maliciously crafted ``.doc``. A service that converts
+    untrusted uploads should isolate the ``soffice`` process (container /
+    low-privilege worker, no network, capped CPU/memory, separate scratch
+    HOME) or refuse ``.doc`` entirely — see ``ARCHITECTURE.md``.
+
     Raises
     ------
     ParseError
