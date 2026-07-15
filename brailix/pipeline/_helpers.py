@@ -104,23 +104,45 @@ def _block_surface(block: Any) -> str:
     return block.text or ""
 
 
+# Bump when the composition of :func:`block_hash` changes, so any cache that
+# outlives one recipe (a front-end that ever persists digests across sessions)
+# can't serve an entry computed under the old composition against the new one.
+# Folded INTO the digest below, not merely prepended, so it perturbs the hash.
+_BLOCK_HASH_VERSION = "2"
+
+
 def block_hash(block: Block, profile_name: str) -> str:
-    """SHA-256 hex digest of ``(block textual surface, profile)``.
+    """SHA-256 hex digest of ``(block textual surface, profile, structure)``.
 
-    Used as a stable cache key by :class:`CompiledBlock`. Same hash =
-    identical inputs = cached compilation result is reusable. A
-    change in source text or selected profile flips the hash.
+    The default, **safe-by-itself** cache key for a compiled block: equal hash
+    ⟺ equal braille, so a front-end may cache on this digest alone without ever
+    serving one block's output for another. A change in source text, selected
+    profile, or structural shape flips the hash.
 
-    Callers that need override-aware (or any other dimension) cache
-    keys should compose this digest with their own salt at the caller
-    layer — the compiler doesn't know about overrides. A proofreading
-    front-end, for example, composes ``block_hash + "|" +
-    "|".join(sorted_override_ids)`` for its block cache.
+    Folding in :meth:`Block.structure_key` is what makes it safe on its own. The
+    textual surface can't tell a :class:`~brailix.ir.document.Heading` from a
+    same-text :class:`~brailix.ir.document.Paragraph`, an ordered from an
+    unordered :class:`~brailix.ir.document.List`, or two
+    :class:`~brailix.ir.document.Table`\\ s of different shape — all of which
+    render under different layout rules. Keying on the surface alone let a block
+    cache hand back the wrong block's braille (silent wrong output, not a
+    crash); ``structure_key`` supplies exactly that structural identity, derived
+    generically from the IR so a new structural field is covered automatically.
+
+    Callers that need an EXTRA dimension in the key — override-aware caching in
+    a proofreading front-end — compose this digest with their own salt at the
+    caller layer (the compiler doesn't know about overrides), e.g.
+    ``block_hash(block, profile) + "|" + "|".join(override_ids)``. They no
+    longer fold ``structure_key`` themselves; it is already accounted for here.
     """
     h = hashlib.sha256()
+    h.update(_BLOCK_HASH_VERSION.encode("utf-8"))
+    h.update(b"|")
     h.update(_block_surface(block).encode("utf-8"))
     h.update(b"|")
     h.update(profile_name.encode("utf-8"))
+    h.update(b"|")
+    h.update(block.structure_key().encode("utf-8"))
     return h.hexdigest()
 
 

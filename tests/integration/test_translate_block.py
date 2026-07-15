@@ -86,6 +86,65 @@ class TestBlockHash:
         h_text = block_hash(Paragraph(text="字"), "cn_current")
         assert h_children == h_text
 
+    def test_heading_and_paragraph_same_text_hash_apart(self) -> None:
+        """Structural identity is folded into the key: a same-text Heading and
+        Paragraph render under different layout rules (centred vs flush-left),
+        so they must not share a cache entry. This is the P1-1 safety property
+        — surface alone would collide them."""
+        h = block_hash(Heading(text="标题", level=1), "cn_current")
+        p = block_hash(Paragraph(text="标题"), "cn_current")
+        assert h != p
+
+    def test_heading_levels_hash_apart(self) -> None:
+        h1 = block_hash(Heading(text="标题", level=1), "cn_current")
+        h2 = block_hash(Heading(text="标题", level=2), "cn_current")
+        assert h1 != h2
+
+    def test_ordered_and_unordered_list_hash_apart(self) -> None:
+        """Same items, different ordering → numbered vs bulleted braille, so
+        different key even though the joined surface is identical."""
+        ordered = block_hash(
+            ListBlock(
+                ordered=True, items=[ListItem(text="甲"), ListItem(text="乙")]
+            ),
+            "cn_current",
+        )
+        unordered = block_hash(
+            ListBlock(
+                ordered=False, items=[ListItem(text="甲"), ListItem(text="乙")]
+            ),
+            "cn_current",
+        )
+        assert ordered != unordered
+
+    def test_same_surface_different_table_shape_hash_apart(self) -> None:
+        """The exact collision P1-1 guards against: two tables whose joined
+        surface is byte-identical (``"甲 | 乙"``) but whose grid shape differs
+        (one 2-column cell run vs a single cell that happens to contain the
+        separator) must key apart, or the cache serves one shape's braille for
+        the other."""
+        from brailix.ir.document import Table, TableCell, TableRow
+
+        two_cells = Table(
+            rows=[TableRow(cells=[TableCell(text="甲"), TableCell(text="乙")])]
+        )
+        one_cell = Table(
+            rows=[TableRow(cells=[TableCell(text="甲 | 乙")])]
+        )
+        assert block_hash(two_cells, "cn_current") != block_hash(
+            one_cell, "cn_current"
+        )
+
+    def test_math_source_dialect_hashes_apart(self) -> None:
+        """Same formula text under different source dialects parses to
+        different trees (``source`` is a structural field), so they must not
+        share a cache entry."""
+        from brailix.ir.document import MathBlock
+
+        latex = block_hash(MathBlock(text="x", source="latex"), "cn_current")
+        mathml = block_hash(MathBlock(text="x", source="mathml"), "cn_current")
+        assert latex != mathml
+
 
 # ---------------------------------------------------------------------------
 # CompiledBlock dataclass
@@ -343,6 +402,32 @@ class TestMathSubcache:
         )
         assert ("math", "latex", "$x$") in out.tree_subcache
 
+    @pytest.mark.requires("latex2mathml")
+    def test_backend_does_not_mutate_cached_tree(self, pipe: Pipeline) -> None:
+        """Math parity with :meth:`TestMusicSubcache.
+        test_backend_does_not_mutate_cached_tree`: the math backend builds its
+        cells from freshly-constructed elements and must never write back into
+        the shared cached MathML tree — a reused ``tree_subcache`` entry is the
+        same object across compiles, so any mutation would corrupt the pool."""
+        import xml.etree.ElementTree as ET
+
+        from brailix.core.context import MathContext
+        from brailix.frontend import parse_math_tree
+        from brailix.ir.document import MathBlock
+
+        ctx = MathContext(profile=pipe.profile, source="latex", mode="display")
+        tree = parse_math_tree("\\sum x_i", ctx)
+        assert tree is not None
+        before = ET.tostring(tree)
+
+        key = ("math", "latex", "\\sum x_i")
+        out = pipe.translate_block(
+            MathBlock(text="\\sum x_i", source="latex"),
+            tree_subcache={key: tree},
+        )
+        assert out.ir.children[0].math is tree  # confirm the cache hit
+        assert ET.tostring(tree) == before  # backend left it untouched
+
 
 # ---------------------------------------------------------------------------
 # tree_subcache reuse — music (parity with math)
@@ -431,6 +516,39 @@ class TestMusicSubcache:
         assert ("music", "musicxml", _SCORE_XML) not in second.tree_subcache
         assert ("music", "musicxml", other_xml) in second.tree_subcache
 
+    def test_backend_does_not_mutate_cached_tree(self, pipe: Pipeline) -> None:
+        """The backend must read a shared cached tree READ-ONLY.
+
+        ``tree_subcache`` hands the very same :class:`ET.Element` to every
+        compile that reuses it (no defensive copy — that is the whole point of
+        the cache, which spares a large score a multi-MB re-parse on each
+        keystroke). So a backend that mutated the tree would poison the pool:
+        the next incremental recompile would build braille from a tree an
+        unrelated earlier compile had silently altered — an order-dependent
+        wrong-output bug. Snapshot the tree BEFORE any backend sees it, render
+        it through a cache-hit compile, and assert it comes out byte-identical.
+        """
+        import xml.etree.ElementTree as ET
+
+        from brailix.core.context import MusicContext
+        from brailix.frontend.music import parse_music_tree
+
+        # Parse once, independently, and snapshot before the backend touches it.
+        ctx = MusicContext(profile=pipe.profile, source="musicxml")
+        tree = parse_music_tree(_SCORE_XML, ctx)
+        assert tree is not None
+        before = ET.tostring(tree)
+
+        # Prime a reuse pool with that exact object, then compile a block that
+        # hits it — the backend renders the shared tree.
+        key = ("music", "musicxml", _SCORE_XML)
+        out = pipe.translate_block(
+            ScoreBlock(text=_SCORE_XML, source="musicxml"),
+            tree_subcache={key: tree},
+        )
+        assert out.ir.children[0].score is tree  # confirm the cache hit
+        assert ET.tostring(tree) == before  # backend left it untouched
+
 
 @pytest.mark.requires("latex2mathml")
 class TestTreeSubcacheCrossDomain:
@@ -455,6 +573,55 @@ class TestTreeSubcacheCrossDomain:
         # without the music entry interfering.
         again = pipe.translate_block(Paragraph(text="$x^2$"), tree_subcache=pool)
         assert again.ir.children[0].math is pool[("math", "latex", "$x^2$")]
+
+
+# ---------------------------------------------------------------------------
+# Stale pre-populated block self-heal (P1-2)
+# ---------------------------------------------------------------------------
+
+
+class TestStaleBlockSelfHeal:
+    """A block re-compiled after its ``text`` was edited must reflect the new
+    text, not silently reuse children (and a ``source_hash``) built from the
+    old one. ``populate_block`` self-heals by dropping children whose
+    reconstructed surface no longer matches ``block.text`` (P1-2)."""
+
+    def test_editing_text_on_populated_block_repopulates(
+        self, pipe: Pipeline
+    ) -> None:
+        block = Paragraph(text="我是")
+        first = pipe.translate_block(block)
+        # Same object, ``text`` mutated after it was populated.
+        block.text = "你好世界"
+        second = pipe.translate_block(block)
+        # Children were rebuilt from the NEW text, not the stale "我是".
+        assert "".join(c.surface for c in second.ir.children) == "你好世界"
+        # ...and the hash tracks the edit. The exact P1-2 symptom was that it
+        # did NOT — the reused stale children kept the surface, hence the hash,
+        # unchanged, so a cache keyed on it served the old braille.
+        assert second.source_hash != first.source_hash
+
+    def test_unchanged_text_reuses_children(self, pipe: Pipeline) -> None:
+        """The self-heal must NOT fire on a consistent re-translate — the
+        "skip the frontend cost" optimization for an unedited block is kept."""
+        block = Paragraph(text="我是中国")
+        pipe.translate_block(block)
+        first_children = block.children
+        first_child0 = block.children[0]
+        pipe.translate_block(block)  # re-translate, text unchanged
+        # Same child objects — the frontend was not re-run for this block.
+        assert block.children is first_children
+        assert block.children[0] is first_child0
+
+    def test_editing_score_block_text_reparses(self, pipe: Pipeline) -> None:
+        """Structured (math / score) carriers self-heal too: the MusicInline
+        rebuilt from the edited score reflects the new source, not the old."""
+        block = ScoreBlock(text=_SCORE_XML, source="musicxml")
+        pipe.translate_block(block)
+        edited = _SCORE_XML.replace("<step>C</step>", "<step>D</step>")
+        block.text = edited
+        second = pipe.translate_block(block)
+        assert second.ir.children[0].surface == edited
 
 
 # ---------------------------------------------------------------------------
