@@ -54,6 +54,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from brailix.input.docx import parse_doc, parse_docx
+from brailix.input.limits import (
+    DEFAULT_INPUT_LIMITS,
+    InputLimits,
+    InputTooLargeError,
+)
 from brailix.input.markdown import parse_markdown
 from brailix.input.music_xml import (
     BINARY_SCORE_SUFFIXES,
@@ -76,6 +81,9 @@ __all__ = (
     "parse_score_file",
     "parse_deferred_score",
     "parse_file",
+    "InputLimits",
+    "InputTooLargeError",
+    "DEFAULT_INPUT_LIMITS",
 )
 
 
@@ -121,12 +129,18 @@ class _FileCtx:
     profile: str
     mathtype_fallback: str
     chem_detection: bool
+    limits: InputLimits = DEFAULT_INPUT_LIMITS
     _text: str | None = field(default=None, init=False, repr=False)
 
     @property
     def text(self) -> str:
+        # The file-byte gate ran in ``parse_file`` before this read, so the
+        # wholesale decode is already bounded; apply the decoded-character gate
+        # once the text exists (the size the frontend then walks per character).
         if self._text is None:
-            self._text = _decode_text(self.path)
+            decoded = _decode_text(self.path)
+            self.limits.check_text_length(decoded)
+            self._text = decoded
         return self._text
 
 
@@ -206,6 +220,9 @@ def _route_xml(ctx: _FileCtx) -> DocumentIR:
     # valid files before the sniff runs — so a UTF-16 score .xml used to crash
     # where the byte-identical .musicxml parsed fine. Both routes now agree.
     text = _read_xml_text(ctx.path)
+    # This path reads directly (not via ``ctx.text``), so apply the decoded-
+    # character gate here too — the file-byte gate already ran in parse_file.
+    ctx.limits.check_text_length(text)
     if _looks_like_musicxml(text):
         return parse_musicxml(ctx.path, language=ctx.language, profile=ctx.profile)
     return parse_plain(text, language=ctx.language, profile=ctx.profile)
@@ -247,6 +264,7 @@ def parse_file(
     profile: str,
     mathtype_fallback: str = "off",
     chem_detection: bool = False,
+    limits: InputLimits = DEFAULT_INPUT_LIMITS,
 ) -> DocumentIR:
     """Read ``path`` and parse to :class:`DocumentIR` by suffix.
 
@@ -288,19 +306,36 @@ def parse_file(
     drives the value from the ``input.docx.mathtype_fallback`` profile
     feature.
 
+    ``limits`` is a whole-file size budget (see :class:`InputLimits`),
+    enforced as a ``stat()`` gate **before** any byte is read, so an
+    oversized file is refused without being loaded into memory — the guard a
+    service accepting untrusted uploads needs (a multi-GB ``.txt`` / ``.mid``
+    / ``.mxl`` otherwise spikes memory the instant it is read). The default
+    (:data:`DEFAULT_INPUT_LIMITS`) is deliberately generous — far above any
+    realistic document — so a desktop caller opening its own files never trips
+    it; a service tightens it, and :meth:`InputLimits.unlimited` opts out. The
+    archive-internal caps (a ``.mxl`` / ``.docx`` member's decompressed size,
+    the zip-bomb defence) are separate and always on, in their adapters.
+
     Errors propagate as-is: :class:`FileNotFoundError` when ``path``
-    doesn't exist, :class:`UnicodeDecodeError` when text bytes aren't
-    valid UTF-8, :class:`MissingExtraError` when a needed extra (``docx``
-    for Word, ``midi`` for MIDI) isn't installed at input time — ``.abc``
-    defers its ``abc`` extra to frontend time, so reading one never raises
-    here — :class:`ParseError` for malformed Word documents.
+    doesn't exist, :class:`InputTooLargeError` when it exceeds ``limits``,
+    :class:`UnicodeDecodeError` when text bytes aren't valid UTF-8,
+    :class:`MissingExtraError` when a needed extra (``docx`` for Word,
+    ``midi`` for MIDI) isn't installed at input time — ``.abc`` defers its
+    ``abc`` extra to frontend time, so reading one never raises here —
+    :class:`ParseError` for malformed Word documents.
     """
+    # Size gate FIRST — a single stat(), no bytes read — so an oversized file
+    # is rejected before any adapter loads it into memory. A missing path
+    # raises FileNotFoundError here exactly as the read below would.
+    limits.check_file_size(path)
     ctx = _FileCtx(
         path=Path(path),
         language=language,
         profile=profile,
         mathtype_fallback=mathtype_fallback,
         chem_detection=chem_detection,
+        limits=limits,
     )
     handler = _SUFFIX_ROUTES.get(ctx.path.suffix.lower(), _route_plain)
     return handler(ctx)

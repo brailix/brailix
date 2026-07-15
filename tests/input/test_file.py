@@ -249,11 +249,16 @@ class TestMathtypeFallbackForwarding:
     ) -> None:
         # An invalid value is rejected by parse_docx's validation, which runs
         # before the file is opened — proof the kwarg reached parse_docx rather
-        # than being dropped (a dropped kwarg would surface FileNotFoundError
-        # for the missing .docx instead). No python-docx needed: validation
-        # precedes the docx import.
+        # than being dropped (a dropped kwarg would let parse_docx proceed to
+        # open the dummy file and surface a docx ParseError instead of the
+        # ValueError). No python-docx needed: validation precedes the docx
+        # import. The file must EXIST so the InputLimits stat() gate (which now
+        # runs first) passes and dispatch reaches parse_docx's validation; its
+        # contents are irrelevant — validation runs before any read.
+        present = tmp_path / "present.docx"
+        present.write_bytes(b"not really a docx")
         with pytest.raises(ValueError, match="mathtype_fallback"):
-            parse_file(tmp_path / "missing.docx", mathtype_fallback="bogus", profile="cn_current", language="zh-CN")
+            parse_file(present, mathtype_fallback="bogus", profile="cn_current", language="zh-CN")
 
     def test_pipeline_parse_file_reads_profile_feature(self, monkeypatch) -> None:
         # Pipeline.parse_file forwards the input.docx.mathtype_fallback profile
