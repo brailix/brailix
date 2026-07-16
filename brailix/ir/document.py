@@ -42,13 +42,26 @@ class Block:
     # (justified / distributed) normalise to ``None`` at the input layer, so
     # only values the renderer acts on ever reach the IR.
     align: str | None = None
+    # Provenance stamp for populated ``children``: the compilation
+    # fingerprint (:attr:`brailix.pipeline.Pipeline.fingerprint`) of the
+    # pipeline whose frontend built them.  ``populate_block`` re-runs the
+    # frontend when this differs from the current pipeline's fingerprint, so
+    # semantic IR built under one configuration (resolver, user dictionary,
+    # profile content, ...) is never silently reused under another.  ``None``
+    # means "not populated by a pipeline" — hand-built children keep the
+    # documented "used as-is" contract.  In-memory only: excluded from
+    # equality, ``to_dict`` and ``structure_key`` (it is cache provenance,
+    # not document content or structural identity).
+    frontend_fingerprint: str | None = field(
+        default=None, compare=False, repr=False
+    )
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"type": self.type}
         if self.id is not None:
             d["id"] = self.id
         for f in fields(self):
-            if f.name in ("id", "children", "text", "span"):
+            if f.name in ("id", "children", "text", "span", "frontend_fingerprint"):
                 continue
             value = getattr(self, f.name)
             # Omit defaults / empties (shared with inline to_dict); and never
@@ -97,11 +110,15 @@ class Block:
         covered without editing this method or the cache key.  ``children``
         and ``text`` are excluded (the surface hash covers them); ``id`` and
         ``span`` too (an edit elsewhere shifts ``span`` but must not
-        invalidate this block's cache entry).
+        invalidate this block's cache entry); ``frontend_fingerprint`` too —
+        it is populate provenance, not structure, and the configuration it
+        names is :func:`~brailix.pipeline.block_hash`'s ``fingerprint``
+        dimension, so folding it here would make a populated block hash
+        apart from its identically-configured unpopulated twin.
         """
         parts = [self.type]
         for f in fields(self):
-            if f.name in ("id", "children", "text", "span"):
+            if f.name in ("id", "children", "text", "span", "frontend_fingerprint"):
                 continue
             value = getattr(self, f.name)
             if isinstance(value, (list, tuple)):

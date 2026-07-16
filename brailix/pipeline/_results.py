@@ -196,13 +196,18 @@ class CompiledBlock:
       formula / score isn't parsed twice when surrounding text — or an
       unrelated override — changes.  Empty when the block has no
       math, music, or graphic.
-    * ``source_hash`` — stable digest of ``(block surface, profile,
-      structure)`` (see :func:`brailix.pipeline.block_hash`). Safe as a
-      cache key on its own: a same-text Heading vs Paragraph, ordered vs
-      unordered list, or two differently-shaped Tables hash apart, so a
-      cache keyed on it can't serve one block's braille for another. A
-      front-end that also wants override-aware caching (a proofreading
-      front-end) composes this hash with its own override salt.
+    * ``source_hash`` — stable digest of ``(block surface, resolved
+      profile, structure)`` salted with the producing pipeline's
+      compilation fingerprint (see :func:`brailix.pipeline.block_hash`
+      and :attr:`brailix.pipeline.Pipeline.fingerprint`). Safe as a cache
+      key on its own: a same-text Heading vs Paragraph, ordered vs
+      unordered list, or two differently-shaped Tables hash apart — and
+      so does the same block compiled under a different configuration
+      (resolver, user dictionary, edited profile content, mode), so a
+      cache keyed on it can't serve one configuration's braille for
+      another. A front-end that also wants override-aware caching (a
+      proofreading front-end) composes this hash with its own override
+      salt.
     * ``compiled_at`` — when this entry was produced; helpful for
       debugging stale caches.
 

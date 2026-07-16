@@ -96,6 +96,10 @@ from brailix.ir.inline import (
     MathInline,
 )
 from brailix.ir.tactile import TactileRaster
+from brailix.pipeline._fingerprint import (
+    compilation_fingerprint,
+    profile_digest,
+)
 from brailix.pipeline._helpers import (
     _all_prose_types,
     _block_surface,
@@ -132,6 +136,8 @@ __all__ = [
     "CompiledBlock",
     "TreeSubcache",
     "block_hash",
+    "compilation_fingerprint",
+    "profile_digest",
     "_resolve_language_adapter",
     "_all_prose_types",
     "_ensure_block_span",
@@ -231,6 +237,7 @@ class Pipeline:
     asset_resolver: GraphicAssetResolver | None = None
     _profile: BrailleProfile = field(init=False, default=None)  # type: ignore[assignment]
     _frontend: FrontendDriver = field(init=False, default=None)  # type: ignore[assignment]
+    _fingerprint: str = field(init=False, default="")
 
     def __post_init__(self) -> None:
         self.mode = normalize_run_mode(self.mode)
@@ -256,6 +263,24 @@ class Pipeline:
             user_pinyin_dict=self.user_pinyin_dict,
             asset_resolver=self.asset_resolver,
         )
+        # Compilation-configuration identity (see
+        # :func:`~brailix.pipeline.compilation_fingerprint`): computed once,
+        # folded into every block's ``source_hash`` and stamped onto the
+        # blocks this pipeline's frontend populates.  Uses the RESOLVED
+        # segmenter / normalizer names (per-language selection applied) so
+        # two spellings of the same effective configuration fingerprint
+        # alike.
+        opts = self._frontend.frontend_options()
+        self._fingerprint = compilation_fingerprint(
+            self._profile,
+            mode=normalize_run_mode(self.mode).value,
+            segmenter=opts["segmenter"],
+            normalizer=opts["normalizer"],
+            analyzer=self.analyzer,
+            resolver=self.resolver,
+            user_pinyin_dict=self.user_pinyin_dict,
+        )
+        self._frontend.fingerprint = self._fingerprint
 
     @property
     def profile_name(self) -> str:
@@ -276,6 +301,23 @@ class Pipeline:
         touching the private ``_profile`` — the public-API boundary.
         """
         return self._profile.language
+
+    @property
+    def fingerprint(self) -> str:
+        """This pipeline's compilation-configuration fingerprint.
+
+        A stable digest of everything Pipeline-level that can change the
+        compiled output for the same source text: the resolved profile's
+        content, the selected adapter names, the user pinyin dictionary,
+        the run mode and the brailix version — see
+        :func:`~brailix.pipeline.compilation_fingerprint` for the exact
+        coverage and its limits.  Two pipelines with equal fingerprints
+        compile any block identically (within one process); a front-end
+        that keys a cache across pipeline reconfigurations folds this in
+        (:meth:`translate_block` already folds it into
+        :attr:`CompiledBlock.source_hash`).
+        """
+        return self._fingerprint
 
     # --- Public API ---------------------------------------------------
     #
@@ -490,7 +532,13 @@ class Pipeline:
         the rendered :class:`BrailleDocument`. The original ``doc`` is
         **mutated in place** — children are filled where they were
         missing — so subsequent re-translations skip the frontend
-        cost.
+        cost. That reuse is guarded by provenance, not just text: blocks
+        this (or any) pipeline populated are stamped with its
+        :attr:`fingerprint`, and re-translating through a
+        differently-configured pipeline (another resolver, user
+        dictionary, profile content...) drops and rebuilds their children
+        instead of reusing semantic IR built under the old configuration.
+        Hand-built children (never stamped) are used as-is.
         """
         warnings, ctx, backend_ctx = self._fresh_contexts()
         # Stamp the pipeline's identity onto the (possibly hand-built) doc
@@ -778,26 +826,36 @@ class Pipeline:
 
         Pipeline keeps **no cache of its own** — the caller consults its
         own block cache via ``source_hash`` before calling this method. The
-        hash covers ``(block surface, profile, structure)`` and is safe as a
-        cache key on its own (a same-text Heading and Paragraph, or two
-        differently-shaped tables, hash apart); callers that ALSO want
-        override-aware cache keys compose ``source_hash`` with their own
-        override-list salt at the caller layer.
+        hash covers ``(block surface, resolved profile, structure)`` plus
+        this pipeline's compilation :attr:`fingerprint` (profile content,
+        adapter selection, user dictionary, mode, brailix version), so it is
+        safe as a cache key on its own: a same-text Heading and Paragraph,
+        or two differently-shaped tables, hash apart — and so do the same
+        block compiled by two differently-configured pipelines. Callers that
+        ALSO want override-aware cache keys compose ``source_hash`` with
+        their own override-list salt at the caller layer.
 
         The backend always re-runs; the frontend does not, when it safely can
         skip: a block that already has ``children`` is treated as already
         frontend-processed and :meth:`FrontendDriver.populate_block`
         short-circuits over it (the parsed math / music tree can't be rebuilt
         from flattened children, so re-running would lose it). ``block.text`` is
-        the authoritative raw source, though, so this skip is **guarded**: if
-        you mutate ``block.text`` on a block whose ``children`` were built from
-        the old text, populate detects the mismatch (the reconstructed child
-        surface no longer equals ``block.text``), drops the stale children, and
-        re-runs the frontend on the current text — so the re-compile reflects
-        your edit and ``source_hash`` changes with it, rather than silently
-        reusing stale braille. Passing a fresh, unpopulated block each call is
-        still the cheapest path (an editing front-end re-parses source into
-        fresh blocks anyway); the guard only makes reuse *safe*, not free.
+        the authoritative raw source, though, so this skip is **guarded**, two
+        ways: if you mutate ``block.text`` on a block whose ``children`` were
+        built from the old text, populate detects the mismatch (the
+        reconstructed child surface no longer equals ``block.text``), drops the
+        stale children, and re-runs the frontend on the current text — so the
+        re-compile reflects your edit and ``source_hash`` changes with it,
+        rather than silently reusing stale braille. And if the children were
+        populated by a **differently-configured** pipeline (its
+        :attr:`fingerprint` differs — another resolver, user dictionary,
+        profile content...), populate likewise drops and rebuilds them, so
+        handing one parsed document to two pipelines really compiles it under
+        each one's configuration. Only hand-built children (never stamped by a
+        pipeline) are used as-is, per the hand-built-IR contract. Passing a
+        fresh, unpopulated block each call is still the cheapest path (an
+        editing front-end re-parses source into fresh blocks anyway); the
+        guards only make reuse *safe*, not free.
         """
         # One fresh collector + matching contexts for this block.  The
         # backend context is stamped with this block's type up front — the
@@ -846,11 +904,16 @@ class Pipeline:
                 label_translator=self._translate_inline_text,
             )
 
-        # Stable cache key: textual surface + profile.  Callers who
-        # need override-aware cache keys (a proofreading front-end) compose this
-        # hash with their own override-list salt outside the
-        # compiler.
-        source_hash = block_hash(block, self.profile)
+        # Stable cache key: textual surface + resolved profile + structure,
+        # salted with this pipeline's compilation fingerprint so a cache
+        # shared across differently-configured pipelines (resolver, user
+        # dictionary, edited profile content, ...) can never serve the other
+        # configuration's braille.  Callers who need override-aware cache
+        # keys (a proofreading front-end) compose this hash with their own
+        # override-list salt outside the compiler.
+        source_hash = block_hash(
+            block, self.profile_name, fingerprint=self._fingerprint
+        )
 
         return CompiledBlock(
             block_id=block.id or "",
