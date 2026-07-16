@@ -95,6 +95,37 @@ class TestMxlZipBombCap:
         assert "zip bomb" in out  # soft-failed with the cap reason
 
 
+class TestMxlUtf16EntityNotExpanded:
+    """A ``container.xml`` written in UTF-16 must not smuggle an XML entity
+    declaration past the billion-laughs guard (M-01). The entity guard scans
+    the UTF-16 byte forms too, so ``safe_fromstring`` rejects such a container
+    and ``_find_rootfile`` degrades to the plain fallback scan — the entity is
+    never expanded to steer the rootfile path."""
+
+    def test_utf16_container_entity_is_not_expanded(self):
+        from brailix.frontend.music.adapters.mxl import _find_rootfile
+
+        # If the entity expanded, ``full-path`` would resolve to
+        # ``via_entity.musicxml``; with the guard it does not, so the fallback
+        # scan returns the first plain XML entry (``plain.musicxml``) instead.
+        container = (
+            '<?xml version="1.0" encoding="UTF-16"?>'
+            '<!DOCTYPE container [<!ENTITY p "via_entity.musicxml">]>'
+            "<container><rootfiles>"
+            '<rootfile full-path="&p;"/>'
+            "</rootfiles></container>"
+        ).encode("utf-16")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("META-INF/container.xml", container)
+            zf.writestr("plain.musicxml", SIMPLE_XML)  # fallback target (first)
+            zf.writestr("via_entity.musicxml", SIMPLE_XML)  # entity-only target
+        with zipfile.ZipFile(io.BytesIO(buf.getvalue())) as zf:
+            root = _find_rootfile(zf)
+        assert root == "plain.musicxml"
+        assert root != "via_entity.musicxml"
+
+
 # ---------------------------------------------------------------------------
 # parse_musicxml direct
 # ---------------------------------------------------------------------------

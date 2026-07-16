@@ -38,6 +38,32 @@ _XML_INVALID_CHARS = re.compile(
 # default, so it can't smuggle a bomb either.
 _ENTITY_DECL_RE = re.compile(r"<!ENTITY")
 _ENTITY_DECL_RE_BYTES = re.compile(rb"<!ENTITY")
+# ...but the raw-byte scan only sees ``<!ENTITY`` when the source is a single-
+# byte encoding (UTF-8 / ISO-8859-1 / US-ASCII — the ASCII bytes appear
+# verbatim). UTF-16 encodes each ASCII character of the keyword as a two-byte
+# code unit — the ASCII byte beside a NUL, low-byte-first (UTF-16LE) or high-
+# byte-first (UTF-16BE) — so the interleaved NULs break the contiguous ASCII run
+# and the scan above misses it. expat still auto-detects UTF-16 from the BOM /
+# declaration and expands the entity, so a UTF-16 document would smuggle a bomb
+# straight past the filter (this is a real, verified bypass, not a theoretical
+# one). Match the two interleaved forms directly. UTF-32 needs no pattern: expat
+# cannot decode it at all, so such a document fails as not-well-formed before any
+# entity can expand.
+_ENTITY_DECL_RE_UTF16LE = re.compile(rb"<\x00!\x00E\x00N\x00T\x00I\x00T\x00Y\x00")
+_ENTITY_DECL_RE_UTF16BE = re.compile(rb"\x00<\x00!\x00E\x00N\x00T\x00I\x00T\x00Y")
+
+
+def _declares_entity_bytes(data: bytes | bytearray) -> bool:
+    """Whether ``data`` carries an XML ``<!ENTITY`` declaration in any encoding
+    expat will decode and then expand: a single-byte encoding (the plain ASCII
+    bytes) or UTF-16 LE / BE (the same bytes interleaved with NULs). See the
+    module-level patterns for why UTF-16 needs its own forms and UTF-32 does
+    not."""
+    return (
+        _ENTITY_DECL_RE_BYTES.search(data) is not None
+        or _ENTITY_DECL_RE_UTF16LE.search(data) is not None
+        or _ENTITY_DECL_RE_UTF16BE.search(data) is not None
+    )
 
 
 def safe_fromstring(text: str | bytes) -> ET.Element:
@@ -54,10 +80,15 @@ def safe_fromstring(text: str | bytes) -> ET.Element:
     ElementTree does not expose the underlying expat parser portably, and
     a literal ``<!ENTITY`` never appears in legitimate MathML / MusicXML
     content (only inside a DOCTYPE internal subset). A false reject would
-    at worst soft-fail an exotic document — never silently mistranslate.
+    at worst soft-fail an exotic document — never silently mistranslate. The
+    byte scan covers every encoding expat will actually decode: single-byte
+    encodings carry the keyword as literal ASCII, and UTF-16 (LE / BE) carries
+    it in the NUL-interleaved forms the scan also checks — so the encoding
+    trick that would otherwise slip a declaration past a plain ASCII scan is
+    closed.
     """
     if isinstance(text, (bytes, bytearray)):
-        has_entity_decl = _ENTITY_DECL_RE_BYTES.search(text) is not None
+        has_entity_decl = _declares_entity_bytes(text)
     else:
         has_entity_decl = _ENTITY_DECL_RE.search(text) is not None
     if has_entity_decl:

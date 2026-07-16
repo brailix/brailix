@@ -57,6 +57,43 @@ class TestSafeFromstring:
         with pytest.raises(ET.ParseError, match="entity declarations"):
             safe_fromstring(self._BOMB.encode("utf-8"))
 
+    # A UTF-16 (LE / BE) document spreads the ASCII bytes of ``<!ENTITY`` with
+    # interleaved NULs, so a plain ASCII byte scan misses the declaration — yet
+    # expat auto-detects UTF-16 from the BOM / declaration and would expand the
+    # entity. The declaration must be caught in every encoding expat decodes,
+    # not just UTF-8, or the whole billion-laughs guard is bypassable.
+    _BOMB_UTF16 = (
+        '<?xml version="1.0" encoding="UTF-16"?>'
+        '<!DOCTYPE lolz [<!ENTITY lol "lol">'
+        '<!ENTITY lol2 "&lol;&lol;&lol;">]>'
+        "<lolz>&lol2;</lolz>"
+    )
+
+    @pytest.mark.parametrize("encoding", ["utf-16", "utf-16-le", "utf-16-be"])
+    def test_rejects_utf16_entity_declaration(self, encoding: str) -> None:
+        with pytest.raises(ET.ParseError, match="entity declarations"):
+            safe_fromstring(self._BOMB_UTF16.encode(encoding))
+
+    @pytest.mark.parametrize("encoding", ["utf-16", "utf-16-le", "utf-16-be"])
+    def test_legit_utf16_without_entities_still_parses(self, encoding: str) -> None:
+        # The UTF-16 guard must not false-reject a legitimate UTF-16 document
+        # (Finale / some Windows exporters write UTF-16-with-BOM MusicXML).
+        doc = '<?xml version="1.0" encoding="UTF-16"?><score><part/></score>'
+        root = safe_fromstring(doc.encode(encoding))
+        assert root.tag == "score"
+
+    def test_legit_utf16_external_doctype_still_parses(self) -> None:
+        # A real MusicXML file carries an external DTD (no internal entities);
+        # in UTF-16 it must still parse, not trip the entity guard.
+        doc = (
+            '<?xml version="1.0" encoding="UTF-16"?>'
+            '<!DOCTYPE score-partwise PUBLIC '
+            '"-//Recordare//DTD MusicXML 3.1 Partwise//EN" '
+            '"http://www.musicxml.org/dtds/partwise.dtd">'
+            "<score-partwise><part/></score-partwise>"
+        )
+        assert safe_fromstring(doc.encode("utf-16")).tag == "score-partwise"
+
 
 class TestStripXmlInvalidChars:
     def test_drops_c0_controls_except_whitespace(self) -> None:
