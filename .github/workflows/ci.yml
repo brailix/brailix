@@ -15,12 +15,15 @@ jobs:
     name: lint + type-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
       - name: Install uv
-        # setup-uv stopped publishing floating major tags with v8 — pin the
-        # exact (immutable) release tag.
-        uses: astral-sh/setup-uv@v8.2.0
+        # Pinned to the full commit SHA: a tag — even a patch release like
+        # v8.2.0 — is a movable ref, so only a commit SHA is an immutable
+        # supply-chain anchor (per GitHub's secure-use guidance). The trailing
+        # comment keeps the human-readable version; bump the SHA and comment
+        # together. (setup-uv also stopped publishing floating major tags at v8.)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
         with:
           python-version: "3.13"
           enable-cache: true
@@ -44,10 +47,10 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.13"]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.2.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
@@ -88,10 +91,10 @@ jobs:
     name: wheel build + clean-install smoke
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.2.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
         with:
           python-version: "3.13"
           enable-cache: true
