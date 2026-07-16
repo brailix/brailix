@@ -62,8 +62,7 @@ Full docs are in [`docs/`](docs/index.md):
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Release notes are in
-[CHANGELOG.md](CHANGELOG.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

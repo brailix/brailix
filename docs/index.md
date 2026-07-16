@@ -14,7 +14,6 @@
 
 - [Architecture](../ARCHITECTURE.md) — the compiler pipeline, the intermediate representations, and the adapter pattern the whole codebase is built on.
 - [Contributing](../CONTRIBUTING.md) — how to report a bug or propose a change.
-- [Changelog](../CHANGELOG.md) — notable changes per release.
 
 ## The shape of the library, in one paragraph
 
