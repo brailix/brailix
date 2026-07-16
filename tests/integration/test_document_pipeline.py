@@ -370,6 +370,75 @@ class TestTranslateDocumentMetadata:
 
 
 # ---------------------------------------------------------------------------
+# Requested vs resolved profile identity: metadata carries the RESOLVED
+# name (BrailleProfile.name, the authoritative identity to persist) on both
+# IRs, with the caller-supplied name preserved as ``profile_requested``
+# only when it differs (aliases, user-folder profiles declaring their own
+# ``name``). Regression: translate_* / parse_* used to write the requested
+# string while the backend wrote the resolved one, so
+# ``ir.metadata["profile"] != braille_ir.metadata["profile"]``.
+# ---------------------------------------------------------------------------
+
+
+class TestResolvedProfileIdentity:
+    @pytest.fixture()
+    def alias_dir(self, tmp_path):
+        """A user profile drop: file named ``my_alias.json`` whose payload
+        declares ``name: cn_current`` (loader keeps the payload's name)."""
+        import json
+        from pathlib import Path
+
+        import brailix
+
+        src = Path(brailix.__file__).parent / "profiles" / "cn_current.json"
+        payload = json.loads(src.read_text(encoding="utf-8"))
+        assert payload["name"] == "cn_current"
+        (tmp_path / "my_alias.json").write_text(
+            json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+        )
+        return tmp_path
+
+    def test_builtin_profile_metadata_shape_unchanged(self, pipe):
+        result = pipe.translate_text("字")
+        assert result.ir.metadata["profile"] == "cn_current"
+        assert "profile_requested" not in result.ir.metadata
+
+    def test_alias_resolves_to_authoritative_name_on_both_irs(self, alias_dir):
+        pipe = Pipeline(
+            profile="my_alias", extra_profile_paths=(str(alias_dir),)
+        )
+        assert pipe.profile_name == "cn_current"
+        result = pipe.translate_text("字")
+        assert result.ir.metadata["profile"] == "cn_current"
+        assert result.braille_ir.metadata["profile"] == "cn_current"
+        assert (
+            result.ir.metadata["profile"]
+            == result.braille_ir.metadata["profile"]
+        )
+        assert result.ir.metadata["profile_requested"] == "my_alias"
+
+    def test_parse_text_matches_translate_identity(self, alias_dir):
+        pipe = Pipeline(
+            profile="my_alias", extra_profile_paths=(str(alias_dir),)
+        )
+        doc = pipe.parse_text("字")
+        assert doc.metadata["profile"] == "cn_current"
+        assert doc.metadata["profile_requested"] == "my_alias"
+
+    def test_translate_document_replaces_stale_requested(self, alias_dir):
+        # A doc first stamped by an alias pipeline, re-translated by the
+        # plain one: profile_requested must not survive as a stale lie.
+        alias_pipe = Pipeline(
+            profile="my_alias", extra_profile_paths=(str(alias_dir),)
+        )
+        doc = alias_pipe.parse_text("字")
+        assert doc.metadata["profile_requested"] == "my_alias"
+        Pipeline(profile="cn_current").translate_document(doc)
+        assert doc.metadata["profile"] == "cn_current"
+        assert "profile_requested" not in doc.metadata
+
+
+# ---------------------------------------------------------------------------
 # Pipeline.translate_file — file → IR → braille shortcut. parse_file
 # itself is unit-tested in tests/input/test_file.py; here we only pin
 # the composition (file path goes in, TranslationResult comes out, and
