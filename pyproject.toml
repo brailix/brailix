@@ -24,7 +24,15 @@ dependencies = []
 # selection prefers the best installed one.
 zh = ["jieba", "pypinyin"]
 # Chinese segmentation engines (alternatives):
-hanlp = ["hanlp"]          # transformer MTL, most accurate (downloads a model on first use)
+# hanlp: transformer MTL, most accurate (downloads a model on first use).
+# ``transformers<4.55``: hanlp (2.1.3) declares no upper bound on its core
+# transformers dependency, but transformers 5.0 removed
+# ``BertTokenizer.encode_plus``, which HanLP still calls at inference time —
+# an unconstrained install resolves a pairing that crashes on first use.
+# <4.55 mirrors hanlp's own verified bound (its ``full`` / ``tf`` extras);
+# the adapter also guards the proven >=5 breakage at load time. Drop both
+# (and the same pin in the ``all`` extra) when HanLP supports transformers 5.
+hanlp = ["hanlp", "transformers<4.55"]
 thulac = ["thulac"]
 jieba = ["jieba"]          # light, offline, pure-Python
 # Chinese pinyin engines (alternatives):
@@ -81,7 +89,8 @@ sudachi = ["sudachipy", "sudachidict-core"]  # Sudachi (reading_form)
 # Every tool + each language's default analyzer. The heavier Japanese
 # engines (fugashi / sudachi) stay opt-in — install them explicitly.
 all = [
-    "hanlp", "thulac", "jieba",
+    "hanlp", "transformers<4.55",  # pin rides along with hanlp — see the [hanlp] extra
+    "thulac", "jieba",
     "g2pM", "numpy", "g2pw", "pypinyin",
     "janome",
     "latex2mathml",

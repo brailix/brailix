@@ -24,12 +24,17 @@ from typing import Any
 
 import pytest
 
-from brailix.core.errors import MissingExtraError, ModelNotInstalledError
+from brailix.core.errors import (
+    IncompatibleDependencyError,
+    MissingExtraError,
+    ModelNotInstalledError,
+)
 from brailix.core.models.asset_registry import set_managed_download
 from brailix.core.span import Span
 from brailix.frontend.zh.analyzer.adapters.hanlp import (
     _MTL_DIR,
     HanLPChineseAnalyzer,
+    _check_transformers_compatibility,
     _ensure_model_installed,
     _extract_pos,
     _extract_words,
@@ -319,6 +324,81 @@ class TestEnsureModelInstalled:
         analyzer = analyzer_registry.get("hanlp")  # no raise
         assert loaded.get("called") is True
         assert isinstance(analyzer, HanLPChineseAnalyzer)
+
+
+class TestTransformersCompatGuard:
+    """The known-incompatibility guard: hanlp + transformers>=5 must be
+    rejected at load time (transformers 5.0 removed
+    ``BertTokenizer.encode_plus``, which HanLP calls at inference), instead
+    of crashing with AttributeError deep inside the first ``analyze``."""
+
+    @staticmethod
+    def _fake_versions(monkeypatch, mapping: dict[str, str]) -> None:
+        """Make ``importlib.metadata.version`` answer from ``mapping`` —
+        absent names raise PackageNotFoundError, like a real missing dist."""
+        from brailix.frontend.zh.analyzer.adapters import hanlp as hanlp_adapter
+
+        def fake_version(name: str) -> str:
+            try:
+                return mapping[name]
+            except KeyError:
+                raise hanlp_adapter._metadata.PackageNotFoundError(name) from None
+
+        monkeypatch.setattr(
+            hanlp_adapter._metadata, "version", fake_version
+        )
+
+    def test_transformers_5_raises_with_remedy(self, monkeypatch):
+        self._fake_versions(
+            monkeypatch, {"hanlp": "2.1.3", "transformers": "5.14.0"}
+        )
+        with pytest.raises(IncompatibleDependencyError) as ei:
+            _check_transformers_compatibility()
+        msg = str(ei.value)
+        # The message must carry the diagnosis and the exact remedy.
+        assert "encode_plus" in msg
+        assert 'pip install "transformers<4.55"' in msg
+        assert ei.value.adapter == "hanlp"
+        assert ei.value.dependency == "transformers"
+        assert ei.value.installed == "5.14.0"
+
+    def test_transformers_4_passes(self, monkeypatch):
+        self._fake_versions(
+            monkeypatch, {"hanlp": "2.1.3", "transformers": "4.57.6"}
+        )
+        _check_transformers_compatibility()  # no raise
+
+    def test_hanlp_not_installed_defers_to_missing_extra(self, monkeypatch):
+        # Without hanlp the guard must stay silent even under a broken
+        # transformers — "install the hanlp extra" is the accurate
+        # diagnostic there, and it comes from the registry's ImportError
+        # rewrite, not from this guard.
+        self._fake_versions(monkeypatch, {"transformers": "5.14.0"})
+        _check_transformers_compatibility()  # no raise
+
+    def test_transformers_not_installed_passes(self, monkeypatch):
+        # hanlp without transformers is a broken hanlp install; its own
+        # import failure is the more accurate diagnostic.
+        self._fake_versions(monkeypatch, {"hanlp": "2.1.3"})
+        _check_transformers_compatibility()  # no raise
+
+    def test_unrecognized_version_scheme_passes(self, monkeypatch):
+        self._fake_versions(
+            monkeypatch, {"hanlp": "2.1.3", "transformers": "dev"}
+        )
+        _check_transformers_compatibility()  # no raise
+
+    def test_registry_get_surfaces_the_incompatibility(self, monkeypatch):
+        """End to end through the registry: the error must propagate as
+        IncompatibleDependencyError (the registry only rewrites
+        ImportError), so an explicit ``analyzer="hanlp"`` shows the real
+        diagnosis rather than a misleading "install the extra" hint."""
+        self._fake_versions(
+            monkeypatch, {"hanlp": "2.1.3", "transformers": "5.14.0"}
+        )
+        analyzer_registry.clear_cache()
+        with pytest.raises(IncompatibleDependencyError):
+            analyzer_registry.get("hanlp")
 
 
 class TestProtocolConformance:

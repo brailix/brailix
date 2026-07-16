@@ -117,6 +117,45 @@ class MissingExtraError(BrailixError):
         self.missing_module = missing_module
 
 
+class IncompatibleDependencyError(BrailixError):
+    """Raised when an adapter's optional dependency IS installed, but at a
+    version known to break the adapter at runtime.
+
+    Deliberately *not* a :class:`MissingExtraError` subclass: that error's
+    "pip install brailix[<extra>]" advice is exactly wrong here — everything
+    is installed, one package is just too new (or too old) — so this error
+    carries its own remedy (``pip install "<dependency><requirement>"``).
+    The ``auto`` selection chains treat it like any other
+    "candidate unavailable" signal (:class:`ModelNotInstalledError`,
+    :class:`MissingExtraError`) and fall through to the next engine, while an
+    explicitly requested adapter surfaces the message as-is.
+
+    Raise it only for *known, deterministic* incompatibilities (a removed
+    API, a published upstream bound) — an unexplained load failure should
+    propagate instead, so real bugs aren't silently reclassified.
+    """
+
+    def __init__(
+        self,
+        adapter: str,
+        *,
+        dependency: str,
+        installed: str,
+        requirement: str,
+        reason: str,
+    ):
+        super().__init__(
+            f"adapter {adapter!r} is installed but its dependency "
+            f"{dependency!r} {installed} is known to be incompatible: "
+            f"{reason}. Install a compatible version: "
+            f'pip install "{dependency}{requirement}"'
+        )
+        self.adapter = adapter
+        self.dependency = dependency
+        self.installed = installed
+        self.requirement = requirement
+
+
 class UnknownAdapterError(BrailixError, KeyError):
     """Raised when a registry is asked for an adapter / analyzer / resolver /
     renderer name it doesn't know (and no optional extra would supply it).

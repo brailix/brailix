@@ -66,10 +66,13 @@ jobs:
       # and that whole vertical counts as uncovered.
       #
       # The two heavyweight neural Chinese engines — ``hanlp`` and ``g2pw`` —
-      # are deliberately left OUT: no test exercises their inference (only
-      # path / error-string tests touch them), they drag in torch, and hanlp
-      # is currently broken against recent transformers (BertTokenizer dropped
-      # ``encode_plus``), which the ``auto`` analyzer would hit if installed.
+      # are deliberately left OUT: no test here exercises their inference
+      # (only path / error-string tests touch them) and they drag in torch.
+      # Their coverage lives in the scheduled heavyweight-adapters workflow.
+      # The known transformers hazard (5.0 removed BertTokenizer.encode_plus,
+      # which hanlp calls at inference) is fenced twice: the ``hanlp`` extra
+      # pins ``transformers<4.55``, and the adapter refuses to load under
+      # transformers>=5 so the ``auto`` chain skips it instead of crashing.
       - name: Install dependencies
         run: >-
           uv sync

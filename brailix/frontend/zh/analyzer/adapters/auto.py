@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 
 from brailix.core.context import FrontendContext
 from brailix.core.errors import (
+    IncompatibleDependencyError,
     MissingExtraError,
     ModelNotInstalledError,
     UnknownAdapterError,
@@ -53,16 +54,25 @@ class AutoChineseAnalyzer:
             try:
                 self._delegate = analyzer_registry.get(name)
                 return self._delegate
-            except (KeyError, MissingExtraError, ModelNotInstalledError, OSError) as e:
+            except (
+                KeyError,
+                MissingExtraError,
+                ModelNotInstalledError,
+                IncompatibleDependencyError,
+                OSError,
+            ) as e:
                 # ModelNotInstalledError: a candidate (e.g. hanlp under
                 # managed download) is importable but its model isn't
-                # downloaded yet. OSError: a candidate's loader touched the
-                # filesystem (e.g. created its model dir) and failed — a
-                # read-only models root when brailix runs inside another
-                # app's frozen interpreter. Treat both like any other
-                # "candidate unavailable" and fall through to the next — the
-                # shipping default chain must degrade to char, not crash the
-                # compile.
+                # downloaded yet. IncompatibleDependencyError: a candidate is
+                # installed alongside a dependency version known to break it
+                # at runtime (e.g. hanlp with transformers >= 5), so selecting
+                # it would crash the first analyze() — skip it up front.
+                # OSError: a candidate's loader touched the filesystem (e.g.
+                # created its model dir) and failed — a read-only models root
+                # when brailix runs inside another app's frozen interpreter.
+                # Treat all of these like any other "candidate unavailable"
+                # and fall through to the next — the shipping default chain
+                # must degrade to char, not crash the compile.
                 last_error = e
 
         if last_error is not None:

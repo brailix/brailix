@@ -98,6 +98,29 @@ def test_auto_falls_through_model_not_installed_candidate():
         assert [t.surface for t in tokens] == ["我"]  # degraded to char
 
 
+def test_auto_falls_through_incompatible_dependency_candidate():
+    # A candidate whose dependency is installed at a known-broken version
+    # (e.g. hanlp with transformers >= 5) raises IncompatibleDependencyError
+    # from its loader. The chain must treat it as "unavailable" and degrade
+    # to the next engine — selecting it would crash the first analyze().
+    from brailix.core.errors import IncompatibleDependencyError
+    from brailix.frontend.zh.analyzer.adapters.auto import AutoChineseAnalyzer
+
+    def _known_broken():
+        raise IncompatibleDependencyError(
+            "fake_hanlp",
+            dependency="transformers",
+            installed="5.14.0",
+            requirement="<4.55",
+            reason="test double",
+        )
+
+    with analyzer_registry.overriding("fake_incompatible", _known_broken):
+        analyzer = AutoChineseAnalyzer(preferred=("fake_incompatible", "char"))
+        tokens = analyzer.analyze("我")
+        assert [t.surface for t in tokens] == ["我"]  # degraded to char
+
+
 def test_hanlp_load_failure_surfaces_as_model_not_installed(monkeypatch, tmp_path):
     # In the standalone (non-managed) path hanlp.load auto-downloads the
     # model; a network / IO failure there must surface as

@@ -23,11 +23,12 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from importlib import metadata as _metadata
 from pathlib import Path
 from typing import Any
 
 from brailix.core.context import FrontendContext
-from brailix.core.errors import ModelNotInstalledError
+from brailix.core.errors import IncompatibleDependencyError, ModelNotInstalledError
 from brailix.core.models.asset_registry import (
     ModelAsset,
     is_managed_download,
@@ -43,6 +44,61 @@ from brailix.ir.inline import ChineseToken
 # ``hanlp.pretrained.mtl.CLOSE_TOK_POS_NER_SRL_DEP_SDP_CON_ELECTRA_SMALL_ZH``).
 _MTL_DIR = Path("mtl") / "close_tok_pos_ner_srl_dep_sdp_con_electra_small_20210111_124159"
 _MODEL_ID = "hanlp_mtl_electra_small_zh"
+
+# HanLP calls ``BertTokenizer.encode_plus`` at inference time, and
+# transformers 5.0 removed it (verified 2026-07: 4.57.6 has the method,
+# 5.14.0 does not) — so with transformers >= 5 installed, ``hanlp.load``
+# succeeds and the crash (AttributeError, which PROGRAMMING_ERRORS
+# deliberately propagates) only fires deep inside the first ``analyze``.
+# hanlp itself (2.1.3) declares no upper bound on its core dependency, so a
+# fresh ``pip install hanlp`` resolves this broken pairing; only its own
+# ``full`` / ``tf`` extras publish the verified bound ``transformers<4.55``,
+# which our install hint (and the ``hanlp`` extra in pyproject.toml) mirrors.
+# The guard rejects only the *proven* breakage (>= 5): 4.55–4.x is merely
+# outside upstream's tested range and may well work, and blocking a working
+# install would be worse than allowing it. Drop the guard when a HanLP
+# release supports transformers 5 (and relax the pyproject bound with it).
+_TRANSFORMERS_INCOMPATIBLE_MAJOR = 5
+_TRANSFORMERS_REQUIREMENT_HINT = "<4.55"
+
+
+def _check_transformers_compatibility() -> None:
+    """Raise :class:`IncompatibleDependencyError` for a known-broken
+    ``transformers`` install.
+
+    Runs before ``import hanlp`` so the ``auto`` chain skips hanlp (and an
+    explicit ``analyzer="hanlp"`` gets an actionable message) instead of
+    selecting an engine that AttributeErrors on first use. Reads package
+    metadata only — nothing heavy is imported. Fires only when hanlp itself
+    is installed: a missing hanlp must keep surfacing as MissingExtraError.
+    """
+    try:
+        _metadata.version("hanlp")
+    except _metadata.PackageNotFoundError:
+        # hanlp isn't installed — fall through to ``import hanlp`` below,
+        # whose ImportError the registry rewrites into MissingExtraError.
+        return
+    try:
+        installed = _metadata.version("transformers")
+    except _metadata.PackageNotFoundError:
+        # hanlp without transformers is a broken install of hanlp itself;
+        # its own import error is the more accurate diagnostic.
+        return
+    try:
+        major = int(installed.partition(".")[0])
+    except ValueError:
+        return  # unrecognized version scheme — don't block on a guess
+    if major >= _TRANSFORMERS_INCOMPATIBLE_MAJOR:
+        raise IncompatibleDependencyError(
+            "hanlp",
+            dependency="transformers",
+            installed=installed,
+            requirement=_TRANSFORMERS_REQUIREMENT_HINT,
+            reason=(
+                "transformers 5.0 removed BertTokenizer.encode_plus, "
+                "which HanLP still calls at inference time"
+            ),
+        )
 
 
 @dataclass(slots=True)
@@ -121,6 +177,8 @@ def _load() -> HanLPChineseAnalyzer:
     front-end opted in via ``set_managed_download``) we instead pre-check
     and raise so that front-end's downloader handles it.
     """
+    _check_transformers_compatibility()
+
     hanlp_home = get_model_dir("hanlp")
     os.environ["HANLP_HOME"] = str(hanlp_home)
 
