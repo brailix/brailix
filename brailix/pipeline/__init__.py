@@ -346,10 +346,7 @@ class Pipeline:
         paragraph = Paragraph(
             children=children, span=Span(0, len(text)) if text else None
         )
-        doc = DocumentIR(
-            metadata={"language": self._profile.language, "profile": self.profile},
-            blocks=[paragraph],
-        )
+        doc = DocumentIR(metadata=self._ir_metadata(), blocks=[paragraph])
         braille_doc = translate_document(doc, backend_ctx, self._profile)
         return TranslationResult(
             text=text,
@@ -557,9 +554,11 @@ class Pipeline:
         # so the result is self-describing the same way translate_text /
         # parse_* leave it.  The backend reads ``self._profile`` directly,
         # so this is for the IR metadata's consumers, not the translation;
-        # other caller metadata keys are preserved.
-        doc.metadata["language"] = self._profile.language
-        doc.metadata["profile"] = self.profile
+        # other caller metadata keys are preserved (``profile_requested``
+        # is re-derived, not preserved — a stale one from a previous
+        # pipeline must not outlive this stamp).
+        doc.metadata.pop("profile_requested", None)
+        doc.metadata.update(self._ir_metadata())
         for block in doc.blocks:
             self._frontend.populate_block(block, ctx)
         braille_doc = translate_document(doc, backend_ctx, self._profile)
@@ -715,17 +714,24 @@ class Pipeline:
         compile step.
         """
         if format == "markdown":
-            return _parse_markdown(
+            doc = _parse_markdown(
                 text,
                 language=self._profile.language,
-                profile=self.profile,
+                profile=self._profile.name,
             )
+            # Same identity stamp translate_* uses — adds
+            # ``profile_requested`` when this pipeline was built from an
+            # alias, so a parsed-then-persisted doc matches a translated one.
+            doc.metadata.update(self._ir_metadata())
+            return doc
         if format == "plain":
-            return _parse_plain(
+            doc = _parse_plain(
                 text,
                 language=self._profile.language,
-                profile=self.profile,
+                profile=self._profile.name,
             )
+            doc.metadata.update(self._ir_metadata())
+            return doc
         if format == "musicxml":
             # Wrap raw MusicXML text as a single ScoreBlock so any
             # caller using parse_text can route .musicxml
@@ -735,10 +741,7 @@ class Pipeline:
             from brailix.ir.document import ScoreBlock
 
             return DocumentIR(
-                metadata={
-                    "language": self._profile.language,
-                    "profile": self.profile,
-                },
+                metadata=self._ir_metadata(),
                 blocks=[ScoreBlock(text=text, source="musicxml")],
             )
         raise ValueError(
@@ -775,10 +778,10 @@ class Pipeline:
         pattern a front-end uses). For the end-to-end one-shot, call
         :meth:`translate_file`.
         """
-        return _parse_file(
+        doc = _parse_file(
             path,
             language=self._profile.language,
-            profile=self.profile,
+            profile=self._profile.name,
             mathtype_fallback=self._profile.feature(
                 "input.docx.mathtype_fallback", "off"
             ),
@@ -787,6 +790,9 @@ class Pipeline:
             ),
             limits=limits,
         )
+        # Same identity stamp translate_* uses (see :meth:`parse_text`).
+        doc.metadata.update(self._ir_metadata())
+        return doc
 
     def translate_block(
         self,
@@ -943,6 +949,29 @@ class Pipeline:
         )
 
     # --- Internal: shared per-translate setup -----------------------
+
+    def _ir_metadata(self) -> dict[str, Any]:
+        """Self-describing identity stamped onto every IR this pipeline
+        produces.
+
+        ``profile`` is the **resolved** identity — the loaded
+        :attr:`BrailleProfile.name`, the authoritative name to persist —
+        matching what the backend stamps onto the
+        :class:`~brailix.ir.braille.BrailleDocument`, so
+        ``result.ir.metadata["profile"] ==
+        result.braille_ir.metadata["profile"]`` always holds. The
+        *requested* name (this pipeline's :attr:`profile` field) rides
+        along as ``profile_requested`` only when it differs — an alias, or
+        a user-folder profile whose JSON declares its own ``name`` — so
+        the common case serializes exactly as before.
+        """
+        md: dict[str, Any] = {
+            "language": self._profile.language,
+            "profile": self._profile.name,
+        }
+        if self.profile != self._profile.name:
+            md["profile_requested"] = self.profile
+        return md
 
     def _fresh_contexts(
         self, *, block_type: str = "paragraph"
