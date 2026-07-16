@@ -16,6 +16,7 @@ operate on structure.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -181,7 +182,7 @@ class BrailleSequence:
     def __len__(self) -> int:
         return len(self.cells)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[BrailleCell]:
         return iter(self.cells)
 
     def to_dict(self) -> dict[str, Any]:

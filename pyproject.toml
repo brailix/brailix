@@ -174,6 +174,24 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 ignore_missing_imports = true  # adapters' optional deps (hanlp, g2pw, ...) are extras
 
+# Strict-typing rollout, innermost layers first: core.span / core.errors →
+# ir now; backend → pipeline → adapters widen this list as each layer is
+# cleaned. ``strict = true`` is not valid per-module, so the strict flag
+# set is spelled out.
+[[tool.mypy.overrides]]
+module = ["brailix.core.span", "brailix.core.errors", "brailix.ir.*"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+check_untyped_defs = true
+warn_return_any = true
+no_implicit_reexport = true
+strict_equality = true
+extra_checks = true
+
 [tool.coverage.run]
 branch = true
 source = ["brailix"]
