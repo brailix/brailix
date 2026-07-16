@@ -212,8 +212,8 @@ class Warning:
     # ``None`` (the default) means "no structural anchor known".
     anchor: dict[str, str] | None = None
 
-    def to_dict(self) -> dict:
-        d: dict = {
+    def to_dict(self) -> dict[str, object]:
+        d: dict[str, object] = {
             "code": self.code,
             "level": self.level.value,
             "message": self.message,
@@ -352,5 +352,5 @@ class WarningCollector:
         self.warnings[:] = [w for w in self.warnings if not predicate(w)]
         return before - len(self.warnings)
 
-    def to_list(self) -> list[dict]:
+    def to_list(self) -> list[dict[str, object]]:
         return [w.to_dict() for w in self.warnings]
