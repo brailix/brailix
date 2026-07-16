@@ -1,0 +1,104 @@
+# Scheduled compatibility probe against the LATEST resolvable dependencies.
+#
+# Ordinary CI is pinned by uv.lock, which keeps PRs reproducible — but a user's
+# `pip install brailix[...]` resolves whatever is newest that day, a world the
+# lock never exercises. This job re-locks with `uv lock --upgrade` (latest
+# versions the constraints allow) and runs the full suite against that
+# resolution, so an upstream release that breaks us (the transformers-5 /
+# HanLP encode_plus kind of breakage) surfaces as a scheduled issue within a
+# week instead of as a user bug report.
+#
+# It does NOT block pull requests: weekly (and on demand), one leg, opening a
+# dedup'd issue on failure — the same contract as heavyweight-adapters.yml.
+# The heavy neural engines (hanlp / g2pw) stay out of this job; they have
+# their own scheduled workflow.
+name: Latest dependencies
+
+on:
+  schedule:
+    # Thursdays 06:00 UTC — offset from the heavyweight probe (Mondays) so
+    # one bad week doesn't land both alerts in the same inbox hour.
+    - cron: "0 6 * * 4"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  latest:
+    name: full suite on latest resolution
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      # Re-resolve everything to the newest versions the declared constraints
+      # allow, ignoring the committed lock. The lock file in the workspace is
+      # rewritten only inside this job's checkout — nothing is committed.
+      - name: Upgrade the lock to latest
+        run: uv lock --upgrade
+
+      # Same extras as the ordinary test job (ci.yml) so the same suite runs —
+      # minus the heavyweight engines, which have their own workflow.
+      - name: Install dependencies (latest)
+        run: >-
+          uv sync
+          --extra zh --extra thulac --extra g2pm --extra latex
+          --extra docx --extra music --extra graphics --extra graphics-svg-raster
+          --extra ja --extra fugashi --extra sudachi
+
+      - name: Show what resolved
+        run: uv pip list
+
+      # No coverage gate here — this job asks "does the suite pass on today's
+      # newest dependency resolution", not "is the diff well covered".
+      - name: Run the test suite
+        run: uv run pytest
+
+      - name: Open an issue on failure
+        if: failure()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b  # v7
+        with:
+          script: |
+            const label = "latest-deps-ci";
+            const title = "Latest-dependency resolution breaks the suite";
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `The scheduled latest-dependencies job failed: with \`uv lock --upgrade\``,
+              `(newest versions the declared constraints allow) the test suite no`,
+              `longer passes.`,
+              ``,
+              `Run: ${runUrl}`,
+              ``,
+              `The "Show what resolved" step in the run log lists the exact versions.`,
+              `Ordinary PR CI stays pinned by uv.lock and is not affected. Fix by`,
+              `adapting to the new release or by adding a version bound to the`,
+              `affected extra in pyproject.toml; close this issue once the job is`,
+              `green again — the next scheduled run reopens one if it still fails.`,
+            ].join("\n");
+            // Dedupe: one open issue is enough — its openness says "still broken".
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: label,
+              per_page: 100,
+            });
+            if (open.data.some((i) => i.title === title)) {
+              core.info("An open latest-deps issue already exists; not filing another.");
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: [label],
+            });
