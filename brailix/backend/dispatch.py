@@ -29,6 +29,7 @@ from brailix.backend import punct as punct_backend
 from brailix.backend import zh as zh_backend
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
+from brailix.core.errors import BackendContractError
 from brailix.core.protocols import LanguageBackend
 from brailix.core.registry import Registry
 from brailix.ir.braille import BrailleCell
@@ -142,6 +143,42 @@ language_backend_registry.register("ja", _JaBackend)
 _LANGUAGE_NODE_TYPES = (Word, HanziChar)
 
 
+def _enforce_source_spans(
+    cells: list[BrailleCell], node: InlineNode, origin: str
+) -> list[BrailleCell]:
+    """Post-condition at the dispatch boundary: a node that carries a
+    ``span`` must come back as cells that ALL carry a ``source_span``.
+
+    "Every cell maps to a source span" (ARCHITECTURE §3) is what
+    proofreading navigation is built on, and the backend upholds it via the
+    span-carrying factories (:func:`brailix.ir.braille.blank_cell` & co).
+    The dispatcher is where third-party code enters — an open
+    :data:`language_backend_registry` implementation may return the
+    span-less :data:`~brailix.ir.braille.BLANK_CELL` sentinel — so the
+    invariant is checked HERE, naming the offending translator, instead of
+    surfacing later as a proofread jump to nowhere. A node with **no** span
+    (hand-built IR) promises nothing, so its cells are exempt — that is the
+    documented soft spot of hand-built documents, not a backend defect.
+
+    Raises :class:`BackendContractError` unconditionally — this is a code
+    defect, not user input, so no run mode may swallow it.
+    """
+    if getattr(node, "span", None) is None:
+        return cells
+    for i, cell in enumerate(cells):
+        if cell.source_span is None:
+            raise BackendContractError(
+                f"{origin} returned cell {i} (role={cell.role!r}) without a "
+                f"source_span for {type(node).__name__} "
+                f"{getattr(node, 'surface', '')!r}, which carries span "
+                f"{node.span}; every cell emitted for a span-carrying node "
+                f"must be traceable (ARCHITECTURE §3) — use the "
+                f"span-carrying factories in brailix.ir.braille instead of "
+                f"the span-less sentinels"
+            )
+    return cells
+
+
 def translate_node(
     node: InlineNode, ctx: BackendContext, profile: BrailleProfile
 ) -> list[BrailleCell]:
@@ -150,6 +187,11 @@ def translate_node(
     Prose nodes (Word / HanziChar) route to the profile language's
     registered :class:`LanguageBackend`; every other (language-neutral)
     node goes through the shared ``_DISPATCH`` table.
+
+    Every dispatch enforces the traceability post-condition (see
+    :func:`_enforce_source_spans`): span-carrying nodes must translate to
+    span-carrying cells, or the offending backend is named in a
+    :class:`BackendContractError` at the exact boundary it violated.
     """
     if isinstance(node, _LANGUAGE_NODE_TYPES):
         lang = profile.language.split("-")[0]
@@ -164,12 +206,20 @@ def translate_node(
             return []
         backend = language_backend_registry.get(lang)
         if isinstance(node, Word):
-            return backend.translate_word(node, ctx, profile)
-        return backend.translate_hanzi_char(node, ctx, profile)
+            cells = backend.translate_word(node, ctx, profile)
+        else:
+            cells = backend.translate_hanzi_char(node, ctx, profile)
+        return _enforce_source_spans(
+            cells, node, f"language backend {lang!r}"
+        )
 
     handler = _DISPATCH.get(type(node))
     if handler is not None:
-        return handler(node, ctx, profile)
+        return _enforce_source_spans(
+            handler(node, ctx, profile),
+            node,
+            f"translator {getattr(handler, '__qualname__', handler)!r}",
+        )
 
     ctx.warnings.warn(
         code="UNHANDLED_NODE_TYPE",

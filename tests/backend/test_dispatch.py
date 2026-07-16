@@ -34,6 +34,81 @@ def ctx():
     return BackendContext(profile="cn_current")
 
 
+class _SpanlessBackend:
+    """A LanguageBackend that violates traceability: it returns the
+    span-less :data:`BLANK_CELL` sentinel instead of span-carrying cells."""
+
+    def translate_word(self, node, ctx, profile):
+        from brailix.ir.braille import BLANK_CELL
+
+        return [BLANK_CELL]
+
+    def translate_hanzi_char(self, node, ctx, profile):
+        from brailix.ir.braille import BLANK_CELL
+
+        return [BLANK_CELL]
+
+    def translate_date_marker(self, marker, follows_number, ctx, profile):
+        return []
+
+
+class TestTraceabilityContractAtDispatch:
+    """Backend → dispatcher post-condition: a span-carrying node must come
+    back as cells that all carry a ``source_span``. The
+    ``language_backend_registry`` is the open plugin seam, so a
+    non-conforming third-party backend is caught HERE — named in a
+    :class:`BackendContractError` — instead of silently producing a
+    proofreading JSON whose cells can't jump back to source."""
+
+    def test_plugin_returning_blank_cell_raises(self, ctx, profile):
+        from brailix.backend.dispatch import language_backend_registry
+        from brailix.core.errors import BackendContractError
+
+        with language_backend_registry.overriding("zh", _SpanlessBackend):
+            with pytest.raises(BackendContractError) as exc_info:
+                translate_node(
+                    Word(surface="我", reading="wo3", span=Span(0, 1)),
+                    ctx,
+                    profile,
+                )
+        assert "language backend 'zh'" in str(exc_info.value)
+
+    def test_pipeline_compile_fails_immediately(self):
+        # End-to-end shape: a whole-document compile through Pipeline
+        # identifies the plugin violation at once.
+        from brailix import Pipeline
+        from brailix.backend.dispatch import language_backend_registry
+        from brailix.core.errors import BackendContractError
+
+        pipe = Pipeline(profile="cn_current")
+        with language_backend_registry.overriding("zh", _SpanlessBackend):
+            with pytest.raises(BackendContractError):
+                pipe.translate_text("你好")
+
+    def test_lenient_mode_does_not_swallow_the_violation(self):
+        # A contract error is a code defect, not bad input — no run mode
+        # may downgrade it.
+        from brailix import Pipeline
+        from brailix.backend.dispatch import language_backend_registry
+        from brailix.core.errors import BackendContractError
+
+        pipe = Pipeline(profile="cn_current", mode="lenient")
+        with language_backend_registry.overriding("zh", _SpanlessBackend):
+            with pytest.raises(BackendContractError):
+                pipe.translate_text("你好")
+
+    def test_spanless_node_is_exempt(self, ctx, profile):
+        # Hand-built IR without spans promises nothing — the same plugin
+        # output is accepted for a node that carries no span.
+        from brailix.backend.dispatch import language_backend_registry
+
+        with language_backend_registry.overriding("zh", _SpanlessBackend):
+            cells = translate_node(
+                Word(surface="我", reading="wo3"), ctx, profile
+            )
+        assert len(cells) == 1 and cells[0].source_span is None
+
+
 class TestDispatchPerNodeType:
     def test_word(self, ctx, profile):
         cells = translate_node(Word(surface="我", reading="wo3"), ctx, profile)
