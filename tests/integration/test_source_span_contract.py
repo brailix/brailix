@@ -35,10 +35,14 @@ def pipe() -> Pipeline:
 
 
 def _missing_spans(braille_ir: BrailleDocument) -> list[tuple[str | None, str | None]]:
+    # Delegate discovery to the IR's own first-class check
+    # (:meth:`BrailleDocument.validate_traceability`), then map each reported
+    # position back to (role, source_text) for a readable failure message that
+    # names which emitter forgot a span.
     return [
-        (c.role, c.source_text)
-        for c in braille_ir.all_cells()
-        if c.source_span is None
+        (braille_ir.blocks[bi].cells[ci].role,
+         braille_ir.blocks[bi].cells[ci].source_text)
+        for bi, ci in braille_ir.validate_traceability()
     ]
 
 
@@ -68,11 +72,8 @@ class TestSourceSpanContract:
             r"\ce{2H2 + O2 -> 2H2O}",
         ]:
             cb = pipe.translate_block(MathBlock(text=latex, source="latex"))
-            for bb in cb.braille_blocks:
-                missing = [
-                    (c.role, c.source_text) for c in bb.cells if c.source_span is None
-                ]
-                assert not missing, f"{latex!r} → span-less cells: {missing}"
+            missing = _missing_spans(BrailleDocument(blocks=list(cb.braille_blocks)))
+            assert not missing, f"{latex!r} → span-less cells: {missing}"
 
     def test_list_and_table_markers_all_have_span(self, pipe: Pipeline) -> None:
         md = (
@@ -89,8 +90,5 @@ class TestSourceSpanContract:
             cb = pipe.translate_block(
                 Footnote(ref=ref, text="脚注内容", span=Span(0, len(ref)))
             )
-            for bb in cb.braille_blocks:
-                missing = [
-                    (c.role, c.source_text) for c in bb.cells if c.source_span is None
-                ]
-                assert not missing, f"footnote {ref!r} → span-less cells: {missing}"
+            missing = _missing_spans(BrailleDocument(blocks=list(cb.braille_blocks)))
+            assert not missing, f"footnote {ref!r} → span-less cells: {missing}"
