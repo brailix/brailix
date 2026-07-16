@@ -171,7 +171,9 @@ def _emit_words(
         # Chinese ...): route through the injected text translator (zh /
         # latin path) so it becomes real braille.  No translator wired
         # (bare backend / tests) → keep the deferred warning.
-        translator = mctx.backend.inline_text_translator()
+        translator = mctx.backend.inline_text_translator(
+            domain="music_words", span=mctx.span
+        )
         if translator is not None:
             # Keep the translator's own role (latin / zh) on these cells —
             # unlike lyrics (``_emit_lyrics_inline`` retags to 'music_lyric'),

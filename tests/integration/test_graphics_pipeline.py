@@ -421,10 +421,14 @@ class TestCrossProfileLabelInheritsConfig:
         return Pipeline(**base)
 
     def test_sub_pipeline_inherits_every_config_field(self):
+        from brailix.core.errors import WarningCollector
+
         parent = self._configured_parent()
-        # The returned translator is a bound method; its ``__self__`` is the
-        # derived sub-pipeline.
-        child = parent._graphic_label_translator("cn_ncb").__self__
+        # The returned translator is an ``_InlineTextTranslator`` binding;
+        # its ``pipeline`` is the derived sub-pipeline.
+        child = parent._graphic_label_translator(
+            "cn_ncb", WarningCollector()
+        ).pipeline
         assert child.profile == "cn_ncb"  # only the braille standard changes
         assert child.resolver == parent.resolver
         assert child.analyzer == parent.analyzer
@@ -435,9 +439,14 @@ class TestCrossProfileLabelInheritsConfig:
         assert child.mode == parent.mode
 
     def test_same_profile_reuses_parent_text_path(self):
+        from brailix.core.errors import WarningCollector
+
         parent = self._configured_parent()
         # No second pipeline when the standard already matches.
-        assert parent._graphic_label_translator("cn_current").__self__ is parent
+        translator = parent._graphic_label_translator(
+            "cn_current", WarningCollector()
+        )
+        assert translator.pipeline is parent
 
     def test_custom_user_profile_loads_only_via_inherited_search_path(
         self, tmp_path
@@ -455,9 +464,13 @@ class TestCrossProfileLabelInheritsConfig:
         (tmp_path / "cn_user_label.json").write_text(
             src.read_text(encoding="utf-8"), encoding="utf-8"
         )
+        from brailix.core.errors import WarningCollector
+
         parent = Pipeline(
             profile="cn_current", extra_profile_paths=(str(tmp_path),)
         )
-        translator = parent._graphic_label_translator("cn_user_label")
+        translator = parent._graphic_label_translator(
+            "cn_user_label", WarningCollector()
+        )
         cells = translator("AB")
         assert isinstance(cells, list) and cells  # profile loaded, label ran

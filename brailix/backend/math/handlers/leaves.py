@@ -525,7 +525,9 @@ def _emit_mtext(
         _chem.emit_state(cells, mctx, elem)
         return
     text = elem.text or ""
-    translator = mctx.backend.inline_text_translator()
+    translator = mctx.backend.inline_text_translator(
+        domain="math_text", span=mctx.span
+    )
     if text.strip() and translator is not None:
         # latex2mathml encodes a literal space inside \text as U+00A0;
         # normalise it to a real space so the text path sees a word break.
