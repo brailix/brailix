@@ -404,7 +404,11 @@ class Pipeline:
             # \text{...} / <mtext> run, esp. Chinese — renders through the
             # zh / latin path instead of failing per-char. Without it a
             # live preview drops to blank cells + warnings for any text.
-            options={INLINE_TEXT_TRANSLATOR_KEY: self._translate_inline_text},
+            # Bound with NO host collector: preview diagnostics are
+            # discarded by contract.
+            options={
+                INLINE_TEXT_TRANSLATOR_KEY: _InlineTextTranslator(self)
+            },
         )
         cells = _math_translate(node, backend_ctx, self._profile)
         return "".join(cell_to_char(c) for c in cells)
@@ -432,20 +436,23 @@ class Pipeline:
 
         See :func:`translate_graphic` for the parameter contract.
         """
+        # The collector is resolved BEFORE the label translator so labels
+        # can report into the same diagnostics the graphic compile returns.
+        warns = (
+            warnings
+            if warnings is not None
+            else WarningCollector(mode=self.mode)
+        )
         translator = label_translator
         if translator is None and braille_profile is not None:
-            translator = self._graphic_label_translator(braille_profile)
+            translator = self._graphic_label_translator(braille_profile, warns)
         return translate_graphic(
             source,
             source_format=source_format,
             tactile_profile=tactile_profile,
             label_translator=translator,
             record_provenance=record_provenance,
-            warnings=(
-                warnings
-                if warnings is not None
-                else WarningCollector(mode=self.mode)
-            ),
+            warnings=warns,
             mode=self.mode,
             # An image graphic's reference resolves against this pipeline's
             # document assets (a figure edited in isolation still shows its
@@ -492,16 +499,18 @@ class Pipeline:
         return raster, tree
 
     def _graphic_label_translator(
-        self, braille_profile: str
+        self, braille_profile: str, host_warnings: WarningCollector
     ) -> Callable[[str], list[BrailleCell]]:
         """A ``text → braille cells`` translator for graphic labels, backed by
         the requested braille standard.
 
         Reuses this pipeline's own text path when ``braille_profile`` matches
         :attr:`profile` (no second Pipeline); otherwise spins a sub-pipeline on
-        that standard. Either way it routes through ``_translate_inline_text``,
-        whose throwaway NORMAL collector keeps a label's per-char warnings out
-        of the graphic's own report.
+        that standard. Either way it routes through ``_translate_inline_text``
+        bound to ``host_warnings`` — the graphic compile's own collector — so
+        a label's diagnostics land in the graphic's report (tagged
+        ``domain="graphic_label"``) under the host mode policy, instead of
+        being silently discarded.
 
         The sub-pipeline is derived with :func:`dataclasses.replace` so it
         **inherits every configured adapter** — segmenter, normalizer,
@@ -514,9 +523,12 @@ class Pipeline:
         an ``extra_profile_paths`` drop would fail to load) — the
         "Profile-driven, adapter-replaceable" contract requires the whole
         parent configuration to ride along, not just the default path."""
-        if braille_profile == self.profile:
-            return self._translate_inline_text
-        return replace(self, profile=braille_profile)._translate_inline_text
+        pipe = (
+            self
+            if braille_profile == self.profile
+            else replace(self, profile=braille_profile)
+        )
+        return _InlineTextTranslator(pipe, host_warnings, "graphic_label")
 
     def translate_document(self, doc: DocumentIR) -> TranslationResult:
         """Translate a pre-built :class:`DocumentIR` end-to-end.
@@ -901,7 +913,12 @@ class Pipeline:
                 block,
                 warnings,
                 tactile_profile=_DEFAULT_INLINE_TACTILE_PROFILE,
-                label_translator=self._translate_inline_text,
+                # Labels report into this block's own collector — a figure's
+                # untranslatable label is a real diagnostic of this compile,
+                # not preview noise.
+                label_translator=_InlineTextTranslator(
+                    self, warnings, "graphic_label", block.span
+                ),
             )
 
         # Stable cache key: textual surface + resolved profile + structure,
@@ -942,31 +959,65 @@ class Pipeline:
             mode=self.mode,
             block_type=block_type,
             warnings=warnings,
-            options={INLINE_TEXT_TRANSLATOR_KEY: self._translate_inline_text},
+            # The inline-text translator is bound to THIS run's collector:
+            # embedded prose (music <words> / lyrics, math \text{...}, chem
+            # conditions) reports into the same diagnostics as everything
+            # else, under the same mode policy — strict fails, normal
+            # records. Only the explicit preview APIs discard.
+            options={
+                INLINE_TEXT_TRANSLATOR_KEY: _InlineTextTranslator(
+                    self, warnings
+                )
+            },
         )
         return warnings, ctx, backend_ctx
 
-    def _translate_inline_text(self, text: str) -> list[BrailleCell]:
+    def _translate_inline_text(
+        self,
+        text: str,
+        *,
+        host_warnings: WarningCollector | None = None,
+        domain: str | None = None,
+        host_span: Span | None = None,
+    ) -> list[BrailleCell]:
         """Translate a run of text to braille cells via the zh / latin
-        text path — injected on ``BackendContext.options`` so the music
-        backend can render ``<words>`` directions (expression text,
-        teaching notes) instead of deferring them to a warning.
+        text path — injected on ``BackendContext.options`` (wrapped in
+        :class:`_InlineTextTranslator`) so backend handlers can render
+        embedded prose: music ``<words>`` directions and inline lyrics,
+        math ``\\text{...}`` / ``<mtext>`` runs, chemistry reaction
+        conditions, graphic ``<text>`` labels.
 
         Runs a throwaway frontend + backend over a one-paragraph doc.
         The inner :class:`BackendContext` deliberately omits the
-        translator, so a (text-only) run can't recurse back into music;
-        its warnings go to a private collector — ``<words>`` rendering is
-        best-effort, a stray untranslatable char shouldn't spam the
-        score's report.
+        translator, so a (text-only) run can't recurse back into music.
+        The nested run itself always executes in NORMAL mode against a
+        private collector — its cells' documented soft-failure behaviour
+        must not change shape mid-run — and what happens to the collected
+        diagnostics is the caller's contract:
+
+        * ``host_warnings`` given (every **document compile**): each
+          nested warning is re-emitted into it, so the host run's own
+          mode policy applies — STRICT raises :class:`StrictModeError`,
+          NORMAL records, LENIENT downgrades. Embedded text can no longer
+          degrade silently while the final report stays empty. Re-emitted
+          warnings drop their nested-document spans (meaningless — they
+          are 0-based offsets of the throwaway paragraph) in favour of
+          ``host_span`` (the embedding node's span, when the call site
+          supplies one) and carry ``anchor`` keys ``embedded_text`` (the
+          embedded run) plus ``domain`` (the embedding construct, e.g.
+          ``music_words`` / ``math_text`` / ``graphic_label``) so a
+          front-end can attribute them.
+        * ``host_warnings`` omitted (**preview** paths, e.g.
+          :meth:`translate_math_inline`): diagnostics are discarded, the
+          documented never-pollutes-the-caller preview contract.
         """
         if not text.strip():
             return []
-        # NORMAL regardless of the pipeline's own mode: the docstring
-        # promises this private collector never pollutes the caller's
-        # diagnostics, but a strict-mode collector raises on the first
-        # warning — a stray untranslatable char inside a <words> /
-        # \text{...} run would abort the whole score's translation from
-        # deep inside a backend handler.
+        # NORMAL regardless of the pipeline's own mode: a strict-mode
+        # collector raises on the FIRST warning mid-translation, which would
+        # abandon the nested run half-emitted; collecting privately and
+        # re-emitting below preserves strict semantics (the host collector
+        # raises at the merge) without changing the nested run's shape.
         warnings = WarningCollector(mode=RunMode.NORMAL)
         # NORMAL on the contexts too, not just the collector — their
         # __post_init__ re-stamps the context mode onto the shared
@@ -984,7 +1035,64 @@ class Pipeline:
             profile=self.profile, mode=RunMode.NORMAL, warnings=warnings
         )
         braille_doc = translate_document(doc, backend_ctx, self._profile)
+        if host_warnings is not None:
+            embedded = text if len(text) <= 60 else text[:57] + "..."
+            for w in warnings:
+                anchor = dict(w.anchor) if w.anchor else {}
+                anchor.setdefault("embedded_text", embedded)
+                if domain is not None:
+                    anchor.setdefault("domain", domain)
+                host_warnings.emit(
+                    replace(w, span=host_span, anchor=anchor)
+                )
         return braille_doc.all_cells()
+
+
+# ---------------------------------------------------------------------------
+# Inline-text translator binding
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True, frozen=True)
+class _InlineTextTranslator:
+    """The Pipeline-built :class:`~brailix.core.protocols.InlineTextTranslator`.
+
+    A tiny binding object around :meth:`Pipeline._translate_inline_text`:
+    it fixes WHERE the nested run's diagnostics go (``host_warnings`` — the
+    host compile's collector, or ``None`` for the discard-everything preview
+    contract) and, optionally, HOW they are attributed (``domain`` +
+    ``host_span``). Call sites deep in the backend re-tag it through
+    :meth:`bind_domain` — surfaced via
+    :meth:`brailix.core.context.BackendContext.inline_text_translator`'s
+    ``domain`` / ``span`` arguments — so a warning inside a music
+    ``<words>`` run reads differently from one inside a math
+    ``\\text{...}`` run. The protocol itself stays a bare
+    ``(text) -> cells`` callable; ``bind_domain`` is an optional extension
+    the accessor duck-types, so a third-party translator that is a plain
+    function keeps working (it just doesn't get domain attribution).
+    """
+
+    pipeline: Pipeline
+    host_warnings: WarningCollector | None = None
+    domain: str | None = None
+    host_span: Span | None = None
+
+    def __call__(self, text: str) -> list[BrailleCell]:
+        return self.pipeline._translate_inline_text(
+            text,
+            host_warnings=self.host_warnings,
+            domain=self.domain,
+            host_span=self.host_span,
+        )
+
+    def bind_domain(
+        self, domain: str, span: Span | None = None
+    ) -> _InlineTextTranslator:
+        """A copy of this translator attributing its warnings to ``domain``
+        (and anchoring them to ``span``, the embedding node's span)."""
+        return _InlineTextTranslator(
+            self.pipeline, self.host_warnings, domain, span
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1057,9 +1165,14 @@ def translate_graphic(
 
     translator = label_translator
     if translator is None and braille_profile is not None:
-        translator = Pipeline(
-            profile=braille_profile, mode=mode
-        )._translate_inline_text
+        # Bound to this graphic's own collector: a label's diagnostics are
+        # part of the graphic's report (domain="graphic_label"), and the
+        # collector's mode drives the policy (strict raises).
+        translator = _InlineTextTranslator(
+            Pipeline(profile=braille_profile, mode=mode),
+            warns,
+            "graphic_label",
+        )
 
     prof = (
         load_tactile_profile(tactile_profile)

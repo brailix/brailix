@@ -98,7 +98,9 @@ def _emit_lyrics_inline(
     (renderer layout). This pass just gets real characters into the
     stream so a single-verse song reads as words, not markers.
     """
-    translator = mctx.backend.inline_text_translator()
+    translator = mctx.backend.inline_text_translator(
+        domain="music_lyrics", span=mctx.span
+    )
     if translator is None:
         mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",

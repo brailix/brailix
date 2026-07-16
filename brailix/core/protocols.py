@@ -271,6 +271,17 @@ class InlineTextTranslator(Protocol):
     Injected by :class:`~brailix.pipeline.Pipeline` so backend handlers
     that embed natural-language text can render it through the zh / latin
     frontend path without importing the frontend. See ARCHITECTURE §12.
+
+    The protocol is deliberately just ``(text) -> cells``. Diagnostics are
+    the implementation's affair: the Pipeline's translator reports the
+    nested run's warnings into the host compile's collector (so strict
+    mode fails and normal mode records — embedded text is never silently
+    degraded), and additionally offers an OPTIONAL ``bind_domain(domain,
+    span)`` method that
+    :meth:`~brailix.core.context.BackendContext.inline_text_translator`
+    duck-types to attribute those warnings to the embedding construct. A
+    plain function satisfies the protocol; it simply won't get domain
+    attribution.
     """
 
     def __call__(self, text: str) -> list[BrailleCell]: ...

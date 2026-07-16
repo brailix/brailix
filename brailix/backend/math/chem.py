@@ -436,7 +436,9 @@ def _emit_prose_condition(
     from brailix.backend.math.dispatch import _emit_element
 
     text = (content.text or "").strip()
-    translator = mctx.backend.inline_text_translator()
+    translator = mctx.backend.inline_text_translator(
+        domain="chem_condition", span=mctx.span
+    )
     if not text or translator is None:
         _emit_element(cells, mctx, content)
         return

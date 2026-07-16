@@ -22,6 +22,7 @@ if TYPE_CHECKING:
         GraphicAssetResolver,
         InlineTextTranslator,
     )
+    from brailix.core.span import Span
 
 # ---------------------------------------------------------------------------
 # Frontend
@@ -213,14 +214,31 @@ class BackendContext:
         # context's mode is authoritative; the shared collector follows.
         self.warnings.mode = self.mode
 
-    def inline_text_translator(self) -> InlineTextTranslator | None:
+    def inline_text_translator(
+        self, domain: str | None = None, span: Span | None = None
+    ) -> InlineTextTranslator | None:
         """The Pipeline-injected inline-text translator, or ``None``.
 
         Backend handlers that embed prose (music ``<words>`` / lyrics,
-        chem reaction conditions) call this to render text through the
-        zh / latin path. ``None`` in a bare backend run or a unit test,
-        so callers fall back to a warning + marker. This is the
+        chem reaction conditions, math ``\\text{...}``) call this to render
+        text through the zh / latin path. ``None`` in a bare backend run or
+        a unit test, so callers fall back to a warning + marker. This is the
         sanctioned backend→frontend seam (ARCHITECTURE §12) — the
         callable is injected, never imported.
+
+        ``domain`` / ``span`` attribute the embedded run's diagnostics: the
+        nested translation's warnings surface in the host compile's report
+        tagged with the embedding construct (``"music_words"`` /
+        ``"math_text"`` / ...) and anchored to the embedding node's span.
+        The attribution is duck-typed via an optional ``bind_domain``
+        method on the injected translator (the Pipeline's implementation
+        has one); a plain-callable third-party translator is returned
+        unchanged, keeping the ``(text) -> cells`` protocol minimal.
         """
-        return self.options.get(INLINE_TEXT_TRANSLATOR_KEY)
+        translator = self.options.get(INLINE_TEXT_TRANSLATOR_KEY)
+        if translator is None or domain is None:
+            return translator
+        bind = getattr(translator, "bind_domain", None)
+        if bind is None:
+            return translator
+        return bind(domain, span)
