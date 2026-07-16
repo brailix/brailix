@@ -454,3 +454,62 @@ class TestConcurrentMutation:
         assert not errors
         # Every successful get returned a real adapter, never a torn None.
         assert all(isinstance(i, GoodGreeter) for i in instances)
+
+
+class TestOverridingConcurrency:
+    """``overriding()`` takes the lock only to snapshot on entry and to
+    restore on exit — the caller's block runs WITHOUT it. These pin that
+    contract: a worker thread must be able to use the registry inside the
+    block (holding the RLock across the ``yield`` would deadlock any
+    thread but the owner), and exit restores the entry snapshot verbatim
+    (test-support semantics: even a registration another thread made
+    during the block is rolled back)."""
+
+    def test_worker_thread_uses_registry_inside_block(self):
+        import threading
+
+        reg: Registry[Greeter] = Registry("greeters")
+        reg.register("base", GoodGreeter)
+
+        results: list[object] = []
+
+        def worker() -> None:
+            results.append(reg.get("tmp"))
+            results.append(reg.has("base"))
+            results.append(reg.names())
+
+        with reg.overriding("tmp", GoodGreeter):
+            t = threading.Thread(target=worker)
+            t.start()
+            t.join(timeout=5)
+            # A lock held across the yield would leave the worker blocked
+            # on its first registry call — caught here, not as a hang.
+            assert not t.is_alive(), "registry deadlocked inside overriding()"
+
+        assert isinstance(results[0], GoodGreeter)
+        assert results[1] is True
+        assert results[2] == ["base", "tmp"]
+
+    def test_exit_restores_entry_snapshot_even_over_concurrent_register(self):
+        # Documented rollback semantics, pinned deliberately: overriding()
+        # restores the ENTRY snapshot, so a registration made by another
+        # thread DURING the block is rolled back too. That is what
+        # "temporarily install, restore prior state" means for a
+        # test-support API — production code must not register adapters
+        # concurrently with an overriding() block and expect them to stick.
+        import threading
+
+        reg: Registry[Greeter] = Registry("greeters")
+        reg.register("base", GoodGreeter)
+
+        with reg.overriding("tmp", GoodGreeter):
+            t = threading.Thread(
+                target=lambda: reg.register("late", GoodGreeter)
+            )
+            t.start()
+            t.join(timeout=5)
+            assert reg.has("late")  # landed while the block was open
+
+        assert not reg.has("tmp")  # the override is gone...
+        assert not reg.has("late")  # ...and so is the concurrent late-comer
+        assert reg.has("base")

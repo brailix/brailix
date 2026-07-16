@@ -229,6 +229,17 @@ class Registry[T]:
                 segmenter_registry.register("zh", ZhSegmenter)
                 segmenter_registry.register("custom", CustomSegmenter)
                 ...  # both gone out here
+
+        Concurrency: the lock is taken only to snapshot on entry and to
+        restore on exit — it is **not** held across the ``yield``, so worker
+        threads spawned inside the block can use this registry freely
+        (holding the RLock across the body would deadlock any thread but
+        the owner). The flip side of snapshot/restore: exit puts back the
+        ENTRY state verbatim, so a registration another thread makes
+        *during* the block is rolled back with everything else. That is the
+        intended test-support semantics — don't wrap an ``overriding()``
+        block around code that must observe concurrent production
+        registrations.
         """
         with self._lock:
             saved = (
