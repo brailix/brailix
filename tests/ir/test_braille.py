@@ -224,3 +224,69 @@ class TestMalformedSourceSpan:
     def test_from_dict_absent_source_span_is_none(self):
         c = BrailleCell.from_dict({"dots": [1]})
         assert c.source_span is None
+
+
+class TestValidateTraceability:
+    """:meth:`BrailleDocument.validate_traceability` reports the position of
+    every cell missing a ``source_span`` — the reusable, first-class form of
+    the "every cell maps to a source span" contract (ARCHITECTURE §3)."""
+
+    def test_empty_document_is_traceable(self):
+        assert BrailleDocument().validate_traceability() == []
+
+    def test_all_cells_with_span_is_traceable(self):
+        d = BrailleDocument(
+            blocks=[
+                BrailleBlock(
+                    cells=[
+                        BrailleCell(dots=(1,), source_span=Span(0, 1)),
+                        BrailleCell(dots=(1, 2), source_span=Span(1, 2)),
+                    ]
+                ),
+                BrailleBlock(cells=[BrailleCell(dots=(3,), source_span=Span(2, 3))]),
+            ]
+        )
+        assert d.validate_traceability() == []
+
+    def test_reports_position_of_spanless_cell(self):
+        d = BrailleDocument(
+            blocks=[
+                BrailleBlock(cells=[BrailleCell(dots=(1,), source_span=Span(0, 1))]),
+                BrailleBlock(
+                    cells=[
+                        BrailleCell(dots=(2,), source_span=Span(0, 1)),
+                        BrailleCell(dots=(3,)),  # no span
+                    ]
+                ),
+            ]
+        )
+        assert d.validate_traceability() == [(1, 1)]
+
+    def test_reports_every_spanless_position_in_order(self):
+        d = BrailleDocument(
+            blocks=[
+                BrailleBlock(
+                    cells=[
+                        BrailleCell(dots=(1,)),  # no span
+                        BrailleCell(dots=(2,), source_span=Span(0, 1)),
+                    ]
+                ),
+                BrailleBlock(cells=[BrailleCell(dots=(3,))]),  # no span
+            ]
+        )
+        assert d.validate_traceability() == [(0, 0), (1, 0)]
+
+    def test_span_less_blank_sentinel_is_flagged(self):
+        # The shared span-less BLANK_CELL sentinel is exactly what the backend
+        # must NOT emit directly (it uses blank_cell(span)); if one leaks into a
+        # compiled document the check catches it, no role white-list needed.
+        d = BrailleDocument(blocks=[BrailleBlock(cells=[BLANK_CELL])])
+        assert d.validate_traceability() == [(0, 0)]
+
+    def test_zero_width_synthetic_span_counts_as_traceable(self):
+        # A control cell between two source positions carries a collapsed
+        # zero-width span, not None — that still satisfies the contract.
+        from brailix.ir.braille import blank_cell
+
+        d = BrailleDocument(blocks=[BrailleBlock(cells=[blank_cell(Span(3, 3))])])
+        assert d.validate_traceability() == []

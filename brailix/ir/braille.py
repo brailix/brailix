@@ -274,3 +274,33 @@ class BrailleDocument:
         for b in self.blocks:
             out.extend(b.cells)
         return out
+
+    def validate_traceability(self) -> list[tuple[int, int]]:
+        """``(block_index, cell_index)`` of every cell carrying no
+        ``source_span`` — empty when the document upholds "every cell maps to a
+        source span" (ARCHITECTURE.md §3), the basis of the proofreading
+        system's click-a-cell → jump-to-source tracking.
+
+        A *compiled* document satisfies this unconditionally: the Backend gives
+        every cell it emits a span — including the control / spacing cells
+        (number sign, word / column blanks, matrix row breaks, hanging-indent
+        brackets) — through the span-carrying factories above (:func:`blank_cell`
+        / :func:`line_break_cell` / …); no ``role`` is exempt. This method turns
+        that contract from a convention re-asserted by hand in the backend tests
+        into a reusable, first-class check on the IR itself: the source-span
+        contract suite runs it over real compiles, a proofreading UI can verify
+        an externally supplied document before trusting its jumps, and a strict
+        caller can gate on the result.
+
+        Non-fatal by design — it reports, it never raises. ``source_span`` stays
+        ``Optional`` on :class:`BrailleCell` so a hand-built or legacy-
+        deserialized document still round-trips (:meth:`BrailleCell.from_dict`
+        accepts a missing span); enforcement is the caller's choice (assert the
+        list is empty in tests / strict mode, or inspect it), not a constructor
+        invariant that would break compatibility."""
+        return [
+            (bi, ci)
+            for bi, block in enumerate(self.blocks)
+            for ci, cell in enumerate(block.cells)
+            if cell.source_span is None
+        ]

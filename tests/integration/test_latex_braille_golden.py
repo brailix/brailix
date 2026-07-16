@@ -547,10 +547,18 @@ class TestGeometry:
         assert render(pipe, r"$\angle ABC = 90$") == "⠫⠪⠠⠁⠃⠉⠀⠶⠼⠊⠚"
 
     def test_angle_equation_with_latex_degree(self, pipe):
-        # latex2mathml emits ^\circ as a superscripted small circle (∘);
-        # in this position it should read the same as a degree sign.
+        # latex2mathml emits ^\circ as a superscripted small circle (∘); the
+        # normalizer rewrites a numeric-base ^∘ into a baseline degree sign,
+        # so it reads the same as \degree (144° = ⠼⠁⠙⠙⠐⠴), no unknown symbol.
         res = pipe.translate_text(r"$\angle C=144^\circ$")
         assert res.render() == "⠫⠪⠠⠉⠀⠶⠼⠁⠙⠙⠐⠴"
+        assert not any(w.code == "MATH_UNKNOWN_SYMBOL" for w in res.warnings)
+
+    def test_latex_degree_on_temperature(self, pipe):
+        # 37^\circ C: numeric base, so the degree rewrite fires; the trailing
+        # C stays a separate capital letter (⠼⠉⠛ + ⠐⠴ + ⠠⠉).
+        res = pipe.translate_text(r"$37^\circ C$")
+        assert res.render() == "⠼⠉⠛⠐⠴⠠⠉"
         assert not any(w.code == "MATH_UNKNOWN_SYMBOL" for w in res.warnings)
 
     def test_triangle_with_letters(self, pipe):

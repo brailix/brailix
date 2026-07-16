@@ -437,7 +437,7 @@ Why MathML:
 - MathML inside HTML/EPUB can be parsed directly with `lxml`.
 - A new source format later means **one more → MathML adapter**, and nothing downstream changes.
 
-### 7.2 Two stages
+### 7.2 Three stages
 
 1. A `MathSourceAdapter`, chosen by source, converts the raw formula (from any source) into a standard MathML string.
 2. The `MathMLNormalizer` strips namespaces, collapses single-child `mrow`s, trims whitespace, and wraps errors in `<merror>`, emitting the normalized `ET.Element` tree — this is the IR.

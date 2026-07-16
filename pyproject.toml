@@ -57,7 +57,7 @@ docx = ["python-docx", "lxml", "olefile"]
 # *reading* an external bitmap into raise levels needs a decoder (Pillow), and
 # rasterizing a complex external SVG (gradients / filters / clipPath) hands it
 # to resvg → PNG, which Pillow then decodes into the same grayscale/threshold
-# pipeline. See docs/tactile-graphics-plan.md.
+# pipeline.
 graphics = ["pillow"]
 graphics-svg-raster = ["resvg-py", "pillow"]
 
