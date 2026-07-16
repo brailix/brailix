@@ -21,10 +21,6 @@ cases to handle:
 * drop the MathML XML namespace from every element tag so callers can
   match on bare local names (``mi``, ``mrow``, ...) instead of
   Clark-notation names.
-* rewrite latex2mathml's numeric degree spelling
-  (``<msup><mn>144</mn><mo>∘</mo></msup>``) to a baseline degree sign
-  (``<mn>144</mn><mo>°</mo>``), while leaving symbolic ``A^∘``-style
-  superscripts alone.
 
 The normalizer never raises — malformed input is wrapped into a single
 ``<merror>`` and returned. The backend turns that into an unknown cell
@@ -88,7 +84,7 @@ def normalize(mathml: str) -> ET.Element:
     strip_whitespace_text(root)
     _flag_repeated_operators(root)
     _tag_thousands_separators(root)
-    _rewrite_numeric_degree_circles(root)
+    _rewrite_degree_circle(root)
     return root
 
 
@@ -105,8 +101,6 @@ def normalize(mathml: str) -> ET.Element:
 _INVISIBLE_OPERATORS: frozenset[str] = frozenset(
     {"\u2061", "\u2062", "\u2063", "\u2064"}
 )
-_RING_OPERATOR = "∘"
-_DEGREE_SIGN = "°"
 
 
 def _is_invisible_mo(elem: ET.Element) -> bool:
@@ -226,6 +220,62 @@ def _flag_repeated_operators(elem: ET.Element) -> None:
             cur.set("data-bk-warn", "repeated-operator")
 
 
+# U+2218 RING OPERATOR — what latex2mathml emits for ``\circ``. LaTeX has no
+# dedicated degree glyph, so authors spell a degree sign ``144^\circ``; the
+# converter turns that into a number superscripted with this ring.
+_RING_OPERATOR = "∘"
+
+
+def _is_degree_circle_msup(elem: ET.Element) -> bool:
+    """``<msup><mn>…</mn><mo>∘</mo></msup>`` — latex2mathml's spelling of a
+    degree sign (``144^\\circ`` / ``144^{\\circ}``).
+
+    Numeric base only: a superscript ring on a *symbol* is a different
+    notation (set interior ``A^\\circ``, polar cone), so it keeps its own
+    reading rather than being silently turned into degrees. The ``144^{\\circ}``
+    form arrives with the ring wrapped in an ``<mrow>``, but this runs after
+    :func:`_collapse_singleton_mrows`, so the sup is already a bare ``<mo>``.
+    """
+    return (
+        elem.tag == "msup"
+        and len(elem) == 2
+        and elem[0].tag == "mn"
+        and elem[1].tag == "mo"
+        and (elem[1].text or "").strip() == _RING_OPERATOR
+    )
+
+
+def _rewrite_degree_circle(elem: ET.Element) -> None:
+    """In-place: replace each ``<msup>NUMBER<mo>∘</mo></msup>`` degree shape
+    (see :func:`_is_degree_circle_msup`) with the number followed by a
+    baseline ``<mo>°</mo>``.
+
+    This converges ``144^\\circ`` on the exact same tree as ``144\\degree``,
+    so the backend renders it through its existing degree-sign mapping
+    (``°`` -> ⠐⠴) with no superscript marker and no ``MATH_UNKNOWN_SYMBOL`` —
+    keeping the "what does this input mean" decision in the frontend instead
+    of teaching the backend a second, latex2mathml-specific path.
+    """
+    for child in list(elem):
+        _rewrite_degree_circle(child)
+    new_children: list[ET.Element] = []
+    changed = False
+    for child in list(elem):
+        if _is_degree_circle_msup(child):
+            degree = ET.Element("mo")
+            degree.text = "°"
+            new_children.append(child[0])  # the numeric base
+            new_children.append(degree)
+            changed = True
+        else:
+            new_children.append(child)
+    if changed:
+        for c in list(elem):
+            elem.remove(c)
+        for c in new_children:
+            elem.append(c)
+
+
 def _is_digit_run_mn(node: ET.Element) -> bool:
     """True for an ``<mn>`` whose text is a plain ASCII digit run."""
     text = (node.text or "").strip()
@@ -258,44 +308,3 @@ def _tag_thousands_separators(elem: ET.Element) -> None:
             and len((nxt.text or "").strip()) == 3
         ):
             node.set("data-bk-tight", "1")
-
-
-def _is_numeric_degree_circle_msup(node: ET.Element) -> bool:
-    return (
-        node.tag == "msup"
-        and len(node) == 2
-        and node[0].tag == "mn"
-        and node[1].tag == "mo"
-        and (node[1].text or "").strip() == _RING_OPERATOR
-    )
-
-
-def _rewrite_numeric_degree_circles(elem: ET.Element) -> None:
-    """In-place: normalize latex2mathml's numeric ``^\\circ`` shape.
-
-    latex2mathml renders ``144^\\circ`` as a superscripted U+2218 small
-    circle. For numeric bases that denotes degrees, so expose it to the
-    backend as an ordinary degree operator. A symbolic base such as
-    ``A^\\circ`` can be an actual ring superscript and is left unchanged.
-    """
-    for child in list(elem):
-        _rewrite_numeric_degree_circles(child)
-
-    new_children: list[ET.Element] = []
-    changed = False
-    for child in list(elem):
-        if _is_numeric_degree_circle_msup(child):
-            base = child[0]
-            degree = ET.Element("mo")
-            degree.text = _DEGREE_SIGN
-            degree.tail = child.tail
-            new_children.extend([base, degree])
-            changed = True
-        else:
-            new_children.append(child)
-
-    if changed:
-        for child in list(elem):
-            elem.remove(child)
-        for child in new_children:
-            elem.append(child)

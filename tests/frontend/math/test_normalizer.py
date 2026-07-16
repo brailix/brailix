@@ -182,22 +182,6 @@ class TestSingletonMrowCollapse:
         assert root[0].tag == "mrow"
 
 
-class TestDegreeCircleRewrite:
-    def test_numeric_msup_ring_rewritten_to_degree_sign(self):
-        root = normalize("<math><msup><mn>144</mn><mo>∘</mo></msup></math>")
-
-        assert [child.tag for child in root] == ["mn", "mo"]
-        assert root[0].text == "144"
-        assert root[1].text == "°"
-
-    def test_symbolic_msup_ring_left_unchanged(self):
-        root = normalize("<math><msup><mi>A</mi><mo>∘</mo></msup></math>")
-
-        assert len(root) == 1
-        assert root[0].tag == "msup"
-        assert [child.tag for child in root[0]] == ["mi", "mo"]
-
-
 class TestWhitespaceStripping:
     def test_drops_whitespace_only_text(self):
         src = (
@@ -216,6 +200,47 @@ class TestWhitespaceStripping:
         src = "<math><mtext>hello world</mtext></math>"
         root = normalize(src)
         assert root[0].text == "hello world"
+
+
+class TestDegreeCircle:
+    """latex2mathml has no degree glyph, so ``144^\\circ`` arrives as a number
+    superscripted with U+2218 RING OPERATOR (∘). The normalizer rewrites a
+    *numeric-base* ``^∘`` into the number followed by a baseline ``<mo>°</mo>``
+    so it converges on the same tree as ``144\\degree``; a ring superscript on
+    a symbol (set interior ``A^\\circ``) is a different notation and is left
+    alone."""
+
+    def test_numeric_base_msup_rewritten_to_degree_sign(self):
+        root = normalize("<math><msup><mn>144</mn><mo>∘</mo></msup></math>")
+        assert [c.tag for c in root] == ["mn", "mo"]
+        assert root[0].text == "144"
+        assert root[1].text == "°"
+
+    def test_braced_form_rewritten(self):
+        # 144^{\circ}: the ring arrives wrapped in an <mrow>, which the
+        # singleton-mrow collapse flattens before the degree rewrite runs.
+        root = normalize(
+            "<math><msup><mn>144</mn><mrow><mo>∘</mo></mrow></msup></math>"
+        )
+        assert [c.tag for c in root] == ["mn", "mo"]
+        assert root[1].text == "°"
+
+    def test_decimal_base_rewritten(self):
+        root = normalize("<math><msup><mn>144.5</mn><mo>∘</mo></msup></math>")
+        assert [c.tag for c in root] == ["mn", "mo"]
+        assert root[1].text == "°"
+
+    def test_symbol_base_ring_left_alone(self):
+        # A^\circ (set interior / polar cone) is not a degree — keep the msup.
+        root = normalize("<math><msup><mi>A</mi><mo>∘</mo></msup></math>")
+        assert root[0].tag == "msup"
+        assert root[0][1].text == "∘"
+
+    def test_bare_ring_operator_left_alone(self):
+        # f ∘ g (composition) is a baseline operator, not a superscript.
+        root = normalize("<math><mi>f</mi><mo>∘</mo><mi>g</mi></math>")
+        assert [c.tag for c in root] == ["mi", "mo", "mi"]
+        assert root[1].text == "∘"
 
 
 class TestSoftFailures:
