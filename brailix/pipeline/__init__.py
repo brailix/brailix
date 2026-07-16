@@ -34,6 +34,14 @@ are re-exported here so ``brailix.pipeline.<name>`` keeps resolving:
   :func:`_resolve_language_adapter`, :func:`_all_prose_types`,
   :func:`_ensure_block_span`, :func:`_block_surface`, :func:`block_hash`,
   :func:`cache_lookup`, :func:`cache_record`.
+* :mod:`brailix.pipeline._session` — the run-scoped state:
+  :class:`CompilationSession` (one translate call's collector + contexts +
+  parsed-tree pool) and the :class:`_InlineTextTranslator` binding.
+* :mod:`brailix.pipeline._incremental` — the block-level incremental
+  compile primitive, the body behind :meth:`Pipeline.translate_block`
+  (reuse-pool threading, cache-key salting, inline-figure rasterisation).
+* :mod:`brailix.pipeline._pages` — mixed braille + tactile page
+  composition, the body behind :meth:`Pipeline.translate_document_to_pages`.
 * :mod:`brailix.pipeline.frontend_driver` — the :class:`FrontendDriver`
   collaborator (segment → normalize → per-segment routing → inline-math
   attach → block populate). Its math / music / graphic tree parsers are
@@ -57,7 +65,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from brailix.backend.block import expand_block, translate_document
+from brailix.backend.block import translate_document
 from brailix.core.config import BrailleProfile, load_profile
 from brailix.core.context import (
     GRAPHIC_ASSET_RESOLVER_KEY,
@@ -91,11 +99,7 @@ from brailix.input import parse_markdown as _parse_markdown
 from brailix.input import parse_plain as _parse_plain
 from brailix.ir.braille import BrailleCell
 from brailix.ir.document import Block, DocumentIR, Paragraph
-from brailix.ir.inline import (
-    GraphicInline,
-    MathInline,
-)
-from brailix.ir.tactile import TactileRaster
+from brailix.ir.inline import MathInline
 from brailix.pipeline._fingerprint import (
     compilation_fingerprint,
     profile_digest,
@@ -107,6 +111,11 @@ from brailix.pipeline._helpers import (
     _resolve_language_adapter,
     block_hash,
 )
+from brailix.pipeline._incremental import (
+    _DEFAULT_INLINE_TACTILE_PROFILE,
+    compile_block,
+)
+from brailix.pipeline._pages import compose_document_pages
 from brailix.pipeline._results import (
     CompiledBlock,
     GraphicResult,
@@ -114,6 +123,7 @@ from brailix.pipeline._results import (
     TranslationResult,
     TreeSubcache,
 )
+from brailix.pipeline._session import CompilationSession, _InlineTextTranslator
 from brailix.pipeline.frontend_driver import FrontendDriver
 
 if TYPE_CHECKING:
@@ -146,18 +156,6 @@ __all__ = [
     "_frontend_parse_music_tree",
     "_frontend_parse_graphic_tree",
 ]
-
-
-# ---------------------------------------------------------------------------
-# Inline tactile-graphics default
-# ---------------------------------------------------------------------------
-
-# Tactile profile used when an inline figure block (a GraphicBlock embedded in
-# a braille document) is rasterised through the main pipeline
-# (ARCHITECTURE.md G1).  ``"generic"`` matches the default a
-# standalone ``translate_graphic`` call uses; a document-level / per-block
-# tactile profile is a later refinement (G3/G4).
-_DEFAULT_INLINE_TACTILE_PROFILE = "generic"
 
 
 # ---------------------------------------------------------------------------
@@ -341,18 +339,18 @@ class Pipeline:
         an ``ir_transformer`` — Pipeline keeps no override / workflow
         concept, that lives in the front-end layer.
         """
-        warnings, ctx, backend_ctx = self._fresh_contexts()
-        children = self._frontend.run_frontend(text, ctx)
+        session = CompilationSession.begin(self)
+        children = self._frontend.run_frontend(text, session.frontend_ctx)
         paragraph = Paragraph(
             children=children, span=Span(0, len(text)) if text else None
         )
         doc = DocumentIR(metadata=self._ir_metadata(), blocks=[paragraph])
-        braille_doc = translate_document(doc, backend_ctx, self._profile)
+        braille_doc = translate_document(doc, session.backend_ctx, self._profile)
         return TranslationResult(
             text=text,
             ir=doc,
             braille_ir=braille_doc,
-            warnings=warnings,
+            warnings=session.warnings,
             default_renderer=self.default_renderer,
         )
 
@@ -457,43 +455,8 @@ class Pipeline:
             asset_resolver=self.asset_resolver,
         )
 
-    def _rasterize_graphic(
-        self,
-        block: Any,
-        warns: WarningCollector,
-        *,
-        tactile_profile: str | Any,
-        label_translator: Callable[[str], list[BrailleCell]] | None,
-        record_provenance: bool = False,
-    ) -> tuple[TactileRaster, ET.Element]:
-        """Rasterise an already-populated :class:`GraphicBlock` into a
-        :class:`~brailix.ir.tactile.TactileRaster`.
-
-        The shared tail of :meth:`translate_graphic` (the standalone tactile
-        entry) and :meth:`translate_block` (the inline-in-a-braille-document
-        path, ARCHITECTURE.md G1) — one rasteriser, not two.
-        Pulls the SVG tree off the block's :class:`GraphicInline` child
-        (:meth:`_populate_graphic_block` always lands one — an error-marked
-        SVG on soft-failure, never ``None`` — so a figure always rasterises to
-        *something*), loads the tactile profile, and rasterises.  Returns
-        ``(raster, tree)``.
-        """
-        from brailix.backend.tactile import rasterize
-        from brailix.backend.tactile.profile import load_tactile_profile
-
-        child = block.children[0] if block.children else None
-        tree = child.svg if isinstance(child, GraphicInline) else None
-        if tree is None:  # defensive — populate guarantees a GraphicInline tree
-            tree = ET.Element("svg", {"data-bk-error": "no graphic tree"})
-        prof = (
-            load_tactile_profile(tactile_profile)
-            if isinstance(tactile_profile, str)
-            else tactile_profile
-        )
-        raster = rasterize(
-            tree, prof, warns, label_translator, record_provenance=record_provenance
-        )
-        return raster, tree
+    # (The shared GraphicBlock rasterising tail lives in
+    # :func:`brailix.pipeline._incremental.rasterize_graphic_block`.)
 
     def _graphic_label_translator(
         self, braille_profile: str, host_warnings: WarningCollector
@@ -549,7 +512,7 @@ class Pipeline:
         instead of reusing semantic IR built under the old configuration.
         Hand-built children (never stamped) are used as-is.
         """
-        warnings, ctx, backend_ctx = self._fresh_contexts()
+        session = CompilationSession.begin(self)
         # Stamp the pipeline's identity onto the (possibly hand-built) doc
         # so the result is self-describing the same way translate_text /
         # parse_* leave it.  The backend reads ``self._profile`` directly,
@@ -560,8 +523,8 @@ class Pipeline:
         doc.metadata.pop("profile_requested", None)
         doc.metadata.update(self._ir_metadata())
         for block in doc.blocks:
-            self._frontend.populate_block(block, ctx)
-        braille_doc = translate_document(doc, backend_ctx, self._profile)
+            self._frontend.populate_block(block, session.frontend_ctx)
+        braille_doc = translate_document(doc, session.backend_ctx, self._profile)
         # The surface for a multi-block document is the concatenation
         # of every block's text — useful for proofread output but not
         # always semantically meaningful (no separator between blocks).
@@ -572,7 +535,7 @@ class Pipeline:
             text=rebuilt_text,
             ir=doc,
             braille_ir=braille_doc,
-            warnings=warnings,
+            warnings=session.warnings,
             default_renderer=self.default_renderer,
         )
 
@@ -610,56 +573,13 @@ class Pipeline:
         compiling block-by-block is sound. The document is **mutated in place**
         (children filled where missing), like :meth:`translate_document`.
         """
-        from brailix.backend.tactile.page import (
-            PageFigure,
-            PageItem,
-            PageText,
-            compose_pages,
-            line_width_cells,
-        )
-        from brailix.backend.tactile.profile import load_tactile_profile
-        from brailix.ir.document import GraphicBlock
-        from brailix.renderer.layout import LayoutOptions, LayoutRenderer
-
-        tprof = (
-            load_tactile_profile(tactile_profile)
-            if isinstance(tactile_profile, str)
-            else tactile_profile
-        )
-        # Wrap width = the one shared cells-per-line rule (``line_width_cells``);
-        # the compositor stamps at the same cell advance, so the wrap width and
-        # the stamp geometry agree.
-        layout = LayoutRenderer(
-            options=LayoutOptions(
-                line_width=line_width_cells(tprof, margin_mm=margin_mm),
-                page_height=None,
-            )
-        )
-
-        warnings = WarningCollector(mode=self.mode)
-        items: list[PageItem] = []
-        for block in doc.blocks:
-            compiled = self.translate_block(block)
-            # Aggregate each block's diagnostics without re-running the
-            # collector's mode logic (they are already final): append directly.
-            warnings.warnings.extend(compiled.warnings)
-            if isinstance(block, GraphicBlock):
-                if compiled.raster is not None:
-                    items.append(PageFigure(raster=compiled.raster))
-                continue
-            for bblock in compiled.braille_blocks:
-                lines = layout.lay_out_block(bblock)
-                if lines:
-                    items.append(PageText(lines=lines))
-
-        pages = compose_pages(
-            items,
-            tprof,
+        return compose_document_pages(
+            self,
+            doc,
+            tactile_profile=tactile_profile,
             margin_mm=margin_mm,
             item_gap_mm=item_gap_mm,
-            warnings=warnings,
         )
-        return TactilePageResult(pages=pages, warnings=warnings)
 
     def translate_file(
         self,
@@ -875,80 +795,17 @@ class Pipeline:
         editing front-end re-parses source into fresh blocks anyway); the
         guards only make reuse *safe*, not free.
         """
-        # One fresh collector + matching contexts for this block.  The
-        # backend context is stamped with this block's type up front — the
-        # only difference from the translate_text / translate_document
-        # setup — so expand_block sees the right block_type without a rebuild.
-        warnings, ctx, backend_ctx = self._fresh_contexts(block_type=block.type)
-
-        # Parsed-tree sub-cache is threaded through the populate path as
-        # a mutable pair: ``tree_in`` is read-only (caller-provided
-        # reuse pool), ``tree_out`` accumulates trees from this
-        # compile.  Kept out of :class:`FrontendContext` to avoid
-        # polluting the public adapter-facing surface with front-end-
-        # specific state.
-        tree_in = tree_subcache or {}
-        tree_out: TreeSubcache = {}
-        self._frontend.populate_block(block, ctx, tree_in=tree_in, tree_out=tree_out)
-
-        # Run the optional caller-supplied IR transformer.  We wrap
-        # the block in a singleton doc so the transformer can index
-        # children with absolute ``block_path = (0, ...)`` (same
-        # convention a front-end's override-application pass uses).
-        if ir_transformer is not None:
-            singleton = DocumentIR(blocks=[block])
-            ir_transformer(singleton)
-
-        # Backend: expand into one or more BrailleBlocks (composites
-        # like List / Table expand to N elements; simple blocks to 1;
-        # a GraphicBlock to one empty "graphic" placeholder — its dots ride
-        # on ``raster`` below, not in cells).
-        braille_blocks = expand_block(block, backend_ctx, self._profile)
-
-        # Tactile-graphics inline embedding (ARCHITECTURE.md G1):
-        # a figure block rasterises to a TactileRaster through THIS same
-        # incremental pipeline — no separate ``translate_graphic`` call — so a
-        # braille document holding figures compiles down one path.  Labels
-        # translate through this pipeline's own text path, so a figure's labels
-        # come out in the document's braille standard automatically.
-        from brailix.ir.document import GraphicBlock
-
-        raster: TactileRaster | None = None
-        if isinstance(block, GraphicBlock):
-            raster, _tree = self._rasterize_graphic(
-                block,
-                warnings,
-                tactile_profile=_DEFAULT_INLINE_TACTILE_PROFILE,
-                # Labels report into this block's own collector — a figure's
-                # untranslatable label is a real diagnostic of this compile,
-                # not preview noise.
-                label_translator=_InlineTextTranslator(
-                    self, warnings, "graphic_label", block.span
-                ),
-            )
-
-        # Stable cache key: textual surface + resolved profile + structure,
-        # salted with this pipeline's compilation fingerprint so a cache
-        # shared across differently-configured pipelines (resolver, user
-        # dictionary, edited profile content, ...) can never serve the other
-        # configuration's braille.  Callers who need override-aware cache
-        # keys (a proofreading front-end) compose this hash with their own
-        # override-list salt outside the compiler.
-        source_hash = block_hash(
-            block, self.profile_name, fingerprint=self._fingerprint
+        return compile_block(
+            self,
+            block,
+            ir_transformer=ir_transformer,
+            tree_subcache=tree_subcache,
         )
 
-        return CompiledBlock(
-            block_id=block.id or "",
-            source_hash=source_hash,
-            ir=block,
-            braille_blocks=braille_blocks,
-            warnings=list(warnings.warnings),
-            tree_subcache=tree_out,
-            raster=raster,
-        )
-
-    # --- Internal: shared per-translate setup -----------------------
+    # --- Internal: per-pipeline identity ------------------------------
+    #
+    # (Per-run state construction lives in
+    # :meth:`brailix.pipeline._session.CompilationSession.begin`.)
 
     def _ir_metadata(self) -> dict[str, Any]:
         """Self-describing identity stamped onto every IR this pipeline
@@ -972,34 +829,6 @@ class Pipeline:
         if self.profile != self._profile.name:
             md["profile_requested"] = self.profile
         return md
-
-    def _fresh_contexts(
-        self, *, block_type: str = "paragraph"
-    ) -> tuple[WarningCollector, FrontendContext, BackendContext]:
-        warnings = WarningCollector(mode=self.mode)
-        ctx = FrontendContext(
-            profile=self.profile,
-            mode=self.mode,
-            warnings=warnings,
-            options=self._frontend.frontend_options(),
-        )
-        backend_ctx = BackendContext(
-            profile=self.profile,
-            mode=self.mode,
-            block_type=block_type,
-            warnings=warnings,
-            # The inline-text translator is bound to THIS run's collector:
-            # embedded prose (music <words> / lyrics, math \text{...}, chem
-            # conditions) reports into the same diagnostics as everything
-            # else, under the same mode policy — strict fails, normal
-            # records. Only the explicit preview APIs discard.
-            options={
-                INLINE_TEXT_TRANSLATOR_KEY: _InlineTextTranslator(
-                    self, warnings
-                )
-            },
-        )
-        return warnings, ctx, backend_ctx
 
     def _translate_inline_text(
         self,
@@ -1077,51 +906,9 @@ class Pipeline:
         return braille_doc.all_cells()
 
 
-# ---------------------------------------------------------------------------
-# Inline-text translator binding
-# ---------------------------------------------------------------------------
-
-
-@dataclass(slots=True, frozen=True)
-class _InlineTextTranslator:
-    """The Pipeline-built :class:`~brailix.core.protocols.InlineTextTranslator`.
-
-    A tiny binding object around :meth:`Pipeline._translate_inline_text`:
-    it fixes WHERE the nested run's diagnostics go (``host_warnings`` — the
-    host compile's collector, or ``None`` for the discard-everything preview
-    contract) and, optionally, HOW they are attributed (``domain`` +
-    ``host_span``). Call sites deep in the backend re-tag it through
-    :meth:`bind_domain` — surfaced via
-    :meth:`brailix.core.context.BackendContext.inline_text_translator`'s
-    ``domain`` / ``span`` arguments — so a warning inside a music
-    ``<words>`` run reads differently from one inside a math
-    ``\\text{...}`` run. The protocol itself stays a bare
-    ``(text) -> cells`` callable; ``bind_domain`` is an optional extension
-    the accessor duck-types, so a third-party translator that is a plain
-    function keeps working (it just doesn't get domain attribution).
-    """
-
-    pipeline: Pipeline
-    host_warnings: WarningCollector | None = None
-    domain: str | None = None
-    host_span: Span | None = None
-
-    def __call__(self, text: str) -> list[BrailleCell]:
-        return self.pipeline._translate_inline_text(
-            text,
-            host_warnings=self.host_warnings,
-            domain=self.domain,
-            host_span=self.host_span,
-        )
-
-    def bind_domain(
-        self, domain: str, span: Span | None = None
-    ) -> _InlineTextTranslator:
-        """A copy of this translator attributing its warnings to ``domain``
-        (and anchoring them to ``span``, the embedding node's span)."""
-        return _InlineTextTranslator(
-            self.pipeline, self.host_warnings, domain, span
-        )
+# (The _InlineTextTranslator binding class lives in
+# :mod:`brailix.pipeline._session` — imported above so existing
+# ``brailix.pipeline._InlineTextTranslator`` references keep resolving.)
 
 
 # ---------------------------------------------------------------------------
