@@ -67,6 +67,21 @@ class StrictModeError(BrailixError):
         self.warning = warning
 
 
+class BackendContractError(BrailixError):
+    """A backend implementation violated an output contract the rest of the
+    system builds on — e.g. emitting a :class:`~brailix.ir.braille.BrailleCell`
+    without a ``source_span`` for an IR node that carries one, which breaks
+    the "every cell maps to a source span" traceability invariant
+    (ARCHITECTURE §3) that proofreading navigation depends on.
+
+    This is a *programming* error in the backend (built-in or plugin), never
+    a property of the user's input, so it is raised unconditionally — no run
+    mode downgrades or swallows it (the same philosophy as
+    :data:`PROGRAMMING_ERRORS`: a loud, locatable failure beats silently
+    wrong output).
+    """
+
+
 class MissingExtraError(BrailixError):
     """Raised when an adapter is requested but its optional dependency is
     not installed.

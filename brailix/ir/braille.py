@@ -285,12 +285,15 @@ class BrailleDocument:
         every cell it emits a span — including the control / spacing cells
         (number sign, word / column blanks, matrix row breaks, hanging-indent
         brackets) — through the span-carrying factories above (:func:`blank_cell`
-        / :func:`line_break_cell` / …); no ``role`` is exempt. This method turns
-        that contract from a convention re-asserted by hand in the backend tests
-        into a reusable, first-class check on the IR itself: the source-span
-        contract suite runs it over real compiles, a proofreading UI can verify
-        an externally supplied document before trusting its jumps, and a strict
-        caller can gate on the result.
+        / :func:`line_break_cell` / …); no ``role`` is exempt, and the dispatch
+        boundary enforces it (a translator — plugin or built-in — that returns a
+        span-less cell for a span-carrying node raises
+        :class:`~brailix.core.errors.BackendContractError` on the spot). This
+        method turns that contract from a convention re-asserted by hand in the
+        backend tests into a reusable, first-class check on the IR itself: the
+        source-span contract suite runs it over real compiles, a proofreading UI
+        can verify an externally supplied document before trusting its jumps,
+        and a strict caller can gate on the result.
 
         Non-fatal by design — it reports, it never raises. ``source_span`` stays
         ``Optional`` on :class:`BrailleCell` so a hand-built or legacy-
