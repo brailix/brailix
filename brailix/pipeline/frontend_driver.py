@@ -142,6 +142,7 @@ class FrontendDriver:
         "resolver",
         "user_pinyin_dict",
         "asset_resolver",
+        "fingerprint",
         "_parse_math_tree",
         "_parse_music_tree",
         "_parse_graphic_tree",
@@ -170,6 +171,15 @@ class FrontendDriver:
         self.resolver = resolver
         self.user_pinyin_dict = user_pinyin_dict
         self.asset_resolver = asset_resolver
+        # The owning Pipeline's compilation fingerprint
+        # (:attr:`brailix.pipeline.Pipeline.fingerprint`), assigned by
+        # ``Pipeline.__post_init__`` right after construction (it is derived
+        # from this driver's own resolved adapter names, so it can't be a
+        # constructor argument).  Stamped onto every block this driver
+        # populates and compared on re-entry so children built under another
+        # configuration are rebuilt, not reused.  ``None`` (a bare driver in
+        # a unit test) disables both the stamping and the comparison.
+        self.fingerprint: str | None = None
         # Injected tree parsers (see the class docstring): defaults are the
         # real frontend entry points; a test replaces one on the instance to
         # simulate an adapter failure.
@@ -214,17 +224,8 @@ class FrontendDriver:
         concerns; when both are ``None`` math / music parses run as before.
         """
         # Import lazily to avoid circular dependency at module load.
-        from brailix.ir.document import (
-            CodeBlock,
-            GraphicBlock,
-            MathBlock,
-            MusicBlock,
-            ScoreBlock,
-            Table,
-        )
-        from brailix.ir.document import (
-            List as ListBlock,
-        )
+        from brailix.ir.document import List as ListBlock
+        from brailix.ir.document import Table
 
         if isinstance(block, ListBlock):
             for item in block.items:
@@ -240,6 +241,13 @@ class FrontendDriver:
                 # node / braille cell highlights the wrong column.
                 cell_offset = 0
                 for cell in row.cells:
+                    # Heal HERE, before reading ``already_populated``: a stale
+                    # cell (edited text / other configuration) is dropped and
+                    # rebuilt inside the recursive call below, and the rebuilt
+                    # children need the span rebase exactly like a fresh
+                    # populate — reading the pre-heal children count would
+                    # skip it and highlight the wrong column.
+                    self._heal_stale_children(cell)
                     already_populated = bool(cell.children)
                     self.populate_block(
                         cell, ctx, tree_in=tree_in, tree_out=tree_out
@@ -248,53 +256,18 @@ class FrontendDriver:
                         _shift_node_spans(cell, cell_offset)
                     cell_offset += _table_cell_source_len(cell) + _TABLE_CELL_GAP
             return
-        # Self-heal a stale re-entry (the P1-2 footgun): a caller that mutated
-        # ``block.text`` on a block whose ``children`` were already built from
-        # the OLD text.  The populate step below short-circuits on existing
-        # children, so without this the stale children — and the ``source_hash``
-        # keyed on their reconstructed surface, which also would not change —
-        # would be reused, silently emitting braille for the old text.  Detect
-        # it with the SAME surface the cache key uses (:func:`_block_surface`):
-        # when the reconstructed child surface no longer equals the current raw
-        # text, the block was edited after population, so drop the children and
-        # let the populate path below rebuild them from the authoritative
-        # ``block.text``.  A block whose children still reflect its text — the
-        # normal re-translate case — is untouched, preserving the
-        # "re-translation skips the frontend cost" optimization
-        # (:meth:`Pipeline.translate_document`).
-        if block.text and block.children and _block_surface(block) != block.text:
-            block.children = []
+        self._heal_stale_children(block)
 
         # Leaf block.  Populate children from raw ``text`` only when it's
         # present and nothing has filled them yet; the per-kind branches
-        # below differ only in *how* they populate.
+        # in :meth:`_populate_leaf` differ only in *how* they populate.
         if block.text and not block.children:
-            if isinstance(block, MathBlock):
-                self._populate_math_block(
-                    block, ctx, tree_in=tree_in, tree_out=tree_out
-                )
-                return
-            if isinstance(block, (ScoreBlock, MusicBlock)):
-                self._populate_music_block(
-                    block, ctx, tree_in=tree_in, tree_out=tree_out
-                )
-                return
-            if isinstance(block, GraphicBlock):
-                self._populate_graphic_block(
-                    block, ctx, tree_in=tree_in, tree_out=tree_out
-                )
-                return
-            if isinstance(block, CodeBlock):
-                # No language frontend — wrap the verbatim text as one
-                # CodeInline so the backend's punct path emits one cell
-                # per source char.
-                text, span, _ = _ensure_block_span(block)
-                block.children = [CodeInline(surface=text, span=span)]
-                return
-            text, span, _ = _ensure_block_span(block)
-            block.children = self.run_frontend(
-                text, ctx, tree_in=tree_in, tree_out=tree_out
-            )
+            self._populate_leaf(block, ctx, tree_in=tree_in, tree_out=tree_out)
+            # Stamp the configuration that built these children so a later
+            # populate under a different configuration rebuilds them (see
+            # :meth:`_heal_stale_children`).  After the populate, so a
+            # strict-mode abort can't leave a stamped-but-empty block.
+            block.frontend_fingerprint = self.fingerprint
             return
 
         # Already populated (or no text): a text-bearing block still lands
@@ -314,6 +287,91 @@ class FrontendDriver:
         # rely on this method to re-record it.
         if block.span is None and block.text:
             block.span = Span(0, len(block.text))
+
+    def _heal_stale_children(self, block: Any) -> None:
+        """Drop ``children`` that no longer describe ``block.text`` — the
+        stale-re-entry self-heal the populate paths rely on.
+
+        Two ways a populated block goes stale (both would otherwise be
+        silently reused, emitting braille that doesn't match the input):
+
+        * **Edited text** (the P1-2 footgun): the caller mutated
+          ``block.text`` after population.  Detected with the SAME surface
+          the cache key uses (:func:`_block_surface`) — when the
+          reconstructed child surface no longer equals the raw text, drop
+          the children so the populate path rebuilds them from the
+          authoritative ``block.text``.
+        * **Changed configuration**: the children were populated by a
+          pipeline whose compilation fingerprint differs from this one's —
+          a different resolver / analyzer / user dictionary / profile
+          content would produce different semantic IR from the very same
+          text, so text equality proves nothing.  Detected via the
+          ``frontend_fingerprint`` stamp populate leaves behind.  A block
+          with **no** stamp is left alone: hand-built children keep the
+          documented "used as-is" contract, and a driver with no
+          fingerprint (bare unit-test construction) never invalidates.
+
+        A block whose children still reflect its text and configuration —
+        the normal re-translate case — is untouched, preserving the
+        "re-translation skips the frontend cost" optimization
+        (:meth:`Pipeline.translate_document`).
+        """
+        if not (block.text and block.children):
+            return
+        if _block_surface(block) != block.text:
+            block.children = []
+            return
+        stamp = getattr(block, "frontend_fingerprint", None)
+        if (
+            stamp is not None
+            and self.fingerprint is not None
+            and stamp != self.fingerprint
+        ):
+            block.children = []
+
+    def _populate_leaf(
+        self,
+        block: Any,
+        ctx: FrontendContext,
+        *,
+        tree_in: TreeSubcache | None = None,
+        tree_out: TreeSubcache | None = None,
+    ) -> None:
+        """Populate one leaf block's ``children`` from its raw ``text`` —
+        the per-kind dispatch behind :meth:`populate_block` (which owns the
+        recursion, the stale-heal and the fingerprint stamp)."""
+        from brailix.ir.document import (
+            CodeBlock,
+            GraphicBlock,
+            MathBlock,
+            MusicBlock,
+            ScoreBlock,
+        )
+
+        if isinstance(block, MathBlock):
+            self._populate_math_block(block, ctx, tree_in=tree_in, tree_out=tree_out)
+            return
+        if isinstance(block, (ScoreBlock, MusicBlock)):
+            self._populate_music_block(
+                block, ctx, tree_in=tree_in, tree_out=tree_out
+            )
+            return
+        if isinstance(block, GraphicBlock):
+            self._populate_graphic_block(
+                block, ctx, tree_in=tree_in, tree_out=tree_out
+            )
+            return
+        if isinstance(block, CodeBlock):
+            # No language frontend — wrap the verbatim text as one
+            # CodeInline so the backend's punct path emits one cell
+            # per source char.
+            text, span, _ = _ensure_block_span(block)
+            block.children = [CodeInline(surface=text, span=span)]
+            return
+        text, span, _ = _ensure_block_span(block)
+        block.children = self.run_frontend(
+            text, ctx, tree_in=tree_in, tree_out=tree_out
+        )
 
     def _populate_music_block(
         self,

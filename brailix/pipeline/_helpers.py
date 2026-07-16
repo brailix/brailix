@@ -108,20 +108,38 @@ def _block_surface(block: Any) -> str:
 # outlives one recipe (a front-end that ever persists digests across sessions)
 # can't serve an entry computed under the old composition against the new one.
 # Folded INTO the digest below, not merely prepended, so it perturbs the hash.
-_BLOCK_HASH_VERSION = "2"
+_BLOCK_HASH_VERSION = "3"
 
 
-def block_hash(block: Block, profile_name: str) -> str:
-    """SHA-256 hex digest of ``(block textual surface, profile, structure)``.
+def block_hash(
+    block: Block, profile_name: str, *, fingerprint: str | None = None
+) -> str:
+    """SHA-256 hex digest of ``(block textual surface, profile, structure)``,
+    optionally salted with a compilation-configuration ``fingerprint``.
 
-    The default, **safe-by-itself** cache key for a compiled block: equal hash
-    ⟺ equal braille, so a front-end may cache on this digest alone without ever
-    serving one block's output for another. A change in source text, selected
-    profile, or structural shape flips the hash.
+    The default cache key for a compiled block. A change in source text,
+    profile name, or structural shape flips the hash — and, when
+    ``fingerprint`` is supplied (:attr:`Pipeline.fingerprint`), so does any
+    change in the compilation configuration: the resolved profile's actual
+    content, the selected segmenter / normalizer / analyzer / resolver, the
+    user pinyin dictionary, the run mode, or the brailix version (see
+    :func:`brailix.pipeline.compilation_fingerprint` for the exact coverage
+    and its limits). :meth:`Pipeline.translate_block` always passes its own
+    fingerprint, so :attr:`CompiledBlock.source_hash` is safe to cache on
+    within one process without ever serving output compiled under a
+    configuration the caller no longer runs.
 
-    Folding in :meth:`Block.structure_key` is what makes it safe on its own. The
-    textual surface can't tell a :class:`~brailix.ir.document.Heading` from a
-    same-text :class:`~brailix.ir.document.Paragraph`, an ordered from an
+    **Without** ``fingerprint`` the digest covers only what its three inputs
+    say: two calls agree whenever surface, profile *name* and structure agree,
+    even if the pipelines behind them would compile the block differently
+    (different resolver, different user dictionary, a same-named profile with
+    edited content). Equal hash ⟹ equal braille holds only under a fixed
+    compilation configuration — a cache shared across differently-configured
+    pipelines must use the salted form.
+
+    Folding in :meth:`Block.structure_key` is what covers structural identity.
+    The textual surface can't tell a :class:`~brailix.ir.document.Heading` from
+    a same-text :class:`~brailix.ir.document.Paragraph`, an ordered from an
     unordered :class:`~brailix.ir.document.List`, or two
     :class:`~brailix.ir.document.Table`\\ s of different shape — all of which
     render under different layout rules. Keying on the surface alone let a block
@@ -143,6 +161,11 @@ def block_hash(block: Block, profile_name: str) -> str:
     h.update(profile_name.encode("utf-8"))
     h.update(b"|")
     h.update(block.structure_key().encode("utf-8"))
+    if fingerprint is not None:
+        # Tagged separator: a crafted structure_key ending in the same bytes
+        # can't collide an unsalted digest with a salted one.
+        h.update(b"|fp|")
+        h.update(fingerprint.encode("utf-8"))
     return h.hexdigest()
 
 
