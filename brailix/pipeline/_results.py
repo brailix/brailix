@@ -166,6 +166,17 @@ class TactilePageResult:
 # instead of re-parsing it — the dominant cost for large scores.  The
 # domain prefix keeps math, music and graphic entries from colliding on a
 # shared ``source`` value such as ``"plain"``.
+#
+# Immutability contract: entries are shared BY IDENTITY — a hit hands the
+# very same ``Element`` to every compile that reuses it, with no defensive
+# copy (copying would forfeit the re-parse saving that justifies the pool).
+# What keeps that sound: the parser owns mutable construction; once a tree
+# is recorded here it is read-only — backends (built-in or plugin) must
+# never write into a mediator tree, and callers must treat entries as
+# frozen. A violation would poison every later compile that hits the entry
+# (order-dependent wrong output). Each domain pins this with a
+# ``test_backend_does_not_mutate_cached_tree`` guard in
+# ``tests/integration/test_translate_block.py``.
 TreeSubcache = dict[tuple[str, str, str], ET.Element]
 
 

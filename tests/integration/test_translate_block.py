@@ -22,6 +22,7 @@ from brailix import Pipeline
 from brailix.ir.braille import BrailleBlock
 from brailix.ir.document import (
     DocumentIR,
+    GraphicBlock,
     Heading,
     ListItem,
     Paragraph,
@@ -547,6 +548,63 @@ class TestMusicSubcache:
             tree_subcache={key: tree},
         )
         assert out.ir.children[0].score is tree  # confirm the cache hit
+        assert ET.tostring(tree) == before  # backend left it untouched
+
+
+# ---------------------------------------------------------------------------
+# tree_subcache reuse — graphics (parity with math / music)
+# ---------------------------------------------------------------------------
+
+# A labelled figure on purpose: the ``<text>`` label walks the tactile
+# backend's label-translation path (the injected LabelTranslator renders it
+# to braille dots), the deepest tree consumer — exactly where an accidental
+# write-back into the shared SVG tree would happen.
+_SVG_FIGURE = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" '
+    'width="50mm" height="50mm"><circle cx="50" cy="50" r="40"/>'
+    '<text x="6" y="12">A</text></svg>'
+)
+
+
+class TestGraphicSubcache:
+    """The ``("graphic", …)`` domain of the shared reuse pool — the third
+    consumer alongside math and music (``FrontendDriver._populate_graphic_block``)."""
+
+    def test_reuses_cached_tree(self, pipe: Pipeline) -> None:
+        first = pipe.translate_block(GraphicBlock(text=_SVG_FIGURE, source="svg"))
+        key = ("graphic", "svg", _SVG_FIGURE)
+        assert key in first.tree_subcache
+
+        second = pipe.translate_block(
+            GraphicBlock(text=_SVG_FIGURE, source="svg"),
+            tree_subcache=first.tree_subcache,
+        )
+        # Identity, not equality: the pool handed back the same parsed tree.
+        assert second.ir.children[0].svg is first.tree_subcache[key]
+
+    def test_backend_does_not_mutate_cached_tree(self, pipe: Pipeline) -> None:
+        """Graphics parity with the math / music guards above: rasterizing a
+        figure (including translating its ``<text>`` label to braille dots)
+        must never write back into the shared cached SVG tree — a reused
+        ``tree_subcache`` entry is the same object across compiles, so any
+        mutation would corrupt every later compile that hits the entry."""
+        import xml.etree.ElementTree as ET
+
+        from brailix.core.context import GraphicsContext
+        from brailix.frontend.graphics import parse_graphic_tree
+
+        # Parse once, independently, and snapshot before the backend sees it.
+        tree = parse_graphic_tree(_SVG_FIGURE, GraphicsContext(source="svg"))
+        assert tree is not None
+        before = ET.tostring(tree)
+
+        key = ("graphic", "svg", _SVG_FIGURE)
+        out = pipe.translate_block(
+            GraphicBlock(text=_SVG_FIGURE, source="svg"),
+            tree_subcache={key: tree},
+        )
+        assert out.ir.children[0].svg is tree  # confirm the cache hit
+        assert out.raster is not None  # the backend really rasterised it
         assert ET.tostring(tree) == before  # backend left it untouched
 
 
