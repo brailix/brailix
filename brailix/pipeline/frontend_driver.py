@@ -300,7 +300,13 @@ class FrontendDriver:
           the cache key uses (:func:`_block_surface`) — when the
           reconstructed child surface no longer equals the raw text, drop
           the children so the populate path rebuilds them from the
-          authoritative ``block.text``.
+          authoritative ``block.text``.  ``text`` is authoritative whenever
+          it is a string — **including the empty string**: editing a
+          populated block to ``""`` clears its children (and the block
+          compiles to nothing), it does not keep emitting the old
+          content's braille.  Only ``text is None`` — the hand-built-IR
+          shape, where there is no raw source to compare against — keeps
+          the documented "children used as-is" contract.
         * **Changed configuration**: the children were populated by a
           pipeline whose compilation fingerprint differs from this one's —
           a different resolver / analyzer / user dictionary / profile
@@ -316,10 +322,16 @@ class FrontendDriver:
         "re-translation skips the frontend cost" optimization
         (:meth:`Pipeline.translate_document`).
         """
-        if not (block.text and block.children):
+        if not block.children:
             return
-        if _block_surface(block) != block.text:
+        if block.text is not None and _block_surface(block) != block.text:
             block.children = []
+            # The stamp describes children that no longer exist; clear it so
+            # an emptied block (``text == ""``, never re-populated) doesn't
+            # keep advertising the configuration that built the old ones.
+            block.frontend_fingerprint = None
+            return
+        if not block.text:
             return
         stamp = getattr(block, "frontend_fingerprint", None)
         if (

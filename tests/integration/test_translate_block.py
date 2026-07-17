@@ -25,8 +25,12 @@ from brailix.ir.document import (
     GraphicBlock,
     Heading,
     ListItem,
+    MathBlock,
     Paragraph,
     ScoreBlock,
+    Table,
+    TableCell,
+    TableRow,
 )
 from brailix.ir.document import List as ListBlock
 from brailix.ir.inline import HanziChar
@@ -680,6 +684,82 @@ class TestStaleBlockSelfHeal:
         block.text = edited
         second = pipe.translate_block(block)
         assert second.ir.children[0].surface == edited
+
+
+class TestEditToEmptySelfHeal:
+    """Editing a populated block's ``text`` to the EMPTY string is an edit
+    like any other: the stale children are dropped and the block compiles
+    to nothing — it must not keep emitting the old content's braille.
+    ``text`` is authoritative whenever it is a string (``""`` included);
+    only ``text=None`` keeps the hand-built "children used as-is" contract.
+    """
+
+    def test_paragraph_emptied_emits_nothing_and_hash_changes(
+        self, pipe: Pipeline
+    ) -> None:
+        block = Paragraph(text="旧内容")
+        first = pipe.translate_block(block)
+        assert sum(len(b.cells) for b in first.braille_blocks) > 0
+        block.text = ""
+        second = pipe.translate_block(block)
+        # The stale children (and their configuration stamp) are gone, the
+        # output is empty, and the cache key tracks the edit — a cache keyed
+        # on ``source_hash`` can't serve the old braille for the emptied block.
+        assert block.children == []
+        assert block.frontend_fingerprint is None
+        assert sum(len(b.cells) for b in second.braille_blocks) == 0
+        assert second.source_hash != first.source_hash
+
+    def test_math_block_emptied(self, pipe: Pipeline) -> None:
+        pytest.importorskip("latex2mathml")
+        block = MathBlock(text="1+2", source="latex")
+        first = pipe.translate_block(block)
+        assert sum(len(b.cells) for b in first.braille_blocks) > 0
+        block.text = ""
+        second = pipe.translate_block(block)
+        assert block.children == []
+        assert sum(len(b.cells) for b in second.braille_blocks) == 0
+        assert second.source_hash != first.source_hash
+
+    def test_score_block_emptied(self, pipe: Pipeline) -> None:
+        block = ScoreBlock(text=_SCORE_XML, source="musicxml")
+        first = pipe.translate_block(block)
+        block.text = ""
+        second = pipe.translate_block(block)
+        assert block.children == []
+        assert second.source_hash != first.source_hash
+
+    def test_table_cell_emptied(self, pipe: Pipeline) -> None:
+        table = Table(
+            rows=[TableRow(cells=[TableCell(text="甲"), TableCell(text="乙")])]
+        )
+        first = pipe.translate_block(table)
+        table.rows[0].cells[0].text = ""
+        second = pipe.translate_block(table)
+        assert table.rows[0].cells[0].children == []
+        assert second.source_hash != first.source_hash
+        # The row still renders the surviving cell.
+        assert sum(len(b.cells) for b in second.braille_blocks) > 0
+
+    def test_emptied_block_repopulates_on_new_text(self, pipe: Pipeline) -> None:
+        block = Paragraph(text="旧内容")
+        pipe.translate_block(block)
+        block.text = ""
+        pipe.translate_block(block)
+        block.text = "新内容"
+        third = pipe.translate_block(block)
+        assert "".join(c.surface for c in third.ir.children) == "新内容"
+        assert sum(len(b.cells) for b in third.braille_blocks) > 0
+
+    def test_hand_built_children_with_no_text_still_used_as_is(
+        self, pipe: Pipeline
+    ) -> None:
+        """The empty-string rule must not eat the hand-built contract:
+        ``text=None`` has no authoritative source, children stay."""
+        block = Paragraph(children=[HanziChar(surface="字")])
+        out = pipe.translate_block(block)
+        assert len(out.ir.children) == 1
+        assert out.ir.children[0].surface == "字"
 
 
 # ---------------------------------------------------------------------------
