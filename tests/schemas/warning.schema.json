@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Brailix diagnostic warning",
+  "description": "One serialized diagnostic — an entry of WarningCollector.to_list() and of the warnings array in TranslationResult.proofread_json(). Optional fields appear exactly when set (empty candidates / anchor are omitted, not emitted empty).",
+  "type": "object",
+  "required": ["code", "level", "message"],
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$",
+      "description": "Stable machine-readable code (SCREAMING_SNAKE_CASE); front-ends key i18n and filtering on it."
+    },
+    "level": {
+      "enum": ["info", "warn", "error"]
+    },
+    "message": {
+      "type": "string"
+    },
+    "surface": {
+      "type": "string",
+      "description": "The source text the diagnostic is about (possibly truncated by the emitter)."
+    },
+    "span": {
+      "$ref": "#/definitions/span"
+    },
+    "candidates": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Alternative readings / fixes a front-end can offer."
+    },
+    "source": {
+      "type": "string",
+      "description": "Emitting subsystem, e.g. backend.math / pinyin.g2pw."
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "minProperties": 1,
+      "description": "Structured location for inputs with no character-level coordinate (music: part_id / measure_number; embedded runs: embedded_text / domain)."
+    }
+  },
+  "definitions": {
+    "span": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0 },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Half-open [start, end) code-point range."
+    }
+  }
+}

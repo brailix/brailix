@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Brailix document IR",
+  "description": "Serialized form of the text-side IR — DocumentIR.to_dict() (the root below). Block and inline nodes are each ONE union definition: the type tag is enumerated, and the properties are the union of every registered node's serialized fields. Which fields belong to which type is the dataclass registry's contract (brailix.ir.document / brailix.ir.inline) — duplicating that per-type here would be a third copy of the same rules. Optional/default fields are omitted from the wire form, never emitted as null. The document deliberately carries NO assets key: binary side-payloads never enter the text IR (ARCHITECTURE §1).",
+  "$ref": "#/definitions/document",
+  "definitions": {
+    "span": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0 },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Half-open [start, end) code-point range. Block spans are source-document coordinates; inline spans are leaf-local."
+    },
+    "inline_node": {
+      "type": "object",
+      "required": ["type", "surface"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "word", "hanzi_char", "number", "hanzi_marker", "date",
+            "quantity", "percent", "punct", "latin_word", "latin_acronym",
+            "code_inline", "phonetic_inline", "math_inline", "music_inline",
+            "graphic_inline", "space", "connector", "unknown"
+          ]
+        },
+        "surface": { "type": "string" },
+        "span": { "$ref": "#/definitions/span" },
+        "reading": { "type": "string" },
+        "pos": { "type": "string" },
+        "confidence": { "type": "number" },
+        "role": { "type": "string" },
+        "reason": { "type": "string" },
+        "parts": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/inline_node" }
+        },
+        "number": { "$ref": "#/definitions/inline_node" },
+        "unit": { "type": "string" },
+        "unit_canonical": { "type": "string" },
+        "source": { "type": "string" },
+        "math": {
+          "type": "string",
+          "description": "Serialized MathML — ET trees ride the JSON as XML strings."
+        },
+        "score": {
+          "type": "string",
+          "description": "Serialized MusicXML."
+        },
+        "svg": {
+          "type": "string",
+          "description": "Serialized SVG."
+        }
+      }
+    },
+    "block": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "heading", "paragraph", "list", "list_item", "table",
+            "table_row", "table_cell", "quote", "footnote", "code_block",
+            "math_block", "score", "music_block", "image_alt", "graphic"
+          ]
+        },
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "span": { "$ref": "#/definitions/span" },
+        "align": { "type": "string" },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/inline_node" }
+        },
+        "level": { "type": "integer" },
+        "ordered": { "type": "boolean" },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/block" }
+        },
+        "rows": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/block" }
+        },
+        "cells": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/block" }
+        },
+        "ref": { "type": "string" },
+        "language": { "type": "string" },
+        "source": { "type": "string" },
+        "target": { "type": "string" }
+      }
+    },
+    "document": {
+      "type": "object",
+      "required": ["version", "type", "metadata", "blocks"],
+      "additionalProperties": false,
+      "properties": {
+        "version": { "type": "string" },
+        "type": { "const": "document" },
+        "metadata": { "type": "object" },
+        "blocks": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/block" }
+        }
+      }
+    }
+  }
+}

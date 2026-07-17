@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Brailix braille profile",
+  "description": "External structure of a profile JSON — the braille standard as data: rule-table references plus feature switches. This schema owns STRUCTURE only; semantic constraints (referenced table files exist and are well-formed, entity references resolve, feature values make sense to their domain) belong to brailix.core.config.validator, so every rule lives in exactly one place.",
+  "type": "object",
+  "required": ["name", "language", "tables"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The profile's own authoritative identity (may differ from the file name when loaded via an alias)."
+    },
+    "language": {
+      "type": "string",
+      "pattern": "\\S",
+      "description": "Language tag (e.g. zh-CN, ja-JP). Must contain at least one non-space character; the primary subtag selects the language frontend/backend slot."
+    },
+    "cell": {
+      "type": "string",
+      "description": "Cell geometry, e.g. six_dot."
+    },
+    "features": {
+      "type": "object",
+      "description": "Open feature switches grouped by domain (math / zh / music / input / ...). Deliberately unconstrained here: the feature space is the profile system's extension point and each domain owns its keys."
+    },
+    "tables": {
+      "type": "object",
+      "description": "Braille rule tables. Each entry is a resource reference (a path like resources/cells.json or resources/music/vocal/), an inline cell spec (e.g. c_36), or a per-domain group of such references (zh / math / music / a per-language slot). Keys with a leading underscore are metadata (e.g. a language slot's _required group list) and are skipped by the loaders.",
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "string", "minLength": 1 },
+          {
+            "type": "object",
+            "patternProperties": {
+              "^_": {}
+            },
+            "additionalProperties": { "type": "string", "minLength": 1 }
+          }
+        ]
+      }
+    },
+    "reference": {
+      "type": "string",
+      "description": "Citation for the standard this profile implements."
+    }
+  },
+  "patternProperties": {
+    "^_": {
+      "type": "string",
+      "description": "Free-form maintainer metadata (e.g. _note)."
+    }
+  }
+}
