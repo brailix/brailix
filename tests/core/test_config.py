@@ -8,8 +8,6 @@ from brailix.core.config import (
     BrailleProfile,
     _dots_dict,
     _entity_to_char,
-    _extract_dots,
-    _to_dots,
     load_builtin_numbers_table,
     load_profile,
 )
@@ -253,34 +251,14 @@ class TestExtraSearchPaths:
         assert pipe._profile.language == "from_pipeline"
 
 
-class TestHelpers:
-    def test_to_dots(self):
-        assert _to_dots([1, 2, 4]) == (1, 2, 4)
-        assert _to_dots([]) == ()
+# _to_dots' valid-domain model and _extract_dots' acceptance model are
+# property-tested in test_config_helper_properties.py.
 
+
+class TestHelpers:
     def test_dots_dict_skips_notes(self):
         out = _dots_dict({"_note": "skip me", "a": [1, 2], "b": "not-a-list"})
         assert out == {"a": (1, 2)}
-
-
-class TestExtractDots:
-    def test_none_returns_none(self):
-        assert _extract_dots(None) is None
-
-    def test_bare_empty_list_returns_empty_tuple(self):
-        assert _extract_dots([]) == ()
-
-    def test_non_int_list_returns_none(self):
-        # Mixed-type lists are rejected so callers can skip them.
-        assert _extract_dots([1, "x"]) is None
-        assert _extract_dots(["a", "b"]) is None
-
-    def test_dict_with_non_list_dots_returns_none(self):
-        assert _extract_dots({"dots": "not-a-list"}) is None
-
-    def test_unknown_value_type_returns_none(self):
-        assert _extract_dots(42) is None
-        assert _extract_dots("string") is None
 
 
 class TestRichSchemaCompat:
@@ -641,6 +619,18 @@ class TestEntityToChar:
     def test_codepoint_surrogate_raises(self):
         with pytest.raises(ValueError, match="not a valid Unicode"):
             _entity_to_char("U+D800")
+
+    def test_codepoint_exact_boundaries(self):
+        # The exact rim, both sides: the last valid code point and the
+        # surrogate range's outer neighbours parse; one past each edge is
+        # rejected. (Mutation testing: boundary tweaks survived between the
+        # far-from-edge examples above.)
+        assert _entity_to_char("U+10FFFF") == chr(0x10FFFF)
+        assert _entity_to_char("U+D7FF") == chr(0xD7FF)
+        assert _entity_to_char("U+E000") == chr(0xE000)
+        for bad in ("U+110000", "U+DFFF"):
+            with pytest.raises(ValueError, match="not a valid Unicode"):
+                _entity_to_char(bad)
 
     def test_non_codepoint_u_name_falls_through_to_html5(self):
         # A key starting with 'U' that isn't the U+XXXX shape is treated

@@ -120,7 +120,11 @@ dev = [
     "pypinyin",
     "latex2mathml",
     "janome",  # minimal ja analyzer — exercises the ja frontend's analyzer path in CI
+    # Property-based testing (tests/*/test_*_properties.py): architecture
+    # invariants checked over generated inputs instead of enumerated examples.
+    "hypothesis>=6.100",
 ]
+
 
 [build-system]
 requires = ["hatchling"]

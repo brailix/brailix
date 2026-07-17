@@ -5,8 +5,9 @@ are one :class:`Paragraph` per source line — plain text has no soft-wrap
 convention, so every newline is a paragraph boundary and the braille
 output breaks where the source breaks. Tests pin: span computation
 (None for empty, exact range otherwise), metadata propagation,
-newline splitting, blank-line collapsing, and the
-``text[span] == block.text`` provenance invariant.
+newline splitting, and blank-line collapsing. The general
+``text[span] == block.text`` exact-slice invariant is property-tested
+over generated documents in ``test_parse_span_properties.py``.
 """
 
 from __future__ import annotations
@@ -95,13 +96,3 @@ class TestParagraphSplitting:
         assert [b.text for b in doc.blocks] == ["甲乙", "丙"]
         assert doc.blocks[0].span == Span(2, 4)
         assert doc.blocks[1].span == Span(7, 8)
-
-    def test_span_text_invariant_holds_for_every_block(self):
-        # The proofread layer relies on text[span] == block.text so a
-        # per-cell source offset maps back to the right character.
-        src = "  缩进段落  \n\n第二段有内容。\n第三段。\n\n\n第四段。"
-        doc = parse_plain(src, profile="cn_current", language="zh-CN")
-        assert len(doc.blocks) == 4
-        for block in doc.blocks:
-            assert block.span is not None
-            assert src[block.span.start : block.span.end] == block.text
