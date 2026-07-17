@@ -95,6 +95,7 @@ all = [
     { name = "python-docx" },
     { name = "resvg-py" },
     { name = "thulac" },
+    { name = "torch" },
     { name = "transformers" },
 ]
 docx = [
@@ -112,6 +113,7 @@ g2pm = [
 ]
 g2pw = [
     { name = "g2pw" },
+    { name = "torch" },
 ]
 graphics = [
     { name = "pillow" },
@@ -228,6 +230,8 @@ requires-dist = [
     { name = "sudachipy", marker = "extra == 'sudachi'" },
     { name = "thulac", marker = "extra == 'all'" },
     { name = "thulac", marker = "extra == 'thulac'" },
+    { name = "torch", marker = "extra == 'all'" },
+    { name = "torch", marker = "extra == 'g2pw'" },
     { name = "transformers", marker = "extra == 'all'", specifier = "<4.55" },
     { name = "transformers", marker = "extra == 'hanlp'", specifier = "<4.55" },
     { name = "unidic-lite", marker = "extra == 'fugashi'" },

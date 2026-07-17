@@ -41,7 +41,10 @@ jieba = ["jieba"]          # light, offline, pure-Python
 # a dependency — so we pin it here, or `import g2pM` ImportErrors at
 # adapter-load time and the registry mis-reports it as a missing extra.
 g2pm = ["g2pM", "numpy"]
-g2pw = ["g2pw"]            # deep polyphone model (downloads a model on first use)
+# g2pw (0.1.1) imports torch.utils.data at import time yet declares only
+# onnxruntime/tqdm/transformers — same upstream gap as g2pM's numpy above,
+# so we declare torch here; environments that also install hanlp masked it.
+g2pw = ["g2pw", "torch"]   # deep polyphone model (downloads a model on first use)
 pypinyin = ["pypinyin"]    # light, offline, dictionary-based
 
 # Math sources:
@@ -91,7 +94,7 @@ sudachi = ["sudachipy", "sudachidict-core"]  # Sudachi (reading_form)
 all = [
     "hanlp", "transformers<4.55",  # pin rides along with hanlp — see the [hanlp] extra
     "thulac", "jieba",
-    "g2pM", "numpy", "g2pw", "pypinyin",
+    "g2pM", "numpy", "g2pw", "torch", "pypinyin",
     "janome",
     "latex2mathml",
     "python-docx", "lxml", "olefile",
