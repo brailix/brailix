@@ -123,6 +123,12 @@ dev = [
     # Property-based testing (tests/*/test_*_properties.py): architecture
     # invariants checked over generated inputs instead of enumerated examples.
     "hypothesis>=6.100",
+    # JSON-boundary contracts: shipped profiles / IR payloads / golden data
+    # validate against the declared schemas under tests/schemas/, and
+    # schema-shaped payloads fuzz the loaders (accept or documented
+    # rejection, never a crash).
+    "jsonschema>=4.21",
+    "hypothesis-jsonschema>=0.23",
 ]
 
 

@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Brailix braille IR",
+  "description": "Serialized form of the braille IR — BrailleDocument.to_dict() (the root below) with braille_block / cell / braille_sequence in definitions. Cells are value objects: dots are unique positions 1..8 in any documented order (the dataclass canonicalizes to ascending), and provenance (source_span / source_text) is optional in the wire form even though a compiled document always carries spans.",
+  "$ref": "#/definitions/braille_document",
+  "definitions": {
+    "span": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0 },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Half-open [start, end) leaf-local code-point range."
+    },
+    "cell": {
+      "type": "object",
+      "required": ["dots"],
+      "additionalProperties": false,
+      "properties": {
+        "dots": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1, "maximum": 8 },
+          "uniqueItems": true
+        },
+        "role": { "type": "string" },
+        "source_span": { "$ref": "#/definitions/span" },
+        "source_text": { "type": "string" }
+      }
+    },
+    "braille_block": {
+      "type": "object",
+      "required": ["type", "block_type", "cells"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "braille_block" },
+        "block_type": { "type": "string" },
+        "cells": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/cell" }
+        },
+        "id": { "type": "string" },
+        "heading_level": { "type": "integer", "minimum": 1 },
+        "align": { "type": "string" }
+      }
+    },
+    "braille_document": {
+      "type": "object",
+      "required": ["type", "metadata", "blocks"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "braille_document" },
+        "metadata": { "type": "object" },
+        "blocks": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/braille_block" }
+        }
+      }
+    },
+    "braille_sequence": {
+      "type": "object",
+      "required": ["type", "cells"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "braille_sequence" },
+        "cells": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/cell" }
+        }
+      }
+    }
+  }
+}

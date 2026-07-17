@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Brailix golden test data file",
+  "description": "One golden data file (tests/golden/data/*.json): groups of human-reviewed input-to-braille cases. additionalProperties is false at every level ON PURPOSE — a typo'd field name (say 'expcted') would otherwise silently skip the very check the case exists for.",
+  "type": "object",
+  "required": ["description", "groups"],
+  "additionalProperties": false,
+  "properties": {
+    "description": { "type": "string" },
+    "regen_hint": {
+      "type": "string",
+      "description": "Command that recomputes the expected braille for a case."
+    },
+    "groups": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/definitions/group" }
+    }
+  },
+  "definitions": {
+    "group": {
+      "type": "object",
+      "required": ["cases"],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "cases": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/case" }
+        }
+      }
+    },
+    "case": {
+      "type": "object",
+      "required": ["src"],
+      "additionalProperties": false,
+      "properties": {
+        "src": { "type": "string" },
+        "expected": {
+          "type": "string",
+          "description": "Expected braille output; omit to check warnings only."
+        },
+        "note": { "type": "string" },
+        "id": { "type": "string" },
+        "warnings_include": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "warnings_exclude": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "warnings_exclude_prefix": { "type": "string" }
+      }
+    }
+  }
+}
