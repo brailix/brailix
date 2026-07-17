@@ -1,0 +1,158 @@
+# Scheduled deep verification — the two checks too slow for per-PR CI.
+#
+# * **CrossHair** symbolically executes the assert-style contracts in
+#   tests/crosshair/contracts.py, asking an SMT solver for counterexamples
+#   instead of sampling. A found counterexample is a real contract
+#   violation → the job fails and files an issue.
+# * **mutmut** mutates the pure/deterministic modules the property and
+#   contract suites claim to pin ([tool.mutmut] in pyproject.toml) and
+#   checks a test notices. Surviving mutants are EXPECTED (message-text
+#   tweaks, provably-equivalent mutations, attribution artifacts) — the
+#   job prints the survivor list for periodic review and fails only when
+#   mutmut itself errors (e.g. the clean suite no longer passes).
+#
+# Both run against the committed lock (reproducible — unlike
+# latest-deps.yml, which deliberately unpins). Weekly + on demand, never
+# blocking PRs; failure files one dedup'd issue, same contract as the
+# other scheduled probes.
+name: Weekly deep verify
+
+on:
+  schedule:
+    # Tuesdays 06:00 UTC — offset from the heavyweight probe (Mondays)
+    # and the latest-deps probe (Thursdays).
+    - cron: "0 6 * * 2"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  crosshair:
+    name: symbolic contract check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install dependencies (locked, verify group)
+        run: uv sync --group verify
+
+      - name: CrossHair check the contract corpus
+        run: >-
+          uv run crosshair check
+          --analysis_kind asserts
+          --per_condition_timeout 30
+          tests/crosshair/contracts.py
+
+      - name: Open an issue on failure
+        if: failure()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b  # v7
+        with:
+          script: |
+            const label = "weekly-verify-ci";
+            const title = "CrossHair found a contract counterexample";
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `The scheduled symbolic check failed: CrossHair found a concrete`,
+              `input violating a contract in tests/crosshair/contracts.py (or the`,
+              `run itself errored).`,
+              ``,
+              `Run: ${runUrl}`,
+              ``,
+              `The failing call is printed in the run log — paste it into a pytest`,
+              `regression, fix the code or the contract, and close this issue once`,
+              `the job is green; the next scheduled run reopens one if it still fails.`,
+            ].join("\n");
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: label,
+              per_page: 100,
+            });
+            if (open.data.some((i) => i.title === title)) {
+              core.info("An open issue already exists; not filing another.");
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: [label],
+            });
+
+  mutation:
+    name: mutation audit of the guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install dependencies (locked, verify group)
+        run: uv sync --group verify
+
+      # CI=true (set by Actions) derandomizes the Hypothesis suites so
+      # mutation kills are reproducible; MUTMUT_RUN=1 suppresses the
+      # differing_executors health check that mutmut's in-process re-runs
+      # would otherwise trip (see tests/conftest.py).
+      - name: Run mutation testing
+        env:
+          MUTMUT_RUN: "1"
+        run: uv run mutmut run
+
+      - name: Survivor report (review queue, not a gate)
+        if: always()
+        run: uv run mutmut results || true
+
+      - name: Open an issue on failure
+        if: failure()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b  # v7
+        with:
+          script: |
+            const label = "weekly-verify-ci";
+            const title = "Weekly mutation audit failed to run";
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `The scheduled mutation audit errored — usually the clean test run`,
+              `no longer passes under mutmut's runner, or the run timed out.`,
+              `(Surviving mutants do NOT fail this job; they are a review queue`,
+              `printed by the "Survivor report" step.)`,
+              ``,
+              `Run: ${runUrl}`,
+              ``,
+              `Close this issue once the job is green; the next scheduled run`,
+              `reopens one if it still fails.`,
+            ].join("\n");
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: label,
+              per_page: 100,
+            });
+            if (open.data.some((i) => i.title === title)) {
+              core.info("An open issue already exists; not filing another.");
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: [label],
+            });

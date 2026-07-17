@@ -36,6 +36,14 @@ _XML_INVALID_CHARS = re.compile(
 # *external* ``<!DOCTYPE ... PUBLIC ...>`` (as real MusicXML files carry) has no
 # ``<!ENTITY`` and is left to parse — expat does not fetch external DTDs by
 # default, so it can't smuggle a bomb either.
+#
+# Note the LE and BE patterns below overlap by a one-byte phase shift on real
+# input: ``<!ENTITY`` always sits between NUL-padded ASCII (a ``[`` or space),
+# so the BE byte stream contains the LE pattern one byte in, and vice versa —
+# in practice EITHER pattern alone flags BOTH encodings (mutation testing
+# surfaced this). Both are kept deliberately: the overlap breaks exactly when
+# the keyword has no NUL-adjacent neighbour (stream boundary), and two anchored
+# spellings are cheaper than proving that edge unreachable forever.
 _ENTITY_DECL_RE = re.compile(r"<!ENTITY")
 _ENTITY_DECL_RE_BYTES = re.compile(rb"<!ENTITY")
 # ...but the raw-byte scan only sees ``<!ENTITY`` when the source is a single-
