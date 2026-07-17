@@ -131,6 +131,20 @@ dev = [
     "hypothesis-jsonschema>=0.23",
 ]
 
+# Deep-verification tooling — heavier than the everyday dev loop, so it has
+# its own group (a plain `uv sync` doesn't pull the z3 SMT stack). CrossHair
+# symbolically executes the assert-style contracts in
+# tests/crosshair/contracts.py; mutmut audits the guards themselves by
+# mutating the [tool.mutmut] modules and checking a test notices. Both run
+# weekly in CI (.github/workflows/weekly-verify.yml) and on demand:
+#     uv sync --group verify
+#     uv run crosshair check --analysis_kind asserts tests/crosshair/contracts.py
+#     CI=1 MUTMUT_RUN=1 uv run mutmut run && uv run mutmut results
+# (mutmut needs fork support — Linux / macOS / WSL, not native Windows.)
+verify = [
+    "crosshair-tool>=0.0.90",
+    "mutmut>=3.6",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -148,6 +162,60 @@ python_files = ["test_*.py"]
 addopts = "-ra --strict-markers"
 markers = [
     "requires(module): skip unless the named optional-dependency module imports — lets a partial install run green; e.g. `@pytest.mark.requires('latex2mathml')`. CI installs every extra (see .github/workflows/ci.yml), so nothing skips there.",
+]
+
+# Mutation-testing scope (mutmut; see the verify dependency group). The
+# whole package is copied/trampolined, but only the short, pure,
+# deterministic modules — the ones the property/contract suites claim to
+# pin — actually get mutated: a surviving mutant there means a guard is
+# weaker than it looks. Read a survivor list as a to-review queue, not a
+# gate: message-text tweaks and provably-equivalent mutants are expected,
+# and mutmut's attribution can mark import-time-executed functions as
+# survived even when a test kills them — re-verify locally before calling
+# anything a gap.
+[tool.mutmut]
+source_paths = ["brailix"]
+# No Qt binding in CI; pytest-qt (if ever present) must not abort
+# collection hunting for one. The two --ignore files are the
+# monkeypatch.chdir-heavy suites: mutmut's import hook resolves source
+# paths relative to the cwd, so a lazy import landing after a chdir dies
+# under mutmut only. Neither exercises a mutated module.
+pytest_add_cli_args = [
+    "-p", "no:pytest-qt",
+    "--ignore=tests/frontend/zh/analyzer/test_hanlp_adapter.py",
+    "--ignore=tests/core/models/test_paths.py",
+]
+only_mutate = [
+    "brailix/core/span.py",
+    "brailix/core/chars.py",
+    "brailix/core/inline_math.py",
+    "brailix/core/_xml.py",
+    "brailix/core/errors.py",
+    "brailix/core/config/_helpers.py",
+    "brailix/core/config/validator.py",
+    "brailix/backend/zh/pinyin_parser.py",
+    "brailix/frontend/segment.py",
+    "brailix/frontend/math/normalizer.py",
+    "brailix/frontend/zh/pinyin/adapters/_align.py",
+    "brailix/renderer/unicode_braille.py",
+    "brailix/renderer/brf.py",
+    "brailix/renderer/layout.py",
+    "brailix/renderer/music_layout.py",
+    "brailix/ir/braille.py",
+    "brailix/ir/inline.py",
+    "brailix/ir/document.py",
+]
+pytest_add_cli_args_test_selection = [
+    "tests/backend",
+    "tests/cli",
+    "tests/core",
+    "tests/crosshair",
+    "tests/frontend",
+    "tests/golden",
+    "tests/input",
+    "tests/integration",
+    "tests/ir",
+    "tests/renderer",
 ]
 
 [tool.ruff]
