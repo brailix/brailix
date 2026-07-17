@@ -301,6 +301,19 @@ class GraphicAssetResolver(Protocol):
     the adapter can fall back to reading a filesystem path. This is the
     same inject-a-callable seam as :class:`InlineTextTranslator`
     (ARCHITECTURE §12) — the resolver is handed in, never imported.
+
+    **Caching identity.** What a resolver returns rides into compiled
+    output (an ``image`` fence inlines the resolved bytes into the
+    graphic tree), so the pipeline folds a resolver identity into its
+    compilation fingerprint and its graphic tree-cache keys (see
+    :func:`brailix.pipeline._fingerprint.asset_resolver_identity`). By
+    default each resolver *instance* is its own identity and is treated
+    as an immutable asset set — two instances never share caches. A
+    resolver may instead expose ``cache_identity`` (a string attribute,
+    or a zero-arg method returning one) for content-addressed identity:
+    equal values share caches deliberately, and a resolver whose
+    underlying assets can change mid-life must refresh the value when
+    they do.
     """
 
     def __call__(self, name: str) -> bytes | None: ...

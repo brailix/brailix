@@ -55,6 +55,7 @@ from brailix.ir.inline import (
     Segment,
     Unknown,
 )
+from brailix.pipeline._fingerprint import asset_resolver_identity
 from brailix.pipeline._helpers import (
     _all_prose_types,
     _block_surface,
@@ -406,7 +407,7 @@ class FrontendDriver:
         """
         text, span, _had_span = _ensure_block_span(block)
 
-        cache_key = ("music", block.source, text)
+        cache_key = ("music", block.source, text, "")
         cached_tree = cache_lookup(tree_in, cache_key)
         if cached_tree is not None:
             tree: ET.Element | None = cached_tree
@@ -482,7 +483,7 @@ class FrontendDriver:
         # then knows it can't anchor them.
         text, span, had_original_span = _ensure_block_span(block)
 
-        cache_key = ("math", block.source, text)
+        cache_key = ("math", block.source, text, "")
         cached_tree = cache_lookup(tree_in, cache_key)
         if cached_tree is not None:
             tree: ET.Element | None = cached_tree
@@ -559,7 +560,18 @@ class FrontendDriver:
         """
         text, span, _had_span = _ensure_block_span(block)
 
-        cache_key = ("graphic", block.source, text)
+        # The parse result embeds what the asset resolver returned (an
+        # ``image`` fence inlines the resolved bytes as a data: URI), so the
+        # resolver's identity is part of the key: two documents referencing
+        # the same ``media/image1.png`` name through different resolvers
+        # must not share a cached tree. Math / music parses consume nothing
+        # beyond (source, surface) — their salt slot stays "".
+        cache_key = (
+            "graphic",
+            block.source,
+            text,
+            asset_resolver_identity(self.asset_resolver),
+        )
         cached_tree = cache_lookup(tree_in, cache_key)
         if cached_tree is not None:
             tree: ET.Element | None = cached_tree
@@ -730,7 +742,7 @@ class FrontendDriver:
         tree_in: TreeSubcache | None = None,
         tree_out: TreeSubcache | None = None,
     ) -> None:
-        cache_key = ("math", node.source, node.surface)
+        cache_key = ("math", node.source, node.surface, "")
         if node.math is not None:
             # Already parsed (frontend ran twice, or caller pre-populated).
             # Still record in tree_out so the caller's per-block cache

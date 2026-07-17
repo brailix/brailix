@@ -158,7 +158,7 @@ class TactilePageResult:
 # ---------------------------------------------------------------------------
 
 # Reuse pool for parsed MathML / MusicXML trees, keyed by
-# ``(domain, source, surface)`` where ``domain`` is ``"math"``,
+# ``(domain, source, surface, salt)`` where ``domain`` is ``"math"``,
 # ``"music"``, or ``"graphic"``.  An incremental recompile passes the
 # prior compile's pool
 # back in so a node whose source didn't change (e.g. an override edit
@@ -166,6 +166,13 @@ class TactilePageResult:
 # instead of re-parsing it — the dominant cost for large scores.  The
 # domain prefix keeps math, music and graphic entries from colliding on a
 # shared ``source`` value such as ``"plain"``.
+#
+# ``salt`` carries whatever beyond (source, surface) the domain's parse
+# actually consumed: ``""`` for math / music (their adapters read nothing
+# else), and the graphic asset resolver's identity for ``"graphic"`` — an
+# ``image`` fence inlines the RESOLVED bytes into the tree, so two
+# documents referencing the same asset name through different resolvers
+# key apart instead of sharing one document's pixels.
 #
 # Immutability contract: entries are shared BY IDENTITY — a hit hands the
 # very same ``Element`` to every compile that reuses it, with no defensive
@@ -177,7 +184,7 @@ class TactilePageResult:
 # (order-dependent wrong output). Each domain pins this with a
 # ``test_backend_does_not_mutate_cached_tree`` guard in
 # ``tests/integration/test_translate_block.py``.
-TreeSubcache = dict[tuple[str, str, str], ET.Element]
+TreeSubcache = dict[tuple[str, str, str, str], ET.Element]
 
 
 # ---------------------------------------------------------------------------
@@ -199,8 +206,9 @@ class CompiledBlock:
       elements (one per item / row).
     * ``warnings`` — diagnostics emitted while compiling this block.
     * ``tree_subcache`` — parsed MathML / MusicXML / graphic-SVG tree cache
-      keyed by ``(domain, source, surface)`` (``domain`` ∈ ``{"math",
-      "music", "graphic"}``).
+      keyed by ``(domain, source, surface, salt)`` (``domain`` ∈ ``{"math",
+      "music", "graphic"}``; see :data:`TreeSubcache` for the ``salt``
+      slot).
       Populated for every math / music node parsed during this compile;
       reuseable by a future :meth:`Pipeline.translate_block` call (pass
       the dict in via the ``tree_subcache`` parameter) so the same

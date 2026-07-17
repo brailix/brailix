@@ -57,7 +57,15 @@ class Registry[T]:
         ``TypeError`` on mismatch.
     """
 
-    __slots__ = ("subsystem", "protocol", "_loaders", "_cache", "_extras", "_lock")
+    __slots__ = (
+        "subsystem",
+        "protocol",
+        "_loaders",
+        "_cache",
+        "_extras",
+        "_generation",
+        "_lock",
+    )
 
     def __init__(
         self,
@@ -69,6 +77,17 @@ class Registry[T]:
         self._loaders: dict[str, Callable[[], T]] = {}
         self._cache: dict[str, T] = {}
         self._extras: dict[str, str] = {}
+        # Monotonic count of registration-surface changes: every
+        # ``register`` / ``unregister`` (and an ``overriding`` exit, which
+        # restores the entry snapshot) bumps it. What a *name resolves to*
+        # is part of a compilation's identity — the compilation fingerprint
+        # folds every compilation-relevant registry's generation in, so
+        # replacing an adapter under a name a live Pipeline uses advances
+        # that pipeline's fingerprint instead of letting caches keep
+        # serving output compiled by the previous implementation.
+        # ``clear_cache`` does NOT bump: re-running the same loader yields
+        # the same implementation, so nothing a cache keys on changed.
+        self._generation = 0
         # The one lock guarding EVERY access to the three dicts: the
         # lazy-load slow path (so concurrent first-access to one name can't
         # both run the loader and hand back different instances) AND every
@@ -114,12 +133,14 @@ class Registry[T]:
                 self._extras[name] = extra
             else:
                 self._extras.pop(name, None)
+            self._generation += 1
 
     def unregister(self, name: str) -> None:
         with self._lock:
             self._loaders.pop(name, None)
             self._cache.pop(name, None)
             self._extras.pop(name, None)
+            self._generation += 1
 
     def get(self, name: str) -> T:
         """Load (or fetch cached) adapter by name.
@@ -197,6 +218,18 @@ class Registry[T]:
         with self._lock:
             return sorted(self._loaders)
 
+    @property
+    def generation(self) -> int:
+        """Monotonic registration-surface version (see ``__init__``).
+
+        Advances on every :meth:`register` / :meth:`unregister` and on an
+        :meth:`overriding` exit; :meth:`get` and :meth:`clear_cache` never
+        move it. Read lock-free — a single ``int`` attribute read is atomic,
+        and a reader that races a bump simply sees the value from one side
+        of it, which is exactly the point of a version counter.
+        """
+        return self._generation
+
     def clear_cache(self) -> None:
         """Drop cached instances; loaders remain registered."""
         with self._lock:
@@ -259,3 +292,8 @@ class Registry[T]:
                 self._loaders = loaders
                 self._cache = cache
                 self._extras = extras
+                # The restore is a registration-surface change like any
+                # other (what a name resolves to may just have flipped
+                # back), so it advances the generation too — conservative
+                # for a no-op body, but a stale-cache risk never survives.
+                self._generation += 1
