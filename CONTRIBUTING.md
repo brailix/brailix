@@ -28,7 +28,7 @@ uv run mypy brailix            # type check
 
 # Or with pip:
 python -m venv .venv && . .venv/bin/activate
-pip install -e ".[zh,latex]" pytest pytest-cov ruff mypy
+pip install -e ".[zh,latex]" pytest pytest-cov hypothesis ruff mypy
 pytest && ruff check && mypy brailix
 ```
 

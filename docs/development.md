@@ -15,7 +15,7 @@ uv run mypy brailix            # type check
 
 # Or with pip:
 python -m venv .venv && . .venv/bin/activate
-pip install -e ".[zh,latex]" pytest pytest-cov ruff mypy
+pip install -e ".[zh,latex]" pytest pytest-cov hypothesis ruff mypy
 pytest && ruff check && mypy brailix
 ```
 
@@ -29,6 +29,7 @@ The tests mirror the layered design — each layer is tested on its own so a fai
 - **Math parser** tests check that a source formula normalizes to the expected MathML tree.
 - **Backend** tests feed a fixed IR and assert a fixed braille IR, independently of which segmentation model is installed (so model drift can never move the assertions).
 - **Pipeline / golden** tests check end-to-end output against human-reviewed samples under `tests/golden/`.
+- **Property** tests (`tests/*/test_*_properties.py`, [Hypothesis](https://hypothesis.readthedocs.io/)) pin the architecture invariants over *generated* inputs instead of enumerated examples: the span algebra and the exact-slice contract, cell-to-source traceability, the `PinyinResolver` adapter contract, MathML normalizer idempotence and its never-raises soft-failure contract, run-mode consistency (strict raises exactly where normal warns; lenient only relabels), incremental recompilation equivalence to a fresh compile, and layout cell conservation. A failure prints a shrunken counterexample plus a `@reproduce_failure` blob to replay it; CI runs these derandomized for reproducibility, local runs explore fresh seeds. New adapters get the contract suites for free — a new pinyin resolver, for example, is covered by registering it.
 
 The **golden** suite is the end-to-end safety net. When a rule change moves golden output, **review the diff by hand** — never blanket-accept it. The golden data lives as plain JSON (`tests/golden/data/`), so cases can be added or changed without writing Python; see that directory's README for the format.
 

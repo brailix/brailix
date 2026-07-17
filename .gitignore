@@ -17,6 +17,8 @@ htmlcov/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+# Hypothesis example database (property-test counterexamples found locally).
+.hypothesis/
 .tmp/
 
 # Editors
