@@ -113,7 +113,7 @@ def compile_block(
     # keys (a proofreading front-end) compose this hash with their own
     # override-list salt outside the compiler.
     source_hash = block_hash(
-        block, pipeline.profile_name, fingerprint=pipeline._fingerprint
+        block, pipeline.profile_name, fingerprint=pipeline.fingerprint
     )
 
     return CompiledBlock(

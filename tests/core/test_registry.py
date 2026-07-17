@@ -513,3 +513,56 @@ class TestOverridingConcurrency:
         assert not reg.has("tmp")  # the override is gone...
         assert not reg.has("late")  # ...and so is the concurrent late-comer
         assert reg.has("base")
+
+
+class TestGeneration:
+    """``generation`` is the registration-surface version counter the
+    compilation fingerprint folds in: every mutation of what a name can
+    resolve to must advance it, and pure reads must not — otherwise a
+    runtime re-register would keep serving caches built by the replaced
+    implementation (or the steady state would thrash them)."""
+
+    def test_register_bumps(self):
+        reg: Registry[Greeter] = Registry("greeters")
+        g0 = reg.generation
+        reg.register("a", GoodGreeter)
+        assert reg.generation == g0 + 1
+        # Re-registering the SAME name is exactly the replaced-adapter case.
+        reg.register("a", GoodGreeter)
+        assert reg.generation == g0 + 2
+
+    def test_unregister_bumps(self):
+        reg: Registry[Greeter] = Registry("greeters")
+        reg.register("a", GoodGreeter)
+        g = reg.generation
+        reg.unregister("a")
+        assert reg.generation == g + 1
+
+    def test_get_and_clear_cache_do_not_bump(self):
+        reg: Registry[Greeter] = Registry("greeters")
+        reg.register("a", GoodGreeter)
+        g = reg.generation
+        reg.get("a")
+        reg.get("a")
+        reg.clear_cache()
+        reg.get("a")  # re-runs the loader — same implementation, no bump
+        assert reg.generation == g
+
+    def test_has_and_names_do_not_bump(self):
+        reg: Registry[Greeter] = Registry("greeters")
+        reg.register("a", GoodGreeter)
+        g = reg.generation
+        reg.has("a")
+        reg.names()
+        assert reg.generation == g
+
+    def test_overriding_exit_bumps(self):
+        # Exit restores the entry snapshot — a registration-surface change
+        # (what "tmp" resolves to just flipped back), so it must advance
+        # the counter even though the content equals the entry state.
+        reg: Registry[Greeter] = Registry("greeters")
+        reg.register("base", GoodGreeter)
+        g = reg.generation
+        with reg.overriding("tmp", GoodGreeter):
+            assert reg.generation == g + 1  # the block's own register
+        assert reg.generation == g + 2  # ...plus the restore

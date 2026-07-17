@@ -327,7 +327,7 @@ class TestMathSubcache:
         # The latex inline formula is keyed by its surface (including
         # the ``$...$`` framing — that's exactly what the math frontend
         # gets handed), under the ``"math"`` domain.
-        key = ("math", "latex", "$x^2$")
+        key = ("math", "latex", "$x^2$", "")
         assert key in out.tree_subcache
         from xml.etree.ElementTree import Element
 
@@ -347,7 +347,7 @@ class TestMathSubcache:
         ``parse_math_tree`` for the same ``(domain, source, surface)``."""
         first = pipe.translate_block(Paragraph(text="$x^2$ 是"))
         cached = first.tree_subcache
-        key = ("math", "latex", "$x^2$")
+        key = ("math", "latex", "$x^2$", "")
         assert key in cached
 
         # Sentinel that explodes if the math frontend gets called at all
@@ -382,8 +382,8 @@ class TestMathSubcache:
         )
         # Only the formula actually parsed this compile lands in the
         # output subcache; the stale one is not carried over.
-        assert ("math", "latex", "$x^2$") not in second.tree_subcache
-        assert ("math", "latex", "$x^3$") in second.tree_subcache
+        assert ("math", "latex", "$x^2$", "") not in second.tree_subcache
+        assert ("math", "latex", "$x^3$", "") in second.tree_subcache
 
     @pytest.mark.requires("latex2mathml")
     def test_math_block_uses_cache(self, pipe: Pipeline) -> None:
@@ -394,7 +394,7 @@ class TestMathSubcache:
         first = pipe.translate_block(
             MathBlock(text="\\sum x_i", source="latex")
         )
-        key = ("math", "latex", "\\sum x_i")
+        key = ("math", "latex", "\\sum x_i", "")
         assert key in first.tree_subcache
 
     @pytest.mark.requires("latex2mathml")
@@ -405,7 +405,7 @@ class TestMathSubcache:
         out = pipe.translate_block(
             Paragraph(text="$x$"), tree_subcache={}
         )
-        assert ("math", "latex", "$x$") in out.tree_subcache
+        assert ("math", "latex", "$x$", "") in out.tree_subcache
 
     @pytest.mark.requires("latex2mathml")
     def test_backend_does_not_mutate_cached_tree(self, pipe: Pipeline) -> None:
@@ -425,7 +425,7 @@ class TestMathSubcache:
         assert tree is not None
         before = ET.tostring(tree)
 
-        key = ("math", "latex", "\\sum x_i")
+        key = ("math", "latex", "\\sum x_i", "")
         out = pipe.translate_block(
             MathBlock(text="\\sum x_i", source="latex"),
             tree_subcache={key: tree},
@@ -469,7 +469,7 @@ class TestMusicSubcache:
         out = pipe.translate_block(
             ScoreBlock(text=_SCORE_XML, source="musicxml")
         )
-        key = ("music", "musicxml", _SCORE_XML)
+        key = ("music", "musicxml", _SCORE_XML, "")
         assert key in out.tree_subcache
         from xml.etree.ElementTree import Element
 
@@ -484,7 +484,7 @@ class TestMusicSubcache:
             ScoreBlock(text=_SCORE_XML, source="musicxml")
         )
         cached = first.tree_subcache
-        key = ("music", "musicxml", _SCORE_XML)
+        key = ("music", "musicxml", _SCORE_XML, "")
         assert key in cached
 
         # Explodes if the music frontend is asked to parse again — the
@@ -518,8 +518,8 @@ class TestMusicSubcache:
             ScoreBlock(text=other_xml, source="musicxml"),
             tree_subcache=first.tree_subcache,
         )
-        assert ("music", "musicxml", _SCORE_XML) not in second.tree_subcache
-        assert ("music", "musicxml", other_xml) in second.tree_subcache
+        assert ("music", "musicxml", _SCORE_XML, "") not in second.tree_subcache
+        assert ("music", "musicxml", other_xml, "") in second.tree_subcache
 
     def test_backend_does_not_mutate_cached_tree(self, pipe: Pipeline) -> None:
         """The backend must read a shared cached tree READ-ONLY.
@@ -546,7 +546,7 @@ class TestMusicSubcache:
 
         # Prime a reuse pool with that exact object, then compile a block that
         # hits it — the backend renders the shared tree.
-        key = ("music", "musicxml", _SCORE_XML)
+        key = ("music", "musicxml", _SCORE_XML, "")
         out = pipe.translate_block(
             ScoreBlock(text=_SCORE_XML, source="musicxml"),
             tree_subcache={key: tree},
@@ -576,7 +576,7 @@ class TestGraphicSubcache:
 
     def test_reuses_cached_tree(self, pipe: Pipeline) -> None:
         first = pipe.translate_block(GraphicBlock(text=_SVG_FIGURE, source="svg"))
-        key = ("graphic", "svg", _SVG_FIGURE)
+        key = ("graphic", "svg", _SVG_FIGURE, "")
         assert key in first.tree_subcache
 
         second = pipe.translate_block(
@@ -602,7 +602,7 @@ class TestGraphicSubcache:
         assert tree is not None
         before = ET.tostring(tree)
 
-        key = ("graphic", "svg", _SVG_FIGURE)
+        key = ("graphic", "svg", _SVG_FIGURE, "")
         out = pipe.translate_block(
             GraphicBlock(text=_SVG_FIGURE, source="svg"),
             tree_subcache={key: tree},
@@ -610,6 +610,70 @@ class TestGraphicSubcache:
         assert out.ir.children[0].svg is tree  # confirm the cache hit
         assert out.raster is not None  # the backend really rasterised it
         assert ET.tostring(tree) == before  # backend left it untouched
+
+    def test_different_asset_resolvers_do_not_share_cached_trees(self) -> None:
+        """An ``image`` fence inlines the RESOLVED bytes into the parsed
+        tree, so the resolver's identity salts the graphic key: two
+        documents referencing the same asset *name* through different
+        resolvers (each ``.docx`` carries its own ``media/image1.png``)
+        must not reuse each other's pixels over a shared pool — and their
+        ``source_hash`` must differ, or a block cache would serve one
+        document's figure for the other."""
+        ref = "media/image1.png"
+        asset_a = (
+            b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" '
+            b'width="10mm" height="10mm"><rect width="10" height="10"/></svg>'
+        )
+        asset_b = (
+            b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" '
+            b'width="20mm" height="20mm"><circle cx="10" cy="10" r="9"/></svg>'
+        )
+        pipe_a = Pipeline(
+            profile="cn_current",
+            resolver="null",
+            asset_resolver=lambda name: asset_a,
+        )
+        pipe_b = Pipeline(
+            profile="cn_current",
+            resolver="null",
+            asset_resolver=lambda name: asset_b,
+        )
+
+        block_a = GraphicBlock(text=ref, source="image")
+        first = pipe_a.translate_block(block_a)
+        tree_a = block_a.children[0].svg
+        assert tree_a is not None
+
+        block_b = GraphicBlock(text=ref, source="image")
+        second = pipe_b.translate_block(
+            block_b, tree_subcache=first.tree_subcache
+        )
+        # B parsed through ITS resolver instead of reusing A's tree...
+        assert block_b.children[0].svg is not tree_a
+        # ...and the two compiles key apart everywhere a cache could look.
+        assert second.source_hash != first.source_hash
+        assert pipe_a.fingerprint != pipe_b.fingerprint
+
+    def test_same_pipeline_still_reuses_graphic_tree_across_compiles(
+        self,
+    ) -> None:
+        """The salt must not break the win it protects: one pipeline (one
+        resolver) recompiling the same reference hits its own entry."""
+        asset = (
+            b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" '
+            b'width="10mm" height="10mm"><rect width="10" height="10"/></svg>'
+        )
+        pipe = Pipeline(
+            profile="cn_current",
+            resolver="null",
+            asset_resolver=lambda name: asset,
+        )
+        block1 = GraphicBlock(text="media/image1.png", source="image")
+        first = pipe.translate_block(block1)
+        block2 = GraphicBlock(text="media/image1.png", source="image")
+        second = pipe.translate_block(block2, tree_subcache=first.tree_subcache)
+        assert block2.children[0].svg is block1.children[0].svg
+        assert second.source_hash == first.source_hash
 
 
 @pytest.mark.requires("latex2mathml")
@@ -628,13 +692,13 @@ class TestTreeSubcacheCrossDomain:
             ScoreBlock(text=_SCORE_XML, source="musicxml")
         )
         pool = {**math_out.tree_subcache, **score_out.tree_subcache}
-        assert ("math", "latex", "$x^2$") in pool
-        assert ("music", "musicxml", _SCORE_XML) in pool
+        assert ("math", "latex", "$x^2$", "") in pool
+        assert ("music", "musicxml", _SCORE_XML, "") in pool
 
         # Feeding the union back in lets a recompile reuse the math tree
         # without the music entry interfering.
         again = pipe.translate_block(Paragraph(text="$x^2$"), tree_subcache=pool)
-        assert again.ir.children[0].math is pool[("math", "latex", "$x^2$")]
+        assert again.ir.children[0].math is pool[("math", "latex", "$x^2$", "")]
 
 
 # ---------------------------------------------------------------------------

@@ -175,7 +175,7 @@ def block_hash(
 
 
 def cache_lookup(
-    tree_in: TreeSubcache | None, key: tuple[str, str, str]
+    tree_in: TreeSubcache | None, key: tuple[str, str, str, str]
 ) -> ET.Element | None:
     """Return the cached parsed tree for ``key``, or ``None`` on a miss.
 
@@ -190,7 +190,7 @@ def cache_lookup(
 
 def cache_record(
     tree_out: TreeSubcache | None,
-    key: tuple[str, str, str],
+    key: tuple[str, str, str, str],
     tree: ET.Element | None,
 ) -> None:
     """Record ``tree`` under ``key`` in the output reuse pool.

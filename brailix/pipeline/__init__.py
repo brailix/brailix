@@ -101,8 +101,11 @@ from brailix.ir.braille import BrailleCell
 from brailix.ir.document import Block, DocumentIR, Paragraph
 from brailix.ir.inline import MathInline
 from brailix.pipeline._fingerprint import (
+    asset_resolver_identity,
     compilation_fingerprint,
+    fold_runtime_identity,
     profile_digest,
+    registries_generation,
 )
 from brailix.pipeline._helpers import (
     _all_prose_types,
@@ -235,7 +238,14 @@ class Pipeline:
     asset_resolver: GraphicAssetResolver | None = None
     _profile: BrailleProfile = field(init=False, default=None)  # type: ignore[assignment]
     _frontend: FrontendDriver = field(init=False, default=None)  # type: ignore[assignment]
+    # The configuration-only digest (compilation_fingerprint) plus the
+    # cached fold of it with the registry-generation snapshot it was last
+    # combined with — see the ``fingerprint`` property.
+    _fingerprint_base: str = field(init=False, default="")
     _fingerprint: str = field(init=False, default="")
+    _fingerprint_env: tuple[tuple[int, ...], str] | None = field(
+        init=False, default=None
+    )
 
     def __post_init__(self) -> None:
         self.mode = normalize_run_mode(self.mode)
@@ -262,14 +272,17 @@ class Pipeline:
             asset_resolver=self.asset_resolver,
         )
         # Compilation-configuration identity (see
-        # :func:`~brailix.pipeline.compilation_fingerprint`): computed once,
-        # folded into every block's ``source_hash`` and stamped onto the
-        # blocks this pipeline's frontend populates.  Uses the RESOLVED
-        # segmenter / normalizer names (per-language selection applied) so
-        # two spellings of the same effective configuration fingerprint
-        # alike.
+        # :func:`~brailix.pipeline.compilation_fingerprint`): the
+        # configuration digest is computed once; the ``fingerprint``
+        # property folds it with the current registry-generation snapshot
+        # (re-folding only when a runtime ``register`` / ``unregister``
+        # moved a generation), and the result is folded into every block's
+        # ``source_hash`` and stamped onto the blocks this pipeline's
+        # frontend populates.  Uses the RESOLVED segmenter / normalizer
+        # names (per-language selection applied) so two spellings of the
+        # same effective configuration fingerprint alike.
         opts = self._frontend.frontend_options()
-        self._fingerprint = compilation_fingerprint(
+        self._fingerprint_base = compilation_fingerprint(
             self._profile,
             mode=normalize_run_mode(self.mode).value,
             segmenter=opts["segmenter"],
@@ -278,7 +291,7 @@ class Pipeline:
             resolver=self.resolver,
             user_pinyin_dict=self.user_pinyin_dict,
         )
-        self._frontend.fingerprint = self._fingerprint
+        self._frontend.fingerprint = self.fingerprint
 
     @property
     def profile_name(self) -> str:
@@ -314,7 +327,40 @@ class Pipeline:
         that keys a cache across pipeline reconfigurations folds this in
         (:meth:`translate_block` already folds it into
         :attr:`CompiledBlock.source_hash`).
+
+        Not *frozen*, though — two in-process runtime identities fold in
+        on every read:
+
+        * every compilation-relevant registry's ``generation``
+          (:func:`~brailix.pipeline._fingerprint.registries_generation`):
+          the registries allow re-registering an implementation under a
+          live name and the frontend re-resolves names on every run, so a
+          runtime ``register`` / ``unregister`` advances this fingerprint
+          (for every live Pipeline — the fold is per-registry, not
+          per-name), which flips ``source_hash`` and invalidates the
+          ``frontend_fingerprint`` stamps on previously populated IR;
+          neither a block cache nor in-place reuse can keep serving output
+          compiled by the replaced implementation.
+        * the :attr:`asset_resolver`'s identity
+          (:func:`~brailix.pipeline._fingerprint.asset_resolver_identity`):
+          what a graphic's asset reference resolves to is part of the
+          compiled output, so two pipelines over different resolvers —
+          two documents each carrying their own ``media/image1.png`` —
+          fingerprint apart, and assigning a resolver to a live pipeline
+          (``pipe.asset_resolver = ...``) advances its fingerprint.
+
+        In the steady state the snapshot comparison is a few atomic int
+        reads — no re-hashing.
         """
+        env = (
+            registries_generation(),
+            asset_resolver_identity(self.asset_resolver),
+        )
+        if env != self._fingerprint_env:
+            self._fingerprint_env = env
+            self._fingerprint = fold_runtime_identity(
+                self._fingerprint_base, env[0], env[1]
+            )
         return self._fingerprint
 
     # --- Public API ---------------------------------------------------
@@ -746,7 +792,9 @@ class Pipeline:
 
         ``tree_subcache`` is an optional parsed-tree cache shared by the
         math, music and graphic frontends: keys are ``(domain, source,
-        surface)`` (``domain`` ∈ ``{"math", "music", "graphic"}``), values are
+        surface, salt)`` (``domain`` ∈ ``{"math", "music", "graphic"}``;
+        ``salt`` is ``""`` for math / music and the asset resolver's
+        identity for graphics — see :data:`TreeSubcache`), values are
         the normalised
         MathML / MusicXML :class:`ET.Element` trees from a previous
         compile.  When the frontend encounters a math / music node whose

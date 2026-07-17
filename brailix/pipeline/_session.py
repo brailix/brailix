@@ -73,6 +73,22 @@ class CompilationSession:
         ``tree_subcache`` becomes ``tree_in`` — the incremental path's reuse
         pool; ``None`` reads as an always-miss empty pool.
         """
+        # Refresh the frontend's run-scoped snapshots at run start:
+        #
+        # * ``fingerprint`` — the pipeline's fingerprint moves when a
+        #   registry registration (or the asset resolver) changes (see
+        #   :attr:`Pipeline.fingerprint`), and the stale-children check
+        #   compares block stamps against the driver's copy — a run must
+        #   compare against the CURRENT identity, or IR populated before a
+        #   runtime re-register would be reused as-is.
+        # * ``asset_resolver`` — ``Pipeline.asset_resolver`` is a plain
+        #   assignable field (a front-end binds its resolver to an
+        #   already-built pipeline: ``pipe.asset_resolver = ...``), while
+        #   the driver holds its own copy from ``__post_init__``; without
+        #   this sync a late-bound resolver would silently never run and
+        #   every in-document image would soft-fail to a blank raster.
+        pipeline._frontend.fingerprint = pipeline.fingerprint
+        pipeline._frontend.asset_resolver = pipeline.asset_resolver
         warnings = WarningCollector(mode=pipeline.mode)
         frontend_ctx = FrontendContext(
             profile=pipeline.profile,
