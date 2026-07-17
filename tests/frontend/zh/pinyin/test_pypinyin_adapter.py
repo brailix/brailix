@@ -1,3 +1,11 @@
+"""pypinyin adapter specifics: the missing-extra contract and the ``_load``
+wiring (TONE3 style + neutral-tone-with-five flags).
+
+Per-token alignment arithmetic, mismatch bail-out and the structural
+resolver contract are property-tested for every registered resolver in
+``test_resolver_contract_properties.py`` — no per-adapter copies here.
+"""
+
 from __future__ import annotations
 
 import sys
@@ -6,10 +14,8 @@ import types
 import pytest
 
 from brailix.core.errors import MissingExtraError
-from brailix.core.span import Span
 from brailix.frontend.zh.pinyin.adapters.pypinyin import PypinyinResolver
 from brailix.frontend.zh.pinyin.registry import resolver_registry
-from brailix.ir.inline import ChineseToken
 
 
 def test_missing_pypinyin_surfaces_missing_extra_error(monkeypatch):
@@ -19,48 +25,6 @@ def test_missing_pypinyin_surfaces_missing_extra_error(monkeypatch):
         resolver_registry.get("pypinyin")
     assert ei.value.extra == "pypinyin"
     assert "pip install brailix[pypinyin]" in str(ei.value)
-
-
-class TestResolve:
-    def test_empty(self):
-        adapter = PypinyinResolver(converter=lambda _: [])
-        assert adapter.resolve([]) == []
-
-    def test_single_char_tokens(self):
-        tokens = [
-            ChineseToken(surface="我", span=Span(0, 1)),
-            ChineseToken(surface="在", span=Span(1, 2)),
-        ]
-        adapter = PypinyinResolver(converter=lambda _: ["wo3", "zai4"])
-        out = adapter.resolve(tokens)
-        assert [t.pinyin for t in out] == ["wo3", "zai4"]
-
-    def test_multi_char_token_joins(self):
-        tokens = [ChineseToken(surface="重庆", span=Span(0, 2))]
-        adapter = PypinyinResolver(converter=lambda _: ["chong2", "qing4"])
-        out = adapter.resolve(tokens)
-        assert out[0].pinyin == "chong2 qing4"
-
-    def test_confidence_always_none(self):
-        # pypinyin doesn't expose confidence scores.
-        tokens = [ChineseToken(surface="我", span=Span(0, 1))]
-        adapter = PypinyinResolver(converter=lambda _: ["wo3"])
-        out = adapter.resolve(tokens)
-        assert out[0].confidence is None
-
-    def test_does_not_mutate_input(self):
-        tokens = [ChineseToken(surface="我", span=Span(0, 1))]
-        adapter = PypinyinResolver(converter=lambda _: ["wo3"])
-        adapter.resolve(tokens)
-        assert tokens[0].pinyin is None
-
-
-class TestProtocolConformance:
-    def test_satisfies_protocol(self):
-        from brailix.core.protocols import PinyinResolver
-
-        adapter = PypinyinResolver(converter=lambda _: [])
-        assert isinstance(adapter, PinyinResolver)
 
 
 class TestLoaderWithFakeModule:

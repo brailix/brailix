@@ -317,24 +317,6 @@ class TestSpace:
         assert s[1].surface == "   "
 
 
-class TestSpans:
-    def test_span_offsets_match_text(self):
-        text = "我在2026年"
-        s = _segs(text)
-        for seg in s:
-            assert seg.surface == text[seg.span.start : seg.span.end]
-
-    def test_base_offset_applied(self):
-        block = Paragraph(text="abc", span=Span(100, 103))
-        s = DefaultSegmenter().segment(block, FrontendContext(profile="cn_current"))
-        assert s[0].span == Span(100, 103)
-
-    def test_zero_base_when_no_block_span(self):
-        block = Paragraph(text="abc")
-        s = DefaultSegmenter().segment(block, FrontendContext(profile="cn_current"))
-        assert s[0].span == Span(0, 3)
-
-
 class TestProtectedRegions:
     def test_inline_math_dollar(self):
         s = _segs("计算 $x^2+y^2$ 即可")

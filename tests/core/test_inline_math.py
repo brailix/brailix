@@ -10,25 +10,9 @@ from brailix.core import inline_math
 
 
 class TestRoundTrip:
-    def test_wrap_unwrap_is_lossless_for_plain_payload(self) -> None:
-        island = inline_math.wrap("omml", "<m:oMath><m:r><m:t>x</m:t></m:r></m:oMath>")
-        assert inline_math.unwrap(island) == (
-            "omml",
-            "<m:oMath><m:r><m:t>x</m:t></m:r></m:oMath>",
-        )
-
-    def test_source_name_round_trips(self) -> None:
-        for source in ("omml", "eq_field", "mathml", "latex"):
-            src, payload = inline_math.unwrap(inline_math.wrap(source, "<x/>"))
-            assert src == source and payload == "<x/>"
-
-    def test_inner_dollar_round_trips(self) -> None:
-        # A literal ``$`` in the payload (e.g. currency in an ``<m:t>``) must
-        # survive: it is escaped on wrap and restored on unwrap, never left
-        # as a raw ``$`` that would terminate the segmenter's span early.
-        island = inline_math.wrap("omml", "a$b$c")
-        assert "$" not in island[1:-1]  # only the two wrappers are raw ``$``
-        assert inline_math.unwrap(island) == ("omml", "a$b$c")
+    # Round-trip losslessness (dialect tag, escaped ``$``, fixed point) is
+    # contract-tested over generated sources/payloads in
+    # tests/crosshair/contracts.py::check_inline_math_island_codec.
 
     def test_whitespace_is_flattened(self) -> None:
         # Newlines and whitespace runs collapse to single spaces so the
@@ -58,15 +42,6 @@ class TestIsTagged:
 
 
 class TestSegmenterContract:
-    def test_island_carries_no_inner_dollar_or_newline(self) -> None:
-        # The frontend segmenter's inline-math scan rejects an inner ``$``
-        # or newline inside a ``$...$`` region. A wrapped island must
-        # therefore expose neither between its wrappers, or it would be
-        # split / truncated before the normalizer sees it.
-        island = inline_math.wrap("omml", "x$y\nz")
-        body = island[1:-1]
-        assert "$" not in body and "\n" not in body
-
     def test_island_matches_the_segmenter_pattern_whole(self) -> None:
         # Belt-and-braces: the real segmenter scan protects a wrapped island
         # in full, so deferred math is protected exactly like ``$x^2$``.
@@ -84,5 +59,17 @@ class TestSegmenterContract:
 class TestErrors:
     @pytest.mark.parametrize("bad", ["$x^2$", "$<math>x</math>$", "not an island", ""])
     def test_unwrap_rejects_non_tagged(self, bad: str) -> None:
+        with pytest.raises(ValueError):
+            inline_math.unwrap(bad)
+
+    @pytest.mark.parametrize("bad", ["$\x1donly-one-separator$", "$\x1d$"])
+    def test_unwrap_rejects_malformed_tagged_island(self, bad: str) -> None:
+        # Opens with $ + Unit Separator (so is_tagged says yes) but carries
+        # only ONE field — the interior split can't produce (source,
+        # payload). unwrap must reject it, not index past the end. (The
+        # wrap/unwrap round-trip properties only ever see well-formed
+        # islands, so this branch needs its own pin — flagged by mutation
+        # testing.)
+        assert inline_math.is_tagged(bad)
         with pytest.raises(ValueError):
             inline_math.unwrap(bad)

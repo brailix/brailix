@@ -85,12 +85,22 @@ class TestUnsupported:
     def test_unknown_element_still_warns(self, profile):
         # Backend fallback contract: an element with no handler (and no
         # normalizer cleanup — menclose is a real planned gap) must
-        # surface loudly rather than vanish.
+        # surface loudly rather than vanish. (The generic any-unknown-tag
+        # form of this is property-tested in test_math_properties.py.)
         cells, wc = emit(
             mml("<math><menclose><mi>x</mi></menclose></math>"), profile
         )
         assert any(w.code == "MATH_UNSUPPORTED_ELEMENT" for w in wc)
         assert any(c.role == "unknown" for c in cells)
+
+    def test_mtr_outside_mtable_warns(self, profile):
+        # Unlike a tag missing from the table entirely (the fallback path
+        # above), mtr IS in the dispatch table — mapped to unsupported when
+        # it appears outside its mtable context. Distinct path, own pin.
+        cells, wc = emit(
+            mml("<math><mtr><mtd><mi>x</mi></mtd></mtr></math>"), profile
+        )
+        assert "MATH_UNSUPPORTED_ELEMENT" in [w.code for w in wc]
 
     def test_unsupported_surface_truncated_for_large_subtree(self, profile):
         # A large unsupported subtree must not copy its whole
@@ -227,31 +237,3 @@ class TestMerrorExtras:
         msgs = [w.message for w in wc if w.code == "MATH_ERROR"]
         assert msgs
         assert "bad" in msgs[0]
-
-
-# ---------------------------------------------------------------------------
-# Unsupported extras
-# ---------------------------------------------------------------------------
-
-
-class TestUnsupportedExtras:
-    def test_mtr_warning(self, profile):
-        cells, wc = emit(
-            mml("<math><mtr><mtd><mi>x</mi></mtd></mtr></math>"), profile
-        )
-        # mtr is in the dispatch table as unsupported.
-        codes = [w.code for w in wc]
-        assert "MATH_UNSUPPORTED_ELEMENT" in codes
-
-    def test_unknown_element_warning(self, profile):
-        # <ms> isn't in the table at all → falls back to _emit_unsupported.
-        cells, wc = emit(mml("<math><ms>foo</ms></math>"), profile)
-        codes = [w.code for w in wc]
-        assert "MATH_UNSUPPORTED_ELEMENT" in codes
-
-    def test_menclose_warning(self, profile):
-        cells, wc = emit(
-            mml("<math><menclose><mi>x</mi></menclose></math>"), profile
-        )
-        codes = [w.code for w in wc]
-        assert "MATH_UNSUPPORTED_ELEMENT" in codes

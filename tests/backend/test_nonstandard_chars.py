@@ -8,15 +8,15 @@ from __future__ import annotations
 import pytest
 
 from brailix import Pipeline
-from brailix.core.chars import (
-    INVISIBLE_CPS,
-    fold_fullwidth,
-    is_math_symbol,
-    nonstandard_char_hint,
-)
+from brailix.core.chars import INVISIBLE_CPS, nonstandard_char_hint
 
 
 class TestHint:
+    """Exact hint wording — the actionable format an editor shows verbatim.
+    WHEN a hint fires (exactly the foldable ∪ invisible classes, single
+    chars only) is contract-tested over all code points in
+    tests/crosshair/contracts.py::check_nonstandard_hint_consistency."""
+
     def test_fullwidth_names_its_halfwidth(self):
         assert nonstandard_char_hint("＝") == (
             "full-width '＝' (U+FF1D); use the half-width '='"
@@ -24,20 +24,6 @@ class TestHint:
 
     def test_fullwidth_space(self):
         assert "normal space" in (nonstandard_char_hint("　") or "")
-
-    def test_zero_width(self):
-        assert "zero-width" in (nonstandard_char_hint("​") or "")
-
-    def test_ordinary_char_has_no_hint(self):
-        assert nonstandard_char_hint("=") is None
-        assert nonstandard_char_hint("x") is None
-        assert nonstandard_char_hint("ab") is None  # only single chars classify
-
-    def test_word_joiner_and_soft_hyphen_are_invisible(self):
-        # U+2060 / U+00AD now come from the shared INVISIBLE_CPS set, so the
-        # hint fires for both (built via chr() — the chars are invisible).
-        assert "invisible" in (nonstandard_char_hint(chr(0x2060)) or "")
-        assert "invisible" in (nonstandard_char_hint(chr(0x00AD)) or "")
 
 
 class TestProseAndMathSurfaceTheHint:
@@ -139,70 +125,11 @@ class TestMathFullwidthPunctuation:
         assert "⠆" in res.render()  # c_23 semicolon
 
 
-class TestFoldFullwidth:
-    """fold_fullwidth is the single authority for the half-width form — the
-    knowledge an editor consumes so it never re-derives the FF01..FF5E offset
-    or the ideographic-space mapping."""
-
-    def test_fullwidth_digit(self):
-        assert fold_fullwidth("０") == "0"
-        assert fold_fullwidth("９") == "9"
-
-    def test_fullwidth_letter(self):
-        assert fold_fullwidth("Ｘ") == "X"
-        assert fold_fullwidth("ｚ") == "z"
-
-    def test_fullwidth_operator(self):
-        assert fold_fullwidth("＝") == "="
-        assert fold_fullwidth("＋") == "+"
-
-    def test_fullwidth_punctuation_also_folds(self):
-        # The raw Unicode fact: the full-width comma *does* have a half-width
-        # form.  Whether to apply it is the caller's policy (prose keeps
-        # full-width Chinese punctuation; callers simply never feed it here).
-        assert fold_fullwidth("，") == ","
-
-    def test_ideographic_space(self):
-        assert fold_fullwidth("　") == " "
-
-    def test_halfwidth_returns_none(self):
-        assert fold_fullwidth("a") is None
-        assert fold_fullwidth("=") is None
-        assert fold_fullwidth(" ") is None
-
-    def test_non_single_char_returns_none(self):
-        assert fold_fullwidth("") is None
-        assert fold_fullwidth("ＡＢ") is None
-
-
-class TestIsMathSymbol:
-    """is_math_symbol = single char & Unicode category Sm — the pure fact the
-    segmenter uses to auto-route bare math symbols (∈ ≤ ∑ …) to the math path,
-    and the prose backend uses to give a "looks like math" hint."""
-
-    def test_math_operators_are_math_symbols(self):
-        for ch in "∈∉≤≥≠∀∃∑∏∫√∞∂∇⊂⊃∪∩→←↔±×÷":
-            assert is_math_symbol(ch), ch
-
-    def test_ascii_relations_are_math_symbols(self):
-        # = < > + ~ are category Sm even when ASCII; the classifier is pure
-        # category (the segmenter scopes ASCII routing separately).
-        for ch in "=<>+~":
-            assert is_math_symbol(ch), ch
-
-    def test_name_separator_and_degree_are_not(self):
-        assert not is_math_symbol("·")  # U+00B7 MIDDLE DOT — category Po
-        assert not is_math_symbol("°")  # U+00B0 DEGREE SIGN — category So
-        assert not is_math_symbol("、")  # CJK comma — category Po
-
-    def test_letters_and_digits_are_not(self):
-        assert not is_math_symbol("x")
-        assert not is_math_symbol("α")  # Greek letter — category Ll
-        assert not is_math_symbol("5")
-
-    def test_non_single_char_is_not(self):
-        assert not is_math_symbol("")
-        assert not is_math_symbol("∈∈")
+# fold_fullwidth's exact mapping (the 0xFEE0 relation, the ideographic
+# space, None everywhere else) and is_math_symbol's "category Sm, exactly"
+# line are contract-tested over all code points in
+# tests/crosshair/contracts.py; INVISIBLE_CPS below is the design decision
+# those contracts consume, so its contents stay pinned here.
 
 
 class TestInvisibleCps:

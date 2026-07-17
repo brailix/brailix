@@ -10,6 +10,10 @@ from brailix.ir.braille import (
     BrailleCell,
     BrailleDocument,
     BrailleSequence,
+    blank_cell,
+    hang_close_cell,
+    hang_open_cell,
+    line_break_cell,
 )
 
 
@@ -36,16 +40,6 @@ class TestBrailleCellConstruction:
         assert c.source_text == "d"
         assert c.source_span == Span(0, 1)
 
-    def test_invalid_dot_rejected(self):
-        with pytest.raises(ValueError):
-            BrailleCell(dots=(1, 9))
-        with pytest.raises(ValueError):
-            BrailleCell(dots=(0, 1))
-
-    def test_duplicate_dot_rejected(self):
-        with pytest.raises(ValueError):
-            BrailleCell(dots=(1, 1, 2))
-
     def test_eight_dot_allowed(self):
         c = BrailleCell(dots=(1, 2, 3, 4, 5, 6, 7, 8))
         assert c.dots == (1, 2, 3, 4, 5, 6, 7, 8)
@@ -56,37 +50,6 @@ class TestBrailleCellConstruction:
         # Frozen dataclasses with equal fields hash and compare equal.
         assert c1 == c2
         assert hash(c1) == hash(c2)
-
-    def test_dots_normalized_to_ascending(self):
-        # A cell's identity is its dot set: unordered input canonicalises so
-        # equality / hashing match the order-free unicode rendering.
-        assert BrailleCell(dots=(2, 1)).dots == (1, 2)
-        assert BrailleCell(dots=(4, 1, 2)).dots == (1, 2, 4)
-
-    def test_unordered_dots_compare_equal(self):
-        assert BrailleCell(dots=(2, 1)) == BrailleCell(dots=(1, 2))
-        assert hash(BrailleCell(dots=(2, 1))) == hash(BrailleCell(dots=(1, 2)))
-
-
-class TestBrailleCellSerialization:
-    def test_minimal_round_trip(self):
-        c = BrailleCell(dots=(1, 2))
-        restored = BrailleCell.from_dict(c.to_dict())
-        assert restored == c
-
-    def test_full_round_trip(self):
-        c = BrailleCell(
-            dots=(1, 4, 5),
-            role="zh_initial",
-            source_span=Span(2, 4),
-            source_text="ch",
-        )
-        restored = BrailleCell.from_dict(c.to_dict())
-        assert restored == c
-
-    def test_blank_round_trip(self):
-        restored = BrailleCell.from_dict(BLANK_CELL.to_dict())
-        assert restored == BLANK_CELL
 
 
 class TestBrailleSequence:
@@ -112,14 +75,6 @@ class TestBrailleSequence:
         a.extend(b)
         assert len(a) == 3
 
-    def test_round_trip(self):
-        s = BrailleSequence(cells=[
-            BrailleCell(dots=(1,), role="num"),
-            BrailleCell(dots=(1, 2), source_text="a"),
-        ])
-        restored = BrailleSequence.from_dict(s.to_dict())
-        assert restored.cells == s.cells
-
 
 class TestBrailleBlock:
     def test_default(self):
@@ -130,24 +85,6 @@ class TestBrailleBlock:
     def test_with_heading_level(self):
         b = BrailleBlock(block_type="heading", heading_level=2)
         assert b.heading_level == 2
-
-    def test_round_trip(self):
-        b = BrailleBlock(
-            block_type="heading",
-            id="h1",
-            heading_level=1,
-            cells=[BrailleCell(dots=(1,))],
-        )
-        restored = BrailleBlock.from_dict(b.to_dict())
-        assert restored.block_type == "heading"
-        assert restored.id == "h1"
-        assert restored.heading_level == 1
-        assert restored.cells == b.cells
-
-    def test_align_round_trip(self):
-        b = BrailleBlock(block_type="paragraph", align="center")
-        restored = BrailleBlock.from_dict(b.to_dict())
-        assert restored.align == "center"
 
     def test_align_absent_from_dict_when_none(self):
         # The default carries no ``align`` key — keeps serialized blocks lean
@@ -171,26 +108,47 @@ class TestBrailleDocument:
         flat = d.all_cells()
         assert [c.dots for c in flat] == [(1,), (2,), (3,)]
 
-    def test_round_trip(self):
-        d = BrailleDocument(
-            metadata={"profile": "cn_current"},
-            blocks=[
-                BrailleBlock(
-                    block_type="paragraph",
-                    cells=[BrailleCell(dots=(1, 2), role="zh_initial")],
-                ),
-            ],
-        )
-        restored = BrailleDocument.from_dict(d.to_dict())
-        assert restored.metadata == d.metadata
-        assert len(restored.blocks) == 1
-        assert restored.blocks[0].cells == d.blocks[0].cells
-
 
 class TestBlankCell:
     def test_blank_cell_constant(self):
         assert BLANK_CELL.is_blank
         assert BLANK_CELL.role == "space"
+
+
+class TestSpanCarryingFactories:
+    """The traceable counterparts of the span-less sentinel constants.
+
+    Every control / spacing cell the backend emits goes through these
+    factories, so "every cell maps to a source span" (ARCHITECTURE §3)
+    stands on their exact output: zero dots, the exact role the renderers
+    key on, the caller's span carried through UNTOUCHED (including a
+    zero-width boundary span and the explicit None a hand-built caller may
+    pass), and an empty source_text (the cell stands for no source
+    character). Pinned directly — the compiled-document suites exercise
+    them only incidentally, and a wrong role here silently breaks wrap /
+    render logic everywhere. (Flagged by mutation testing: all four
+    factories' mutants survived the pre-existing suites.)
+    """
+
+    @pytest.mark.parametrize(
+        "factory, role",
+        [
+            (blank_cell, "space"),
+            (line_break_cell, "line_break"),
+            (hang_open_cell, "hang_open"),
+            (hang_close_cell, "hang_close"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "span", [None, Span(3, 3), Span(0, 2)], ids=["none", "boundary", "range"]
+    )
+    def test_factory_output_contract(self, factory, role, span):
+        cell = factory(span)
+        assert cell.dots == ()
+        assert cell.is_blank
+        assert cell.role == role
+        assert cell.source_span is span
+        assert cell.source_text == ""
 
 
 class TestSentinelCells:

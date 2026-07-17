@@ -177,6 +177,11 @@ class TestStripWhitespaceText:
 
 
 class TestTreeDepthExceeds:
+    # Boundary agreement with an independent depth model (at-limit /
+    # past-limit / width-vs-depth) is property-tested over generated trees
+    # in test_xml_properties.py; only the depth-SAFETY pin stays an example
+    # (a 5000-deep tree is too expensive to generate per property example).
+
     @staticmethod
     def _chain(depth: int) -> ET.Element:
         # A linear tree whose nesting depth is exactly `depth` (root = 1).
@@ -186,30 +191,10 @@ class TestTreeDepthExceeds:
             cur = ET.SubElement(cur, "mrow")
         return root
 
-    def test_shallow_is_within_limit(self) -> None:
-        assert tree_depth_exceeds(self._chain(10), 150) is False
-
-    def test_exactly_at_limit_is_not_exceeded(self) -> None:
-        assert tree_depth_exceeds(self._chain(150), 150) is False
-
-    def test_one_past_limit_is_exceeded(self) -> None:
-        assert tree_depth_exceeds(self._chain(151), 150) is True
-
-    def test_single_element_is_depth_one(self) -> None:
-        assert tree_depth_exceeds(ET.Element("math"), 1) is False
-
     def test_probe_is_itself_depth_safe(self) -> None:
         # A 5000-deep tree against a small limit short-circuits to True
         # without the probe itself recursing / overflowing.
         assert tree_depth_exceeds(self._chain(5000), 150) is True
-
-    def test_width_is_not_depth(self) -> None:
-        # A wide-but-shallow tree (root + many children) is depth 2.
-        root = ET.Element("math")
-        for _ in range(1000):
-            ET.SubElement(root, "mn")
-        assert tree_depth_exceeds(root, 2) is False
-        assert tree_depth_exceeds(root, 1) is True
 
 
 class TestLocalName:
@@ -218,3 +203,20 @@ class TestLocalName:
 
     def test_bare_tag_unchanged(self) -> None:
         assert local_name("math") == "math"
+
+    def test_unclosed_brace_degenerates_to_empty(self) -> None:
+        # Garbage Clark notation (opening brace, no closing one) has no
+        # local name to extract; the current, deliberate behaviour is an
+        # empty string — pinned so the defensive corner can't drift
+        # silently (flagged by mutation testing).
+        assert local_name("{no-close") == ""
+
+
+class TestStripNamespaceDegenerate:
+    def test_unclosed_brace_tag_is_left_alone(self) -> None:
+        # strip_namespace only rewrites a tag with a COMPLETE {ns} prefix;
+        # an unclosed brace is garbage it must pass through untouched
+        # rather than truncate on a guess.
+        root = ET.Element("{no-close")
+        strip_namespace(root)
+        assert root.tag == "{no-close"

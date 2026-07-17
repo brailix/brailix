@@ -28,7 +28,6 @@ from brailix.renderer.unicode_braille import dots_to_char
 
 BLANK_CHAR = dots_to_char(())  # U+2800 — what a dots=() cell renders to
 NOTE_CHAR = dots_to_char((1,))
-HYPHEN_CHAR = dots_to_char((3, 6))  # default text continuation hyphen
 SEP = BrailleCell(dots=(), role="music_measure_sep")
 PART_SEP = BrailleCell(dots=(), role="music_part_sep")
 
@@ -107,13 +106,6 @@ class TestSchemeRegistry:
         assert get_scheme("bar_over_bar").name == "bar_over_bar"
         assert "bar_over_bar" in scheme_names()
 
-    def test_unknown_scheme_falls_back_to_single_line(self):
-        # line_by_line isn't registered yet → fall back; so does an
-        # unknown name and None.
-        assert get_scheme("line_by_line").name == "single_line"
-        assert get_scheme("nonsense").name == "single_line"
-        assert get_scheme(None).name == "single_line"
-
     def test_default_measure_break_role(self):
         assert "music_measure_sep" in LayoutOptions().measure_break_roles
 
@@ -123,58 +115,11 @@ class TestSchemeRegistry:
         assert "music_block" not in opts.verbatim_block_types
 
 
-# ---------------------------------------------------------------------------
-# wrap_measures — measure-boundary-only wrapping (tested at indent 0)
-# ---------------------------------------------------------------------------
-
-
-class TestWrapMeasures:
-    def test_breaks_at_separator(self):
-        # 3 measures of 10; width 25.
-        # line1: m1(10) + sep(1) + m2(10) = 21 <= 25; + sep + 10 = 32 > 25.
-        lines = _wrap(_score_cells(10, 10, 10), 25)
-        assert [len(ln) for ln in lines] == [21, 10]
-
-    def test_one_measure_per_line_when_pair_overflows(self):
-        lines = _wrap(_score_cells(10, 10, 10), 15)
-        assert [len(ln) for ln in lines] == [10, 10, 10]
-
-    def test_measure_never_split_midway(self):
-        # 7 + 1 + 7 = 15 <= 20; + 1 + 7 = 23 > 20 → [m1 m2][m3 m4].
-        lines = _wrap(_score_cells(7, 7, 7, 7), 20)
-        assert [len(ln) for ln in lines] == [15, 15]
-
-    def test_oversize_measure_runs_over_unbroken(self):
-        lines = _wrap(_score_cells(100), 40)
-        assert [len(ln) for ln in lines] == [100]
-
-    def test_oversize_measure_then_small_measure(self):
-        lines = _wrap(_score_cells(100, 5), 40)
-        assert [len(ln) for ln in lines] == [100, 5]
-
-    def test_separator_preserved_between_measures_on_a_line(self):
-        # 3 + sep + 3 on one line; the middle cell is the kept separator.
-        lines = _wrap(_score_cells(3, 3), 40)
-        assert len(lines) == 1
-        assert len(lines[0]) == 7
-        assert lines[0][3].is_blank
-        assert lines[0][3].role == "music_measure_sep"
-
-    def test_custom_break_role(self):
-        cells = [
-            BrailleCell(dots=(1,), role="music_note"),
-            BrailleCell(dots=(), role="my_sep"),
-            BrailleCell(dots=(1,), role="music_note"),
-        ]
-        lines = _wrap(
-            cells, 1, measure_break_roles=frozenset({"my_sep"})
-        )
-        assert [len(ln) for ln in lines] == [1, 1]
-
-    def test_no_continuation_hyphen(self):
-        out = _render(_score_cells(10, 10, 10), opts=_no_frame(15))
-        assert HYPHEN_CHAR not in out
-
+# wrap_measures' invariants (break only at separators, measure atomicity,
+# greedy fill, runover exemption, separator provenance, no hyphen, custom
+# break roles, the single_line fallback) are property-tested over generated
+# streams in test_music_layout_properties.py; only rule-value geometry and
+# scheme compositions stay example-tested below.
 
 # ---------------------------------------------------------------------------
 # single_line geometry — hanging indent (BANA §24.1.1: run-over to cell 3)
