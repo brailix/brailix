@@ -72,6 +72,32 @@ def _validate_profile_shape(payload: dict[str, Any], file: str) -> None:
         raise ConfigurationError(
             f"{file}: 'tables' must be an object, got {type(tables).__name__}"
         )
+    # Every table entry is a string reference (a resource path / inline cell
+    # spec) or a group object of string references; metadata keys (leading
+    # underscore, e.g. a group's ``_required``) are exempt at both levels.
+    # Checked here — BEFORE any table loads — so a wrong-shape entry raises
+    # a ConfigurationError naming the key instead of crashing a loader
+    # downstream with a bare TypeError (``base / relative`` on a dict).
+    for tbl_key, tbl_value in tables.items():
+        if _is_metadata_key(tbl_key):
+            continue
+        if isinstance(tbl_value, str):
+            continue
+        if isinstance(tbl_value, dict):
+            for sub_key, sub_value in tbl_value.items():
+                if _is_metadata_key(sub_key):
+                    continue
+                if not isinstance(sub_value, str):
+                    raise ConfigurationError(
+                        f"{file}: 'tables.{tbl_key}.{sub_key}' must be a "
+                        f"string table reference, got "
+                        f"{type(sub_value).__name__}"
+                    )
+            continue
+        raise ConfigurationError(
+            f"{file}: 'tables.{tbl_key}' must be a string table reference "
+            f"or an object of references, got {type(tbl_value).__name__}"
+        )
     for key, expected_type in _TYPED_OPTIONAL_KEYS.items():
         if key in payload and not isinstance(payload[key], expected_type):
             type_name = (
