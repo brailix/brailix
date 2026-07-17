@@ -27,7 +27,28 @@ from brailix.ir.inline import from_dict as inline_from_dict
 
 @dataclass(slots=True)
 class Block:
-    """Abstract base for every block type."""
+    """Abstract base for every block type.
+
+    **Span coordinate contract.** Two coordinate systems meet here, one
+    per level:
+
+    * ``Block.span`` locates the block in its **source document**. When
+      ``text`` is a verbatim slice of that source, the span is
+      content-exact: ``source[span.start:span.end] == block.text`` (the
+      *exact-slice contract*). The plain-text adapter guarantees it for
+      every block; the Markdown adapter for headings, list items and
+      single-line paragraphs (marker prefixes like ``# `` / ``- `` are
+      *outside* the span). Blocks whose ``text`` is derived rather than
+      sliced — a multi-line paragraph joined with spaces, a quote with
+      its ``> `` markers stripped, fence bodies, table cells — carry a
+      line-range span: the block is *located*, but per-character
+      rebasing is not implied. Formats with no character-level source
+      coordinate (``.docx``) synthesise spans.
+    * Inline node spans and braille-cell ``source_span``\\ s are
+      **leaf-local**: offsets into the owning leaf block's ``text``,
+      starting at 0 per block. Under the exact-slice contract,
+      ``block.span.start + leaf_local`` is the exact source position.
+    """
 
     type: ClassVar[str] = "block"
     id: str | None = None

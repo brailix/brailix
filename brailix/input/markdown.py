@@ -310,11 +310,22 @@ def _iter_blocks(text: str) -> Iterable[Block]:
             cur.consume()
             level = len(m_h.group(1))
             heading_text, align = _extract_align(m_h.group(2))
+            # Span the CONTENT, not the marker line: ``text`` is a verbatim
+            # slice of the source (the ``# `` prefix, a closing-hash tail
+            # and an ``{align=…}`` attribute are all outside it), so the
+            # exact-slice contract ``source[span] == block.text`` holds and
+            # a leaf-local inline span rebases to the source by adding
+            # ``span.start`` (see ``Block.span`` in brailix.ir.document).
+            content_start = (
+                cur.line_offsets[start]
+                + (len(line) - len(line.lstrip()))
+                + m_h.start(2)
+            )
             yield Heading(
                 level=level,
                 text=heading_text,
                 align=align,
-                span=cur.span_of(start, start + 1),
+                span=Span(content_start, content_start + len(heading_text)),
             )
             continue
 
@@ -358,13 +369,19 @@ def safe_block_insertion_offset(source: str, pos: int) -> int:
     inserted without splitting an existing block.
 
     ``pos`` is first clamped to ``0..len(source)``. If it then lands strictly
-    *inside* a parsed block's span (a fenced graphic / code block, a table, a
-    ``$$`` math block, a paragraph, …), it is moved to that block's ``span.end``
-    — just past the block — so an inserted fence can never bisect an atomic
+    *inside* the line range a parsed block occupies (a fenced graphic / code
+    block, a table, a ``$$`` math block, a paragraph, …), it is moved just
+    past that range — so an inserted fence can never bisect an atomic
     block. Inserting into a ```graphic``` fence body otherwise makes the new
     fence's opening line read as the *closing* line of the enclosing fence,
     tearing the old figure apart. A ``pos`` already on a block boundary or in
     inter-block whitespace is returned unchanged.
+
+    The occupied range is the block's ``span`` widened to whole lines: a
+    content-exact span (a heading's span excludes its ``# `` marker — see
+    ``Block.span``) still *occupies* its full source line for insertion
+    purposes, and a caret between the marker and the content must snap past
+    the line, not splice a fence into it.
 
     Pure structural query (format-independent — reads only the block spans),
     so it belongs with the markdown parser; an editor calls it before splicing
@@ -373,8 +390,13 @@ def safe_block_insertion_offset(source: str, pos: int) -> int:
     pos = max(0, min(pos, len(source)))
     for block in _iter_blocks(source):
         span = block.span
-        if span is not None and span.start < pos < span.end:
-            return span.end
+        if span is None:
+            continue
+        line_start = source.rfind("\n", 0, span.start) + 1
+        nl = source.find("\n", span.end)
+        line_end = len(source) if nl == -1 else nl
+        if line_start < pos < line_end:
+            return line_end
     return pos
 
 
@@ -539,16 +561,22 @@ def _consume_list(cur: _LineCursor) -> List:
             if m_ord is None:
                 break
             content = m_ord.group(2)
+            content_col = m_ord.start(2)
         else:
             if m_unord is None:
                 break
             content = m_unord.group(2)
+            content_col = m_unord.start(2)
         item_start = cur.i
         cur.consume()
+        # Span the item's CONTENT (past the ``- `` / ``1. `` marker), so
+        # ``source[span] == item.text`` — the exact-slice contract; the
+        # marker stays covered by the containing List's line-range span.
+        content_start = cur.line_offsets[item_start] + content_col
         items.append(
             ListItem(
                 text=content,
-                span=cur.span_of(item_start, cur.i),
+                span=Span(content_start, content_start + len(content)),
             )
         )
     return List(
@@ -667,4 +695,19 @@ def _consume_paragraph(cur: _LineCursor) -> Paragraph:
         cur.consume()
     body = " ".join(p.strip() for p in parts)
     body, align = _extract_align(body)
+    if len(parts) == 1:
+        # Single-line paragraph: ``body`` is a verbatim slice of its line
+        # (strip + attribute-tail removal only shrink the ends), so span
+        # exactly that slice — the exact-slice contract
+        # ``source[span] == block.text`` (see ``Block.span``). A multi-line
+        # paragraph joins its lines with spaces, which is NOT a source
+        # slice; it keeps the line-range span (block located, per-char
+        # rebasing not implied).
+        lead = len(parts[0]) - len(parts[0].lstrip())
+        body_start = cur.line_offsets[start] + lead
+        return Paragraph(
+            text=body,
+            align=align,
+            span=Span(body_start, body_start + len(body)),
+        )
     return Paragraph(text=body, align=align, span=cur.span_of(start, cur.i))

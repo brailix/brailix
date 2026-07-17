@@ -29,6 +29,8 @@ them like any other inline children.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from brailix.backend import number as number_backend
 from brailix.backend.dispatch import translate_node
 from brailix.backend.latin import english_run_role
@@ -48,7 +50,6 @@ from brailix.ir.document import (
     GraphicBlock,
     ImageAlt,
     List,
-    ListItem,
     Table,
 )
 from brailix.ir.inline import InlineNode, Number
@@ -224,7 +225,7 @@ def _expand_list(
     blocks: list[BrailleBlock] = []
     for i, item in enumerate(block.items, start=1):
         cells: list[BrailleCell] = []
-        cells.extend(_list_marker_cells(i, block.ordered, ctx, profile, item))
+        cells.extend(_list_marker_cells(i, block.ordered, ctx, profile))
         cells.extend(_translate_children(item.children, ctx, profile))
         blocks.append(
             BrailleBlock(
@@ -241,7 +242,6 @@ def _list_marker_cells(
     ordered: bool,
     ctx: BackendContext,
     profile: BrailleProfile,
-    item: ListItem,
 ) -> list[BrailleCell]:
     """Produce the marker cells for a list item.
 
@@ -254,28 +254,38 @@ def _list_marker_cells(
     equivalent plain text "1. foo" / "· foo". Lists have no special
     spacing logic beyond what the punct table declares for the marker
     char.
+
+    Every marker cell — ordinal digits, dot, bullet, spacing blanks —
+    is synthesised print structure, not a character of ``item.text``,
+    so the whole run anchors to the item text's LEADING EDGE in
+    leaf-local coordinates: ``Span(0, 0)``, the same zero-width-anchor
+    convention as the number sign. (It previously inherited spans
+    derived from the item's block-level span, mixing document
+    coordinates into an otherwise leaf-local cell sequence — an ordinal
+    digit then claimed item-text characters it never came from.)
     """
     cells: list[BrailleCell] = []
     if ordered:
         sub_ctx = _block_ctx(ctx, block_type="list_item")
-        digits_node = Number(surface=str(index), span=item.span)
+        digits_node = Number(surface=str(index), span=None)
         cells.extend(
             number_backend.translate_number(digits_node, sub_ctx, profile)
         )
         cells.extend(
             _marker_punct_cells(
-                profile.list_marker_ordered_char(), item.span, profile
+                profile.list_marker_ordered_char(), None, profile
             )
         )
     else:
         cells.extend(
             _marker_punct_cells(
-                profile.list_marker_unordered_char(), item.span, profile
+                profile.list_marker_unordered_char(), None, profile
             )
         )
         # No profile bullet → silently fall through; the layout still
         # produces a usable line with just the content.
-    return cells
+    edge = Span(0, 0)
+    return [replace(c, source_span=edge) for c in cells]
 
 
 def _marker_punct_cells(
@@ -292,8 +302,9 @@ def _marker_punct_cells(
     punct_cells = profile.punctuation.get(ch)
     if not punct_cells:
         return []
-    # The bullet / number is print structure at the item's leading edge, not a
-    # literal char inside the item text — trace it to a zero-width span there.
+    # The bullet / number is print structure, not a literal char inside the
+    # item text; the caller (``_list_marker_cells``) re-anchors every marker
+    # cell to the leaf-local leading edge, so the span here is a placeholder.
     edge = Span(span.start, span.start) if span else None
     out: list[BrailleCell] = [
         BrailleCell(dots=dots, role="list_marker", source_span=edge, source_text=ch)

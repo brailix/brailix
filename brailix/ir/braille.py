@@ -46,6 +46,17 @@ class BrailleCell:
     factories below (:func:`blank_cell` / :func:`line_break_cell` /
     :func:`hang_open_cell` / :func:`hang_close_cell`) — so a compiled document
     upholds "every cell maps to a source span" (ARCHITECTURE.md §3).
+
+    **Coordinate contract**: ``source_span`` is **leaf-local** — offsets
+    into the *owning leaf block's* ``text``, starting at 0 per block, NOT
+    into the whole source document (which several input formats don't
+    even have a character-level coordinate for; a ``.docx`` is a zip).
+    To locate a cell in the original source, add the block's own
+    ``span.start`` — exact whenever the block upholds the exact-slice
+    contract ``source[block.span] == block.text`` (see
+    :attr:`brailix.ir.document.Block.span` for which blocks do). A
+    display-oriented consumer (an editor pane) instead rebases by its own
+    per-leaf offsets into whatever text it renders.
     """
 
     dots: tuple[int, ...] = ()
