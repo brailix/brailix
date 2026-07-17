@@ -187,6 +187,29 @@ class TestProfileLookupErrors:
             load_profile("demo", root=tmp_path)
         assert "cells.json" in str(ei.value)
 
+    def test_table_entry_with_wrong_shape_raises_configuration_error(
+        self, tmp_path
+    ):
+        # A table entry must be a string reference or a group object of
+        # string references. A group where a string is expected (or a
+        # non-string inside a group) used to sail past the shape check and
+        # crash a loader downstream with a bare TypeError
+        # (``base / relative`` on a dict) — found by the schema-shaped
+        # profile fuzz in test_profile_schema_properties.py.
+        prof_dir = tmp_path / "profiles"
+        prof_dir.mkdir()
+        (prof_dir / "demo.json").write_text(
+            json.dumps({
+                "name": "demo",
+                "language": "zh-CN",
+                "tables": {"greek": {"letters": 42}},
+            }),
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigurationError) as ei:
+            load_profile("demo", root=tmp_path)
+        assert "tables.greek.letters" in str(ei.value)
+
     def test_table_with_non_object_top_level_raises_configuration_error(
         self, tmp_path
     ):
@@ -501,6 +524,33 @@ class TestBoolFlagValidation:
         msg = str(ei.value)
         assert "int" in msg
         assert "script_prefix" in msg
+
+    def test_non_bool_provisional_in_symbols_raises(self, tmp_path):
+        # Same bool-flag gate as big_op / script_prefix — proofread tooling
+        # branches on ``provisional``, so a truthy string must fail loud.
+        # (Mutation testing: this call site had no coverage at all.)
+        name = _write_profile(tmp_path, symbols={
+            "plus": {"cells": ["c_1"], "role": "op", "provisional": "yes"},
+        })
+        with pytest.raises(ConfigurationError) as ei:
+            load_profile(name, root=tmp_path)
+        msg = str(ei.value)
+        assert "plus" in msg
+        assert "provisional" in msg
+
+    def test_bad_entry_after_valid_entries_still_caught(self, tmp_path):
+        # The validation loop must check EVERY entry: a bad flag on the
+        # last of several entries has to fail exactly like one on the
+        # first. (Mutation testing: with single-entry fixtures only, a
+        # ``continue`` → ``break`` early escape survived unnoticed.)
+        name = _write_profile(tmp_path, symbols={
+            "plus":   {"cells": ["c_1"], "role": "op"},
+            "equals": {"cells": ["c_1"], "role": "rel"},
+            "sum":    {"cells": ["c_1"], "role": "big_op", "big_op": "yes"},
+        })
+        with pytest.raises(ConfigurationError) as ei:
+            load_profile(name, root=tmp_path)
+        assert "sum" in str(ei.value)
 
     def test_non_bool_big_op_in_functions_raises(self, tmp_path):
         name = _write_profile(tmp_path, functions={
