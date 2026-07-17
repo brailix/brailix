@@ -328,6 +328,52 @@ class TestSpans:
         assert doc.blocks[0].span.end <= doc.blocks[1].span.start
 
 
+class TestExactSliceSpans:
+    """Blocks whose ``text`` is a verbatim source slice carry a
+    content-exact span — ``source[span] == block.text``, with marker
+    prefixes (``# `` / ``- `` / ``1. ``) OUTSIDE the span — so leaf-local
+    inline / cell spans rebase to the source by adding ``span.start``
+    (the coordinate contract on :class:`brailix.ir.document.Block`)."""
+
+    def _doc(self, src: str):
+        return parse_markdown(src, profile="cn_current", language="zh-CN")
+
+    def test_heading_span_covers_content_not_marker(self):
+        src = "## 章节标题"
+        h = self._doc(src).blocks[0]
+        assert src[h.span.start : h.span.end] == h.text == "章节标题"
+
+    def test_heading_with_closing_hashes_and_align(self):
+        src = "# 标题 ## {align=right}"
+        h = self._doc(src).blocks[0]
+        # regex drops the closing-hash tail, _extract_align the attribute;
+        # both live outside the content span.
+        assert src[h.span.start : h.span.end] == h.text
+        assert h.align == "right"
+
+    def test_list_item_spans_cover_content_not_markers(self):
+        src = "- 甲项\n- 乙项\n\n1. 首项\n2. 次项"
+        blocks = self._doc(src).blocks
+        for lst in blocks:
+            for item in lst.items:
+                assert (
+                    src[item.span.start : item.span.end] == item.text
+                ), f"item {item.text!r} span {item.span} misses its content"
+
+    def test_single_line_paragraph_with_leading_whitespace(self):
+        src = "  缩进段落。"
+        p = self._doc(src).blocks[0]
+        assert src[p.span.start : p.span.end] == p.text == "缩进段落。"
+
+    def test_multi_line_paragraph_keeps_line_range_span(self):
+        # Joined with a space — NOT a source slice; the span stays the
+        # line range (located, no per-character promise).
+        src = "第一行\n第二行"
+        p = self._doc(src).blocks[0]
+        assert p.text == "第一行 第二行"
+        assert (p.span.start, p.span.end) == (0, len(src))
+
+
 CIRCLE = '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>'
 
 
@@ -361,6 +407,18 @@ class TestSafeBlockInsertionOffset:
     def test_empty_source_returns_clamped(self):
         assert safe_block_insertion_offset("", 0) == 0
         assert safe_block_insertion_offset("   ", 1) == 1
+
+    def test_caret_inside_heading_marker_snaps_past_the_line(self):
+        # A heading's content-exact span leaves ``# `` outside the block
+        # span, but the heading still OCCUPIES its whole line: a caret
+        # between the marker and the content must snap past the line
+        # instead of splicing a fence into the middle of the heading.
+        src = "# 标题\n\nafter"
+        line_end = src.index("\n")
+        assert safe_block_insertion_offset(src, 1) == line_end
+        # ...and the line-widening must not swallow the boundary itself.
+        assert safe_block_insertion_offset(src, 0) == 0
+        assert safe_block_insertion_offset(src, line_end) == line_end
 
 
 class TestImagePlaceholder:

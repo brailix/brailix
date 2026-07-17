@@ -45,6 +45,8 @@ Whichever adapter you pick, downstream only ever sees the mediator format, so **
 
 Every `BrailleCell` carries the `source_span` it was produced from. That single field is what makes the output debuggable, lets the renderer wrap lines without losing provenance, and powers the proofreading system (§10): a tool can map any braille cell back to the exact source characters behind it.
 
+Two coordinate systems share the work, one per level. A cell's `source_span` (like an inline node's `span`) is **leaf-local**: offsets into the owning leaf block's own `text`, starting at 0 per block — formats like `.docx` have no document-wide character coordinate at all, so leaf-local is the only system well-defined for every input. The block-level `Block.span` is what locates a block in its source document; whenever a block upholds the **exact-slice contract** `source[block.span] == block.text` (every plain-text block; Markdown headings, list items and single-line paragraphs — marker prefixes like `# ` / `- ` sit *outside* the span), `block.span.start + leaf_local` is the exact source position. Blocks whose `text` is derived rather than sliced (multi-line paragraphs joined with spaces, quotes with `> ` stripped, fence bodies, table cells) carry a line-range span: located, but without a per-character promise.
+
 These two ideas — *isolate behind a mediator* and *keep provenance on every cell* — are the criteria the rest of the architecture is judged against.
 
 ---
