@@ -321,6 +321,19 @@ class TestMatrixRowAlignment:
             self._BLANK + self._DOT1 * 3,            # row 2 → aligns at 1
         ]
 
+    def test_a_column_at_the_right_edge_falls_back_to_the_hang_indent(self):
+        # The column is read off the content, so it can land ON the margin
+        # — here the word introducing the region exactly fills the line.
+        # Rows resuming there would each start past the edge, so they fall
+        # back to the region's overflow indent instead.
+        cells = _word(2) + self._rows([1, 1])
+        lines = self._render(cells, width=4, indent=2).split("\n")
+        assert lines == [
+            self._BLANK * 2 + self._DOT1 * 2,        # indent + the word
+            self._BLANK * 2 + self._DOT1,            # row 1 → hang indent
+            self._BLANK * 2 + self._DOT1,            # row 2 → same column
+        ]
+
 
 class TestParagraphIndent:
     def test_default_indent_is_two_cells(self):

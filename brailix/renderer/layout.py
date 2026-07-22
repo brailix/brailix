@@ -718,7 +718,18 @@ class LayoutRenderer:
                     if len(cur) > cur_indent:
                         flush_line(with_hyphen=False)
                 commit_word()
-                hang_cols.append(len(cur))
+                # The recorded column comes from content, not from a
+                # configured indent, so it can sit at (or past) the right
+                # edge — a stem word that exactly fills the line, or a page
+                # narrow enough that the introducing operator alone reaches
+                # the margin. Resuming rows there would push every one of
+                # them over the width. No row can line up in a column that
+                # holds nothing, so fall back to the indent the region's
+                # overflow continuations already use.
+                row_col = len(cur)
+                if row_col >= opts.line_width:
+                    row_col = min(opts.hang_region_indent, opts.line_width - 1)
+                hang_cols.append(row_col)
                 continue
             if cell.role == "hang_close":
                 # Commit the table's last word while still inside the
