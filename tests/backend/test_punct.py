@@ -99,6 +99,25 @@ class TestPunct:
         assert cells[0].dots == (2,)
         assert cells[1].is_blank
 
+    def test_chinese_semicolon_is_dots_56(self, ctx, profile):
+        # Chinese ； is ⠰ (c_56) with a trailing blank. ⠆ (c_23) is the
+        # ASCII semicolon (and the open-fraction sign) — a different mark,
+        # not another spelling of this one. ⠰ is the same head ！ (⠰⠂)
+        # carries.
+        cells = translate_punct(Punct(surface="；"), ctx, profile)
+        assert len(cells) == 2
+        assert cells[0].dots == (5, 6)
+        assert cells[0].role == "punct"
+        assert cells[1].is_blank
+
+    def test_english_semicolon_stays_dots_23(self, ctx, profile):
+        # The Chinese ； fix must not touch ASCII ``;``: still ⠆ (c_23)
+        # with a trailing blank.
+        cells = translate_punct(Punct(surface=";"), ctx, profile)
+        assert len(cells) == 2
+        assert cells[0].dots == (2, 3)
+        assert cells[1].is_blank
+
     def test_single_em_dash_is_english_dash_one_cell(self, ctx, profile):
         # A single 「—」 = English dash = single cell ⠤ (36), no space on
         # either side. The Chinese dash is two consecutive 「——」 (merged by

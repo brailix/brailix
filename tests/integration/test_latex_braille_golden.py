@@ -373,6 +373,39 @@ class TestMatrices:
             "⠣⠰⠁⠀⠰⠃⠀⠰⠉⠜\n⠣⠰⠙⠀⠰⠑⠀⠰⠋⠜\n⠣⠰⠛⠀⠰⠓⠀⠰⠊⠜"
         )
 
+    def test_matrix_opens_its_own_line_under_layout(self, pipe):
+        # §17 规则1 needs every row's opening delimiter in ONE column, so
+        # a multi-row matrix starts a line of its own and takes the ``=``
+        # that introduces it down with it (the break falls on the blank
+        # before ``=``, where no line-end marker is due). Row 2 then
+        # resumes in row 1's column — one cell in, past that ``=``.
+        from brailix.renderer.layout import LayoutOptions, LayoutRenderer
+
+        result = pipe.translate_text(
+            r"$A = \begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix}$"
+        )
+        laid = LayoutRenderer(
+            options=LayoutOptions(line_width=40, paragraph_indent=0)
+        )
+        assert laid.render(result.braille_ir).split("\n") == [
+            "⠠⠁",
+            "⠶⠣⠼⠁⠀⠼⠃⠜",
+            "⠀⠣⠼⠉⠀⠼⠙⠜",
+        ]
+
+    def test_single_row_matrix_stays_in_the_text_flow(self, pipe):
+        # One row has nothing to line up: it reads as an ordinary
+        # bracketed expression and keeps ``A =`` on its own line.
+        from brailix.renderer.layout import LayoutOptions, LayoutRenderer
+
+        result = pipe.translate_text(
+            r"$A = \begin{pmatrix} 1 & 2 \end{pmatrix}$"
+        )
+        laid = LayoutRenderer(
+            options=LayoutOptions(line_width=40, paragraph_indent=0)
+        )
+        assert laid.render(result.braille_ir) == "⠠⠁⠀⠶⠣⠼⠁⠀⠼⠃⠜"
+
     def test_rows_are_not_merged_structurally(self, pipe):
         # The specific anti-"squish" invariant, independent of cell
         # encoding: each row contributes one open + one close fence plus

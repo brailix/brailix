@@ -58,6 +58,14 @@ If a single atom itself is wider than the line we still mid-atom break
 as a last resort (silently — the user would already see the runaway
 output and can restructure the source).
 
+A multi-row matrix / determinant / equation system (the math backend
+brackets each one in ``hang_open`` … ``hang_close`` and separates its
+rows with ``line_break``) opens a line of its own, taking the operator
+that introduces it — the ``=`` of ``A = <matrix>`` — down with it, and
+every row after the first resumes at the column the first row's opening
+delimiter sits in.  So the row delimiters stack in one column instead of
+the first row trailing a long stem while the rest start at the margin.
+
 Pagination: if ``page_height`` is set, the rendered lines are split into
 pages of ``page_height`` lines, joined by a form feed character; blank-
 line separators count toward that budget. ``None`` (default) means single
@@ -161,9 +169,9 @@ class LayoutOptions:
     # a ``hang_open`` … ``hang_close`` region (the math backend brackets
     # every matrix / determinant / equation system in those sentinels).
     # A table row that doesn't fit on one
-    # line continues on the next indented by two cells. Forced row
-    # breaks (``line_break`` cells) still start at the block's own
-    # indent — only overflow continuations hang.
+    # line continues on the next indented by two cells.  Forced row
+    # breaks (``line_break`` cells) are NOT overflow: each row resumes at
+    # the column its region started at, so the row delimiters stack up.
     hang_region_indent: int = 2
 
     # Block kinds we copy through verbatim (no wrap, no indent). Tables
@@ -486,16 +494,19 @@ class LayoutRenderer:
         lines: list[list[BrailleCell]] = []
         cur: list[BrailleCell] = [BLANK_CELL] * first_indent
         cur_indent = first_indent
-        # Depth of nested hang_open…hang_close regions (matrix /
-        # equation-system bodies). While > 0, WIDTH-overflow breaks
-        # continue at ``hang_region_indent`` instead of ``cont_indent``.
-        hang_depth = 0
+        # Column the rows of each open hang_open…hang_close region
+        # (matrix / determinant / equation-system body) start at,
+        # innermost last. A forced row break resumes at that column so
+        # every row's opening delimiter lines up under the first row's.
+        # While the stack is non-empty, WIDTH-overflow breaks continue at
+        # ``hang_region_indent`` instead of ``cont_indent``.
+        hang_cols: list[int] = []
 
         def overflow_indent() -> int | None:
             """Continuation indent for a width-overflow break — the
             hang region's indent inside one, the block default (None)
             outside."""
-            return opts.hang_region_indent if hang_depth > 0 else None
+            return opts.hang_region_indent if hang_cols else None
 
         def flush_line(
             *, with_hyphen: bool, next_indent: int | None = None
@@ -672,30 +683,60 @@ class LayoutRenderer:
                 place_atoms(list(pending_word))
                 pending_word.clear()
 
-        for cell in cells:
+        for idx, cell in enumerate(cells):
             if cell.role == "line_break":
                 # Forced in-block break (matrix / equation-system row
                 # boundary, bare ``\\``): flush whatever is pending and
                 # start a fresh line — no continuation hyphen, the break
-                # is content, not overflow, so the next row starts at
-                # the block's own indent (NOT the hang indent). Checked
-                # before ``is_blank`` (the sentinel has no dots, so it
-                # IS blank).
+                # is content, not overflow. Inside a hang region the next
+                # row resumes at the region's own start column so the row
+                # delimiters line up; outside one it starts at the
+                # block's indent (NOT the hang indent). Checked before
+                # ``is_blank`` (the sentinel has no dots, so it IS
+                # blank).
                 commit_word()
-                flush_line(with_hyphen=False)
+                flush_line(
+                    with_hyphen=False,
+                    next_indent=hang_cols[-1] if hang_cols else None,
+                )
                 continue
             if cell.role == "hang_open":
                 # Width-overflow continuations hang from here on
                 # (matrix / equation-system body). Zero-width — commit
                 # the preceding word at the old depth, print nothing.
+                if not hang_cols and _region_is_multiline(cells, idx):
+                    # A multi-row matrix / determinant / equation system
+                    # opens its own line. Its rows only line up if the
+                    # first one starts where the rest can follow, and the
+                    # tail of a long stem leaves no such column. The
+                    # operator still pending (the ``=`` ahead of the
+                    # matrix) moves down with it: the break then falls on
+                    # the blank BEFORE that operator — a break point that
+                    # needs no line-end marker — and the first row's
+                    # delimiter still opens the column the later rows
+                    # align to.
+                    if len(cur) > cur_indent:
+                        flush_line(with_hyphen=False)
                 commit_word()
-                hang_depth += 1
+                # The recorded column comes from content, not from a
+                # configured indent, so it can sit at (or past) the right
+                # edge — a stem word that exactly fills the line, or a page
+                # narrow enough that the introducing operator alone reaches
+                # the margin. Resuming rows there would push every one of
+                # them over the width. No row can line up in a column that
+                # holds nothing, so fall back to the indent the region's
+                # overflow continuations already use.
+                row_col = len(cur)
+                if row_col >= opts.line_width:
+                    row_col = min(opts.hang_region_indent, opts.line_width - 1)
+                hang_cols.append(row_col)
                 continue
             if cell.role == "hang_close":
                 # Commit the table's last word while still inside the
                 # region (its overflow continuation must hang too).
                 commit_word()
-                hang_depth = max(0, hang_depth - 1)
+                if hang_cols:
+                    hang_cols.pop()
                 continue
             if cell.is_blank:
                 commit_word()
@@ -814,6 +855,35 @@ class LayoutRenderer:
                 )
             pages.append("\n".join(page_lines))
         return "\f".join(pages)
+
+
+def _region_is_multiline(cells: list[BrailleCell], open_idx: int) -> bool:
+    """Does the hang region opened at ``open_idx`` span more than one
+    display line — i.e. does it hold a forced row break before its
+    matching ``hang_close``?
+
+    A one-row matrix has nothing to align and reads as an ordinary
+    bracketed expression, so it stays in the text flow; a multi-row one
+    claims its own line (see the ``hang_open`` branch of
+    :meth:`LayoutRenderer._wrap_block_cells`).  A break inside a NESTED
+    region counts too: it still puts the outer region's rows on
+    different lines.  An unclosed region (malformed cell stream) counts
+    every break to its end.
+    """
+    depth = 0
+    # Indexed, not sliced: a block with many matrices would otherwise
+    # copy its tail once per region.
+    for i in range(open_idx + 1, len(cells)):
+        role = cells[i].role
+        if role == "line_break":
+            return True
+        if role == "hang_open":
+            depth += 1
+        elif role == "hang_close":
+            if depth == 0:
+                return False
+            depth -= 1
+    return False
 
 
 def _trim_leading_blank_lines[LineT: (str, bytes)](

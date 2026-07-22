@@ -10,7 +10,7 @@
     "！": {"cells": ["c_56", "c_2"]},
     "？": {"cells": ["c_5", "c_3"]},
     "：": {"cells": ["c_25"],                "space_after": true},
-    "；": {"cells": ["c_23"],                "space_after": true},
+    "；": {"cells": ["c_56"],                "space_after": true},
     "、": {"cells": ["c_4"],                 "space_after": true},
     "·":  {"cells": ["c_3"],                 "space_after": true},
     "—": "c_36",
