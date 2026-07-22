@@ -155,8 +155,9 @@ class TestHangRegion:
     determinant / equation system in these zero-width sentinels. WIDTH
     overflow inside the region continues with ``hang_region_indent``
     (a row too wide to fit continues two cells in on the next line);
-    FORCED row breaks and anything outside the region keep the block's
-    own indent."""
+    anything outside the region keeps the block's own indent. FORCED row
+    breaks resume in the region's own column — see
+    :class:`TestMatrixRowAlignment`."""
 
     @staticmethod
     def _render(cells, width=10):
@@ -178,8 +179,9 @@ class TestHangRegion:
         assert second == dots_to_char(()) * 2 + dots_to_char((1,)) * 8
 
     def test_forced_row_break_inside_region_does_not_hang(self):
-        # Row boundary (LINE_BREAK_CELL) starts the next ROW at the
-        # block indent — only overflow continuations hang.
+        # Row boundary (LINE_BREAK_CELL) starts the next ROW in the
+        # region's own column — here the margin, since the region opens
+        # the block — never at the overflow hanging indent.
         cells = (
             [HANG_OPEN_CELL]
             + _word(3) + [LINE_BREAK_CELL] + _word(3)
@@ -232,6 +234,92 @@ class TestHangRegion:
         cells = [HANG_OPEN_CELL] + _word(3) + [HANG_CLOSE_CELL]
         out = self._render(cells)
         assert out == dots_to_char((1,)) * 3
+
+
+class TestMatrixRowAlignment:
+    """Chinese math braille (§17 规则1) gives every row of a matrix /
+    determinant / equation system its own line, each opened by the row
+    delimiter — which only reads as a column if the rows all start in
+    one. So a MULTI-row hang region opens a line of its own, takes the
+    operator that introduces it (the ``=`` of ``A = <matrix>``) down with
+    it, and every row after the first resumes in the first row's column.
+    A single-row region has nothing to line up and stays in the text
+    flow."""
+
+    _BLANK = dots_to_char(())
+    _DOT1 = dots_to_char((1,))
+
+    @staticmethod
+    def _render(cells, width=20, indent=0):
+        opts = LayoutOptions(line_width=width, paragraph_indent=indent)
+        return LayoutRenderer(options=opts).render(
+            BrailleDocument(blocks=[BrailleBlock(cells=cells)])
+        )
+
+    @staticmethod
+    def _rows(row_widths):
+        """A hang region of ``len(row_widths)`` rows."""
+        cells = [HANG_OPEN_CELL]
+        for i, w in enumerate(row_widths):
+            if i:
+                cells.append(LINE_BREAK_CELL)
+            cells.extend(_word(w))
+        cells.append(HANG_CLOSE_CELL)
+        return cells
+
+    def test_multirow_region_opens_a_new_line(self):
+        # "stem ␣ = <2-row matrix>": the stem line ends at the stem.
+        cells = _word(4) + [BLANK_CELL] + _word(1) + self._rows([3, 3])
+        lines = self._render(cells).split("\n")
+        assert lines[0] == self._DOT1 * 4
+
+    def test_introducing_operator_moves_down_with_the_region(self):
+        # The ``=`` pending when the region opens goes to the head of the
+        # matrix's line, not the tail of the stem's — the break lands on
+        # the blank before it, so no line-end marker is due.
+        cells = _word(4) + [BLANK_CELL] + _word(1) + self._rows([3, 3])
+        lines = self._render(cells).split("\n")
+        assert lines[1] == self._DOT1 * 4  # "=" + row 1's 3 cells
+        assert _hyphen_char() not in "".join(lines)
+
+    def test_later_rows_resume_in_the_first_rows_column(self):
+        # Row 1 opens one cell in (past the ``=``); row 2 lines up there.
+        cells = _word(4) + [BLANK_CELL] + _word(1) + self._rows([3, 3])
+        lines = self._render(cells).split("\n")
+        assert lines[2] == self._BLANK + self._DOT1 * 3
+
+    def test_region_opening_the_block_adds_no_blank_line(self):
+        # Nothing precedes it → nothing to flush; the rows keep the
+        # block's own first-line indent as their column.
+        lines = self._render(self._rows([3, 3]), indent=2).split("\n")
+        assert lines == [
+            self._BLANK * 2 + self._DOT1 * 3,
+            self._BLANK * 2 + self._DOT1 * 3,
+        ]
+
+    def test_single_row_region_stays_in_the_text_flow(self):
+        cells = _word(4) + [BLANK_CELL] + _word(1) + self._rows([3])
+        assert "\n" not in self._render(cells)
+
+    def test_overflow_hangs_while_the_row_break_aligns(self):
+        # The two continuation kinds are distinct: a row too wide to fit
+        # continues at ``hang_region_indent`` (§17 规则1 「空两方」,
+        # measured from the margin), while the next ROW resumes in the
+        # region's column — one cell in, past the ``=``.
+        cells = (
+            _word(1)                                # the introducing "="
+            + [HANG_OPEN_CELL]
+            + _word(6) + [BLANK_CELL] + _word(6)    # row 1 — over width 10
+            + [LINE_BREAK_CELL]
+            + _word(3)                              # row 2
+            + [HANG_CLOSE_CELL]
+        )
+        lines = self._render(cells, width=10).split("\n")
+        assert lines == [
+            self._DOT1 * 7,                          # "=" + first word
+            self._BLANK * 2 + self._DOT1 * 6,        # overflow → hangs 2
+            self._BLANK + self._DOT1 * 3,            # row 2 → aligns at 1
+        ]
 
 
 class TestParagraphIndent:
