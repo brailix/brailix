@@ -37,8 +37,8 @@
         },
         {
           "src": "你；我",
-          "expected": "⠝⠊⠄⠆⠀⠕⠄",
-          "note": "semicolon between Chinese chars"
+          "expected": "⠝⠊⠄⠰⠀⠕⠄",
+          "note": "Chinese semicolon ⠰ (56) — the ASCII ; is the ⠆ (23) one"
         },
         {
           "src": "你好。世界。",
