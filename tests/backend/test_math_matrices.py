@@ -186,6 +186,100 @@ class TestMatrix:
         assert "math_fraction_close" not in r
 
 
+class TestMatrixOperatorMark:
+    """Row elements are blank-separated, so an operator's ordinary
+    space_before inside a matrix / determinant CELL would be taken for the
+    element separator — a polynomial cell ``a+b`` would read as ``a`` and
+    ``+b``. Inside a cell the operator's leading blank becomes the matrix
+    operator mark ⠐ (5, structures.matrix.op_prefix) instead, binding the
+    term; the real column separator stays a blank. Equation systems keep
+    ordinary spacing (each equation owns its braille line)."""
+
+    @staticmethod
+    def _mtable(rows, o, c):
+        body = "".join(
+            "<mtr>" + "".join(f"<mtd>{e}</mtd>" for e in r) + "</mtr>"
+            for r in rows
+        )
+        return f"<math><mo>{o}</mo><mtable>{body}</mtable><mo>{c}</mo></math>"
+
+    _PLUS = (2, 3, 5)
+    _MARK = (5,)
+
+    def test_operator_in_cell_gets_op_mark_not_blank(self, profile):
+        cells, _ = emit(
+            mml(self._mtable(
+                [["<mi>a</mi><mo>+</mo><mi>b</mi>", "<mi>c</mi>"]], "(", ")")),
+            profile,
+        )
+        dots = [tuple(c.dots) for c in cells]
+        plus_idx = dots.index(self._PLUS)
+        # The cell immediately before the + is the ⠐ mark, not a blank.
+        assert cells[plus_idx - 1].dots == self._MARK
+        assert not cells[plus_idx - 1].is_blank
+
+    def test_only_the_column_separator_stays_a_blank(self, profile):
+        # [[a+b, c]] — the + no longer contributes a blank, so the one
+        # remaining space cell is the column separator between the cells.
+        cells, _ = emit(
+            mml(self._mtable(
+                [["<mi>a</mi><mo>+</mo><mi>b</mi>", "<mi>c</mi>"]], "(", ")")),
+            profile,
+        )
+        assert sum(1 for c in cells if c.role == "space") == 1
+
+    def test_determinant_and_times_also_marked(self, profile):
+        # Determinant cell with × — × has space_before too, so it binds
+        # with the ⠐ mark like +.
+        cells, _ = emit(
+            mml(self._mtable(
+                [["<mi>a</mi><mo>×</mo><mi>b</mi>"]], "|", "|")),
+            profile,
+        )
+        times = (2, 3, 6)
+        dots = [tuple(c.dots) for c in cells]
+        assert cells[dots.index(times) - 1].dots == self._MARK
+
+    def test_nested_matrix_restores_outer_mark(self, profile):
+        # An inner matrix cell must not leave the flag off for the rest of
+        # the outer row: both the outer + and the inner + get the mark.
+        inner = "<mo>(</mo><mtable><mtr><mtd><mi>x</mi><mo>+</mo><mi>y</mi>" \
+            "</mtd></mtr></mtable><mo>)</mo>"
+        cells, _ = emit(
+            mml(self._mtable(
+                [["<mi>a</mi><mo>+</mo><mi>b</mi>", inner]], "(", ")")),
+            profile,
+        )
+        marks = [
+            i for i, c in enumerate(cells)
+            if c.dots == self._MARK and c.role == "math_op"
+        ]
+        assert len(marks) == 2  # outer a+b and inner x+y
+
+    def test_cases_keeps_ordinary_spacing(self, profile):
+        # Equation system: the operator keeps its space_before blank — the
+        # ⠐ mark is a matrix-cell thing only, never emitted here.
+        body = (
+            "<math><mo>{</mo><mtable>"
+            "<mtr><mtd><mi>x</mi><mo>+</mo><mi>y</mi></mtd></mtr>"
+            "<mtr><mtd><mi>z</mi></mtd></mtr>"
+            "</mtable></math>"
+        )
+        cells, _ = emit(mml(body), profile)
+        dots = [tuple(c.dots) for c in cells]
+        plus_idx = dots.index(self._PLUS)
+        assert cells[plus_idx - 1].is_blank
+        assert self._MARK not in dots
+
+    def test_plain_operator_outside_matrix_unaffected(self, profile):
+        cells, _ = emit(
+            mml("<math><mi>a</mi><mo>+</mo><mi>b</mi></math>"), profile
+        )
+        dots = [tuple(c.dots) for c in cells]
+        assert cells[dots.index(self._PLUS) - 1].is_blank
+        assert self._MARK not in dots
+
+
 class TestEquationSystem:
     """``{``-fenced <mtable> with no closing fence — \\begin{cases} /
     \\left\\{…\\right. equation systems. The print brace spans the whole

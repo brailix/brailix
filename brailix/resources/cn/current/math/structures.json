@@ -3,7 +3,7 @@
   "name": "cn_current_math_structures",
   "cell": "six_dot",
   "reference": "Chinese Braille (《中国盲文》)",
-  "_note": "Structural markers, nested by topic: fraction.{open,bar,close} / script.{sup,sub,close,big_op_prefix} / sqrt.{...} / letter_prefix.{...} / font.{bold} / indicator.{symbol,operation,negation} / cases.{first,middle,last}. indicator.* are the math-symbol category markers the BACKEND prefixes onto a symbol/function (declared per entry, never baked into cells): ⠫ symbol (function names + quantifiers ∀∃∇ + shapes), ⠰ operation (set/logic ∪∩∧∨∖), ⠈ negation (≠≯≮ … = c_4 + the negated base). font.bold (⠻ 12456) is the upright-bold font sign the backend emits between a letter's case/class prefix and its bare cell for an upright-bold letter (a Mathematical Bold code point like 𝐆, or mathvariant=\"bold\") — e.g. a bold group letter G → ⠠⠻ + G. cases.* are the segments of the multi-line equation-system brace, prefixed per row: ⠎ first row, ⠇ each middle row, ⠣ last row, each followed by one blank cell (marks, not brackets), no row-end marker.",
+  "_note": "Structural markers, nested by topic: fraction.{open,bar,close} / script.{sup,sub,close,big_op_prefix} / sqrt.{...} / letter_prefix.{...} / font.{bold} / indicator.{symbol,operation,negation} / cases.{first,middle,last}. indicator.* are the math-symbol category markers the BACKEND prefixes onto a symbol/function (declared per entry, never baked into cells): ⠫ symbol (function names + quantifiers ∀∃∇ + shapes), ⠰ operation (set/logic ∪∩∧∨∖), ⠈ negation (≠≯≮ … = c_4 + the negated base). font.bold (⠻ 12456) is the upright-bold font sign the backend emits between a letter's case/class prefix and its bare cell for an upright-bold letter (a Mathematical Bold code point like 𝐆, or mathvariant=\"bold\") — e.g. a bold group letter G → ⠠⠻ + G. cases.* are the segments of the multi-line equation-system brace, prefixed per row: ⠎ first row, ⠇ each middle row, ⠣ last row, each followed by one blank cell (marks, not brackets), no row-end marker. matrix.op_prefix (⠐ 5) replaces an operator's space_before blank INSIDE a matrix / determinant cell so a polynomial element (a+b) binds instead of splitting into the row's blank-separated elements (a, +b); cases rows keep ordinary spacing.",
   "structures": {
     "fraction": {
       "open":  ["c_23"],
@@ -39,6 +39,9 @@
       "first":  ["c_234"],
       "middle": ["c_123"],
       "last":   ["c_126"]
+    },
+    "matrix": {
+      "op_prefix": ["c_5"]
     },
     "accent": {
       "over":  ["c_45"],
