@@ -80,6 +80,11 @@
     "U+21A0":   {"cells": ["c_456", "c_25", "c_135"], "role": "rel", "space_before": true},
     "U+2916":   {"cells": ["c_246", "c_25", "c_135"], "role": "rel", "space_before": true},
 
+    "U+22EF":   {"cells": ["c_5", "c_5", "c_5"],  "role": "op"},
+    "U+22EE":   {"cells": ["c_46"],               "role": "op"},
+    "U+22F1":   {"cells": ["c_15", "c_3"],        "role": "op"},
+    "U+22F0":   {"cells": ["c_15", "c_3"],        "role": "op"},
+
     "cup":      {"cells": ["c_356"],    "role": "op",   "space_before": true, "indicator": "operation"},
     "cap":      {"cells": ["c_256"],    "role": "op",   "space_before": true, "indicator": "operation"},
     "setminus": {"cells": ["c_36"],     "role": "op",   "indicator": "operation"},

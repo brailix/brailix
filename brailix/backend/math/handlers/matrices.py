@@ -125,6 +125,119 @@ def _emit_children_with_matrix(
         i += 1
 
 
+def _mtd_is_omitted(tcell: ET.Element) -> bool:
+    """An ``<mtd/>`` standing for an omitted (0) element — no element
+    children and no text. ``\\begin{pmatrix} a & & \\\\ … \\end{pmatrix}``
+    (blank cells for the zeros) produces these."""
+    return len(list(tcell)) == 0 and not (tcell.text or "").strip()
+
+
+def _mtable_has_omitted_cell(mtable: ET.Element) -> bool:
+    """Does any row carry an omitted (empty) ``<mtd/>``? Such a matrix /
+    determinant is written with its zeros left out, so its non-zero
+    elements must keep their COLUMN alignment (see
+    :func:`_emit_mtable_aligned`)."""
+    return any(
+        _mtd_is_omitted(td)
+        for row in mtable
+        if row.tag == "mtr"
+        for td in row
+        if td.tag == "mtd"
+    )
+
+
+def _render_mtd(mctx: MathBrailleContext, tcell: ET.Element) -> list[BrailleCell]:
+    """Render one ``<mtd>``'s content into a fresh cell buffer, isolated
+    like a matrix column entry (its own number sign, no letter run shared
+    across the column boundary). Used by the aligned path to MEASURE each
+    cell before placing it."""
+    buf: list[BrailleCell] = []
+    mctx.need_number_sign = True
+    mctx.break_letter_run()
+    _emit_children_with_matrix(buf, mctx, list(tcell))
+    return buf
+
+
+def _measure_aligned_cells(
+    mctx: MathBrailleContext, rows: list[ET.Element]
+) -> tuple[list[list[list[BrailleCell]]], list[int]]:
+    """Render every ``<mtd>`` of an omitted-zero table into its own cell
+    buffer (isolated as a column entry; ``in_matrix_cell`` so a polynomial
+    cell keeps the ⠐ operator mark) and return ``(row_buffers, col_widths)``
+    where each column's width is that of its widest element."""
+    saved_in_cell = mctx.in_matrix_cell
+    mctx.in_matrix_cell = True
+    row_bufs: list[list[list[BrailleCell]]] = [
+        [_render_mtd(mctx, td) for td in row if td.tag == "mtd"] for row in rows
+    ]
+    mctx.in_matrix_cell = saved_in_cell
+    ncols = max((len(bufs) for bufs in row_bufs), default=0)
+    col_w = [0] * ncols
+    for bufs in row_bufs:
+        for c, buf in enumerate(bufs):
+            col_w[c] = max(col_w[c], len(buf))
+    return row_bufs, col_w
+
+
+def _emit_aligned_row(
+    cells: list[BrailleCell],
+    mctx: MathBrailleContext,
+    bufs: list[list[BrailleCell]],
+    col_w: list[int],
+) -> None:
+    """Place one row's pre-measured cell buffers column-aligned: an omitted
+    cell is ``col_w`` blanks, columns are one blank apart, each written
+    column is padded to its width so the next lines up, and TRAILING
+    omitted cells are dropped (write stops after the last non-empty cell)."""
+    last = max((c for c, buf in enumerate(bufs) if buf), default=-1)
+    for c in range(last + 1):
+        if c > 0:
+            cells.append(blank_cell(mctx.span))  # column separator
+        buf = bufs[c]
+        cells.extend(buf)
+        if c < last:  # pad to the column width so the next one aligns
+            cells.extend(
+                blank_cell(mctx.span) for _ in range(col_w[c] - len(buf))
+            )
+
+
+def _emit_mtable_aligned(
+    cells: list[BrailleCell],
+    mctx: MathBrailleContext,
+    mtable: ET.Element,
+    open_char: str,
+    close_char: str,
+) -> None:
+    """Row-by-row notation for a matrix / determinant whose zeros are
+    OMITTED (empty ``<mtd/>`` cells) — a diagonal / triangular / tridiagonal
+    / arrow / block-diagonal shape, etc.
+
+    Unlike the plain path (elements blank-separated, no column alignment),
+    an omitted-zero matrix must keep every non-zero element under its
+    column so the reader can place it: a diagonal element cascades one
+    column right per row, an upper-triangular row's first non-zero lines up
+    with the same column above, and a lower-triangular row (zeros only
+    trailing) is unchanged. Column widths come from
+    :func:`_measure_aligned_cells`; each row is placed by
+    :func:`_emit_aligned_row`. If the zeros are NOT omitted the caller keeps
+    the plain path (normal translation). The staircase equation system
+    (阶梯型方程组) reuses the same two helpers from the cases path."""
+    rows = [row for row in mtable if row.tag == "mtr"]
+    row_bufs, col_w = _measure_aligned_cells(mctx, rows)
+    cells.append(hang_open_cell(mctx.span))
+    first_row = True
+    for bufs in row_bufs:
+        if not first_row:
+            cells.append(line_break_cell(mctx.span))
+        first_row = False
+        _emit_as_mo(cells, mctx, open_char)
+        mctx.need_number_sign = True
+        _emit_aligned_row(cells, mctx, bufs, col_w)
+        _emit_as_mo(cells, mctx, close_char)
+    cells.append(hang_close_cell(mctx.span))
+    mctx.need_number_sign = True
+
+
 def _emit_mtable_linear(
     cells: list[BrailleCell],
     mctx: MathBrailleContext,
@@ -142,8 +255,10 @@ def _emit_mtable_linear(
     Content before the first row / after the last row stays on those
     rows' lines (trailing operators attach to the last row).
     The delimiter cells reuse the profile's lpar/rpar/lbrack/rbrack/
-    verbar symbols. Block matrices / diagonal shorthand /
-    two-dimensional layout are deferred."""
+    verbar symbols. A matrix / determinant whose zeros are OMITTED (empty
+    ``<mtd/>`` cells) instead goes through :func:`_emit_mtable_aligned` so
+    its non-zero elements keep their column alignment. Block matrices /
+    two-dimensional layout are otherwise deferred."""
     if not any(child.tag == "mtr" for child in mtable):
         # A malformed / empty <mtable> (no rows) would otherwise emit a pair of
         # empty hanging delimiters — meaningless cells with no warning. Flag and
@@ -155,6 +270,9 @@ def _emit_mtable_linear(
             span=mctx.span,
             source="backend.math",
         )
+        return
+    if _mtable_has_omitted_cell(mtable):
+        _emit_mtable_aligned(cells, mctx, mtable, open_char, close_char)
         return
     cells.append(hang_open_cell(mctx.span))
     first_row = True
@@ -265,6 +383,14 @@ def _emit_mtable_cases(
         _emit_row_cells(cells, mctx, rows[0])
         mctx.need_number_sign = True
         return
+    # A staircase system (阶梯型方程组) — an aligned array with omitted
+    # (empty <mtd/>) leading coefficients — keeps its columns aligned, same
+    # as an omitted-zero matrix; the brace segment + blank still lead every
+    # row and, being the same width on all rows, don't disturb the columns.
+    aligned = _mtable_has_omitted_cell(mtable)
+    row_bufs, col_w = (
+        _measure_aligned_cells(mctx, rows) if aligned else ([], [])
+    )
     cells.append(cases_open_cell(mctx.span))
     _emit_cases_palette(cells, mctx)
     last = len(rows) - 1
@@ -280,7 +406,10 @@ def _emit_mtable_cases(
         _emit_structure(cells, mctx, segment, role="math_delim")
         cells.append(blank_cell(mctx.span))
         mctx.need_number_sign = True
-        _emit_row_cells(cells, mctx, row)
+        if aligned:
+            _emit_aligned_row(cells, mctx, row_bufs[idx], col_w)
+        else:
+            _emit_row_cells(cells, mctx, row)
     cells.append(cases_close_cell(mctx.span))
     mctx.need_number_sign = True
 
