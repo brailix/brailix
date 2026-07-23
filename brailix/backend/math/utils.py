@@ -440,6 +440,16 @@ def _describe_nonstandard_char(text: str) -> str:
     return nonstandard_char_hint(text) or f"unsupported character {text!r}"
 
 
+# Prose punctuation that a formula must NOT borrow even though it isn't in the
+# Fullwidth Forms block — the writer has to use the half-width math form. The
+# ellipsis … (U+2026) is the Chinese text 省略号 character; a formula uses the
+# half-width math ellipsis ⋯ (U+22EF, \cdots). Rejected here so … takes the
+# same warn-and-mark path a full-width comma does, telling the writer to
+# switch; text (via the prose backend, not this fallback) still uses …
+# normally.
+_MATH_REJECTED_PROSE_PUNCT: frozenset[str] = frozenset({"…"})  # …
+
+
 def _math_prose_punct(
     punctuation: dict[str, tuple[tuple[int, ...], ...]], text: str
 ) -> tuple[tuple[int, ...], ...] | None:
@@ -454,9 +464,10 @@ def _math_prose_punct(
     every other full-width symbol (``＝`` ``＋`` …) already takes, telling the
     writer to switch to the half-width form. Half-width punctuation and
     multi-char keys (``——``) are looked up unchanged — :func:`fold_fullwidth`
-    only matches a single full-width code point.
+    only matches a single full-width code point; the full-width ellipsis …,
+    which lives outside that block, is rejected explicitly.
     """
-    if fold_fullwidth(text) is not None:
+    if fold_fullwidth(text) is not None or text in _MATH_REJECTED_PROSE_PUNCT:
         return None
     return punctuation.get(text)
 

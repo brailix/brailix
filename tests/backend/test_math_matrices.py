@@ -9,7 +9,19 @@ from __future__ import annotations
 
 import pytest
 
+from brailix.ir.braille import BrailleBlock, BrailleDocument
+from brailix.renderer.layout import LayoutOptions, LayoutRenderer
 from tests.backend._math_common import emit, mml
+
+
+def _layout_lines(cells, width=40):
+    """Lay a backend cell stream out to display lines (Unicode braille,
+    blanks shown as the U+2800 blank pattern)."""
+    doc = BrailleDocument(blocks=[BrailleBlock(cells=cells)])
+    out = LayoutRenderer(
+        options=LayoutOptions(line_width=width, paragraph_indent=0)
+    ).render(doc)
+    return out.split("\n")
 
 
 class TestMatrix:
@@ -451,3 +463,121 @@ class TestGeometryShapes:
         assert [c.dots for c in cells] == expected_dots
         assert not any(w.code.startswith("MATH_") for w in wc)
         assert all(c.role == "math_shape" for c in cells)
+
+
+class TestEllipsisSymbols:
+    """Ellipses used in omitted-element matrices / lists: horizontal ⋯
+    (dots 5-5-5), vertical ⋮ (46), diagonal ⋱/⋰ (15-3). The HALF-WIDTH
+    math ellipsis ⋯ (U+22EF) is the valid horizontal form; the full-width
+    text ellipsis … (U+2026, the 省略号 character) is a writing error in a
+    formula, so it warns rather than being borrowed as an ellipsis."""
+
+    @pytest.mark.parametrize(
+        "ch, expected",
+        [
+            ("⋯", [(5,), (5,), (5,)]),   # ⋯ half-width horizontal (cdots)
+            ("⋮", [(4, 6)]),             # ⋮ vertical (vdots)
+            ("⋱", [(1, 5), (3,)]),       # ⋱ diagonal down (ddots)
+            ("⋰", [(1, 5), (3,)]),       # ⋰ diagonal up (iddots)
+        ],
+    )
+    def test_ellipsis_cells(self, profile, ch, expected):
+        cells, wc = emit(mml(f"<math><mo>{ch}</mo></math>"), profile)
+        assert not [w for w in wc if w.code.startswith("MATH_")]
+        assert [tuple(c.dots) for c in cells if c.dots] == expected
+
+    def test_fullwidth_ellipsis_warns_in_math(self, profile):
+        # … (U+2026) is the full-width text 省略号; in a formula it is a
+        # writing error — warn, don't silently borrow it as the math ⋯.
+        cells, wc = emit(mml("<math><mo>…</mo></math>"), profile)
+        assert any(c.role == "unknown" for c in cells)
+        assert any(w.code == "MATH_UNKNOWN_SYMBOL" for w in wc)
+
+
+class TestOmittedZeroMatrix:
+    """A matrix / determinant written with its zeros LEFT OUT (empty
+    <mtd/> cells) keeps its non-zero elements column-aligned: an omitted
+    cell is written as blanks the width of its column, elements are one
+    blank apart, and trailing omitted cells are dropped. Verified through
+    the layout so the column positions are visible."""
+
+    @staticmethod
+    def _m(grid, o="(", c=")"):
+        body = ""
+        for r in grid:
+            body += "<mtr>" + "".join(
+                f"<mtd>{e}</mtd>" if e else "<mtd/>" for e in r
+            ) + "</mtr>"
+        return f"<math><mo>{o}</mo><mtable>{body}</mtable><mo>{c}</mo></math>"
+
+    @staticmethod
+    def _mi(*names):
+        return ["" if n == "" else f"<mi>{n}</mi>" for n in names]
+
+    def test_diagonal_layout(self, profile):
+        cells, _ = emit(mml(self._m([
+            self._mi("a", "", ""),
+            self._mi("", "b", ""),
+            self._mi("", "", "c"),
+        ])), profile)
+        # ⠣ a ⠜ ; ⠣ (col0 pad+sep) b ⠜ ; ⠣ (col0,col1 pads+seps) c ⠜
+        assert _layout_lines(cells) == [
+            "⠣⠰⠁⠜",
+            "⠣⠀⠀⠀⠰⠃⠜",
+            "⠣⠀⠀⠀⠀⠀⠀⠰⠉⠜",
+        ]
+
+    def test_upper_triangular_aligns_first_nonzero_under_column(self, profile):
+        cells, _ = emit(mml(self._m([
+            self._mi("a", "b", "c"),
+            self._mi("", "d", "e"),
+            self._mi("", "", "f"),
+        ])), profile)
+        lines = _layout_lines(cells)
+        # d (row 2) starts at the same offset b (row 1) does; e under c.
+        assert lines == [
+            "⠣⠰⠁⠀⠰⠃⠀⠰⠉⠜",
+            "⠣⠀⠀⠀⠰⠙⠀⠰⠑⠜",
+            "⠣⠀⠀⠀⠀⠀⠀⠰⠋⠜",
+        ]
+
+    def test_lower_triangular_is_unchanged(self, profile):
+        cells, _ = emit(mml(self._m([
+            self._mi("a", "", ""),
+            self._mi("b", "c", ""),
+            self._mi("d", "e", "f"),
+        ])), profile)
+        assert _layout_lines(cells) == [
+            "⠣⠰⠁⠜",
+            "⠣⠰⠃⠀⠰⠉⠜",
+            "⠣⠰⠙⠀⠰⠑⠀⠰⠋⠜",
+        ]
+
+    def test_full_matrix_keeps_the_plain_path(self, profile):
+        # No omitted cells -> normal translation (no column padding).
+        cells, _ = emit(mml(self._m([
+            self._mi("a", "b"),
+            self._mi("c", "d"),
+        ])), profile)
+        assert _layout_lines(cells) == [
+            "⠣⠰⠁⠀⠰⠃⠜",
+            "⠣⠰⠉⠀⠰⠙⠜",
+        ]
+
+    def test_staircase_equation_system_aligns_columns(self, profile):
+        # 阶梯型方程组: a {-fenced aligned array with omitted leading terms.
+        # The brace segments ⠎ / ⠇ / ⠣ still lead each row, and the columns
+        # line up under them (b under b, c under c).
+        cells, _ = emit(mml(
+            "<math><mo>{</mo><mtable>"
+            "<mtr><mtd><mi>a</mi></mtd><mtd><mi>b</mi></mtd>"
+            "<mtd><mi>c</mi></mtd></mtr>"
+            "<mtr><mtd/><mtd><mi>b</mi></mtd><mtd><mi>c</mi></mtd></mtr>"
+            "<mtr><mtd/><mtd/><mtd><mi>c</mi></mtd></mtr>"
+            "</mtable></math>"
+        ), profile)
+        assert _layout_lines(cells) == [
+            "⠎⠀⠰⠁⠀⠰⠃⠀⠰⠉",
+            "⠇⠀⠀⠀⠀⠰⠃⠀⠰⠉",
+            "⠣⠀⠀⠀⠀⠀⠀⠀⠰⠉",
+        ]
