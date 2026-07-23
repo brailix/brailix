@@ -85,15 +85,24 @@ class UnicodeBrailleRenderer:
 
 
 def _cells_to_str(cells: list[BrailleCell]) -> str:
-    # line_break → newline; the zero-width hang-region sentinels (layout
-    # metadata only) print nothing.
+    # line_break → newline; the zero-width hang-region / cases-region
+    # sentinels and the cases_palette (layout metadata only — the segment
+    # placeholders already sit in the equation flow) print nothing.
     out: list[str] = []
     for c in cells:
         if c.role == "line_break":
             out.append("\n")
-        elif c.role not in ("hang_open", "hang_close"):
+        elif c.role not in _SKIP_ROLES:
             out.append(cell_to_char(c))
     return "".join(out)
+
+
+# Region sentinels + cases palette carry no linear-flow glyph — the plain
+# renderers drop them (LayoutRenderer consumes them). Shared with brf.py's
+# equivalent set.
+_SKIP_ROLES = frozenset(
+    {"hang_open", "hang_close", "cases_open", "cases_close", "cases_palette"}
+)
 
 
 def _load() -> UnicodeBrailleRenderer:

@@ -188,10 +188,15 @@ class TestMatrix:
 
 class TestEquationSystem:
     """``{``-fenced <mtable> with no closing fence — \\begin{cases} /
-    \\left\\{…\\right. equation systems. The print brace spans every row;
-    braille prefixes each row with the matching brace segment: ⠎(234)
-    first row, ⠇(123) middle rows, ⠣(126) last row. Each row is one
-    braille line (LINE_BREAK_CELL between rows); no row-end marker."""
+    \\left\\{…\\right. equation systems. The print brace spans the whole
+    system; the backend brackets it in CASES_OPEN/CLOSE, publishes the
+    three brace segments as a ``cases_palette`` (⠎ 234 first / ⠇ 123
+    middle / ⠣ 126 last), and writes each equation on its own line
+    (LINE_BREAK_CELL between rows) with the per-equation segment as a
+    ``math_delim`` PLACEHOLDER. The layout re-stamps the segments onto the
+    physical braille lines (so ⠣/126 lands on the last braille line even
+    when a row wraps) — see tests/renderer/test_layout.py::TestCasesBrace.
+    These backend tests pin the placeholder stream the layout consumes."""
 
     @staticmethod
     def _cases(rows, close: str | None = None):
@@ -231,20 +236,35 @@ class TestEquationSystem:
 
     def test_single_row_degrades_to_plain_left_brace(self, profile):
         # A one-row "system" prints as an ordinary one-line { — emit the
-        # plain left brace ⠪(246), not a brace segment; no hang region
+        # plain left brace ⠪(246), not a brace segment; no region at all
         # (nothing spans multiple lines).
         cells, _ = emit(mml(self._cases([["<mi>x</mi>"]])), profile)
         delims = [c.dots for c in cells if c.role == "math_delim"]
         assert delims == [(2, 4, 6)]
-        assert not any(c.role == "hang_open" for c in cells)
+        assert not any(c.role in ("hang_open", "cases_open") for c in cells)
 
-    def test_system_is_bracketed_in_hang_region(self, profile):
+    def test_system_is_bracketed_in_cases_region(self, profile):
         cells, _ = emit(
             mml(self._cases([["<mi>x</mi>"], ["<mi>y</mi>"]])), profile
         )
         roles = [c.role for c in cells]
-        assert roles[0] == "hang_open"
-        assert roles[-1] == "hang_close"
+        assert roles[0] == "cases_open"
+        assert roles[-1] == "cases_close"
+
+    def test_cases_open_is_followed_by_the_three_segment_palette(self, profile):
+        # Right after CASES_OPEN the backend publishes the brace segments
+        # (first / middle / last) as a cases_palette so the layout can
+        # stamp them per physical line regardless of equation count.
+        cells, _ = emit(
+            mml(self._cases([["<mi>x</mi>"], ["<mi>y</mi>"]])), profile
+        )
+        palette = [c.dots for c in cells if c.role == "cases_palette"]
+        assert palette == [(2, 3, 4), (1, 2, 3), (1, 2, 6)]
+        # The palette sits immediately after CASES_OPEN, before any content.
+        open_idx = next(i for i, c in enumerate(cells) if c.role == "cases_open")
+        assert [c.role for c in cells[open_idx + 1 : open_idx + 4]] == [
+            "cases_palette"
+        ] * 3
 
     def test_paired_braces_are_not_an_equation_system(self, profile):
         # {…} with a REAL closing brace is not a cases form — the brace

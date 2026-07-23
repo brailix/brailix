@@ -126,6 +126,22 @@ LINE_BREAK_CELL = BrailleCell(dots=(), role="line_break")
 HANG_OPEN_CELL = BrailleCell(dots=(), role="hang_open")
 HANG_CLOSE_CELL = BrailleCell(dots=(), role="hang_close")
 
+# Zero-width sentinels bracketing an EQUATION-SYSTEM (``\begin{cases}``)
+# region. Like the hang sentinels they mark a hanging-indent region (rows
+# on their own lines, width overflow continuing two cells past the row
+# start), but they additionally tell the layout to draw the multi-line
+# brace segment-by-segment across the PHYSICAL braille lines the system
+# spans: the ⠎ (234) top segment on the first line, ⠣ (126) bottom on the
+# last, ⠇ (123) on every line between — so a row that wraps carries a
+# middle segment on its continuation and the bottom segment always lands
+# on the last braille line (not merely the last equation). Immediately
+# after CASES_OPEN the backend emits three ``cases_palette`` cells — the
+# first / middle / last brace segments — which the layout captures (and
+# the plain renderers skip) so it can stamp the right segment on each
+# physical line regardless of how many equations the region holds.
+CASES_OPEN_CELL = BrailleCell(dots=(), role="cases_open")
+CASES_CLOSE_CELL = BrailleCell(dots=(), role="cases_close")
+
 
 # --- Span-carrying factories for the control / spacing cells ----------------
 #
@@ -166,6 +182,33 @@ def hang_close_cell(source_span: Span | None) -> BrailleCell:
     counterpart of :data:`HANG_CLOSE_CELL`."""
     return BrailleCell(
         dots=(), role="hang_close", source_span=source_span, source_text=""
+    )
+
+
+def cases_open_cell(source_span: Span | None) -> BrailleCell:
+    """An equation-system-open cell carrying ``source_span`` — the
+    traceable counterpart of :data:`CASES_OPEN_CELL`."""
+    return BrailleCell(
+        dots=(), role="cases_open", source_span=source_span, source_text=""
+    )
+
+
+def cases_close_cell(source_span: Span | None) -> BrailleCell:
+    """An equation-system-close cell carrying ``source_span`` — the
+    traceable counterpart of :data:`CASES_CLOSE_CELL`."""
+    return BrailleCell(
+        dots=(), role="cases_close", source_span=source_span, source_text=""
+    )
+
+
+def cases_palette_cell(dots: tuple[int, ...], source_span: Span | None) -> BrailleCell:
+    """One brace-segment cell of an equation system's ``cases_palette`` —
+    emitted (first, middle, last) right after :func:`cases_open_cell` so
+    the layout can stamp the right segment on each physical braille line.
+    Carries the segment's own dots but is skipped by the plain renderers
+    (it is layout metadata, not part of the linear cell flow)."""
+    return BrailleCell(
+        dots=dots, role="cases_palette", source_span=source_span, source_text=""
     )
 
 

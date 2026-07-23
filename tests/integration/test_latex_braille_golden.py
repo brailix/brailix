@@ -491,11 +491,16 @@ class TestEquationSystems:
         out = render(pipe, r"$a \\ b$")
         assert out == "⠰⠁\n⠰⠃"
 
-    def test_overwide_row_hangs_two_cells_under_layout(self, pipe):
-        # §17 规则1: a row that doesn't fit the line continues on the
-        # next, indented two cells. The third equation of the
-        # motivating system overflows 40 cells; rows 1-2 keep their own
-        # lines at the margin.
+    def test_overwide_row_wraps_with_brace_segment_per_line(self, pipe):
+        # §17 规则1 + the equation-system brace mapped onto PHYSICAL lines:
+        # the third equation of the motivating system overflows 40 cells
+        # and wraps, so it spans two braille lines. The brace segment is
+        # stamped per physical line — top ⠎, then ⠇ on every line between,
+        # and the bottom ⠣ (c_126) on the LAST braille line — so the third
+        # equation's head is a middle line (⠇) and its wrapped tail carries
+        # the bottom segment. Each line reads segment + blank + body, so the
+        # continuation's body sits two cells past the brace, aligned with
+        # the rows above.
         from brailix.renderer.layout import LayoutOptions, LayoutRenderer
 
         result = pipe.translate_text(
@@ -507,8 +512,11 @@ class TestEquationSystems:
             options=LayoutOptions(line_width=40, paragraph_indent=0)
         )
         lines = laid.render(result.braille_ir).split("\n")
-        assert [line[0] for line in lines[:3]] == ["⠎", "⠇", "⠣"]
-        assert lines[3] == "⠀⠀⠶⠰⠁⠣⠼⠁⠀⠖⠰⠁⠜"
+        assert [line[0] for line in lines[:3]] == ["⠎", "⠇", "⠇"]
+        # The bottom brace segment (c_126) lands on the last braille line…
+        assert lines[3][0] == "⠣"
+        # …followed by the mark's blank, then the wrapped tail of eq 3.
+        assert lines[3] == "⠣⠀⠶⠰⠁⠣⠼⠁⠀⠖⠰⠁⠜"
 
 
 class TestVectors:

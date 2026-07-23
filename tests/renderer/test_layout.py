@@ -9,6 +9,8 @@ glyph output — that's covered by golden tests downstream."""
 from brailix.core.span import Span
 from brailix.ir.braille import (
     BLANK_CELL,
+    CASES_CLOSE_CELL,
+    CASES_OPEN_CELL,
     HANG_CLOSE_CELL,
     HANG_OPEN_CELL,
     LINE_BREAK_CELL,
@@ -303,9 +305,11 @@ class TestMatrixRowAlignment:
 
     def test_overflow_hangs_while_the_row_break_aligns(self):
         # The two continuation kinds are distinct: a row too wide to fit
-        # continues at ``hang_region_indent`` (§17 规则1 「空两方」,
-        # measured from the margin), while the next ROW resumes in the
-        # region's column — one cell in, past the ``=``.
+        # continues «空两方» (§17 规则1) measured from the ROW's own start
+        # column (the delimiter column, one cell in past the ``=``), while
+        # the next ROW resumes at that same start column. So the overflow
+        # tail sits two cells past where its row began — never left of the
+        # delimiter when a stem has pushed the region rightward.
         cells = (
             _word(1)                                # the introducing "="
             + [HANG_OPEN_CELL]
@@ -317,21 +321,114 @@ class TestMatrixRowAlignment:
         lines = self._render(cells, width=10).split("\n")
         assert lines == [
             self._DOT1 * 7,                          # "=" + first word
-            self._BLANK * 2 + self._DOT1 * 6,        # overflow → hangs 2
+            self._BLANK * 3 + self._DOT1 * 6,        # overflow → row start(1)+2
             self._BLANK + self._DOT1 * 3,            # row 2 → aligns at 1
         ]
 
     def test_a_column_at_the_right_edge_falls_back_to_the_hang_indent(self):
         # The column is read off the content, so it can land ON the margin
-        # — here the word introducing the region exactly fills the line.
-        # Rows resuming there would each start past the edge, so they fall
-        # back to the region's overflow indent instead.
+        # — here the word introducing the region exactly fills the line, so
+        # the region column falls back to ``hang_region_indent`` (2). Row 2
+        # resumes at that fallback column; row 1's cell — bumped off the
+        # full stem line — hangs «空两方» from the fallback column (2 + 2,
+        # clamped one below the width).
         cells = _word(2) + self._rows([1, 1])
         lines = self._render(cells, width=4, indent=2).split("\n")
         assert lines == [
             self._BLANK * 2 + self._DOT1 * 2,        # indent + the word
-            self._BLANK * 2 + self._DOT1,            # row 1 → hang indent
-            self._BLANK * 2 + self._DOT1,            # row 2 → same column
+            self._BLANK * 3 + self._DOT1,            # row 1 tail → fallback+2
+            self._BLANK * 2 + self._DOT1,            # row 2 → fallback column
+        ]
+
+
+class TestCasesBrace:
+    """cases_open … cases_close — the equation-system brace. The backend
+    supplies the three brace segments as a ``cases_palette`` right after
+    cases_open and writes each equation with a placeholder segment; the
+    layout re-stamps the segment onto every PHYSICAL braille line the
+    system spans (top ⠎ 234 / middle ⠇ 123 / bottom ⠣ 126), so the bottom
+    segment lands on the last braille line even when an equation wraps."""
+
+    _FIRST = (2, 3, 4)
+    _MIDDLE = (1, 2, 3)
+    _LAST = (1, 2, 6)
+
+    @classmethod
+    def _cells(cls, bodies):
+        """A cases region: ``bodies`` is a list of per-equation body cell
+        lists. Mirrors the backend stream — cases_open, the 3-segment
+        palette, then each equation as ``[placeholder, blank, *body]`` with
+        LINE_BREAK between, then cases_close."""
+        palette = (cls._FIRST, cls._MIDDLE, cls._LAST)
+        cells = [CASES_OPEN_CELL]
+        cells += [BrailleCell(dots=d, role="cases_palette") for d in palette]
+        last = len(bodies) - 1
+        for i, body in enumerate(bodies):
+            if i:
+                cells.append(LINE_BREAK_CELL)
+            placeholder = (
+                cls._FIRST if i == 0 else cls._LAST if i == last else cls._MIDDLE
+            )
+            cells.append(BrailleCell(dots=placeholder, role="math_delim"))
+            cells.append(BLANK_CELL)
+            cells += body
+        cells.append(CASES_CLOSE_CELL)
+        return cells
+
+    @staticmethod
+    def _render(cells, width=20, indent=0):
+        opts = LayoutOptions(line_width=width, paragraph_indent=indent)
+        return LayoutRenderer(options=opts).render(
+            BrailleDocument(blocks=[BrailleBlock(cells=cells)])
+        )
+
+    def _lead_dots(self, cells, width=20, indent=0):
+        """The first cell's dots on each physical line — the stamped
+        brace segment."""
+        doc = BrailleDocument(blocks=[BrailleBlock(cells=cells)])
+        opts = LayoutOptions(line_width=width, paragraph_indent=indent)
+        lines = LayoutRenderer(options=opts).lay_out_block(doc.blocks[0])
+        return [tuple(line[0].dots) for line in lines]
+
+    def test_three_short_rows_one_segment_each(self):
+        # Non-wrapping: one physical line per equation → ⠎ / ⠇ / ⠣.
+        cells = self._cells([_word(1), _word(1), _word(1)])
+        assert self._lead_dots(cells) == [self._FIRST, self._MIDDLE, self._LAST]
+
+    def test_bottom_segment_lands_on_the_last_braille_line(self):
+        # The last equation wraps to two braille lines: its head becomes a
+        # MIDDLE line (⠇) and the bottom segment ⠣ (c_126) moves to the
+        # continuation — the physically last line — not the equation head.
+        wide = _word(6) + [BLANK_CELL] + _word(6)   # over width 10
+        cells = self._cells([_word(1), wide])
+        assert self._lead_dots(cells, width=10) == [
+            self._FIRST,     # equation 1
+            self._MIDDLE,    # equation 2 head → now a middle line
+            self._LAST,      # equation 2 continuation → last braille line
+        ]
+
+    def test_continuation_carries_segment_then_body_two_cells_in(self):
+        # Every physical line reads segment + blank + body, so a wrapped
+        # continuation aligns its body two cells past the brace (like the
+        # equation heads), not as a bare hanging indent.
+        wide = _word(6) + [BLANK_CELL] + _word(6)
+        out = self._render(self._cells([_word(1), wide]), width=10)
+        cont = out.split("\n")[-1]
+        blank = dots_to_char(())
+        assert cont[0] == dots_to_char(self._LAST)   # ⠣ segment
+        assert cont[1] == blank                       # the mark's blank
+        assert cont[2] != blank                       # body starts at col 2
+
+    def test_middle_rows_keep_middle_segment_when_wrapping(self):
+        # A middle equation that wraps keeps ⠇ on both its lines; the
+        # bottom segment stays on the final equation's line.
+        wide = _word(6) + [BLANK_CELL] + _word(6)
+        cells = self._cells([_word(1), wide, _word(1)])
+        assert self._lead_dots(cells, width=10) == [
+            self._FIRST,     # eq 1
+            self._MIDDLE,    # eq 2 head
+            self._MIDDLE,    # eq 2 continuation
+            self._LAST,      # eq 3
         ]
 
 

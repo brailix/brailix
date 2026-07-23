@@ -114,15 +114,24 @@ class BrfRenderer:
     def _cells_to_bytes(self, cells: list[BrailleCell]) -> bytes:
         # A forced in-block line break (LINE_BREAK_CELL — matrix /
         # equation-system rows) emits the line terminator, same as a
-        # block boundary; the zero-width hang-region sentinels (layout
-        # metadata only) emit nothing.
+        # block boundary; the zero-width hang-region / cases-region
+        # sentinels and the cases_palette (layout metadata only) emit
+        # nothing.
         out = bytearray()
         for c in cells:
             if c.role == "line_break":
                 out += self.line_terminator
-            elif c.role not in ("hang_open", "hang_close"):
+            elif c.role not in _SKIP_ROLES:
                 out += cell_to_brf(c).encode("ascii")
         return bytes(out)
+
+
+# Region sentinels + cases palette carry no linear-flow glyph — the plain
+# renderers drop them (LayoutRenderer consumes them). Mirrors
+# unicode_braille._SKIP_ROLES.
+_SKIP_ROLES = frozenset(
+    {"hang_open", "hang_close", "cases_open", "cases_close", "cases_palette"}
+)
 
 
 def _load() -> BrfRenderer:
