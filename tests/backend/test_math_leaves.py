@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
+import pytest
+
 from tests.backend._math_common import emit, mml, roles
 
 # ---------------------------------------------------------------------------
@@ -259,9 +261,10 @@ class TestMo:
         assert last_two == [("math_punct", (5,)), ("math_punct", (3, 5, 6))]
 
     def test_mo_unknown_symbol_warns(self, profile):
-        # ⊗ — not in symbols/punctuation/identifiers, should trigger
-        # MATH_UNKNOWN_SYMBOL after exhausting the fallback chain.
-        cells, wc = emit(mml("<math><mo>⊗</mo></math>"), profile)
+        # ⊛ (circled asterisk) — not in symbols/punctuation/identifiers,
+        # should trigger MATH_UNKNOWN_SYMBOL after exhausting the fallback
+        # chain. (⊗ used to serve here but is now 直积 / direct product.)
+        cells, wc = emit(mml("<math><mo>⊛</mo></math>"), profile)
         assert any(c.role == "unknown" for c in cells)
         assert any(w.code == "MATH_UNKNOWN_SYMBOL" for w in wc)
 
@@ -620,3 +623,66 @@ class TestProfileLookups:
     def test_math_function_big_op_sin(self, profile):
         # sin isn't a big-op.
         assert profile.math_function_big_op("sin") is False
+
+
+class TestGroupTheorySymbols:
+    """Abstract-algebra (group-theory) symbols: subgroup / normal
+    subgroup, isomorphism, equivalence, the injective / surjective
+    homomorphism arrows, direct sum / product, and the named operators
+    Im / Ker. Each maps to the print code point the source input carries.
+    ⊕/⊗ take the operation indicator ⠰ (c_56) from the backend; ≄
+    (not-equivalent) takes the negation indicator ⠈ (c_4); Im/Ker are
+    ⠫-led named operators. Blank cells (the symbols' space_before /
+    space_after in isolation) are filtered so the assertion pins the
+    symbol's own cells."""
+
+    @pytest.mark.parametrize(
+        "ch, expected",
+        [
+            ("⩽", [(6,), (2, 4, 6)]),                    # 子群
+            ("⊲", [(2, 4, 6), (1, 2, 3)]),               # 正规子群
+            ("⊴", [(2, 4, 6), (1, 2, 3)]),               # 正规子群 (or-equal)
+            ("≌", [(2, 6), (2, 3, 5, 6)]),               # 同构
+            ("≆", [(2, 6), (2, 3, 4, 5, 6)]),            # 不同构
+            ("≃", [(2, 6)]),                             # 等价
+            ("≄", [(4,), (2, 6)]),                       # 不等价 (⠈ negation)
+            ("↪", [(6,), (2, 5), (1, 3, 5)]),            # 单同态
+            ("↣", [(6,), (2, 5), (1, 3, 5)]),            # 单同态 (variant)
+            ("↠", [(4, 5, 6), (2, 5), (1, 3, 5)]),       # 满同态
+            ("⤖", [(2, 4, 6), (2, 5), (1, 3, 5)]),       # 一一映射
+            ("⊕", [(5, 6), (2, 3, 5)]),                  # 直合 (⠰ operation)
+            ("⊗", [(5, 6), (2, 3, 6)]),                  # 直积 (⠰ operation)
+            ("∕", [(6,), (1, 2, 5, 6)]),                 # 商号
+        ],
+    )
+    def test_symbol_cells(self, profile, ch, expected):
+        cells, wc = emit(mml(f"<math><mo>{ch}</mo></math>"), profile)
+        assert not [w for w in wc if w.code.startswith("MATH_")]
+        assert [tuple(c.dots) for c in cells if c.dots] == expected
+
+    @pytest.mark.parametrize(
+        "name, expected",
+        [
+            ("Im", [(1, 2, 4, 6), (2, 4), (1, 3, 4)]),      # ⠫im
+            ("Ker", [(1, 2, 4, 6), (1, 3), (1, 2, 3, 5)]),  # ⠫kr
+        ],
+    )
+    def test_named_operator_cells(self, profile, name, expected):
+        cells, wc = emit(mml(f"<math><mi>{name}</mi></math>"), profile)
+        assert not [w for w in wc if w.code.startswith("MATH_")]
+        assert [tuple(c.dots) for c in cells if c.dots] == expected
+
+    def test_direct_sum_no_surrounding_space(self, profile):
+        # 直合/直积 are 前后都不空 — no space cell before/after the operator.
+        cells, _ = emit(
+            mml("<math><mi>a</mi><mo>⊕</mo><mi>b</mi></math>"), profile
+        )
+        assert not any(c.is_blank for c in cells)
+
+    def test_subgroup_has_space_both_sides(self, profile):
+        # 子群 is 前后都空 — a space cell sits on each side in context.
+        cells, _ = emit(
+            mml("<math><mi>H</mi><mo>⩽</mo><mi>G</mi></math>"), profile
+        )
+        blanks = [i for i, c in enumerate(cells) if c.is_blank]
+        assert len(blanks) == 2
