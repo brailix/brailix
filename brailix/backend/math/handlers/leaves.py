@@ -530,7 +530,27 @@ def _emit_mo(
         and not _last_is_blank(cells)
         and not _previous_suppresses_space_before(cells)
     ):
-        cells.append(blank_cell(mctx.span))
+        if mctx.in_matrix_cell:
+            # Inside a matrix / determinant cell the leading blank would be
+            # taken for the row's element separator, so a polynomial term
+            # ``a+b`` would read as ``a`` and ``+b``. Bind it with the matrix
+            # operator mark (⠐) instead of a blank. Falls back to a blank if
+            # the profile leaves the mark undefined.
+            op_mark = profile.math_structure("matrix.op_prefix")
+            if op_mark:
+                cells.extend(
+                    BrailleCell(
+                        dots=dots,
+                        role="math_op",
+                        source_span=mctx.span,
+                        source_text=text,
+                    )
+                    for dots in op_mark
+                )
+            else:
+                cells.append(blank_cell(mctx.span))
+        else:
+            cells.append(blank_cell(mctx.span))
     indicator = profile.math_symbol_indicator(text)
     if indicator is not None:
         # Category marker (⠫ symbol / ⠰ operation / ⠈ negation), emitted

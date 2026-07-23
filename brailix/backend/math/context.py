@@ -70,6 +70,17 @@ class MathBrailleContext:
     chem_per_element: bool = False
     fraction_is_function_arg: bool = False
     letter_run_class: str | None = None
+    # True while emitting a matrix / determinant CELL's content. Row
+    # elements are separated by a blank, so an operator's ordinary
+    # space_before blank inside a cell would be indistinguishable from
+    # that separator — a polynomial cell ``a+b`` would read as the two
+    # elements ``a`` and ``+b``. While this is set the operator emitter
+    # writes the matrix operator mark (⠐, ``structures.matrix.op_prefix``)
+    # in place of that leading blank, binding the term. NOT set for
+    # equation-system (cases) rows: each equation owns its own braille
+    # line, so its operator spaces are unambiguous. Saved/restored around
+    # nested matrices.
+    in_matrix_cell: bool = False
 
     def break_letter_run(self) -> None:
         """End the active baseline letter run.

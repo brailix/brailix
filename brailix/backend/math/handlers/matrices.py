@@ -166,7 +166,14 @@ def _emit_mtable_linear(
         first_row = False
         _emit_as_mo(cells, mctx, open_char)
         mctx.need_number_sign = True
+        # Row elements are blank-separated, so an operator's space_before
+        # inside a cell must bind as the matrix operator mark (⠐) instead
+        # of a blank (see MathBrailleContext.in_matrix_cell). Saved/restored
+        # so a nested matrix restores the outer flag, not a bare False.
+        saved_in_cell = mctx.in_matrix_cell
+        mctx.in_matrix_cell = True
         _emit_row_cells(cells, mctx, row)
+        mctx.in_matrix_cell = saved_in_cell
         _emit_as_mo(cells, mctx, close_char)
     cells.append(hang_close_cell(mctx.span))
     mctx.need_number_sign = True
