@@ -12,6 +12,7 @@ submodules.
 
 from __future__ import annotations
 
+import unicodedata
 import xml.etree.ElementTree as ET
 
 from brailix.backend._digits import (
@@ -79,6 +80,92 @@ def _warn_unknown_char(
     cells.append(_unknown_cell(text, mctx.span))
 
 
+_BOLD_PREFIX = "MATHEMATICAL BOLD "
+
+
+def _bold_letter_base(text: str, elem: ET.Element) -> str | None:
+    """Return the plain-letter base of an UPRIGHT-BOLD ``<mi>``, or
+    ``None`` when it isn't one.
+
+    Groups (and other bold-face symbols) reach the backend two ways: a
+    ``mathvariant="bold"`` attribute (``\\boldsymbol`` gives *bold-italic*
+    — deliberately excluded), or a Mathematical **Bold** code point
+    (``\\mathbf{G}`` → 𝐆, U+1D406), which is otherwise an unknown
+    identifier. Both fold to the base letters (𝐆 → ``G``) so the normal
+    letter path can write the case/class sign and bare cell, with the
+    bold font sign slotted between (see :func:`_emit_bold_letters`).
+
+    Only *upright bold* qualifies: a Mathematical Bold code point whose
+    name is ``MATHEMATICAL BOLD CAPITAL/SMALL <x>`` (so bold-italic,
+    fraktur, script, double-struck and sans-serif variants — distinct
+    fonts, not this sign — stay on the per-char path and are unaffected)."""
+    if elem.attrib.get("mathvariant") == "bold":
+        return text or None
+    decoded: list[str] = []
+    for ch in text:
+        name = unicodedata.name(ch, "")
+        if not name.startswith(_BOLD_PREFIX):
+            return None
+        rest = name[len(_BOLD_PREFIX) :]
+        if not (rest.startswith("CAPITAL ") or rest.startswith("SMALL ")):
+            return None
+        decoded.append(unicodedata.normalize("NFKD", ch))
+    return "".join(decoded) or None
+
+
+def _emit_bold_letters(
+    cells: list[BrailleCell], mctx: MathBrailleContext, base_text: str
+) -> None:
+    """Emit an upright-bold letter (or run) — the group-letter marker and
+    any other bold-face variable.
+
+    Each letter is written in full: its case/class prefix (capital ⠠ /
+    lowercase ⠰ / Greek …), then the bold font sign ``font.bold`` (⠻
+    12456), then the bare cell — a bold capital ``G`` → ⠠⠻ + G. Bold is
+    isolated: the run is broken on both sides so a bold letter never
+    shares a case sign with a neighbouring plain letter, and every bold
+    letter carries its own font sign. A base char with no letter class
+    (should not happen for a folded bold letter) falls back to the plain
+    per-char chain."""
+    mctx.break_letter_run()
+    profile = mctx.profile
+    font_sign = profile.math_structure("font.bold")
+    for ch in base_text:
+        cls = profile.letter_class(ch)
+        bare = profile.bare_letter(ch)
+        if cls is None or bare is None:
+            _emit_identifier_char(cells, mctx, ch)
+            continue
+        cells.extend(
+            BrailleCell(
+                dots=dots,
+                role="math_identifier",
+                source_span=mctx.span,
+                source_text=ch,
+            )
+            for dots in profile.math_structure(f"letter_prefix.{cls}")
+        )
+        cells.extend(
+            BrailleCell(
+                dots=dots,
+                role="math_font",
+                source_span=mctx.span,
+                source_text=ch,
+            )
+            for dots in font_sign
+        )
+        cells.append(
+            BrailleCell(
+                dots=bare,
+                role="math_identifier",
+                source_span=mctx.span,
+                source_text=ch,
+            )
+        )
+    mctx.break_letter_run()
+    mctx.need_number_sign = True
+
+
 def _emit_mi(
     cells: list[BrailleCell], mctx: MathBrailleContext, elem: ET.Element
 ) -> None:
@@ -106,6 +193,10 @@ def _emit_mi(
         return
     text = (elem.text or "").strip()
     if not text:
+        return
+    bold_base = _bold_letter_base(text, elem)
+    if bold_base is not None:
+        _emit_bold_letters(cells, mctx, bold_base)
         return
     if len(text) > 1:
         if _mi_routes_to_function(text, mctx.profile):
