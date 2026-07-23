@@ -686,3 +686,59 @@ class TestGroupTheorySymbols:
         )
         blanks = [i for i, c in enumerate(cells) if c.is_blank]
         assert len(blanks) == 2
+
+
+class TestBoldFontLetters:
+    r"""Upright-bold letters (the group-letter marker and other bold-face
+    variables). A Mathematical Bold code point (\mathbf{G} -> 𝐆) or a
+    mathvariant="bold" attribute renders as case/class prefix + bold font
+    sign ⠻ (12456) + bare cell. Bold-italic (\boldsymbol) and the other
+    Mathematical Alphanumeric fonts are deliberately NOT this sign."""
+
+    def test_bold_capital_from_codepoint(self, profile):
+        # \mathbf{G} arrives as U+1D406 (𝐆); was an unknown identifier
+        # before. Now: ⠠ (capital) + ⠻ (bold) + G cell, no warning.
+        cells, wc = emit(mml("<math><mi>\U0001D406</mi></math>"), profile)
+        assert not [w for w in wc if w.code.startswith("MATH_")]
+        assert [tuple(c.dots) for c in cells] == [
+            (6,), (1, 2, 4, 5, 6), (1, 2, 4, 5),
+        ]
+        assert any(c.role == "math_font" for c in cells)
+
+    def test_bold_lowercase_from_mathvariant(self, profile):
+        # <mi mathvariant="bold">a</mi> → ⠰ (lowercase) + ⠻ + a.
+        cells, wc = emit(
+            mml('<math><mi mathvariant="bold">a</mi></math>'), profile
+        )
+        assert not [w for w in wc if w.code.startswith("MATH_")]
+        assert [tuple(c.dots) for c in cells] == [
+            (5, 6), (1, 2, 4, 5, 6), (1,),
+        ]
+
+    def test_bold_group_letters_in_relation(self, profile):
+        # 𝐆 ⊲ 𝐇 — a normal-subgroup relation between two bold groups.
+        cells, wc = emit(
+            mml(
+                "<math><mi>\U0001D406</mi><mo>⊲</mo>"
+                "<mi>\U0001D407</mi></math>"
+            ),
+            profile,
+        )
+        assert not [w for w in wc if w.code.startswith("MATH_")]
+        fonts = [c for c in cells if c.role == "math_font"]
+        assert len(fonts) == 2  # one bold sign per bold letter
+
+    def test_bold_italic_is_not_the_bold_sign(self, profile):
+        # \boldsymbol → mathvariant="bold-italic": a different style, so no
+        # font sign — renders as an ordinary capital G.
+        cells, _ = emit(
+            mml('<math><mi mathvariant="bold-italic">G</mi></math>'), profile
+        )
+        assert not any(c.role == "math_font" for c in cells)
+        assert [tuple(c.dots) for c in cells] == [(6,), (1, 2, 4, 5)]  # ⠠G
+
+    def test_double_struck_is_not_the_bold_sign(self, profile):
+        # ℤ (U+2124, \mathbb) is double-struck, not upright bold — it must
+        # not pick up the bold font sign (it stays its own char / path).
+        cells, _ = emit(mml("<math><mi>ℤ</mi></math>"), profile)
+        assert not any(c.role == "math_font" for c in cells)

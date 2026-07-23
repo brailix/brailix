@@ -3,7 +3,7 @@
   "name": "cn_current_math_structures",
   "cell": "six_dot",
   "reference": "Chinese Braille (《中国盲文》)",
-  "_note": "Structural markers, nested by topic: fraction.{open,bar,close} / script.{sup,sub,close,big_op_prefix} / sqrt.{...} / letter_prefix.{...} / indicator.{symbol,operation,negation} / cases.{first,middle,last}. indicator.* are the math-symbol category markers the BACKEND prefixes onto a symbol/function (declared per entry, never baked into cells): ⠫ symbol (function names + quantifiers ∀∃∇ + shapes), ⠰ operation (set/logic ∪∩∧∨∖), ⠈ negation (≠≯≮ … = c_4 + the negated base). cases.* are the segments of the multi-line equation-system brace, prefixed per row: ⠎ first row, ⠇ each middle row, ⠣ last row, each followed by one blank cell (marks, not brackets), no row-end marker.",
+  "_note": "Structural markers, nested by topic: fraction.{open,bar,close} / script.{sup,sub,close,big_op_prefix} / sqrt.{...} / letter_prefix.{...} / font.{bold} / indicator.{symbol,operation,negation} / cases.{first,middle,last}. indicator.* are the math-symbol category markers the BACKEND prefixes onto a symbol/function (declared per entry, never baked into cells): ⠫ symbol (function names + quantifiers ∀∃∇ + shapes), ⠰ operation (set/logic ∪∩∧∨∖), ⠈ negation (≠≯≮ … = c_4 + the negated base). font.bold (⠻ 12456) is the upright-bold font sign the backend emits between a letter's case/class prefix and its bare cell for an upright-bold letter (a Mathematical Bold code point like 𝐆, or mathvariant=\"bold\") — e.g. a bold group letter G → ⠠⠻ + G. cases.* are the segments of the multi-line equation-system brace, prefixed per row: ⠎ first row, ⠇ each middle row, ⠣ last row, each followed by one blank cell (marks, not brackets), no row-end marker.",
   "structures": {
     "fraction": {
       "open":  ["c_23"],
@@ -26,6 +26,9 @@
       "latin_upper": ["c_6"],
       "greek_lower": ["c_46"],
       "greek_upper": ["c_456"]
+    },
+    "font": {
+      "bold": ["c_12456"]
     },
     "indicator": {
       "symbol":    ["c_1246"],
