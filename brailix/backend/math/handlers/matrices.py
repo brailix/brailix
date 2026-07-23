@@ -31,6 +31,9 @@ from brailix.backend.math.utils import (
 from brailix.ir.braille import (
     BrailleCell,
     blank_cell,
+    cases_close_cell,
+    cases_open_cell,
+    cases_palette_cell,
     hang_close_cell,
     hang_open_cell,
     line_break_cell,
@@ -199,23 +202,46 @@ def _emit_row_cells(
         _emit_children_with_matrix(cells, mctx, list(tcell))
 
 
+def _emit_cases_palette(
+    cells: list[BrailleCell], mctx: MathBrailleContext
+) -> None:
+    """Emit the three brace-segment cells (first, middle, last) that
+    follow ``cases_open``, tagged ``cases_palette`` so the layout can
+    stamp the right one on each PHYSICAL braille line (and the plain
+    renderers skip them). Each ``cases.*`` segment is a single cell in the
+    Chinese profile; the layout's per-line stamping assumes that (one
+    gutter cell per line), so flatten each segment's cell sequence into
+    the palette in first / middle / last order."""
+    for name in ("cases.first", "cases.middle", "cases.last"):
+        for dots in mctx.profile.math_structure(name):
+            cells.append(cases_palette_cell(dots, mctx.span))
+
+
 def _emit_mtable_cases(
     cells: list[BrailleCell], mctx: MathBrailleContext, mtable: ET.Element
 ) -> None:
     """Equation system: a ``{``-fenced ``<mtable>`` with no closing fence
     (``\\begin{cases}`` / ``\\left\\{…\\right.``).
 
-    The print brace spans every row; braille splits it into its segments,
-    one per row head — ⠎ (``cases.first``) on the first row, ⠇
-    (``cases.middle``) on each middle row, ⠣ (``cases.last``) on the
-    last, each followed by one blank cell (the segments are MARKS, not
-    brackets — written solid they would read as the letters s / l / a
-    cell shapes) — each row on its own line (LINE_BREAK_CELL between
-    rows), no row-end marker, the whole system bracketed in
-    HANG_OPEN/CLOSE so an over-wide row continues with the hanging
-    indent. A single-row table degrades to the plain left brace ⠪ (an
-    ordinary bracket — no blank after it): the print form is an
-    ordinary one-line ``{``, not a multi-line brace.
+    The print brace spans the whole system; braille redraws it with a
+    segment on every PHYSICAL braille line the system occupies — ⠎
+    (``cases.first``) on the first line, ⠣ (``cases.last``) on the last,
+    ⠇ (``cases.middle``) on each line between — each followed by one
+    blank cell (the segments are MARKS, not brackets — written solid they
+    would read as the letters s / l / a cell shapes). Because a single
+    equation may wrap to more than one braille line, that segment-to-line
+    mapping can only be finished once the width-wrap is known, so it is
+    the LAYOUT's job: this emitter brackets the system in
+    CASES_OPEN/CLOSE, publishes the three segments as a ``cases_palette``
+    right after CASES_OPEN, then writes each equation on its own line
+    (LINE_BREAK_CELL between them) with the per-equation segment as a
+    PLACEHOLDER the layout overwrites per physical line. The placeholder
+    keeps the raw cell stream self-describing and the plain
+    (non-wrapping) renderers correct. Rows continue two cells past the
+    row start on width overflow, exactly like a matrix. A single-row
+    table degrades to the plain left brace ⠪ (an ordinary bracket — no
+    blank after it): the print form is an ordinary one-line ``{``, not a
+    multi-line brace.
     """
     rows = [row for row in mtable if row.tag == "mtr"]
     if not rows:
@@ -232,7 +258,8 @@ def _emit_mtable_cases(
         _emit_row_cells(cells, mctx, rows[0])
         mctx.need_number_sign = True
         return
-    cells.append(hang_open_cell(mctx.span))
+    cells.append(cases_open_cell(mctx.span))
+    _emit_cases_palette(cells, mctx)
     last = len(rows) - 1
     for idx, row in enumerate(rows):
         if idx:
@@ -247,7 +274,7 @@ def _emit_mtable_cases(
         cells.append(blank_cell(mctx.span))
         mctx.need_number_sign = True
         _emit_row_cells(cells, mctx, row)
-    cells.append(hang_close_cell(mctx.span))
+    cells.append(cases_close_cell(mctx.span))
     mctx.need_number_sign = True
 
 

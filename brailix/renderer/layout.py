@@ -116,6 +116,35 @@ from brailix.renderer._page_digits import (
     page_number_chars as _page_number_chars,
 )
 
+# Zero-width region sentinels + the cases palette carry no glyph of their
+# own in the linear flow — the layout consumes them for structure and the
+# verbatim (table-cell) copy-through drops them. ``cases_palette`` DOES
+# carry dots (the brace segments) but is layout metadata, stamped onto
+# physical lines rather than placed inline.
+_REGION_SENTINEL_ROLES = frozenset(
+    {"hang_open", "hang_close", "cases_open", "cases_close", "cases_palette"}
+)
+
+
+@dataclass(slots=True)
+class _CasesRegion:
+    """One open equation-system region during wrapping.
+
+    ``gutter`` is the column the brace segment is stamped in (where each
+    row's placeholder segment / continuation indent begins); ``palette``
+    accumulates the region's ``cases_palette`` cells (first, middle, last
+    brace segment); ``first_line`` is the index in the finished-lines list
+    where the region's first physical line lands. On ``cases_close`` every
+    physical line of the region is re-stamped with the segment matching
+    its PHYSICAL position, so the bottom segment (c_126) always lands on
+    the last braille line — not merely the last equation.
+    """
+
+    gutter: int
+    palette: list[BrailleCell] = field(default_factory=list)
+    first_line: int = 0
+
+
 # ---------------------------------------------------------------------------
 # LayoutOptions
 # ---------------------------------------------------------------------------
@@ -307,7 +336,7 @@ class LayoutRenderer:
                     if c.role == "line_break":
                         out.append(row)
                         row = []
-                    elif c.role not in ("hang_open", "hang_close"):
+                    elif c.role not in _REGION_SENTINEL_ROLES:
                         row.append(c)
                 if row or not out:
                     out.append(row)
@@ -501,12 +530,28 @@ class LayoutRenderer:
         # While the stack is non-empty, WIDTH-overflow breaks continue at
         # ``hang_region_indent`` instead of ``cont_indent``.
         hang_cols: list[int] = []
+        # Equation-system (cases) regions currently open, innermost last.
+        cases_regions: list[_CasesRegion] = []
 
         def overflow_indent() -> int | None:
             """Continuation indent for a width-overflow break — the
             hang region's indent inside one, the block default (None)
-            outside."""
-            return opts.hang_region_indent if hang_cols else None
+            outside.
+
+            «空两方» — the two-cell hang a Chinese-Braille matrix / cases
+            row takes when it can't finish on one line — is measured from
+            the row's own start column (the delimiter / brace column the
+            region resumes rows in), NOT from the page margin: a row that
+            spills continues two cells past where it began, so its overflow
+            tail can't drift left of (or collide with) the delimiter when a
+            stem or block indent has pushed the region rightward. Clamp
+            below the width so a region opening near the right edge can't
+            push the indent to the margin and stall the wrap."""
+            if not hang_cols:
+                return None
+            return min(
+                hang_cols[-1] + opts.hang_region_indent, opts.line_width - 1
+            )
 
         def flush_line(
             *, with_hyphen: bool, next_indent: int | None = None
@@ -738,6 +783,44 @@ class LayoutRenderer:
                 if hang_cols:
                     hang_cols.pop()
                 continue
+            if cell.role == "cases_open":
+                # An equation system always spans multiple lines, so it
+                # opens a line of its own (taking any pending introducing
+                # operator down with it) exactly like a multi-row matrix.
+                # It hangs like one too — the same hang_cols column drives
+                # row alignment (line_break) and «空两方» overflow — but it
+                # additionally records a cases region so the brace segments
+                # get stamped per PHYSICAL line at close.
+                if not hang_cols and len(cur) > cur_indent:
+                    flush_line(with_hyphen=False)
+                commit_word()
+                gutter = len(cur)
+                if gutter >= opts.line_width:
+                    gutter = min(opts.hang_region_indent, opts.line_width - 1)
+                hang_cols.append(gutter)
+                cases_regions.append(
+                    _CasesRegion(gutter=gutter, first_line=len(lines))
+                )
+                continue
+            if cell.role == "cases_palette":
+                # A brace-segment template — captured for the close-time
+                # per-line stamp, never placed inline.
+                if cases_regions:
+                    cases_regions[-1].palette.append(cell)
+                continue
+            if cell.role == "cases_close":
+                # Finish the system's last physical line, then re-stamp
+                # every line of the region with the segment for its
+                # physical position (top ⠎ / middle ⠇ / bottom ⠣) so the
+                # bottom segment lands on the last braille line.
+                commit_word()
+                if len(cur) > cur_indent:
+                    flush_line(with_hyphen=False)
+                if hang_cols:
+                    hang_cols.pop()
+                if cases_regions:
+                    _stamp_cases_segments(lines, cases_regions.pop())
+                continue
             if cell.is_blank:
                 commit_word()
                 # Append the blank as a separator if there's content;
@@ -877,13 +960,61 @@ def _region_is_multiline(cells: list[BrailleCell], open_idx: int) -> bool:
         role = cells[i].role
         if role == "line_break":
             return True
-        if role == "hang_open":
+        if role in ("hang_open", "cases_open"):
             depth += 1
-        elif role == "hang_close":
+        elif role in ("hang_close", "cases_close"):
             if depth == 0:
                 return False
             depth -= 1
     return False
+
+
+def _stamp_cases_segments(
+    lines: list[list[BrailleCell]], region: _CasesRegion
+) -> None:
+    """Re-stamp the brace segment on every physical line of a finished
+    equation-system region.
+
+    The backend writes each equation with a per-equation segment
+    PLACEHOLDER at the gutter (kept so the raw stream and the plain
+    non-wrapping renderers stay correct); once wrapping is done, the true
+    mapping is physical: the top segment (⠎) on the region's first braille
+    line, the bottom (⠣ / c_126) on its last, the middle (⠇) on every line
+    between — so a wrapped equation's continuation carries a middle
+    segment and the bottom segment always lands on the last braille line.
+    Each ``cases.*`` segment is a single cell (Chinese profile), so the
+    palette is exactly ``[first, middle, last]``; on any other shape the
+    per-equation placeholders are left as the best available fallback.
+    """
+    if len(region.palette) != 3:
+        return
+    first_seg, middle_seg, last_seg = region.palette
+    region_lines = lines[region.first_line :]
+    last = len(region_lines) - 1
+    gutter = region.gutter
+    for j, line in enumerate(region_lines):
+        if j == 0:
+            src = first_seg
+        elif j == last:
+            src = last_seg
+        else:
+            src = middle_seg
+        # Build a FRESH visible delimiter cell per line (a distinct object
+        # so a cell→position map can't alias the same segment across
+        # lines; role ``math_delim`` like the placeholders and a matrix's
+        # own delimiters; the region's source span carried through for
+        # click-to-source). Overwrite the gutter cell — the placeholder
+        # segment on an equation head, or an indent blank on a wrap
+        # continuation. Guard the (degenerate) short line so the stamp
+        # never runs off the end.
+        seg = BrailleCell(
+            dots=src.dots, role="math_delim", source_span=src.source_span
+        )
+        if gutter < len(line):
+            line[gutter] = seg
+        else:
+            line.extend([BLANK_CELL] * (gutter - len(line)))
+            line.append(seg)
 
 
 def _trim_leading_blank_lines[LineT: (str, bytes)](

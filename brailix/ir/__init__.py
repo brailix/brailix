@@ -35,6 +35,8 @@ from __future__ import annotations
 
 from brailix.ir.braille import (
     BLANK_CELL,
+    CASES_CLOSE_CELL,
+    CASES_OPEN_CELL,
     HANG_CLOSE_CELL,
     HANG_OPEN_CELL,
     LINE_BREAK_CELL,
@@ -100,6 +102,8 @@ from brailix.ir.inline import (
 __all__ = (
     # braille
     "BLANK_CELL",
+    "CASES_CLOSE_CELL",
+    "CASES_OPEN_CELL",
     "HANG_CLOSE_CELL",
     "HANG_OPEN_CELL",
     "LINE_BREAK_CELL",
