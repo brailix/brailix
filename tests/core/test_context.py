@@ -5,6 +5,7 @@ from brailix.core.context import (
     FrontendContext,
     GraphicsContext,
     MathContext,
+    MusicContext,
 )
 from brailix.core.errors import RunMode, WarningCollector
 
@@ -113,6 +114,19 @@ class TestMathContext:
         assert ctx.mode == "display"
         assert ctx.source == "latex"
         assert ctx.surrounding_text == ("设 ", "，其中 x 为变量。")
+
+
+class TestMusicContext:
+    def test_defaults(self):
+        ctx = MusicContext(profile="cn_current")
+        assert ctx.mode == "block"
+        assert ctx.source == "plain"
+        assert ctx.surrounding_text is None
+        assert isinstance(ctx.warnings, WarningCollector)
+
+    def test_profile_is_required(self):
+        with pytest.raises(TypeError):
+            MusicContext()  # type: ignore[call-arg]
 
 
 class TestGraphicsContext:

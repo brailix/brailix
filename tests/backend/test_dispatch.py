@@ -1,6 +1,6 @@
 import pytest
 
-from brailix.backend.block import translate_block, translate_document
+from brailix.backend.block import translate_document
 from brailix.backend.dispatch import translate_node
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
@@ -202,26 +202,6 @@ class TestDispatchPerNodeType:
         cells = translate_node(_Mystery(surface="?"), ctx, profile)
         assert cells == []
         assert any(w.code == "UNHANDLED_NODE_TYPE" for w in ctx.warnings)
-
-
-class TestTranslateBlock:
-    def test_paragraph_with_mixed_children(self, ctx, profile):
-        para = Paragraph(children=[
-            HanziChar(surface="我", reading="wo3", span=Span(0, 1)),
-            HanziChar(surface="在", reading="zai4", span=Span(1, 2)),
-            Punct(surface="。", span=Span(2, 3)),
-        ])
-        block = translate_block(para, ctx, profile)
-        assert block.block_type == "paragraph"
-        # 我 (final+tone) = 2, 在 (init+final+tone) = 3, 。 (⠐⠆) = 2
-        # cells with no trailing blank.
-        assert len(block.cells) == 2 + 3 + 2
-
-    def test_heading_preserves_level(self, ctx, profile):
-        h = Heading(level=2, children=[HanziChar(surface="标", reading="biao1")])
-        block = translate_block(h, ctx, profile)
-        assert block.block_type == "heading"
-        assert block.heading_level == 2
 
 
 class TestTranslateDocument:

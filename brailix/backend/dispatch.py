@@ -5,8 +5,8 @@ inline-type-to-translator map. Each translator submodule (zh, ja, number,
 punct, latin, phonetic, math, music) exposes pure functions; the dispatcher
 composes them via a ``type -> translator`` table.
 
-Block-level translation (``translate_block`` / ``translate_document``
-/ ``expand_block``) lives in :mod:`brailix.backend.block`, which
+Block-level translation (``translate_document`` / ``expand_block``)
+lives in :mod:`brailix.backend.block`, which
 imports ``translate_node`` from here for inline children — a clean
 one-way dependency.
 
