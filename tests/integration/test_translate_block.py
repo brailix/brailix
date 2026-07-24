@@ -26,6 +26,7 @@ from brailix.ir.document import (
     Heading,
     ListItem,
     MathBlock,
+    MusicBlock,
     Paragraph,
     ScoreBlock,
     Table,
@@ -457,7 +458,8 @@ class TestMusicSubcache:
     ``tree_subcache``, mirroring :class:`TestMathSubcache`.
 
     A :class:`ScoreBlock` parses its MusicXML into a normalised tree
-    keyed by ``("music", source, text)``.  Proofreading edits that leave
+    keyed by ``("music", source, text, mode)`` (``mode == "score"`` for a
+    ScoreBlock, ``"block"`` for a MusicBlock).  Proofreading edits that leave
     the score source untouched (an override on surrounding text, a pinyin
     tweak) reuse that tree instead of re-parsing — the win that makes
     large multi-MB scores editable without a stall on every keystroke.
@@ -469,7 +471,7 @@ class TestMusicSubcache:
         out = pipe.translate_block(
             ScoreBlock(text=_SCORE_XML, source="musicxml")
         )
-        key = ("music", "musicxml", _SCORE_XML, "")
+        key = ("music", "musicxml", _SCORE_XML, "score")
         assert key in out.tree_subcache
         from xml.etree.ElementTree import Element
 
@@ -484,7 +486,7 @@ class TestMusicSubcache:
             ScoreBlock(text=_SCORE_XML, source="musicxml")
         )
         cached = first.tree_subcache
-        key = ("music", "musicxml", _SCORE_XML, "")
+        key = ("music", "musicxml", _SCORE_XML, "score")
         assert key in cached
 
         # Explodes if the music frontend is asked to parse again — the
@@ -518,8 +520,38 @@ class TestMusicSubcache:
             ScoreBlock(text=other_xml, source="musicxml"),
             tree_subcache=first.tree_subcache,
         )
-        assert ("music", "musicxml", _SCORE_XML, "") not in second.tree_subcache
-        assert ("music", "musicxml", other_xml, "") in second.tree_subcache
+        assert ("music", "musicxml", _SCORE_XML, "score") not in second.tree_subcache
+        assert ("music", "musicxml", other_xml, "score") in second.tree_subcache
+
+    def test_music_block_keys_on_block_mode(self, pipe: Pipeline) -> None:
+        """A single-passage :class:`MusicBlock` runs in ``"block"`` mode, so
+        its parsed tree keys under a ``"block"`` salt — not ``"score"``."""
+        out = pipe.translate_block(
+            MusicBlock(text=_SCORE_XML, source="musicxml")
+        )
+        assert ("music", "musicxml", _SCORE_XML, "block") in out.tree_subcache
+        assert ("music", "musicxml", _SCORE_XML, "score") not in out.tree_subcache
+
+    def test_score_and_music_block_do_not_share_cached_tree(
+        self, pipe: Pipeline
+    ) -> None:
+        """Same source + text but different block kind → different mode salt →
+        the MusicBlock must NOT reuse the ScoreBlock's cached tree, so a
+        mode-sensitive adapter can never be served the wrong mode's tree."""
+        score = pipe.translate_block(
+            ScoreBlock(text=_SCORE_XML, source="musicxml")
+        )
+        score_tree = score.tree_subcache[
+            ("music", "musicxml", _SCORE_XML, "score")
+        ]
+        # Feed the score's pool to a MusicBlock compile of identical text.
+        music = pipe.translate_block(
+            MusicBlock(text=_SCORE_XML, source="musicxml"),
+            tree_subcache=dict(score.tree_subcache),
+        )
+        # It re-parses under the "block" salt instead of reusing "score".
+        assert ("music", "musicxml", _SCORE_XML, "block") in music.tree_subcache
+        assert music.ir.children[0].score is not score_tree
 
     def test_backend_does_not_mutate_cached_tree(self, pipe: Pipeline) -> None:
         """The backend must read a shared cached tree READ-ONLY.
@@ -546,7 +578,7 @@ class TestMusicSubcache:
 
         # Prime a reuse pool with that exact object, then compile a block that
         # hits it — the backend renders the shared tree.
-        key = ("music", "musicxml", _SCORE_XML, "")
+        key = ("music", "musicxml", _SCORE_XML, "score")
         out = pipe.translate_block(
             ScoreBlock(text=_SCORE_XML, source="musicxml"),
             tree_subcache={key: tree},
@@ -572,7 +604,7 @@ _SVG_FIGURE = (
 
 class TestGraphicSubcache:
     """The ``("graphic", …)`` domain of the shared reuse pool — the third
-    consumer alongside math and music (``FrontendDriver._populate_graphic_block``)."""
+    consumer alongside math and music (``_populate.populate_graphic_block``)."""
 
     def test_reuses_cached_tree(self, pipe: Pipeline) -> None:
         first = pipe.translate_block(GraphicBlock(text=_SVG_FIGURE, source="svg"))
@@ -693,7 +725,7 @@ class TestTreeSubcacheCrossDomain:
         )
         pool = {**math_out.tree_subcache, **score_out.tree_subcache}
         assert ("math", "latex", "$x^2$", "") in pool
-        assert ("music", "musicxml", _SCORE_XML, "") in pool
+        assert ("music", "musicxml", _SCORE_XML, "score") in pool
 
         # Feeding the union back in lets a recompile reuse the math tree
         # without the music entry interfering.
@@ -965,3 +997,62 @@ class TestPipelineParseFile:
             c.dots for blk in b.braille_ir.blocks for c in blk.cells
         ]
         assert a_cells == b_cells
+
+
+class TestBlockPopulateDispatch:
+    """The frontend populates a leaf block through a ``type -> handler`` table
+    keyed on the block's exact type (the same shape as the inline dispatcher's
+    ``_DISPATCH``), so adding a content vertical is one table entry rather than
+    another isinstance branch."""
+
+    def test_every_source_bearing_block_has_a_populator(self) -> None:
+        """A block kind declaring a ``source`` format is parsed by a vertical,
+        never by the language frontend. A missing table entry would silently
+        fall through to prose and translate the raw MathML / MusicXML / SVG as
+        if it were text, so pin the invariant instead of trusting review."""
+        from dataclasses import fields as dc_fields
+
+        from brailix.ir.document import Block
+        from brailix.pipeline._populate import BLOCK_POPULATORS
+
+        def descendants(cls: type) -> list[type]:
+            out: list[type] = []
+            for sub in cls.__subclasses__():
+                out.append(sub)
+                out.extend(descendants(sub))
+            return out
+
+        missing = sorted(
+            b.__name__
+            for b in descendants(Block)
+            if any(f.name == "source" for f in dc_fields(b))
+            and b not in BLOCK_POPULATORS
+        )
+        assert not missing, (
+            "block kinds carry a source format but have no populate handler, "
+            f"so they would be translated as prose: {missing}"
+        )
+
+    def test_prose_kinds_stay_out_of_the_table(self) -> None:
+        """Prose blocks are the table's *fallback*, not entries — that is what
+        keeps the table listing only the exceptions."""
+        from brailix.pipeline._populate import BLOCK_POPULATORS
+
+        for kind in (Paragraph, Heading, ListItem, TableCell):
+            assert kind not in BLOCK_POPULATORS
+
+    def test_dispatch_is_by_exact_type_and_covers_each_vertical(self) -> None:
+        from brailix.ir.document import CodeBlock, GraphicBlock, MathBlock
+        from brailix.pipeline._populate import (
+            BLOCK_POPULATORS,
+            populate_code_block,
+            populate_graphic_block,
+            populate_math_block,
+            populate_music_block,
+        )
+
+        assert BLOCK_POPULATORS[MathBlock] is populate_math_block
+        assert BLOCK_POPULATORS[ScoreBlock] is populate_music_block
+        assert BLOCK_POPULATORS[MusicBlock] is populate_music_block
+        assert BLOCK_POPULATORS[GraphicBlock] is populate_graphic_block
+        assert BLOCK_POPULATORS[CodeBlock] is populate_code_block
