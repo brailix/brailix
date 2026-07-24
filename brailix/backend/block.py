@@ -59,29 +59,6 @@ from brailix.ir.inline import InlineNode, Number
 # ---------------------------------------------------------------------------
 
 
-def translate_block(
-    block: Block, ctx: BackendContext, profile: BrailleProfile
-) -> BrailleBlock:
-    """Translate one DocumentIR block into a single :class:`BrailleBlock`.
-
-    Kept for backward compatibility with callers that don't want to
-    deal with composite expansion (Lists, Tables). For those cases
-    this returns the **first** expanded block — for a List that means
-    only the first ``list_item`` survives. New callers should use
-    :func:`expand_block` or :func:`translate_document`, which handle
-    composites correctly.
-    """
-    block_ctx = BackendContext(
-        profile=ctx.profile,
-        mode=ctx.mode,
-        block_type=block.type,
-        warnings=ctx.warnings,
-        options=dict(ctx.options),
-    )
-    expanded = expand_block(block, block_ctx, profile)
-    return expanded[0] if expanded else BrailleBlock(block_type=block.type)
-
-
 def translate_document(
     doc: DocumentIR, ctx: BackendContext, profile: BrailleProfile
 ) -> BrailleDocument:

@@ -123,13 +123,11 @@ class MusicContext:
     mode: Literal["inline", "block", "score"] = "block"
     source: str = "plain"  # musicxml / mxl / midi / abc / plain
     profile: str = field(kw_only=True)  # required; no built-in default standard
-    # NOTE: transposition / octave_inference / show_lyrics are not yet
-    # consumed — these behaviours are currently driven by profile features
-    # (e.g. ``music.octave_rule`` / ``music.show_lyrics``) read by the
-    # backend's MusicBrailleContext, not by these fields.
-    transposition: int = 0           # semitones; -12 = octave down (reserved)
-    octave_inference: bool = True    # BANA Par. 3.2.2 (reserved)
-    show_lyrics: bool = True         # (reserved)
+    # No transposition / octave-inference / lyrics knobs live here: those
+    # behaviours are driven by profile features (e.g. ``music.octave_rule`` /
+    # ``music.show_lyrics``) read by the backend, not by MusicContext. Add a
+    # field only when a source adapter actually reads it — and key the tree
+    # cache on it — so the context never advertises a setting that does nothing.
     surrounding_text: tuple[str, str] | None = None  # (before, after)
     warnings: WarningCollector = field(default_factory=WarningCollector)
     options: dict[str, Any] = field(default_factory=dict)
