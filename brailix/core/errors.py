@@ -169,6 +169,35 @@ class UnknownAdapterError(BrailixError, KeyError):
     """
 
 
+class IncompatibleRendererError(BrailixError):
+    """Raised when a renderer is asked to consume an IR domain it doesn't
+    handle — e.g. handing a braille :class:`~brailix.ir.braille.BrailleDocument`
+    to a tactile-raster renderer (``bmp`` / ``png`` / ``pdf`` /
+    ``tactile_preview``), or a :class:`~brailix.ir.tactile.TactileRaster` to a
+    braille renderer (``unicode`` / ``brf`` / ``layout`` / ``cells``).
+
+    A renderer self-describes the IR it consumes via a ``consumes`` attribute
+    (``"braille"`` by default, ``"tactile_raster"`` for the tactile renderers).
+    The result types (:class:`~brailix.pipeline.TranslationResult`,
+    :class:`~brailix.pipeline.GraphicResult`,
+    :class:`~brailix.pipeline.TactilePageResult`) validate it before rendering
+    so a mismatched ``render(name)`` fails loudly and locatably here instead of
+    crashing deep inside the renderer with an opaque ``AttributeError`` on a
+    wrong-typed IR (the two Registry share one namespace on purpose — the
+    Protocol is deliberately wide — so the check lives at the call boundary).
+    """
+
+    def __init__(self, renderer_name: str, consumes: str, expected: str):
+        super().__init__(
+            f"renderer {renderer_name!r} consumes {consumes!r} IR, but this "
+            f"result provides {expected!r} IR. Pick a renderer that consumes "
+            f"{expected!r}."
+        )
+        self.renderer_name = renderer_name
+        self.consumes = consumes
+        self.expected = expected
+
+
 class ModelNotInstalledError(BrailixError):
     """Raised when an adapter needs a downloadable model that isn't
     present in the portable ``models/`` directory.
@@ -289,9 +318,44 @@ class WarningCollector:
 
     mode: RunMode | str = RunMode.NORMAL
     warnings: list[Warning] = field(default_factory=list)
+    # Set once a context has adopted this collector via :meth:`bind_mode`.
+    # Kept off ``__eq__`` / ``__repr__`` so it stays an internal latch and two
+    # collectors with the same warnings compare equal regardless of binding.
+    _mode_bound: bool = field(default=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         self.mode = normalize_run_mode(self.mode)
+
+    def bind_mode(self, mode: RunMode | str) -> None:
+        """Adopt ``mode`` as this collector's run-mode policy.
+
+        Idempotent for the same mode. Raises :class:`ValueError` if a
+        *different* mode was already bound: :meth:`emit` reads a single
+        ``self.mode``, so a collector shared by two contexts with different
+        modes would have whichever context was constructed last silently
+        decide the policy for **every** warning — including those logically
+        belonging to the other context. Making that a loud error is the whole
+        point of routing a context's mode through here instead of assigning
+        ``collector.mode`` directly.
+
+        A freshly constructed collector is *unbound* even if it was created
+        with an explicit ``mode=``, so the first context to adopt it may
+        harmonize it to the context's own mode (the documented
+        "context mode is authoritative" behaviour); only a *second, different*
+        mode conflicts.
+        """
+        new_mode = normalize_run_mode(mode)
+        current = normalize_run_mode(self.mode)
+        if self._mode_bound and current is not new_mode:
+            raise ValueError(
+                f"WarningCollector already bound to run mode "
+                f"{current.value!r}; cannot rebind to {new_mode.value!r}. A "
+                f"single collector must not be shared across contexts with "
+                f"different run modes — give each mode its own collector, or "
+                f"construct both contexts with the same mode."
+            )
+        self.mode = new_mode
+        self._mode_bound = True
 
     def emit(self, warning: Warning) -> None:
         if self.mode is RunMode.STRICT:

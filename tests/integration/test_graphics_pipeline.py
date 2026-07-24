@@ -112,6 +112,31 @@ class TestSvgToRaster:
         assert not any(r.get(5, y) for y in range(r.height))
 
 
+class TestRendererDomainGuard:
+    """A braille and a tactile result share one ``renderer_registry`` behind a
+    wide Protocol; each result validates the renderer's ``consumes`` domain so
+    a cross-domain ``render(name)`` fails loudly instead of crashing inside the
+    renderer on a wrong-typed IR."""
+
+    def test_graphic_result_rejects_a_braille_renderer(self):
+        from brailix.core.errors import IncompatibleRendererError
+
+        result = _compile(CIRCLE)
+        with pytest.raises(IncompatibleRendererError):
+            result.render("unicode")
+        # a real tactile renderer still works
+        assert result.render("bmp")[:2] == b"BM"
+
+    def test_braille_result_rejects_a_tactile_renderer(self):
+        from brailix.core.errors import IncompatibleRendererError
+
+        result = Pipeline(profile="cn_current").translate_text("字")
+        with pytest.raises(IncompatibleRendererError):
+            result.render("bmp")
+        # a real braille renderer still works
+        assert isinstance(result.render("unicode"), str)
+
+
 class TestSvgToBmp:
     def test_produces_valid_bmp(self):
         bmp = _compile(CIRCLE).render("bmp")

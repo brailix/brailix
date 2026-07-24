@@ -1,3 +1,5 @@
+import pytest
+
 from brailix.core.errors import (
     BrailixError,
     MissingExtraError,
@@ -9,6 +11,35 @@ from brailix.core.errors import (
     WarningLevel,
 )
 from brailix.core.span import Span
+
+
+class TestBindMode:
+    """WarningCollector.bind_mode — adopt a run mode once, reject a conflict."""
+
+    def test_first_bind_sets_mode(self):
+        c = WarningCollector()
+        c.bind_mode(RunMode.STRICT)
+        assert c.mode is RunMode.STRICT
+
+    def test_rebind_same_mode_is_idempotent(self):
+        c = WarningCollector()
+        c.bind_mode(RunMode.LENIENT)
+        c.bind_mode("lenient")  # string form normalizes to the same mode
+        assert c.mode is RunMode.LENIENT
+
+    def test_rebind_different_mode_raises(self):
+        c = WarningCollector()
+        c.bind_mode(RunMode.STRICT)
+        with pytest.raises(ValueError, match="already bound"):
+            c.bind_mode(RunMode.NORMAL)
+
+    def test_explicit_construction_mode_is_still_rebindable_once(self):
+        # A collector constructed with an explicit mode is not yet "bound" —
+        # the first adopting context may harmonize it (context is
+        # authoritative). Only a second, different bind conflicts.
+        c = WarningCollector(mode=RunMode.NORMAL)
+        c.bind_mode(RunMode.LENIENT)
+        assert c.mode is RunMode.LENIENT
 
 
 class TestDiscard:

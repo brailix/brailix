@@ -198,20 +198,25 @@ def _translate_children(
     """
     out: list[BrailleCell] = []
     english_active = False
-    for i, child in enumerate(children):
-        ctx.options["_next_inline_sibling"] = (
-            children[i + 1] if i + 1 < len(children) else None
-        )
-        ctx.options["_english_run_active"] = english_active
-        out.extend(translate_node(child, ctx, profile))
-        role = english_run_role(child)
-        if role == "letter":
-            english_active = True
-        elif role == "break":
-            english_active = False
-        # "carry" (space / punct / digits) leaves the flag unchanged.
-    ctx.options.pop("_next_inline_sibling", None)
-    ctx.options.pop("_english_run_active", None)
+    try:
+        for i, child in enumerate(children):
+            ctx.options["_next_inline_sibling"] = (
+                children[i + 1] if i + 1 < len(children) else None
+            )
+            ctx.options["_english_run_active"] = english_active
+            out.extend(translate_node(child, ctx, profile))
+            role = english_run_role(child)
+            if role == "letter":
+                english_active = True
+            elif role == "break":
+                english_active = False
+            # "carry" (space / punct / digits) leaves the flag unchanged.
+    finally:
+        # Clear in a ``finally`` so a mid-loop dispatch failure can't leave
+        # these traversal keys behind on a shared ``ctx.options`` for an
+        # unrelated caller to trip over.
+        ctx.options.pop("_next_inline_sibling", None)
+        ctx.options.pop("_english_run_active", None)
     return out
 
 

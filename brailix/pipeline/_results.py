@@ -15,7 +15,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from brailix.core.defaults import DEFAULT_RENDERER
-from brailix.core.errors import Warning, WarningCollector
+from brailix.core.errors import (
+    IncompatibleRendererError,
+    Warning,
+    WarningCollector,
+)
 from brailix.ir.braille import BrailleBlock, BrailleDocument
 from brailix.ir.document import Block, DocumentIR
 from brailix.ir.tactile import TactileRaster
@@ -25,6 +29,34 @@ from brailix.renderer import renderer_registry
 # embossable 8-bit grayscale BMP master (see ``ARCHITECTURE.md``
 # §1.1). Like the braille renderers, it lives in ``renderer_registry``.
 DEFAULT_TACTILE_RENDERER = "bmp"
+
+# The IR domain each result provides, matched against a renderer's ``consumes``
+# self-description. Braille results feed the braille renderers (``consumes``
+# defaults to ``"braille"``); tactile results feed the raster renderers
+# (``bmp`` / ``png`` / ``pdf`` / ``tactile_preview``, ``consumes ==
+# "tactile_raster"``). See :func:`_resolve_renderer`.
+_BRAILLE_DOMAIN = "braille"
+_TACTILE_DOMAIN = "tactile_raster"
+
+
+def _resolve_renderer(name: str, expected_domain: str) -> Any:
+    """Look up ``name`` and verify it consumes ``expected_domain``.
+
+    Both the braille and the tactile renderers live in one shared
+    :data:`~brailix.renderer.renderer_registry` behind a deliberately wide
+    Protocol, so nothing stops ``result.render("bmp")`` on a braille result or
+    ``graphic.render("unicode")`` on a figure — either would hand a renderer an
+    IR it can't read and crash inside it with an opaque error. Validate the
+    domain at this call boundary instead and raise a clear
+    :class:`IncompatibleRendererError`. A renderer self-describes its domain via
+    a ``consumes`` attribute, defaulting to ``"braille"`` for the braille
+    renderers that predate the attribute.
+    """
+    renderer = renderer_registry.get(name)
+    consumes = getattr(renderer, "consumes", _BRAILLE_DOMAIN)
+    if consumes != expected_domain:
+        raise IncompatibleRendererError(name, consumes, expected_domain)
+    return renderer
 
 # ---------------------------------------------------------------------------
 # Result
@@ -57,11 +89,15 @@ class TranslationResult:
 
         Raises :class:`KeyError` if no renderer is registered under
         ``name``; :class:`MissingExtraError` if the renderer needs an
-        unavailable optional dependency.
+        unavailable optional dependency;
+        :class:`~brailix.core.errors.IncompatibleRendererError` if ``name``
+        is a tactile-raster renderer (``bmp`` / ``png`` / ``pdf`` /
+        ``tactile_preview``), which cannot consume a braille IR.
         """
-        return renderer_registry.get(name or self.default_renderer).render(
-            self.braille_ir
+        renderer = _resolve_renderer(
+            name or self.default_renderer, _BRAILLE_DOMAIN
         )
+        return renderer.render(self.braille_ir)
 
     def proofread_json(self) -> dict[str, Any]:
         """A JSON-ready dict mapping source text to braille IR for
@@ -104,11 +140,15 @@ class GraphicResult:
         ``name`` defaults to :attr:`default_renderer` (``"bmp"``). Returns
         whatever the renderer produces — ``bytes`` for ``bmp`` / ``png`` / ``pdf``,
         a ``str`` for the ``tactile_preview`` U+2800 readback. Raises
-        :class:`KeyError` if no renderer is registered under ``name``.
+        :class:`KeyError` if no renderer is registered under ``name``;
+        :class:`~brailix.core.errors.IncompatibleRendererError` if ``name`` is a
+        braille renderer (``unicode`` / ``brf`` / ``layout`` / ``cells``), which
+        cannot consume a tactile raster.
         """
-        return renderer_registry.get(name or self.default_renderer).render(
-            self.raster
+        renderer = _resolve_renderer(
+            name or self.default_renderer, _TACTILE_DOMAIN
         )
+        return renderer.render(self.raster)
 
 
 @dataclass(slots=True)
@@ -140,16 +180,21 @@ class TactilePageResult:
 
         ``name`` defaults to :attr:`default_renderer` (``"bmp"``). Raises
         :class:`IndexError` if ``page`` is out of range, :class:`KeyError` if
-        no renderer is registered under ``name``."""
-        return renderer_registry.get(name or self.default_renderer).render(
-            self.pages[page]
+        no renderer is registered under ``name``,
+        :class:`~brailix.core.errors.IncompatibleRendererError` if ``name`` is a
+        braille renderer (a page is a tactile raster)."""
+        renderer = _resolve_renderer(
+            name or self.default_renderer, _TACTILE_DOMAIN
         )
+        return renderer.render(self.pages[page])
 
     def render_all(self, name: str | None = None) -> list[Any]:
         """Render every page through the named renderer, in order — one output
         per page (e.g. a list of ``.bmp`` byte strings ready to write as
         ``page-1.bmp`` … ``page-N.bmp``)."""
-        renderer = renderer_registry.get(name or self.default_renderer)
+        renderer = _resolve_renderer(
+            name or self.default_renderer, _TACTILE_DOMAIN
+        )
         return [renderer.render(p) for p in self.pages]
 
 
