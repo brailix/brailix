@@ -47,23 +47,27 @@ class FrontendContext:
 
     def __post_init__(self) -> None:
         self.mode = normalize_run_mode(self.mode)
-        # **The context's mode is authoritative.** We force the collector
-        # to match so adapters that only see the collector still emit
-        # under the right policy. This is a one-way write: if you share
-        # the same collector across two contexts with different modes,
-        # the most-recently-constructed context wins. In practice
-        # collectors aren't shared across modes — :class:`Pipeline`
+        # **The context's mode is authoritative.** Bind the shared collector
+        # to this mode so adapters that only see the collector still emit
+        # under the right policy. :meth:`WarningCollector.bind_mode` adopts the
+        # mode of a freshly supplied (still-default) collector but RAISES if the
+        # collector was already bound to a *different* mode: sharing one
+        # collector across two contexts with different modes used to let the
+        # most-recently-constructed context silently win — an order-dependent
+        # policy that is now a loud error. In the normal path :class:`Pipeline`
         # creates one collector per run with the matching mode and
-        # :meth:`child` inherits the parent's mode by default.
-        self.warnings.mode = self.mode
+        # :meth:`child` inherits the parent's mode, so binding is a no-op.
+        self.warnings.bind_mode(self.mode)
 
     def child(self, **overrides: Any) -> FrontendContext:
         """Create a derived context that shares the same warnings
         collector but overrides specific fields.
 
-        Note: overriding ``mode`` on a child re-writes the shared
-        collector's mode (see :meth:`__post_init__`). Don't do that
-        unless you want the parent's collector to switch modes too.
+        Note: overriding ``mode`` on a child re-binds the shared collector's
+        mode (see :meth:`__post_init__`), which now **raises** rather than
+        silently switching the parent's collector — a single collector must
+        not straddle two run modes. Give the child its own collector if it
+        genuinely needs a different mode.
         """
         # Annotated as dict[str, Any] so ``**base`` matches the
         # heterogeneous parameter types of FrontendContext — without
@@ -210,9 +214,10 @@ class BackendContext:
 
     def __post_init__(self) -> None:
         self.mode = normalize_run_mode(self.mode)
-        # See FrontendContext.__post_init__ for the rationale: the
-        # context's mode is authoritative; the shared collector follows.
-        self.warnings.mode = self.mode
+        # See FrontendContext.__post_init__ for the rationale: the context's
+        # mode is authoritative; the shared collector is bound to follow it,
+        # and re-binding a collector already bound to a different mode raises.
+        self.warnings.bind_mode(self.mode)
 
     def inline_text_translator(
         self, domain: str | None = None, span: Span | None = None

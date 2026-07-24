@@ -147,3 +147,21 @@ class TestSharedWarningCollector:
         b.warnings.warn("B", "from backend")
         assert len(wc) == 2
         assert {w.code for w in wc} == {"F", "B"}
+
+    def test_same_mode_across_contexts_is_fine(self):
+        # The main Pipeline path: one collector, both contexts at the same
+        # mode — binding is a no-op, no error.
+        wc = WarningCollector(mode=RunMode.STRICT)
+        FrontendContext(profile="cn_current", mode=RunMode.STRICT, warnings=wc)
+        BackendContext(profile="cn_current", mode=RunMode.STRICT, warnings=wc)
+        assert wc.mode is RunMode.STRICT
+
+    def test_different_modes_across_contexts_raises(self):
+        # Sharing one collector across two DIFFERENT modes used to let the
+        # last-constructed context silently decide the policy for every
+        # warning; it is now a loud error (the collector's emit reads a single
+        # mode, so straddling two is order-dependent and wrong).
+        wc = WarningCollector()
+        FrontendContext(profile="cn_current", mode=RunMode.STRICT, warnings=wc)
+        with pytest.raises(ValueError, match="different run modes"):
+            BackendContext(profile="cn_current", mode=RunMode.NORMAL, warnings=wc)
