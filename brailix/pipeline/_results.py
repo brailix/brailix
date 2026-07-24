@@ -213,11 +213,13 @@ class TactilePageResult:
 # shared ``source`` value such as ``"plain"``.
 #
 # ``salt`` carries whatever beyond (source, surface) the domain's parse
-# actually consumed: ``""`` for math / music (their adapters read nothing
-# else), and the graphic asset resolver's identity for ``"graphic"`` — an
-# ``image`` fence inlines the RESOLVED bytes into the tree, so two
-# documents referencing the same asset name through different resolvers
-# key apart instead of sharing one document's pixels.
+# actually depends on: ``""`` for math (its adapters read nothing else), the
+# music **mode** (``"score"`` for a full ScoreBlock, ``"block"`` for a
+# single-passage MusicBlock) for ``"music"`` so two same-text blocks of
+# different modes can't share one tree, and the graphic asset resolver's
+# identity for ``"graphic"`` — an ``image`` fence inlines the RESOLVED bytes
+# into the tree, so two documents referencing the same asset name through
+# different resolvers key apart instead of sharing one document's pixels.
 #
 # Immutability contract: entries are shared BY IDENTITY — a hit hands the
 # very same ``Element`` to every compile that reuses it, with no defensive

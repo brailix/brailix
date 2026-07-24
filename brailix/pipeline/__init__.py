@@ -702,7 +702,7 @@ class Pipeline:
             # Wrap raw MusicXML text as a single ScoreBlock so any
             # caller using parse_text can route .musicxml
             # through the same block-level compile path it uses for
-            # markdown / plain. ``_populate_music_block`` will parse
+            # markdown / plain. ``populate_music_block`` will parse
             # the inner XML into a MusicInline tree at compile time.
             from brailix.ir.document import ScoreBlock
 

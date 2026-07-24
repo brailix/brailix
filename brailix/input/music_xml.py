@@ -26,7 +26,7 @@ the frontend (§1 rule 1), exactly as ``MathBlock(source="latex")`` defers
 LaTeX; the input layer imports no frontend for these:
 
 * ``.abc`` → stored verbatim as ``ScoreBlock(source="abc")``;
-  ``FrontendDriver._populate_music_block`` runs the ``abc`` adapter later,
+  ``_populate.populate_music_block`` runs the ``abc`` adapter later,
   where a missing ``abc`` extra soft-fails instead of raising at read time.
 
 Neither opens .sib / .musx / .dorico / .mscz — proprietary formats stay
@@ -203,7 +203,7 @@ def parse_deferred_score(
     ``MathBlock(source="latex")`` defers LaTeX. The ``ScoreBlock`` carries
     the raw source with ``source`` set to the dialect name (``"abc"``); the
     matching music source adapter runs later in
-    ``FrontendDriver._populate_music_block``, where a missing ``abc`` extra
+    ``_populate.populate_music_block``, where a missing ``abc`` extra
     soft-fails to a ``MUSIC_ADAPTER_MISSING`` warning and a malformed source
     to a ``<music-error>`` tree — the pipeline keeps running either way.
 

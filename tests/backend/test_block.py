@@ -289,10 +289,10 @@ class TestMathBlock:
         self, pipe, monkeypatch
     ):
         # When the math frontend raises (rather than returning <merror>),
-        # FrontendDriver._populate_math_block catches it, records a
+        # _populate.populate_math_block catches it, records a
         # ``MATH_BLOCK_PARSE_FAILED`` warning, and populates per-char
         # Unknown nodes so the backend emits one cell per source char
-        # (layout stays stable). _populate_math_block parses via the injected
+        # (layout stays stable). populate_math_block parses via the injected
         # ``_parse_math_tree``, so replace it on the instance.
         def _boom(*_a, **_kw):
             raise RuntimeError("synthetic adapter crash")

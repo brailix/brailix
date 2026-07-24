@@ -1,9 +1,17 @@
 """The frontend half of :class:`brailix.pipeline.Pipeline`.
 
 Segmentation, normalization, per-segment language routing, inline-math
-attachment, and block population (math / music / graphic parse plus tree
-caching) — everything between a raw ``Block.text`` and populated
-``children``.
+attachment, and the block-population *lifecycle* — structural recursion,
+the stale-heal, the fingerprint stamp — everything between a raw
+``Block.text`` and populated ``children``.
+
+*How* each block kind is populated lives one module over, in
+:mod:`brailix.pipeline._populate`: this driver decides **whether** to
+populate a leaf and then hands it to
+:func:`~brailix.pipeline._populate.populate_leaf`, which dispatches on the
+block's type. That keeps the per-vertical parse handlers out of the
+orchestration stage, so a new content vertical grows the table there rather
+than this class.
 
 Split out of :mod:`brailix.pipeline` so the orchestrator module stays
 focused on :class:`Pipeline`; re-exported there so
@@ -27,9 +35,7 @@ from brailix.core.config import BrailleProfile
 from brailix.core.context import (
     GRAPHIC_ASSET_RESOLVER_KEY,
     FrontendContext,
-    GraphicsContext,
     MathContext,
-    MusicContext,
 )
 from brailix.core.defaults import DEFAULT_NORMALIZER, DEFAULT_SEGMENTER
 from brailix.core.errors import PROGRAMMING_ERRORS, StrictModeError
@@ -46,24 +52,15 @@ from brailix.frontend.music import parse_music_tree as _frontend_parse_music_tre
 from brailix.frontend.normalize import normalizer_registry
 from brailix.frontend.segment import segmenter_registry
 from brailix.ir.document import Paragraph
-from brailix.ir.inline import (
-    CodeInline,
-    GraphicInline,
-    InlineNode,
-    MathInline,
-    MusicInline,
-    Segment,
-    Unknown,
-)
-from brailix.pipeline._fingerprint import asset_resolver_identity
+from brailix.ir.inline import InlineNode, MathInline, Segment
 from brailix.pipeline._helpers import (
     _all_prose_types,
     _block_surface,
-    _ensure_block_span,
     _resolve_language_adapter,
     cache_lookup,
     cache_record,
 )
+from brailix.pipeline._populate import populate_leaf
 from brailix.pipeline._results import TreeSubcache
 
 if TYPE_CHECKING:
@@ -260,10 +257,10 @@ class FrontendDriver:
         self._heal_stale_children(block)
 
         # Leaf block.  Populate children from raw ``text`` only when it's
-        # present and nothing has filled them yet; the per-kind branches
-        # in :meth:`_populate_leaf` differ only in *how* they populate.
+        # present and nothing has filled them yet; the per-kind handlers in
+        # :mod:`brailix.pipeline._populate` differ only in *how* they populate.
         if block.text and not block.children:
-            self._populate_leaf(block, ctx, tree_in=tree_in, tree_out=tree_out)
+            populate_leaf(self, block, ctx, tree_in=tree_in, tree_out=tree_out)
             # Stamp the configuration that built these children so a later
             # populate under a different configuration rebuilds them (see
             # :meth:`_heal_stale_children`).  After the populate, so a
@@ -342,295 +339,6 @@ class FrontendDriver:
         ):
             block.children = []
 
-    def _populate_leaf(
-        self,
-        block: Any,
-        ctx: FrontendContext,
-        *,
-        tree_in: TreeSubcache | None = None,
-        tree_out: TreeSubcache | None = None,
-    ) -> None:
-        """Populate one leaf block's ``children`` from its raw ``text`` —
-        the per-kind dispatch behind :meth:`populate_block` (which owns the
-        recursion, the stale-heal and the fingerprint stamp)."""
-        from brailix.ir.document import (
-            CodeBlock,
-            GraphicBlock,
-            MathBlock,
-            MusicBlock,
-            ScoreBlock,
-        )
-
-        if isinstance(block, MathBlock):
-            self._populate_math_block(block, ctx, tree_in=tree_in, tree_out=tree_out)
-            return
-        if isinstance(block, (ScoreBlock, MusicBlock)):
-            self._populate_music_block(
-                block, ctx, tree_in=tree_in, tree_out=tree_out
-            )
-            return
-        if isinstance(block, GraphicBlock):
-            self._populate_graphic_block(
-                block, ctx, tree_in=tree_in, tree_out=tree_out
-            )
-            return
-        if isinstance(block, CodeBlock):
-            # No language frontend — wrap the verbatim text as one
-            # CodeInline so the backend's punct path emits one cell
-            # per source char.
-            text, span, _ = _ensure_block_span(block)
-            block.children = [CodeInline(surface=text, span=span)]
-            return
-        text, span, _ = _ensure_block_span(block)
-        block.children = self.run_frontend(
-            text, ctx, tree_in=tree_in, tree_out=tree_out
-        )
-
-    def _populate_music_block(
-        self,
-        block: Any,
-        ctx: FrontendContext,
-        *,
-        tree_in: TreeSubcache | None = None,
-        tree_out: TreeSubcache | None = None,
-    ) -> None:
-        """Parse a :class:`ScoreBlock` / :class:`MusicBlock`'s raw
-        ``text`` via the music frontend and populate ``children`` with
-        a single :class:`MusicInline` carrying the MusicXML tree.
-
-        Mirrors :meth:`_populate_math_block` for the music subsystem
-        (see ``ARCHITECTURE.md``): the block holds only
-        ``source``; the parsed tree lives on a child ``MusicInline``,
-        so the backend dispatcher can route it like any other inline
-        node.
-
-        Soft-failure: if the adapter is missing the frontend returns
-        ``None`` (a ``MUSIC_ADAPTER_MISSING`` warning is already
-        recorded by then). Adapter parse errors land in a
-        ``<music-error>`` tree that backend handlers will surface as
-        ``MUSIC_PARSE_RECOVERY``. Either way ``block.children`` ends
-        up populated and the pipeline keeps running.
-
-        ``tree_in`` / ``tree_out`` are the shared parsed-tree reuse /
-        record pools (see :meth:`Pipeline.translate_block`): on a key hit the
-        whole MusicXML parse + normalise is skipped — the decisive win
-        for proofreading, where the score source never changes between override
-        edits.
-        """
-        text, span, _had_span = _ensure_block_span(block)
-
-        cache_key = ("music", block.source, text, "")
-        cached_tree = cache_lookup(tree_in, cache_key)
-        if cached_tree is not None:
-            tree: ET.Element | None = cached_tree
-        else:
-            music_ctx = MusicContext(
-                source=block.source,
-                mode="score",
-                profile=self.profile,
-                warnings=ctx.warnings,
-                options=dict(ctx.options),
-            )
-            try:
-                tree = self._parse_music_tree(text, music_ctx)
-            except StrictModeError:
-                # STRICT mode: the frontend's own warn (e.g. adapter missing)
-                # already raised this carrying its real code; don't reclassify
-                # it as *_PARSE_FAILED — let it propagate unchanged.
-                raise
-            except PROGRAMMING_ERRORS:
-                # A code defect (AttributeError / NameError / AssertionError) is
-                # never a "bad score" — surface it instead of burying it in a
-                # MUSIC_BLOCK_PARSE_FAILED warning. See brailix.core.errors.
-                raise
-            except Exception as exc:  # noqa: BLE001 — adapter failures are wide
-                ctx.warnings.error(
-                    code="MUSIC_BLOCK_PARSE_FAILED",
-                    message=f"music block parse failed: {exc!r}",
-                    surface=text,
-                    span=span,
-                    source="pipeline",
-                )
-                tree = None
-
-        cache_record(tree_out, cache_key, tree)
-
-        block.children = [
-            MusicInline(
-                surface=text,
-                span=span,
-                source=block.source,
-                score=tree,
-            )
-        ]
-
-    def _populate_math_block(
-        self,
-        block: Any,
-        ctx: FrontendContext,
-        *,
-        tree_in: TreeSubcache | None = None,
-        tree_out: TreeSubcache | None = None,
-    ) -> None:
-        """Parse a :class:`MathBlock`'s raw ``text`` via the math
-        frontend and populate ``block.children``.
-
-        On adapter exceptions (deliberately wide ``except`` — adapter
-        failure modes vary): record a ``MATH_BLOCK_PARSE_FAILED``
-        warning and fall back to one :class:`Unknown` per source
-        character so layout still occupies real estate. The per-char
-        :class:`Unknown` will trigger ``UNKNOWN_NODE`` warnings via
-        the dispatcher when backend renders them — that's expected
-        and slightly more precise than the legacy single-warning
-        behavior (each char is genuinely an unknown to the backend).
-
-        Parsing goes through the injected ``self._parse_math_tree`` — the
-        same parser inline math (:meth:`attach_math`) uses — so a test
-        injects a fault by replacing that attribute on the instance.
-        """
-        # Remember whether the caller-supplied block had a span. The
-        # per-char Unknown fallback below matches the legacy behavior
-        # in backend.block._unknown_cells_for: if the source block has
-        # no span, the fallback cells also have no span — the caller
-        # then knows it can't anchor them.
-        text, span, had_original_span = _ensure_block_span(block)
-
-        cache_key = ("math", block.source, text, "")
-        cached_tree = cache_lookup(tree_in, cache_key)
-        if cached_tree is not None:
-            tree: ET.Element | None = cached_tree
-        else:
-            math_ctx = MathContext(
-                source=block.source,
-                mode="display",
-                profile=self.profile,
-                warnings=ctx.warnings,
-                options=dict(ctx.options),
-            )
-            try:
-                tree = self._parse_math_tree(text, math_ctx)
-            except StrictModeError:
-                # See _populate_music_block: keep the real code, don't rewrap.
-                raise
-            except PROGRAMMING_ERRORS:
-                # A code defect is never a "bad formula" — surface it rather
-                # than degrade to per-char Unknown. See brailix.core.errors.
-                raise
-            except Exception as exc:  # noqa: BLE001 — adapter errors are wide
-                ctx.warnings.error(
-                    code="MATH_BLOCK_PARSE_FAILED",
-                    message=f"math block parse failed: {exc!r}",
-                    surface=text,
-                    span=span,
-                    source="pipeline",
-                )
-                base = span.start
-                block.children = [
-                    Unknown(
-                        surface=ch,
-                        span=Span(base + i, base + i + 1)
-                        if had_original_span
-                        else None,
-                    )
-                    for i, ch in enumerate(text)
-                ]
-                return
-
-        cache_record(tree_out, cache_key, tree)
-
-        block.children = [
-            MathInline(
-                surface=text,
-                span=span,
-                source=block.source,
-                math=tree,
-            )
-        ]
-
-    def _populate_graphic_block(
-        self,
-        block: Any,
-        ctx: FrontendContext,
-        *,
-        tree_in: TreeSubcache | None = None,
-        tree_out: TreeSubcache | None = None,
-    ) -> None:
-        """Parse a :class:`~brailix.ir.document.GraphicBlock`'s raw ``text``
-        via the graphics frontend and populate ``block.children`` with a
-        single :class:`~brailix.ir.inline.GraphicInline` carrying the SVG tree.
-
-        Mirrors :meth:`_populate_math_block` / :meth:`_populate_music_block`
-        for the tactile-graphics subsystem (``ARCHITECTURE.md``): the block holds only ``source``; the parsed SVG tree lives on
-        the child carrier. Parsing goes through the injected
-        ``self._parse_graphic_tree`` — the graphics frontend's single public
-        entry, same shape as math / music — which never raises: a missing
-        adapter or adapter failure degrades to an SVG bearing a
-        ``data-bk-error`` marker, so the tactile backend can surface
-        ``GRAPHICS_SOFT_FAIL`` — ``block.children`` always ends up populated
-        and the pipeline keeps running. Shares the ``("graphic", …)`` tree
-        sub-cache domain alongside math / music.
-        """
-        text, span, _had_span = _ensure_block_span(block)
-
-        # The parse result embeds what the asset resolver returned (an
-        # ``image`` fence inlines the resolved bytes as a data: URI), so the
-        # resolver's identity is part of the key: two documents referencing
-        # the same ``media/image1.png`` name through different resolvers
-        # must not share a cached tree. Math / music parses consume nothing
-        # beyond (source, surface) — their salt slot stays "".
-        cache_key = (
-            "graphic",
-            block.source,
-            text,
-            asset_resolver_identity(self.asset_resolver),
-        )
-        cached_tree = cache_lookup(tree_in, cache_key)
-        if cached_tree is not None:
-            tree: ET.Element | None = cached_tree
-        else:
-            # The tactile profile (mm + DPI) is a backend concern applied
-            # at rasterize time, never at the frontend — the context
-            # carries only source / warnings / options.
-            gctx = GraphicsContext(
-                source=block.source,
-                warnings=ctx.warnings,
-                options=dict(ctx.options),
-            )
-            try:
-                tree = self._parse_graphic_tree(text, gctx)
-            except StrictModeError:
-                # See _populate_music_block: keep the real code, don't rewrap.
-                raise
-            except PROGRAMMING_ERRORS:
-                # A code defect is never a "bad graphic" — surface it rather
-                # than degrade to an error-marked SVG. See brailix.core.errors.
-                raise
-            except Exception as exc:  # noqa: BLE001 — adapter errors are wide
-                # Backstop for a frontend that raises anyway (the registry is
-                # open; a test may inject a raising fake parser).
-                ctx.warnings.error(
-                    code="GRAPHICS_BLOCK_PARSE_FAILED",
-                    message=f"graphic block parse failed: {exc!r}",
-                    surface=text,
-                    span=span,
-                    source="pipeline",
-                )
-                # Soft-fail to an error-marked SVG (never None): the tactile
-                # backend turns this into a blank raster + GRAPHICS_SOFT_FAIL,
-                # so a graphic always rasterises to *something*.
-                tree = ET.Element("svg", {"data-bk-error": repr(exc)})
-
-        cache_record(tree_out, cache_key, tree)
-
-        block.children = [
-            GraphicInline(
-                surface=text,
-                span=span,
-                source=block.source,
-                svg=tree,
-            )
-        ]
-
     # --- Frontend orchestration --------------------------------------
     #
     # All frontend stages live in :mod:`brailix.frontend`. Pipeline
@@ -664,7 +372,7 @@ class FrontendDriver:
             "pinyin_resolver": self.resolver,
             "user_pinyin_dict": self.user_pinyin_dict,
             # Forwarded onto the GraphicsContext (built from a copy of these
-            # options in _populate_graphic_block) so a graphic-image fence's
+            # options in _populate.populate_graphic_block) so a graphic-image fence's
             # image reference resolves to in-document bytes. Omitted when
             # None so a bare run carries no spurious key.
             **(
@@ -782,7 +490,7 @@ class FrontendDriver:
         try:
             tree = self._parse_math_tree(node.surface, math_ctx)
         except StrictModeError:
-            # See _populate_music_block: keep the real code, don't rewrap.
+            # See _populate.populate_music_block: keep the code, don't rewrap.
             raise
         except PROGRAMMING_ERRORS:
             # A code defect is never a "bad formula" — surface it rather than

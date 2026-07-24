@@ -69,8 +69,8 @@ def _ensure_block_span(block: Any) -> tuple[str, Span, bool]:
 
     Mutates ``block.span`` when it was None (single source of truth for
     "every populated block ends up with a span"). Shared by
-    :meth:`FrontendDriver._populate_math_block` and
-    :meth:`FrontendDriver._populate_music_block` — see those for context.
+    :meth:`_populate.populate_math_block` and
+    :meth:`_populate.populate_music_block` — see those for context.
     """
     text = block.text or ""
     had_span = block.span is not None

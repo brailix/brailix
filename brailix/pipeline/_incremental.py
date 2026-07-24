@@ -143,7 +143,7 @@ def rasterize_graphic_block(
     inline-in-a-braille-document path (:func:`compile_block`,
     ARCHITECTURE.md G1) — one rasteriser, not two. Pulls the
     SVG tree off the block's :class:`GraphicInline` child
-    (``_populate_graphic_block`` always lands one — an error-marked SVG on
+    (``populate_graphic_block`` always lands one — an error-marked SVG on
     soft-failure, never ``None`` — so a figure always rasterises to
     *something*), loads the tactile profile, and rasterises. Returns
     ``(raster, tree)``.

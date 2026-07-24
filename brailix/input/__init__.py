@@ -188,7 +188,7 @@ def _route_doc(ctx: _FileCtx) -> DocumentIR:
 
 def _route_musicxml(ctx: _FileCtx) -> DocumentIR:
     # MusicXML / .mxl → single-block DocumentIR wrapping a ScoreBlock;
-    # FrontendDriver._populate_music_block later runs the music frontend over it.
+    # _populate.populate_music_block later runs the music frontend over it.
     return parse_musicxml(ctx.path, language=ctx.language, profile=ctx.profile)
 
 
