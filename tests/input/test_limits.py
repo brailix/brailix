@@ -114,6 +114,80 @@ class TestTextCharGate:
             )
 
 
+class TestScoreRoutesAreCharGated:
+    """A **score** suffix must not be a way around the character gate.
+
+    The threat the two ceilings exist for: a service allows large binary
+    uploads (``max_file_bytes`` high) while bounding the per-character work
+    the frontend then does (``max_text_chars`` low). ``.abc`` and
+    ``.musicxml`` route straight to their own adapters, so if those don't
+    gate the text they read, renaming a large text file to one of those
+    suffixes buys the whole byte budget with no character ceiling at all.
+    """
+
+    LIMITS = InputLimits(max_file_bytes=100_000_000, max_text_chars=1000)
+
+    def test_abc_is_char_gated(self, tmp_path: Path) -> None:
+        # .abc is kept RAW at input (deferred to the frontend), so its whole
+        # decoded text is what the frontend later walks.
+        path = tmp_path / "big.abc"
+        path.write_text("X:1\nK:C\n" + "abc " * 2000, encoding="utf-8")
+        with pytest.raises(InputTooLargeError) as exc:
+            parse_file(
+                path,
+                profile="cn_current",
+                language="zh-CN",
+                limits=self.LIMITS,
+            )
+        assert exc.value.kind == "text_chars"
+
+    def test_musicxml_is_char_gated(self, tmp_path: Path) -> None:
+        path = tmp_path / "big.musicxml"
+        path.write_text(
+            "<score-partwise>" + "<!--" + "a" * 5000 + "-->" + "</score-partwise>",
+            encoding="utf-8",
+        )
+        with pytest.raises(InputTooLargeError) as exc:
+            parse_file(
+                path,
+                profile="cn_current",
+                language="zh-CN",
+                limits=self.LIMITS,
+            )
+        assert exc.value.kind == "text_chars"
+
+    def test_adapters_gate_when_called_directly(self, tmp_path: Path) -> None:
+        """The gate lives in the adapter, not in ``parse_file``'s routing —
+        a caller reaching for ``parse_musicxml`` / ``parse_deferred_score``
+        directly (the documented way to bypass suffix dispatch) is covered
+        too, instead of silently losing its policy."""
+        from brailix.input import parse_deferred_score, parse_musicxml
+
+        abc = tmp_path / "big.abc"
+        abc.write_text("X:1\n" + "abc " * 2000, encoding="utf-8")
+        with pytest.raises(InputTooLargeError):
+            parse_deferred_score(
+                abc, language="zh-CN", profile="cn_current", limits=self.LIMITS
+            )
+
+        xml = tmp_path / "big.musicxml"
+        xml.write_text("<score-partwise>" + "a" * 5000, encoding="utf-8")
+        with pytest.raises(InputTooLargeError):
+            parse_musicxml(
+                xml, language="zh-CN", profile="cn_current", limits=self.LIMITS
+            )
+
+    def test_score_routes_pass_under_a_generous_limit(
+        self, tmp_path: Path
+    ) -> None:
+        # The gate must not fire on a normal score: the default policy is
+        # generous, and a small file passes with room to spare.
+        path = tmp_path / "small.abc"
+        path.write_text("X:1\nT:Tune\nK:C\nCDEF|\n", encoding="utf-8")
+        doc = parse_file(path, profile="cn_current", language="zh-CN")
+        assert doc.blocks[0].source == "abc"
+
+
 class TestUnlimited:
     def test_unlimited_never_rejects(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

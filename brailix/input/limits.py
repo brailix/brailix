@@ -78,9 +78,21 @@ class InputLimits:
     * ``max_file_bytes`` — the on-disk file-size ceiling, checked by a
       ``stat()`` gate before any read. The primary DoS guard: an oversized
       upload is refused without being loaded into memory.
-    * ``max_text_chars`` — the decoded-text ceiling for text formats
-      (plain / Markdown / sniffed ``.xml``), checked after decode. A second,
-      complementary bound on the work the frontend then does per character.
+    * ``max_text_chars`` — the ceiling on the text an adapter hands the
+      frontend, checked the moment that text exists. A second, complementary
+      bound on the work the frontend then does per character: plain /
+      Markdown / sniffed ``.xml``, the raw ``.abc`` source, and the resolved
+      MusicXML of a ``.musicxml`` / ``.xml`` / ``.mxl`` / ``.mid`` score
+      alike — a score suffix must not be a way around a tightened budget.
+      Word documents are the exception: a ``.docx`` has no single decoded
+      string, and its always-on archive caps (member count, per-member and
+      total decompressed bytes) bound it instead.
+
+    The two are complementary on purpose. A service that accepts large
+    binaries but wants a small per-character budget sets a high
+    ``max_file_bytes`` and a low ``max_text_chars``; that combination only
+    holds if *every* text-producing adapter applies the second gate, which
+    is why it lives in the adapters rather than in ``parse_file``'s routing.
 
     Frozen so an instance can be shared freely (e.g. one server-wide policy).
     Both fields are generous by default (:data:`DEFAULT_INPUT_LIMITS`); a
