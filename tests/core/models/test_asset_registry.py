@@ -9,7 +9,6 @@ import pytest
 from brailix.core.models.asset_registry import (
     ModelAsset,
     all_assets,
-    clear,
     get_asset,
     is_managed_download,
     register_asset,
@@ -65,11 +64,6 @@ class TestRegisterAndLookup:
         register_asset(_asset("m", tmp_path / "m"))
         names = [a.name for a in all_assets()]
         assert names == ["a", "m", "z"]
-
-    def test_clear_drops_all(self, tmp_path: Path) -> None:
-        register_asset(_asset("m", tmp_path / "m"))
-        clear()
-        assert all_assets() == []
 
 
 class TestInstallDir:
@@ -128,8 +122,3 @@ class TestManagedDownload:
     def test_default_arg_enables(self) -> None:
         set_managed_download()
         assert is_managed_download() is True
-
-    def test_clear_resets_to_unmanaged(self) -> None:
-        set_managed_download(True)
-        clear()
-        assert is_managed_download() is False

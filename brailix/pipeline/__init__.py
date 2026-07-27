@@ -33,7 +33,11 @@ are re-exported here so ``brailix.pipeline.<name>`` keeps resolving:
 * :mod:`brailix.pipeline._helpers` — the module-level standalone helpers
   :func:`_resolve_language_adapter`, :func:`_all_prose_types`,
   :func:`_ensure_block_span`, :func:`_block_surface`, :func:`block_hash`,
-  :func:`cache_lookup`, :func:`cache_record`.
+  :func:`cache_lookup`, :func:`cache_record`. Only :func:`block_hash` (a
+  documented public digest) and the internally-used :func:`_block_surface`
+  are pulled up here; the rest are imported from ``_helpers`` directly by
+  the code that needs them, so this module's ``__all__`` stays free of
+  underscore-prefixed names.
 * :mod:`brailix.pipeline._session` — the run-scoped state:
   :class:`CompilationSession` (one translate call's collector + contexts +
   parsed-tree pool) and the :class:`_InlineTextTranslator` binding.
@@ -49,11 +53,12 @@ are re-exported here so ``brailix.pipeline.<name>`` keeps resolving:
   ``pipeline._frontend._parse_math_tree`` (etc.) on the instance rather
   than monkeypatching a ``brailix.pipeline.*`` name.
 
-The cohesive :class:`Pipeline` orchestrator stays here. The module still
-re-exports :data:`_frontend_parse_math_tree` /
-:data:`_frontend_parse_music_tree` / :data:`_frontend_parse_graphic_tree`
-(the real frontend entry points, used by :meth:`Pipeline.translate_math_inline`
-and :func:`translate_graphic`) for backward compatibility.
+The cohesive :class:`Pipeline` orchestrator stays here, along with the
+module-level :func:`translate_graphic`. :data:`_frontend_parse_math_tree` /
+:data:`_frontend_parse_graphic_tree` are the real frontend entry points this
+module calls directly (:meth:`Pipeline.translate_math_inline` and
+:func:`translate_graphic`); the per-block parses go through the
+:class:`FrontendDriver`'s injected parsers instead.
 """
 
 from __future__ import annotations
@@ -92,7 +97,6 @@ from brailix.frontend import parse_math_tree as _frontend_parse_math_tree
 from brailix.frontend.graphics import (
     parse_graphic_tree as _frontend_parse_graphic_tree,
 )
-from brailix.frontend.music import parse_music_tree as _frontend_parse_music_tree
 from brailix.input import DEFAULT_INPUT_LIMITS, InputLimits
 from brailix.input import parse_file as _parse_file
 from brailix.input import parse_markdown as _parse_markdown
@@ -104,16 +108,9 @@ from brailix.pipeline._fingerprint import (
     asset_resolver_identity,
     compilation_fingerprint,
     fold_runtime_identity,
-    profile_digest,
     registries_generation,
 )
-from brailix.pipeline._helpers import (
-    _all_prose_types,
-    _block_surface,
-    _ensure_block_span,
-    _resolve_language_adapter,
-    block_hash,
-)
+from brailix.pipeline._helpers import _block_surface, block_hash
 from brailix.pipeline._incremental import (
     _DEFAULT_INLINE_TACTILE_PROFILE,
     compile_block,
@@ -139,9 +136,16 @@ if TYPE_CHECKING:
 # callable to :meth:`Pipeline.translate_block`; the compiler runs it
 # blindly without caring what semantics the caller attaches to it.
 
+# The stable surface of this module: the orchestrator, the module-level
+# graphics entry, the result / value types, and the cache-key digest. Nothing
+# underscore-prefixed belongs here — a name that says "private" while sitting
+# in a list that says "public" is a contradiction a third party would resolve
+# in the wrong direction, and ``from brailix.pipeline import *`` would hand
+# them implementation detail as a compatibility burden. The private helpers
+# stay importable from their own modules (``_helpers`` / ``_fingerprint`` /
+# ``frontend_driver``), which is where in-repo callers now take them from.
 __all__ = [
     "Pipeline",
-    "FrontendDriver",
     "translate_graphic",
     "TranslationResult",
     "GraphicResult",
@@ -149,15 +153,6 @@ __all__ = [
     "CompiledBlock",
     "TreeSubcache",
     "block_hash",
-    "compilation_fingerprint",
-    "profile_digest",
-    "_resolve_language_adapter",
-    "_all_prose_types",
-    "_ensure_block_span",
-    "_block_surface",
-    "_frontend_parse_math_tree",
-    "_frontend_parse_music_tree",
-    "_frontend_parse_graphic_tree",
 ]
 
 
@@ -645,7 +640,8 @@ class Pipeline:
         :class:`TranslationResult` is indistinguishable from one
         produced by :meth:`translate_text` on the same source.
 
-        ``limits`` bounds the input file size (see :meth:`parse_file`).
+        ``limits`` bounds the input file's size and its decoded text (see
+        :meth:`parse_file`).
 
         IO errors propagate as-is (:class:`FileNotFoundError`,
         :class:`~brailix.input.InputTooLargeError`,
@@ -734,7 +730,8 @@ class Pipeline:
         Pipeline's ``profile`` and ``language`` are baked into the IR
         metadata.
 
-        ``limits`` bounds the input file size (see
+        ``limits`` bounds both the input file's size and the decoded text
+        every adapter hands the frontend (see
         :class:`brailix.input.InputLimits`): the default is generous, a
         service handling untrusted uploads tightens it, and
         :meth:`~brailix.input.InputLimits.unlimited` opts out.

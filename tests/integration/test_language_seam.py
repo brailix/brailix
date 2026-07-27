@@ -12,7 +12,8 @@ from __future__ import annotations
 from brailix.core.registry import Registry
 from brailix.frontend import language_frontend_registry
 from brailix.frontend.segment import DefaultSegmenter, segmenter_registry
-from brailix.pipeline import Pipeline, _all_prose_types, _resolve_language_adapter
+from brailix.pipeline import Pipeline
+from brailix.pipeline._helpers import _all_prose_types, _resolve_language_adapter
 
 
 class TestResolveLanguageAdapter:

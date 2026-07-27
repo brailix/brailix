@@ -36,7 +36,6 @@ from __future__ import annotations
 from brailix.core.models.asset_registry import (
     ModelAsset,
     all_assets,
-    clear,
     get_asset,
     is_managed_download,
     register_asset,
@@ -47,7 +46,6 @@ from brailix.core.models.paths import get_model_dir, get_models_root
 __all__ = (
     "ModelAsset",
     "all_assets",
-    "clear",
     "get_asset",
     "is_managed_download",
     "register_asset",
