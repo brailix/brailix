@@ -54,16 +54,104 @@ from brailix.ir.inline import (
     Unknown,
 )
 from brailix.pipeline._fingerprint import asset_resolver_identity
-from brailix.pipeline._helpers import _ensure_block_span, cache_lookup, cache_record
+from brailix.pipeline._helpers import (
+    _ensure_block_span,
+    cache_lookup,
+    cache_record,
+    tree_cache_key,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from brailix.core.span import Span as _Span
     from brailix.pipeline._results import TreeSubcache
 
     # Imported for typing only: the driver imports THIS module at runtime, so a
     # runtime import back would close a cycle.
     from brailix.pipeline.frontend_driver import FrontendDriver
+
+
+# ---------------------------------------------------------------------------
+# The shared vertical skeleton
+# ---------------------------------------------------------------------------
+
+
+def parse_cached_tree(
+    ctx: FrontendContext,
+    *,
+    domain: str,
+    source: str,
+    text: str,
+    span: _Span,
+    salt: str = "",
+    parser: Callable[[str, Any], ET.Element | None],
+    context_factory: Callable[[], Any],
+    code: str,
+    label: str,
+    tree_in: TreeSubcache | None,
+    tree_out: TreeSubcache | None,
+) -> tuple[ET.Element | None, Exception | None]:
+    """Reuse-or-parse one vertical's tree, and classify what went wrong.
+
+    Everything the math / music / graphic populate paths do *identically*
+    lives here — the cache key, the lookup, the context construction, the
+    parse call, the exception ladder, the warning, and recording a successful
+    parse. What they do *differently* — how each recovers from a failed parse
+    — deliberately does not: this returns ``(tree, error)`` and the caller
+    decides, because the recoveries are genuinely unlike each other (music
+    keeps a carrier with no tree, math abandons the carrier for one
+    :class:`Unknown` per character, graphics substitutes an error-marked SVG).
+
+    The exception ladder is the part worth having in one place:
+
+    * :class:`StrictModeError` propagates unchanged — the frontend's own
+      ``warn`` already raised it carrying its real code, and re-wrapping would
+      relabel, say, a missing adapter as a parse failure;
+    * a :data:`PROGRAMMING_ERRORS` (AttributeError / NameError / ...) is a
+      code defect, never a "bad formula", so it surfaces instead of being
+      buried in a soft-failure warning;
+    * anything else is an adapter failure — the ``except`` is deliberately
+      wide because a registered adapter's failure modes are open — and is
+      warned as ``code`` against ``span``, with ``label`` naming the
+      construct in the message.
+
+    ``code`` keeps that name (rather than something like ``failure_code``)
+    on purpose. A warning code is user-visible text downstream — a front-end
+    looks up a per-code description in the reader's language — and the way
+    the set of emitted codes is discovered is by scanning source for a
+    ``code=`` keyword followed by a string literal. Spelling the keyword
+    differently makes the three codes below invisible to that scan, which is
+    how they would quietly lose their descriptions.
+
+    ``context_factory`` is called only on a cache miss, so a hit costs no
+    context construction. A successful parse is recorded into ``tree_out``;
+    a failure is not (``cache_record`` would refuse a ``None`` anyway), which
+    leaves a caller that recovers to a *substitute* tree free to record that
+    substitute itself if it wants the recovery reused.
+    """
+    key = tree_cache_key(domain, source, text, salt)
+    cached = cache_lookup(tree_in, key)
+    if cached is not None:
+        cache_record(tree_out, key, cached)
+        return cached, None
+    try:
+        tree = parser(text, context_factory())
+    except StrictModeError:
+        raise
+    except PROGRAMMING_ERRORS:
+        raise
+    except Exception as exc:  # noqa: BLE001 — adapter failures are wide
+        ctx.warnings.error(
+            code=code,
+            message=f"{label} parse failed: {exc!r}",
+            surface=text,
+            span=span,
+            source="pipeline",
+        )
+        return None, exc
+    cache_record(tree_out, key, tree)
+    return tree, None
 
 
 def populate_leaf(
@@ -162,46 +250,34 @@ def populate_music_block(
     # to ``"score"``, so a MusicBlock never received its declared mode — a
     # third-party adapter that honours the public MusicContext contract
     # would have been misinformed. Since ``mode`` is now a real parse input,
-    # it becomes part of the tree-cache salt so two blocks with identical
-    # source + text but different modes can't share one cached tree.
+    # it becomes the tree-cache salt so two blocks with identical source +
+    # text but different modes can't share one cached tree.
     mode: Literal["block", "score"] = (
         "score" if isinstance(block, ScoreBlock) else "block"
     )
-    cache_key = ("music", block.source, text, mode)
-    cached_tree = cache_lookup(tree_in, cache_key)
-    if cached_tree is not None:
-        tree: ET.Element | None = cached_tree
-    else:
-        music_ctx = MusicContext(
+    # Recovery: keep the carrier with no tree. The backend's MUSIC_NO_IR path
+    # turns that into a warning rather than a crash, so the document still
+    # compiles around the unreadable score.
+    tree, _error = parse_cached_tree(
+        ctx,
+        domain="music",
+        source=block.source,
+        text=text,
+        span=span,
+        salt=mode,
+        parser=driver._parse_music_tree,
+        context_factory=lambda: MusicContext(
             source=block.source,
             mode=mode,
             profile=driver.profile,
             warnings=ctx.warnings,
             options=dict(ctx.options),
-        )
-        try:
-            tree = driver._parse_music_tree(text, music_ctx)
-        except StrictModeError:
-            # STRICT mode: the frontend's own warn (e.g. adapter missing)
-            # already raised this carrying its real code; don't reclassify
-            # it as *_PARSE_FAILED — let it propagate unchanged.
-            raise
-        except PROGRAMMING_ERRORS:
-            # A code defect (AttributeError / NameError / AssertionError) is
-            # never a "bad score" — surface it instead of burying it in a
-            # MUSIC_BLOCK_PARSE_FAILED warning. See brailix.core.errors.
-            raise
-        except Exception as exc:  # noqa: BLE001 — adapter failures are wide
-            ctx.warnings.error(
-                code="MUSIC_BLOCK_PARSE_FAILED",
-                message=f"music block parse failed: {exc!r}",
-                surface=text,
-                span=span,
-                source="pipeline",
-            )
-            tree = None
-
-    cache_record(tree_out, cache_key, tree)
+        ),
+        code="MUSIC_BLOCK_PARSE_FAILED",
+        label="music block",
+        tree_in=tree_in,
+        tree_out=tree_out,
+    )
 
     block.children = [
         MusicInline(
@@ -243,48 +319,40 @@ def populate_math_block(
     # then knows it can't anchor them.
     text, span, had_original_span = _ensure_block_span(block)
 
-    cache_key = ("math", block.source, text, "")
-    cached_tree = cache_lookup(tree_in, cache_key)
-    if cached_tree is not None:
-        tree: ET.Element | None = cached_tree
-    else:
-        math_ctx = MathContext(
+    tree, error = parse_cached_tree(
+        ctx,
+        domain="math",
+        source=block.source,
+        text=text,
+        span=span,
+        # Nothing beyond (source, surface) feeds a math parse, so no salt.
+        parser=driver._parse_math_tree,
+        context_factory=lambda: MathContext(
             source=block.source,
             mode="display",
             profile=driver.profile,
             warnings=ctx.warnings,
             options=dict(ctx.options),
-        )
-        try:
-            tree = driver._parse_math_tree(text, math_ctx)
-        except StrictModeError:
-            # See populate_music_block: keep the real code, don't rewrap.
-            raise
-        except PROGRAMMING_ERRORS:
-            # A code defect is never a "bad formula" — surface it rather
-            # than degrade to per-char Unknown. See brailix.core.errors.
-            raise
-        except Exception as exc:  # noqa: BLE001 — adapter errors are wide
-            ctx.warnings.error(
-                code="MATH_BLOCK_PARSE_FAILED",
-                message=f"math block parse failed: {exc!r}",
-                surface=text,
-                span=span,
-                source="pipeline",
+        ),
+        code="MATH_BLOCK_PARSE_FAILED",
+        label="math block",
+        tree_in=tree_in,
+        tree_out=tree_out,
+    )
+    if error is not None:
+        # Recovery: one Unknown per source character, so layout still occupies
+        # the real estate the formula would have. Each will trigger its own
+        # UNKNOWN_NODE warning from the dispatcher — expected, and slightly
+        # more precise than one warning for the whole block.
+        base = span.start
+        block.children = [
+            Unknown(
+                surface=ch,
+                span=Span(base + i, base + i + 1) if had_original_span else None,
             )
-            base = span.start
-            block.children = [
-                Unknown(
-                    surface=ch,
-                    span=Span(base + i, base + i + 1)
-                    if had_original_span
-                    else None,
-                )
-                for i, ch in enumerate(text)
-            ]
-            return
-
-    cache_record(tree_out, cache_key, tree)
+            for i, ch in enumerate(text)
+        ]
+        return
 
     block.children = [
         MathInline(
@@ -321,55 +389,52 @@ def populate_graphic_block(
     """
     text, span, _had_span = _ensure_block_span(block)
 
-    # The parse result embeds what the asset resolver returned (an
-    # ``image`` fence inlines the resolved bytes as a data: URI), so the
-    # resolver's identity is part of the key: two documents referencing
-    # the same ``media/image1.png`` name through different resolvers
-    # must not share a cached tree. Math parses consume nothing beyond
-    # (source, surface) — its salt slot stays ""; music carries its mode.
-    cache_key = (
-        "graphic",
-        block.source,
-        text,
-        asset_resolver_identity(driver.asset_resolver),
-    )
-    cached_tree = cache_lookup(tree_in, cache_key)
-    if cached_tree is not None:
-        tree: ET.Element | None = cached_tree
-    else:
-        # The tactile profile (mm + DPI) is a backend concern applied
-        # at rasterize time, never at the frontend — the context
-        # carries only source / warnings / options.
-        gctx = GraphicsContext(
+    # The parse result embeds what the asset resolver returned (an ``image``
+    # fence inlines the resolved bytes as a data: URI), so the resolver's
+    # identity is the salt: two documents referencing the same
+    # ``media/image1.png`` name through different resolvers must not share a
+    # cached tree.
+    #
+    # The failure path here is a backstop rather than the normal soft-fail:
+    # ``parse_graphic_tree`` already degrades a missing adapter / bad source
+    # to an error-marked SVG itself, so this catches only a frontend that
+    # raises anyway (the registry is open; a test may inject a raising fake).
+    # One read of the resolver identity, used for both the parse key and the
+    # recovery record below: reading it twice could mint two different tokens
+    # for a resolver that declares none (see asset_resolver_identity).
+    salt = asset_resolver_identity(driver.asset_resolver)
+    tree, error = parse_cached_tree(
+        ctx,
+        domain="graphic",
+        source=block.source,
+        text=text,
+        span=span,
+        salt=salt,
+        parser=driver._parse_graphic_tree,
+        # The tactile profile (mm + DPI) is a backend concern applied at
+        # rasterize time, never at the frontend — the context carries only
+        # source / warnings / options.
+        context_factory=lambda: GraphicsContext(
             source=block.source,
             warnings=ctx.warnings,
             options=dict(ctx.options),
+        ),
+        code="GRAPHICS_BLOCK_PARSE_FAILED",
+        label="graphic block",
+        tree_in=tree_in,
+        tree_out=tree_out,
+    )
+    if error is not None:
+        # Recovery: an error-marked SVG, never None — the tactile backend
+        # turns it into a blank raster + GRAPHICS_SOFT_FAIL, so a graphic
+        # always rasterises to *something*. Recorded like a successful parse
+        # (unlike math / music, whose recoveries are not cached): the parse is
+        # deterministic in (source, surface, resolver), so a re-compile of the
+        # same figure would only fail again.
+        tree = ET.Element("svg", {"data-bk-error": repr(error)})
+        cache_record(
+            tree_out, tree_cache_key("graphic", block.source, text, salt), tree
         )
-        try:
-            tree = driver._parse_graphic_tree(text, gctx)
-        except StrictModeError:
-            # See populate_music_block: keep the real code, don't rewrap.
-            raise
-        except PROGRAMMING_ERRORS:
-            # A code defect is never a "bad graphic" — surface it rather
-            # than degrade to an error-marked SVG. See brailix.core.errors.
-            raise
-        except Exception as exc:  # noqa: BLE001 — adapter errors are wide
-            # Backstop for a frontend that raises anyway (the registry is
-            # open; a test may inject a raising fake parser).
-            ctx.warnings.error(
-                code="GRAPHICS_BLOCK_PARSE_FAILED",
-                message=f"graphic block parse failed: {exc!r}",
-                surface=text,
-                span=span,
-                source="pipeline",
-            )
-            # Soft-fail to an error-marked SVG (never None): the tactile
-            # backend turns this into a blank raster + GRAPHICS_SOFT_FAIL,
-            # so a graphic always rasterises to *something*.
-            tree = ET.Element("svg", {"data-bk-error": repr(exc)})
-
-    cache_record(tree_out, cache_key, tree)
 
     block.children = [
         GraphicInline(

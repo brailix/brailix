@@ -174,6 +174,23 @@ def block_hash(
 # ---------------------------------------------------------------------------
 
 
+def tree_cache_key(
+    domain: str, source: str, surface: str, salt: str = ""
+) -> tuple[str, str, str, str]:
+    """Build a parsed-tree cache key — the one place its shape is decided.
+
+    ``salt`` carries whatever else the parse result depended on beyond
+    ``(domain, source, surface)``: the music mode, a graphic's asset-resolver
+    identity. It defaults to ``""`` for a parse that consumes nothing more
+    (math). Routing every key through here is deliberate: the shape drifted
+    once already — music blocks and score blocks parse in different modes,
+    but the mode wasn't in the key, so two blocks with identical source text
+    shared one cached tree. A key built by hand at each call site is exactly
+    where that recurs.
+    """
+    return (domain, source, surface, salt)
+
+
 def cache_lookup(
     tree_in: TreeSubcache | None, key: tuple[str, str, str, str]
 ) -> ET.Element | None:
