@@ -538,15 +538,42 @@ class TestGeneration:
         reg.unregister("a")
         assert reg.generation == g + 1
 
-    def test_get_and_clear_cache_do_not_bump(self):
+    def test_get_does_not_bump(self):
         reg: Registry[Greeter] = Registry("greeters")
         reg.register("a", GoodGreeter)
         g = reg.generation
-        reg.get("a")
-        reg.get("a")
-        reg.clear_cache()
-        reg.get("a")  # re-runs the loader — same implementation, no bump
+        reg.get("a")  # loads
+        reg.get("a")  # cache hit
         assert reg.generation == g
+
+    def test_clear_cache_bumps(self):
+        """Dropping the cached instances CAN change what a name resolves to.
+
+        An ``auto`` adapter picks its delegate by probing what is currently
+        installed / downloaded and memoises the choice on the instance, so a
+        fresh instance may pick differently — "same loader, same
+        implementation" doesn't hold, and a fingerprint that ignored the
+        clear would let a cache serve braille from the previous delegate.
+        """
+        reg: Registry[Greeter] = Registry("greeters")
+        reg.register("a", GoodGreeter)
+        reg.get("a")
+        g = reg.generation
+        reg.clear_cache()
+        assert reg.generation == g + 1
+
+    def test_clear_cache_bump_reaches_pipeline_fingerprint(self):
+        """The bump has to be visible where it matters: a live Pipeline's
+        fingerprint (which folds every compilation-relevant registry's
+        generation) must move, so ``source_hash`` and the
+        ``frontend_fingerprint`` stamps invalidate."""
+        from brailix import Pipeline
+        from brailix.frontend.zh.analyzer.registry import analyzer_registry
+
+        pipe = Pipeline(profile="cn_current", analyzer="char", resolver="null")
+        before = pipe.fingerprint
+        analyzer_registry.clear_cache()
+        assert pipe.fingerprint != before
 
     def test_has_and_names_do_not_bump(self):
         reg: Registry[Greeter] = Registry("greeters")
