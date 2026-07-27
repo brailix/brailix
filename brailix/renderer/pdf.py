@@ -21,10 +21,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from brailix.ir.tactile import TactileRaster
-
-# Raise level (0..255) → grayscale sample, inverted so raised = dark (the same
-# polarity as the BMP / PNG renderers).
-_INVERT = bytes(255 - i for i in range(256))
+from brailix.renderer._raster_encoding import INVERT_LEVELS
 
 _MM_PER_INCH = 25.4
 _PT_PER_INCH = 72.0
@@ -69,7 +66,7 @@ def rasters_to_pdf(rasters: Sequence[TactileRaster]) -> bytes:
         # top, then the content-stream ``cm`` scales it to the page — so the
         # raster's row-major top-to-bottom data needs no flip, just the
         # raised→dark invert.
-        image_data = zlib.compress(bytes(raster.data).translate(_INVERT), 9)
+        image_data = zlib.compress(bytes(raster.data).translate(INVERT_LEVELS), 9)
         w_pt = _mm_to_pt(raster.page_width_mm)
         h_pt = _mm_to_pt(raster.page_height_mm)
         content = f"q {_num(w_pt)} 0 0 {_num(h_pt)} 0 0 cm /Im0 Do Q".encode("ascii")

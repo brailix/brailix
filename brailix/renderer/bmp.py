@@ -30,17 +30,7 @@ import struct
 from dataclasses import dataclass
 
 from brailix.ir.tactile import TactileRaster
-
-# Raise level (0..255) → grayscale pixel value, inverted so raised = dark.
-_INVERT = bytes(255 - i for i in range(256))
-
-
-def _pixels_per_metre(dpi: float) -> int:
-    """Dots-per-inch → pixels-per-metre for the BMP header (1 inch =
-    0.0254 m)."""
-    if dpi <= 0:
-        return 0
-    return int(round(dpi / 0.0254))
+from brailix.renderer._raster_encoding import INVERT_LEVELS, pixels_per_metre
 
 
 def raster_to_bmp(
@@ -96,12 +86,12 @@ def _bmp_8bit(raster: TactileRaster) -> bytes:
     pixel_offset = 14 + 40 + len(palette)
     out = bytearray()
     out += _file_header(pixel_offset + pixel_size, pixel_offset)
-    out += _info_header(w, h, 8, pixel_size, _pixels_per_metre(raster.dpi), 256)
+    out += _info_header(w, h, 8, pixel_size, pixels_per_metre(raster.dpi), 256)
     out += palette
     data = raster.data
     for y in range(h - 1, -1, -1):  # bottom-up
         start = y * w
-        out += data[start:start + w].translate(_INVERT)
+        out += data[start:start + w].translate(INVERT_LEVELS)
         out += pad
     return bytes(out)
 
@@ -115,7 +105,7 @@ def _bmp_1bit(raster: TactileRaster, threshold: int) -> bytes:
     pixel_offset = 14 + 40 + len(palette)
     out = bytearray()
     out += _file_header(pixel_offset + pixel_size, pixel_offset)
-    out += _info_header(w, h, 1, pixel_size, _pixels_per_metre(raster.dpi), 2)
+    out += _info_header(w, h, 1, pixel_size, pixels_per_metre(raster.dpi), 2)
     out += palette
     data = raster.data
     for y in range(h - 1, -1, -1):  # bottom-up

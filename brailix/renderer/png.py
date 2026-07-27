@@ -20,11 +20,9 @@ import zlib
 from dataclasses import dataclass
 
 from brailix.ir.tactile import TactileRaster
+from brailix.renderer._raster_encoding import INVERT_LEVELS, pixels_per_metre
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-
-# Raise level (0..255) → grayscale sample, inverted so raised = dark.
-_INVERT = bytes(255 - i for i in range(256))
 
 
 def _chunk(tag: bytes, data: bytes) -> bytes:
@@ -34,12 +32,6 @@ def _chunk(tag: bytes, data: bytes) -> bytes:
         + data
         + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
     )
-
-
-def _pixels_per_metre(dpi: float) -> int:
-    if dpi <= 0:
-        return 0
-    return int(round(dpi / 0.0254))
 
 
 def raster_to_png(raster: TactileRaster) -> bytes:
@@ -52,13 +44,13 @@ def raster_to_png(raster: TactileRaster) -> bytes:
     for y in range(h):
         raw.append(0)
         start = y * w
-        raw += data[start:start + w].translate(_INVERT)
+        raw += data[start:start + w].translate(INVERT_LEVELS)
     idat = zlib.compress(bytes(raw), 9)
 
     # IHDR: width, height, bit depth 8, colour type 0 (grayscale), default
     # compression / filter / interlace.
     ihdr = struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0)
-    ppu = _pixels_per_metre(raster.dpi)
+    ppu = pixels_per_metre(raster.dpi)
     phys = struct.pack(">IIB", ppu, ppu, 1)  # unit 1 = metre
 
     return (
