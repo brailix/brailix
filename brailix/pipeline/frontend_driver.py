@@ -186,6 +186,18 @@ class FrontendDriver:
         self._parse_music_tree = parse_music_tree
         self._parse_graphic_tree = parse_graphic_tree
 
+    @property
+    def parse_identity(self) -> str:
+        """The identity every parsed-tree cache key carries — this driver's
+        compilation fingerprint, or ``""`` when it has none.
+
+        One place owns that normalisation. A driver with no fingerprint is a
+        bare unit-test construction: it stamps nothing and invalidates nothing
+        (see :meth:`_heal_stale_children`), so its cache entries key on the
+        empty identity rather than on a configuration nobody declared.
+        """
+        return self.fingerprint or ""
+
     def populate_block(
         self,
         block: Any,
@@ -502,7 +514,9 @@ class FrontendDriver:
     ) -> None:
         # Same key shape (and therefore the same pool) as a display MathBlock:
         # an identical formula parses to the same tree inline or displayed.
-        cache_key = tree_cache_key("math", node.source, node.surface)
+        cache_key = tree_cache_key(
+            "math", node.source, node.surface, identity=self.parse_identity
+        )
         if node.math is not None:
             # Already parsed (frontend ran twice, or caller pre-populated).
             # Still record in tree_out so the caller's per-block cache

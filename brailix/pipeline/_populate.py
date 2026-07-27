@@ -85,6 +85,7 @@ def parse_cached_tree(
     text: str,
     span: _Span,
     salt: str = "",
+    identity: str,
     parser: Callable[[str, Any], ET.Element | None],
     context_factory: Callable[[], Any],
     code: str,
@@ -124,13 +125,19 @@ def parse_cached_tree(
     differently makes the three codes below invisible to that scan, which is
     how they would quietly lose their descriptions.
 
+    ``identity`` is the parse identity every vertical keys on — the driver's
+    compilation fingerprint — so a pool threaded in from another pipeline (or
+    surviving a runtime adapter re-registration) can't hand back a tree parsed
+    under a configuration this compile no longer runs. See
+    :func:`~brailix.pipeline._helpers.tree_cache_key`.
+
     ``context_factory`` is called only on a cache miss, so a hit costs no
     context construction. A successful parse is recorded into ``tree_out``;
     a failure is not (``cache_record`` would refuse a ``None`` anyway), which
     leaves a caller that recovers to a *substitute* tree free to record that
     substitute itself if it wants the recovery reused.
     """
-    key = tree_cache_key(domain, source, text, salt)
+    key = tree_cache_key(domain, source, text, salt, identity=identity)
     cached = cache_lookup(tree_in, key)
     if cached is not None:
         cache_record(tree_out, key, cached)
@@ -265,6 +272,7 @@ def populate_music_block(
         text=text,
         span=span,
         salt=mode,
+        identity=driver.parse_identity,
         parser=driver._parse_music_tree,
         context_factory=lambda: MusicContext(
             source=block.source,
@@ -326,6 +334,7 @@ def populate_math_block(
         text=text,
         span=span,
         # Nothing beyond (source, surface) feeds a math parse, so no salt.
+        identity=driver.parse_identity,
         parser=driver._parse_math_tree,
         context_factory=lambda: MathContext(
             source=block.source,
@@ -403,6 +412,7 @@ def populate_graphic_block(
     # recovery record below: reading it twice could mint two different tokens
     # for a resolver that declares none (see asset_resolver_identity).
     salt = asset_resolver_identity(driver.asset_resolver)
+    identity = driver.parse_identity
     tree, error = parse_cached_tree(
         ctx,
         domain="graphic",
@@ -410,6 +420,7 @@ def populate_graphic_block(
         text=text,
         span=span,
         salt=salt,
+        identity=identity,
         parser=driver._parse_graphic_tree,
         # The tactile profile (mm + DPI) is a backend concern applied at
         # rasterize time, never at the frontend — the context carries only
@@ -433,7 +444,11 @@ def populate_graphic_block(
         # same figure would only fail again.
         tree = ET.Element("svg", {"data-bk-error": repr(error)})
         cache_record(
-            tree_out, tree_cache_key("graphic", block.source, text, salt), tree
+            tree_out,
+            tree_cache_key(
+                "graphic", block.source, text, salt, identity=identity
+            ),
+            tree,
         )
 
     block.children = [
