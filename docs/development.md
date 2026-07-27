@@ -34,7 +34,20 @@ The tests mirror the layered design — each layer is tested on its own so a fai
 
 The **golden** suite is the end-to-end safety net. When a rule change moves golden output, **review the diff by hand** — never blanket-accept it. The golden data lives as plain JSON (`tests/golden/data/`), so cases can be added or changed without writing Python; see that directory's README for the format.
 
-The public import surface is pinned by `tests/test_public_api.py`. If you rename or drop a re-export, that test fails loudly — update it deliberately, since downstream code imports from the facade.
+The public import surface is pinned by `tests/test_public_api.py`, and the check is exact set equality: a re-export that disappears fails the test, and so does a name that appears in `__all__` without being added to the manifest. Both directions are deliberate — publishing a name is a promise of support, so it should take an explicit edit rather than happening by accident.
+
+## The API reference
+
+There is no hand-written API page. `scripts/build_docs.py` generates the reference from the docstrings with [pdoc](https://pdoc.dev/), and CI publishes it on every push to `main`:
+
+```bash
+uv run --group docs python scripts/build_docs.py --output-dir site
+```
+
+It documents exactly the modules the manifest above pins, and pdoc honours `__all__`, so each page shows the supported surface and nothing else. Two consequences worth knowing when you write a docstring:
+
+- **The docstring is the documentation.** A public class or function is described by its own docstring and nowhere else, so that is where a behaviour change gets written down. There is no second copy to fall out of step — which is the point, since the three drifts that prompted this were all cases where the docstring was right and the hand-written page was wrong.
+- **reStructuredText cross-references are converted, not rendered raw.** The codebase writes references as `` :class:`~brailix.ir.document.DocumentIR` ``; the builder rewrites those into backticked identifiers that pdoc links. Keep using the roles — they say which *kind* of thing is being referenced, and the conversion is tested.
 
 ## Conventions
 

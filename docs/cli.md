@@ -1,6 +1,6 @@
 # Command-line interface
 
-Installing brailix puts a `brailix` command on your `PATH`. It compiles text, Markdown, Word, and MusicXML into braille from a terminal, as a thin wrapper over the [`Pipeline`](api.md) you would otherwise call from Python. Everything the command can do is also reachable as `python -m brailix`, which is handy when the script directory is not on your `PATH`.
+Installing brailix puts a `brailix` command on your `PATH`. It compiles text, Markdown, Word, and MusicXML into braille from a terminal, as a thin wrapper over the [`Pipeline`](https://brailix.github.io/brailix/#Pipeline) you would otherwise call from Python. Everything the command can do is also reachable as `python -m brailix`, which is handy when the script directory is not on your `PATH`.
 
 ```bash
 brailix "我在重庆。"                  # Unicode braille to stdout
@@ -17,7 +17,7 @@ brailix --file lesson.md            # a file, dispatched by its suffix
 echo "正文 $x^2$。" | brailix         # piped standard input
 ```
 
-A file is dispatched by its suffix exactly the way [`Pipeline.translate_file`](api.md) dispatches it: `.md` / `.markdown` as Markdown, `.docx` / `.docm` as Word, `.musicxml` / `.mxl` as a score, `.mid` / `.midi` / `.abc` as score sources converted to MusicXML, and anything else as plain text. Word and the score source formats need their optional extra installed (`brailix[docx]`, `brailix[midi]`, `brailix[abc]`); the command reports which one to add if it is missing.
+A file is dispatched by its suffix exactly the way [`Pipeline.translate_file`](https://brailix.github.io/brailix/#Pipeline.translate_file) dispatches it: `.md` / `.markdown` as Markdown, `.docx` / `.docm` as Word, `.musicxml` / `.mxl` as a score, `.mid` / `.midi` as binary score sources converted to MusicXML when the file is read, `.abc` as a text score source kept raw and converted later by the frontend, and anything else as plain text. These formats need their optional extra installed (`brailix[docx]`, `brailix[midi]`, `brailix[abc]`). Word and MIDI report a missing extra as an error while reading; ABC, being converted a step later, reports it as a warning and translates the rest of the document.
 
 A positional string or piped input is treated as plain text by default. Use `--in-format` to read it as Markdown or MusicXML instead:
 
@@ -64,7 +64,7 @@ brailix --file lesson.md --to brf --width 40 --page-height 25 --output lesson.br
 
 ## Translation options
 
-The braille profile and the Chinese engines are selected by name, exactly as in the [`Pipeline`](api.md) constructor:
+The braille profile and the Chinese engines are selected by name, exactly as in the [`Pipeline`](https://brailix.github.io/brailix/#Pipeline) constructor:
 
 | Option | Meaning | Default |
 |---|---|---|
@@ -108,4 +108,4 @@ The lists come straight from the core registries, so they always match what `--p
 ## See also
 
 - [Getting started](getting-started.md) — the same translations from Python.
-- [API reference](api.md) — the `Pipeline` and result objects the command wraps.
+- [API reference](https://brailix.github.io/brailix/) — the `Pipeline` and result objects the command wraps.

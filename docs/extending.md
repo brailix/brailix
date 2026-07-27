@@ -14,10 +14,12 @@ The loader is a zero-argument callable that imports any heavy dependency and ret
 
 The protocol is `ChineseAnalyzer`: an object with a `name` and an `analyze(text, ctx)` method returning a list of `ChineseToken` (from `brailix.ir.inline`).
 
+Import the IR and core types from the shallow facades (`brailix.ir`, `brailix.core`) the way any other caller does — those are the names the [API reference](https://brailix.github.io/brailix/) pins. The registries are the exception: they sit at their subsystem's own path, since each belongs to one pluggable family.
+
 ```python
 # mypkg/lac_adapter.py
-from brailix.core.span import Span
-from brailix.ir.inline import ChineseToken
+from brailix.core import Span
+from brailix.ir import ChineseToken
 from brailix.frontend.zh.analyzer.registry import analyzer_registry
 
 
@@ -41,11 +43,19 @@ def _load():
 analyzer_registry.register("lac", _load, extra="lac")
 ```
 
-Once registered, select it with `Pipeline(analyzer="lac")`. Add a matching `lac = ["lac"]` extra in `pyproject.toml` so the `extra="lac"` hint points users at the right install.
+Once registered, select it by name — a `Pipeline` always names its braille standard as well, since there is no default profile:
+
+```python
+from brailix import Pipeline
+
+pipe = Pipeline(profile="cn_current", analyzer="lac")
+```
+
+Add a matching `lac = ["lac"]` extra in `pyproject.toml` so the `extra="lac"` hint points users at the right install.
 
 ## Add a pinyin engine
 
-The protocol is `PinyinResolver`: `name` plus `resolve(tokens, ctx)`. The resolver fills each token's `pinyin` field (numeric-tone form) and must not change token boundaries or types; low-confidence readings should be reported through `ctx.warnings`. Register with `resolver_registry` from `brailix.frontend.zh.pinyin.registry`, then select with `Pipeline(resolver="...")`.
+The protocol is `PinyinResolver`: `name` plus `resolve(tokens, ctx)`. The resolver fills each token's `pinyin` field (numeric-tone form) and must not change token boundaries or types; low-confidence readings should be reported through `ctx.warnings`. Register with `resolver_registry` from `brailix.frontend.zh.pinyin.registry`, then select it with `Pipeline(profile="cn_current", resolver="your-name")`.
 
 ## Add a math source format
 
