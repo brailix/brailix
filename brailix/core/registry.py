@@ -77,16 +77,15 @@ class Registry[T]:
         self._loaders: dict[str, Callable[[], T]] = {}
         self._cache: dict[str, T] = {}
         self._extras: dict[str, str] = {}
-        # Monotonic count of registration-surface changes: every
-        # ``register`` / ``unregister`` (and an ``overriding`` exit, which
-        # restores the entry snapshot) bumps it. What a *name resolves to*
-        # is part of a compilation's identity — the compilation fingerprint
-        # folds every compilation-relevant registry's generation in, so
-        # replacing an adapter under a name a live Pipeline uses advances
-        # that pipeline's fingerprint instead of letting caches keep
+        # Monotonic count of resolution-surface changes: every ``register``
+        # / ``unregister`` / ``clear_cache`` (and an ``overriding`` exit,
+        # which restores the entry snapshot) bumps it. What a *name resolves
+        # to* is part of a compilation's identity — the compilation
+        # fingerprint folds every compilation-relevant registry's generation
+        # in, so replacing an adapter under a name a live Pipeline uses
+        # advances that pipeline's fingerprint instead of letting caches keep
         # serving output compiled by the previous implementation.
-        # ``clear_cache`` does NOT bump: re-running the same loader yields
-        # the same implementation, so nothing a cache keys on changed.
+        # ``get`` / ``has`` / ``names`` are pure reads and never bump.
         self._generation = 0
         # The one lock guarding EVERY access to the three dicts: the
         # lazy-load slow path (so concurrent first-access to one name can't
@@ -220,20 +219,39 @@ class Registry[T]:
 
     @property
     def generation(self) -> int:
-        """Monotonic registration-surface version (see ``__init__``).
+        """Monotonic resolution-surface version (see ``__init__``).
 
-        Advances on every :meth:`register` / :meth:`unregister` and on an
-        :meth:`overriding` exit; :meth:`get` and :meth:`clear_cache` never
-        move it. Read lock-free — a single ``int`` attribute read is atomic,
-        and a reader that races a bump simply sees the value from one side
-        of it, which is exactly the point of a version counter.
+        Advances on every :meth:`register` / :meth:`unregister` /
+        :meth:`clear_cache` and on an :meth:`overriding` exit; the pure reads
+        (:meth:`get` / :meth:`has` / :meth:`names`) never move it. Read
+        lock-free — a single ``int`` attribute read is atomic, and a reader
+        that races a bump simply sees the value from one side of it, which is
+        exactly the point of a version counter.
         """
         return self._generation
 
     def clear_cache(self) -> None:
-        """Drop cached instances; loaders remain registered."""
+        """Drop cached instances; loaders remain registered.
+
+        Advances :attr:`generation`, because "the same loader yields the same
+        implementation" is not true in general: an ``auto`` adapter picks its
+        delegate by probing what is *currently* available (installed extras,
+        downloaded models) and memoises that choice on the instance, so
+        discarding the instance can genuinely change what the name resolves
+        to — the very thing the fingerprint exists to notice. The bump is
+        conservative (a clear with no behaviour change still invalidates
+        caches), which is the safe direction: over-invalidation costs a
+        recompile, under-invalidation serves braille compiled by an
+        implementation that is no longer in play.
+
+        This does not turn the fingerprint into an environment stamp — what
+        an ``auto`` name probes to *without* a clear is still outside its
+        coverage (see :mod:`brailix.pipeline._fingerprint`). It removes the
+        one path where this class's own API silently changed the answer.
+        """
         with self._lock:
             self._cache.clear()
+            self._generation += 1
 
     @contextmanager
     def overriding(

@@ -28,7 +28,7 @@ result = pipe.translate_text("我在2026年5月17日去了重庆。")
 print(result.render())        # a Unicode braille string
 ```
 
-`Pipeline.translate_text` runs the whole pipeline and returns a [`TranslationResult`](api.md#translationresult). Nothing is rendered until you ask for it, so you only pay for the output formats you use.
+`Pipeline.translate_text` runs the whole pipeline and returns a [`TranslationResult`](https://brailix.github.io/brailix/#TranslationResult). Nothing is rendered until you ask for it, so you only pay for the output formats you use.
 
 ## Reading the result
 
@@ -69,7 +69,7 @@ doc = parse_markdown("# 标题\n\n正文 $x^2$。")
 result = pipe.translate_document(doc)
 ```
 
-Word `.docx` / `.docm` support (including MathType and OMML formulae) needs the `docx` extra. See the [API reference](api.md) for every entry point.
+Word `.docx` / `.docm` support (including MathType and OMML formulae) needs the `docx` extra. See the [API reference](https://brailix.github.io/brailix/) for every entry point.
 
 ## Choosing engines
 
@@ -119,5 +119,5 @@ pipe = Pipeline(profile="cn_current", mode="normal")   # strict / normal / lenie
 ## Next steps
 
 - The [command-line guide](cli.md) documents the `brailix` terminal command in full.
-- The [API reference](api.md) documents every public class and function.
+- The [API reference](https://brailix.github.io/brailix/) documents every public class and function, generated from the source.
 - [Extending brailix](extending.md) shows how to add an engine, a format, a renderer, a profile, or a language.

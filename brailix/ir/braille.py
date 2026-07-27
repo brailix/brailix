@@ -57,6 +57,13 @@ class BrailleCell:
     :attr:`brailix.ir.document.Block.span` for which blocks do). A
     display-oriented consumer (an editor pane) instead rebases by its own
     per-leaf offsets into whatever text it renders.
+
+    One exception, documented on :class:`brailix.ir.document.Block`: the
+    cells of a **table row** are row-local, because the backend flattens a
+    whole :class:`~brailix.ir.document.TableRow` into one braille block —
+    the row's joined text (cells separated by two spaces) is the leaf they
+    resolve against, not the individual :class:`
+    ~brailix.ir.document.TableCell`.
     """
 
     dots: tuple[int, ...] = ()

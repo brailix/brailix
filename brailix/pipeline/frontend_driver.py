@@ -59,6 +59,7 @@ from brailix.pipeline._helpers import (
     _resolve_language_adapter,
     cache_lookup,
     cache_record,
+    tree_cache_key,
 )
 from brailix.pipeline._populate import populate_leaf
 from brailix.pipeline._results import TreeSubcache
@@ -231,28 +232,7 @@ class FrontendDriver:
             return
         if isinstance(block, Table):
             for row in block.rows:
-                # Each cell is tokenised in isolation, so its inline spans are
-                # local to the cell's own text. A row's display text is its
-                # cells joined by two spaces (matching the backend's two-blank
-                # column separator), so rebase each cell's spans by its offset
-                # in that joined string — otherwise a non-first cell's inline
-                # node / braille cell highlights the wrong column.
-                cell_offset = 0
-                for cell in row.cells:
-                    # Heal HERE, before reading ``already_populated``: a stale
-                    # cell (edited text / other configuration) is dropped and
-                    # rebuilt inside the recursive call below, and the rebuilt
-                    # children need the span rebase exactly like a fresh
-                    # populate — reading the pre-heal children count would
-                    # skip it and highlight the wrong column.
-                    self._heal_stale_children(cell)
-                    already_populated = bool(cell.children)
-                    self.populate_block(
-                        cell, ctx, tree_in=tree_in, tree_out=tree_out
-                    )
-                    if cell_offset and not already_populated:
-                        _shift_node_spans(cell, cell_offset)
-                    cell_offset += _table_cell_source_len(cell) + _TABLE_CELL_GAP
+                self._populate_row(row, ctx, tree_in=tree_in, tree_out=tree_out)
             return
         self._heal_stale_children(block)
 
@@ -285,6 +265,64 @@ class FrontendDriver:
         # rely on this method to re-record it.
         if block.span is None and block.text:
             block.span = Span(0, len(block.text))
+
+    def _populate_row(
+        self,
+        row: Any,
+        ctx: FrontendContext,
+        *,
+        tree_in: TreeSubcache | None = None,
+        tree_out: TreeSubcache | None = None,
+    ) -> None:
+        """Populate one table row's cells and rebase their spans to the row.
+
+        Each cell is tokenised in isolation, so its inline spans come out
+        local to the cell's own text.  A row's display text is its cells
+        joined by two spaces (matching the backend's two-blank column
+        separator), so every cell's spans are shifted into that row
+        coordinate — otherwise a non-first cell's inline node / braille cell
+        highlights the wrong column.
+
+        The rebase is stated as an **invariant, not a one-off shift**: after
+        this pass a cell with provenance satisfies ``cell.span.start ==
+        cell_offset``, and its descendants sit at ``cell_offset + cell-local``.
+        Re-establishing it on every pass (rather than shifting once, at the
+        moment a cell is first populated) is what makes an *edited* table
+        re-compile correctly, because a cell's offset depends on the cells
+        **before** it while staleness is judged per cell:
+
+        * Widening column 0 moves column 1 even though column 1's own text —
+          and therefore its children — is untouched and reused.  The applied
+          offset is read back from ``cell.span.start``, so the cell is shifted
+          by the *difference*, never re-shifted from scratch.
+        * A cell whose own text changed has its children dropped by the
+          stale-heal; the span it still carries describes the OLD text at the
+          OLD offset, so it is cleared first and rebuilt cell-local from the
+          current text.  (Reusing it would both keep the old length and get
+          shifted a second time, landing the cell past the end of the row.)
+
+        A cell that ends up with no span at all — hand-built children with no
+        ``text`` to synthesise one from — is left alone, per the hand-built-IR
+        "used as-is" contract: there is no anchor to rebase against.
+        """
+        cell_offset = 0
+        for cell in row.cells:
+            # Heal BEFORE reading the children: a stale cell (edited text /
+            # other configuration) is dropped here and rebuilt by the
+            # recursive call below, and the rebuilt children need the same
+            # rebase a fresh populate gets.
+            self._heal_stale_children(cell)
+            if cell.text is not None and not cell.children:
+                # About to (re)populate from ``text``: any span still on the
+                # cell describes a previous compile's text at a previous
+                # offset.  Drop it so ``_ensure_block_span`` rebuilds a
+                # cell-local one from the current text.
+                cell.span = None
+            self.populate_block(cell, ctx, tree_in=tree_in, tree_out=tree_out)
+            applied = cell.span.start if cell.span is not None else None
+            if applied is not None and applied != cell_offset:
+                _shift_node_spans(cell, cell_offset - applied)
+            cell_offset += _table_cell_source_len(cell) + _TABLE_CELL_GAP
 
     def _heal_stale_children(self, block: Any) -> None:
         """Drop ``children`` that no longer describe ``block.text`` — the
@@ -462,7 +500,9 @@ class FrontendDriver:
         tree_in: TreeSubcache | None = None,
         tree_out: TreeSubcache | None = None,
     ) -> None:
-        cache_key = ("math", node.source, node.surface, "")
+        # Same key shape (and therefore the same pool) as a display MathBlock:
+        # an identical formula parses to the same tree inline or displayed.
+        cache_key = tree_cache_key("math", node.source, node.surface)
         if node.math is not None:
             # Already parsed (frontend ran twice, or caller pre-populated).
             # Still record in tree_out so the caller's per-block cache

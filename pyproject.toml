@@ -149,6 +149,14 @@ verify = [
     "mutmut>=3.6",
 ]
 
+# The API reference is generated from the docstrings, not written by hand
+# (scripts/build_docs.py). Its own group so a plain `uv sync` doesn't pull a
+# doc generator into the everyday dev loop:
+#     uv run --group docs python scripts/build_docs.py --output-dir site
+docs = [
+    "pdoc>=15",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

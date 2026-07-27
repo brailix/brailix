@@ -31,6 +31,14 @@ LaTeX; the input layer imports no frontend for these:
 
 Neither opens .sib / .musx / .dorico / .mscz — proprietary formats stay
 outside brailix per ``ARCHITECTURE.md``
+
+All three take an :class:`~brailix.input.limits.InputLimits` and apply its
+decoded-character ceiling the moment the score text exists — before it is
+wrapped in a block. The check lives *here*, in the adapter that materialises
+the text, rather than in :func:`brailix.input.parse_file`'s routing, so a
+caller reaching for one of these directly (the documented way to bypass
+suffix dispatch) keeps its policy instead of silently losing it — and so a
+score suffix can never become a hole in a service's character budget.
 """
 
 from __future__ import annotations
@@ -39,6 +47,7 @@ import os
 from pathlib import Path
 
 from brailix.core.context import MusicContext
+from brailix.input.limits import DEFAULT_INPUT_LIMITS, InputLimits
 from brailix.ir.document import DocumentIR, ScoreBlock
 
 _MUSICXML_TEXT_SUFFIXES = frozenset({".musicxml", ".xml"})
@@ -93,6 +102,7 @@ def parse_musicxml(
     *,
     language: str,
     profile: str,
+    limits: InputLimits = DEFAULT_INPUT_LIMITS,
 ) -> DocumentIR:
     """Read a MusicXML / .mxl file and return a single-block
     :class:`DocumentIR`.
@@ -103,10 +113,19 @@ def parse_musicxml(
     ``"musicxml"`` — the inner XML carries no compression by the time
     it lands in the block.
 
+    ``limits`` bounds the resolved MusicXML *text*: the ceiling is applied
+    after the read / decompression, since that string is what the music
+    frontend then walks. (The whole-file byte gate is
+    :meth:`InputLimits.check_file_size`, run by :func:`brailix.input.
+    parse_file` before any read; a ``.mxl``'s archive-internal budget is the
+    ``mxl`` adapter's own, always on.)
+
     Raises :class:`FileNotFoundError` if the path is missing,
     :class:`ValueError` for unrecognised suffixes,
     :class:`UnicodeDecodeError` if a ``.musicxml`` file's bytes are
-    neither valid UTF-8 nor UTF-16-BOM-prefixed.
+    neither valid UTF-8 nor UTF-16-BOM-prefixed, and
+    :class:`~brailix.input.limits.InputTooLargeError` when the resolved text
+    exceeds ``limits``.
     """
     p = Path(path)
     suffix = p.suffix.lower()
@@ -121,6 +140,7 @@ def parse_musicxml(
             f"unsupported music file extension {suffix!r} "
             f"(expected .musicxml / .xml / .mxl)"
         )
+    limits.check_text_length(text)
 
     block = ScoreBlock(text=text, source="musicxml")
     return DocumentIR(
@@ -134,6 +154,7 @@ def parse_score_file(
     *,
     language: str,
     profile: str,
+    limits: InputLimits = DEFAULT_INPUT_LIMITS,
 ) -> DocumentIR:
     """Read a *binary* score file (``.mid`` / ``.midi``) and eagerly decode
     it to MusicXML at the input boundary.
@@ -153,13 +174,19 @@ def parse_score_file(
     1), so this function imports the music source registry only for the
     binary-decode exception.
 
+    ``limits`` bounds the *decoded* MusicXML the adapter produces — the
+    string the music frontend then walks — the same ceiling
+    :func:`parse_musicxml` applies to the text it reads.
+
     Raises :class:`FileNotFoundError` if the path is missing,
     :class:`ValueError` for a suffix this function doesn't handle (use
     :func:`parse_deferred_score` for ``.abc``, :func:`parse_musicxml` for
-    the MusicXML family), and
+    the MusicXML family),
     :class:`~brailix.core.errors.MissingExtraError` when the format's
     optional dependency isn't installed — the message names the extra
-    (for example ``pip install brailix[midi]``).
+    (for example ``pip install brailix[midi]``) — and
+    :class:`~brailix.input.limits.InputTooLargeError` when the decoded
+    MusicXML exceeds ``limits``.
     """
     from brailix.frontend.music.registry import music_source_registry
 
@@ -180,6 +207,7 @@ def parse_score_file(
     musicxml = adapter.to_musicxml(
         p.read_bytes(), MusicContext(source=source, profile=profile)
     )
+    limits.check_text_length(musicxml)
 
     block = ScoreBlock(text=musicxml, source="musicxml")
     return DocumentIR(
@@ -193,6 +221,7 @@ def parse_deferred_score(
     *,
     language: str,
     profile: str,
+    limits: InputLimits = DEFAULT_INPUT_LIMITS,
 ) -> DocumentIR:
     """Read a *text-dialect* score file (``.abc``) and store it **raw**,
     deferring conversion to the frontend.
@@ -213,10 +242,18 @@ def parse_deferred_score(
     Conversion, the ``abc`` extra, and its failure modes all live at
     frontend time.
 
-    Raises :class:`FileNotFoundError` if the path is missing and
+    ``limits`` bounds the decoded source text. It matters *more* here than
+    on the eager paths, not less: the text is stored verbatim and every
+    character of it is what the frontend later converts, so a text dialect
+    behind a score suffix must not buy a way past a service's character
+    ceiling.
+
+    Raises :class:`FileNotFoundError` if the path is missing,
     :class:`ValueError` for a suffix this function doesn't handle (use
     :func:`parse_score_file` for ``.mid`` / ``.midi``, :func:`parse_musicxml`
-    for the MusicXML family). It never raises
+    for the MusicXML family), and
+    :class:`~brailix.input.limits.InputTooLargeError` when the decoded text
+    exceeds ``limits``. It never raises
     :class:`~brailix.core.errors.MissingExtraError`: no adapter is touched
     here, so reading a ``.abc`` needs no optional dependency installed.
     """
@@ -233,6 +270,7 @@ def parse_deferred_score(
     # BOM-aware text read (UTF-16 / UTF-8), matching parse_musicxml; ABC is
     # plain text, so it lands in the block verbatim — no adapter, no frontend.
     text = _read_xml_text(p)
+    limits.check_text_length(text)
     block = ScoreBlock(text=text, source=source)
     return DocumentIR(
         metadata={"language": language, "profile": profile},

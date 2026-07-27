@@ -1,4 +1,9 @@
-# brailix CI — lint and type-check, plus unit tests on Linux and Windows.
+# brailix CI — lint and type-check, unit tests on Linux and Windows, the
+# generated API reference, and a wheel smoke test.
+#
+# The Pages deploy needs "Build and deployment → Source: GitHub Actions" set
+# once in the repository settings; until then the publish job fails while
+# everything else stays green.
 name: CI
 
 on:
@@ -89,6 +94,52 @@ jobs:
         run: >-
           uv run pytest
           --cov=brailix --cov-report=term-missing --cov-fail-under=94
+
+  docs:
+    name: API reference
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      # Builds on every push AND every pull request, not only before a
+      # deploy: the reference is generated from the docstrings, so a change
+      # that breaks it (an unimportable facade module, a docstring pdoc
+      # chokes on) is a change to the library, and it should fail in the PR
+      # that made it rather than silently after merge.
+      - name: Build the API reference
+        run: >-
+          uv run --group docs
+          python scripts/build_docs.py --output-dir site
+
+      - name: Upload the reference as a Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
+        with:
+          path: site
+
+  # Publishing is split from building so the build can run on pull requests
+  # from forks with no permissions at all, while only a push to the default
+  # branch gets the write-scoped token that can deploy.
+  publish-docs:
+    name: publish the API reference
+    needs: docs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128  # v5.0.0
 
   wheel:
     name: wheel build + clean-install smoke

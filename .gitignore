@@ -9,6 +9,10 @@ wheels/
 # Virtual environments
 .venv
 
+# Generated API reference (scripts/build_docs.py --output-dir site); CI
+# builds it fresh and publishes it, so a local copy is never committed.
+site/
+
 # Coverage / pytest / tooling caches
 .coverage
 .coverage.*

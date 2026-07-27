@@ -76,13 +76,12 @@ def all_assets() -> list[ModelAsset]:
     return [_assets[k] for k in sorted(_assets)]
 
 
-def clear() -> None:
-    """Drop all registrations and reset the download policy.
-
-    Test-only — never call from app code.
-    """
-    _assets.clear()
-    set_managed_download(False)
+# (There is deliberately no ``clear()`` reset helper. A test that needs a
+# clean registry snapshots ``_assets`` / ``_managed_download`` and restores
+# them in a fixture — restoring beats wiping, since the real registrations
+# come from adapter imports that only happen once per process. A global
+# "drop everything" function on a stable facade would be an app-reachable
+# way to un-register those.)
 
 
 def set_managed_download(enabled: bool = True) -> None:
@@ -107,7 +106,6 @@ def is_managed_download() -> bool:
 __all__ = (
     "ModelAsset",
     "all_assets",
-    "clear",
     "get_asset",
     "is_managed_download",
     "register_asset",

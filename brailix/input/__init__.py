@@ -189,23 +189,40 @@ def _route_doc(ctx: _FileCtx) -> DocumentIR:
 def _route_musicxml(ctx: _FileCtx) -> DocumentIR:
     # MusicXML / .mxl → single-block DocumentIR wrapping a ScoreBlock;
     # _populate.populate_music_block later runs the music frontend over it.
-    return parse_musicxml(ctx.path, language=ctx.language, profile=ctx.profile)
+    # The adapter reads the path itself (so this stays off ``ctx.text``) and
+    # applies the decoded-character gate to the resolved MusicXML.
+    return parse_musicxml(
+        ctx.path,
+        language=ctx.language,
+        profile=ctx.profile,
+        limits=ctx.limits,
+    )
 
 
 def _route_binary_score(ctx: _FileCtx) -> DocumentIR:
     # .mid / .midi (binary) → MusicXML via the midi source adapter, eagerly
     # at input (§1 rule 2: the text IR can't carry binary). parse_score_file
     # reads the bytes itself, so this stays a path handler (never UTF-8
-    # decoded).
-    return parse_score_file(ctx.path, language=ctx.language, profile=ctx.profile)
+    # decoded); the char gate applies to the MusicXML it decodes to.
+    return parse_score_file(
+        ctx.path,
+        language=ctx.language,
+        profile=ctx.profile,
+        limits=ctx.limits,
+    )
 
 
 def _route_deferred_score(ctx: _FileCtx) -> DocumentIR:
     # .abc (text) → kept raw, deferred to the frontend (§1 rule 1), exactly
     # like a LaTeX MathBlock. parse_deferred_score reads the text (BOM-aware)
     # and imports no frontend, so no music adapter / extra is touched here.
+    # It applies the char gate to that text, so a score suffix is not a way
+    # around a tightened ``max_text_chars``.
     return parse_deferred_score(
-        ctx.path, language=ctx.language, profile=ctx.profile
+        ctx.path,
+        language=ctx.language,
+        profile=ctx.profile,
+        limits=ctx.limits,
     )
 
 
@@ -224,7 +241,12 @@ def _route_xml(ctx: _FileCtx) -> DocumentIR:
     # character gate here too — the file-byte gate already ran in parse_file.
     ctx.limits.check_text_length(text)
     if _looks_like_musicxml(text):
-        return parse_musicxml(ctx.path, language=ctx.language, profile=ctx.profile)
+        return parse_musicxml(
+            ctx.path,
+            language=ctx.language,
+            profile=ctx.profile,
+            limits=ctx.limits,
+        )
     return parse_plain(text, language=ctx.language, profile=ctx.profile)
 
 
@@ -306,19 +328,25 @@ def parse_file(
     drives the value from the ``input.docx.mathtype_fallback`` profile
     feature.
 
-    ``limits`` is a whole-file size budget (see :class:`InputLimits`),
-    enforced as a ``stat()`` gate **before** any byte is read, so an
-    oversized file is refused without being loaded into memory — the guard a
-    service accepting untrusted uploads needs (a multi-GB ``.txt`` / ``.mid``
-    / ``.mxl`` otherwise spikes memory the instant it is read). The default
-    (:data:`DEFAULT_INPUT_LIMITS`) is deliberately generous — far above any
-    realistic document — so a desktop caller opening its own files never trips
-    it; a service tightens it, and :meth:`InputLimits.unlimited` opts out. The
-    archive-internal caps (a ``.mxl`` / ``.docx`` member's decompressed size,
-    the zip-bomb defence) are separate and always on, in their adapters.
+    ``limits`` is the input size budget (see :class:`InputLimits`), in two
+    parts. The file-byte ceiling is a ``stat()`` gate **before** any byte is
+    read, so an oversized file is refused without being loaded into memory —
+    the guard a service accepting untrusted uploads needs (a multi-GB
+    ``.txt`` / ``.mid`` / ``.mxl`` otherwise spikes memory the instant it is
+    read). The decoded-character ceiling then bounds the text handed to the
+    frontend, and every route that produces text applies it — plain /
+    Markdown / ``.xml`` here, and the ``.abc`` / MusicXML / ``.mxl`` /
+    ``.mid`` score text inside its own adapter — so no suffix is a way
+    around it. The default (:data:`DEFAULT_INPUT_LIMITS`) is deliberately
+    generous — far above any realistic document — so a desktop caller opening
+    its own files never trips it; a service tightens it, and
+    :meth:`InputLimits.unlimited` opts out. The archive-internal caps (a
+    ``.mxl`` / ``.docx`` member's decompressed size, the zip-bomb defence)
+    are separate and always on, in their adapters.
 
     Errors propagate as-is: :class:`FileNotFoundError` when ``path``
-    doesn't exist, :class:`InputTooLargeError` when it exceeds ``limits``,
+    doesn't exist, :class:`InputTooLargeError` when its bytes or its decoded
+    text exceed ``limits``,
     :class:`UnicodeDecodeError` when text bytes aren't valid UTF-8,
     :class:`MissingExtraError` when a needed extra (``docx`` for Word,
     ``midi`` for MIDI) isn't installed at input time — ``.abc`` defers its

@@ -55,7 +55,7 @@ Full docs are in [`docs/`](docs/index.md):
 
 - [Getting started](docs/getting-started.md) — install and translate your first text.
 - [Command-line interface](docs/cli.md) — translate from a terminal with the `brailix` command.
-- [API reference](docs/api.md) — the `Pipeline`, result objects, IR, profiles, and renderers.
+- [API reference](https://brailix.github.io/brailix/) — the `Pipeline`, result objects, IR, and renderers; generated from the source.
 - [Extending brailix](docs/extending.md) — add an engine, format, renderer, profile, or language.
 - [Development](docs/development.md) — set up, run the tests, and the project conventions.
 - [Architecture](ARCHITECTURE.md) — the pipeline, the intermediate representations, and the adapter pattern.

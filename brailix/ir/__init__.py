@@ -35,11 +35,6 @@ from __future__ import annotations
 
 from brailix.ir.braille import (
     BLANK_CELL,
-    CASES_CLOSE_CELL,
-    CASES_OPEN_CELL,
-    HANG_CLOSE_CELL,
-    HANG_OPEN_CELL,
-    LINE_BREAK_CELL,
     BrailleBlock,
     BrailleCell,
     BrailleDocument,
@@ -88,25 +83,30 @@ from brailix.ir.inline import (
     Word,
 )
 
-# Note: ``TactileRaster`` (the tactile Product IR named above) is deliberately
-# NOT re-exported here — not because it is a "product" (``BrailleCell`` is a
-# Product IR too, yet it *is* re-exported) but because this shallow top-level
-# surface serves the braille main line: its consumers (proofreading / CLI
-# front-ends) want the document, inline and braille types together. The
-# independent graphics vertical's raster is imported straight from
-# ``brailix.ir.tactile`` by the few callers that need it (the tactile
-# renderers, the graphic editor). The graphics *document-model* node types
-# (:class:`GraphicBlock`, :class:`GraphicInline`) are re-exported, like
-# Math/Music, because they are first-class document IR citizens.
+# What this facade holds is the **data model**: the block / inline / braille
+# types a consumer builds, walks and serialises. Two deliberate exclusions,
+# both on that same criterion rather than on "is it a product":
+#
+# * The layout control sentinels (``LINE_BREAK_CELL``, ``HANG_OPEN_CELL`` /
+#   ``HANG_CLOSE_CELL``, ``CASES_OPEN_CELL`` / ``CASES_CLOSE_CELL``) are the
+#   backend→renderer wire protocol for a matrix row break / hanging indent,
+#   not part of the data model, and a renderer identifies them by ``role``
+#   (``"line_break"``, ``"hang_open"``, ...) rather than by identity — see
+#   ``brailix.backend.math.utils``, which spells out "judge by role". They
+#   stay in ``brailix.ir.braille`` where the backend, the renderers and their
+#   tests already import them. ``BLANK_CELL`` does stay here: an empty cell is
+#   a value a consumer legitimately builds and compares against.
+# * ``TactileRaster`` (the tactile Product IR) belongs to the independent
+#   graphics vertical, whose consumers (the tactile renderers, the graphic
+#   editor) import it straight from ``brailix.ir.tactile``; this shallow
+#   surface serves the braille main line, whose consumers want the document,
+#   inline and braille types together. The graphics *document-model* node
+#   types (:class:`GraphicBlock`, :class:`GraphicInline`) ARE re-exported,
+#   like Math / Music, because they are first-class document IR citizens.
 
 __all__ = (
     # braille
     "BLANK_CELL",
-    "CASES_CLOSE_CELL",
-    "CASES_OPEN_CELL",
-    "HANG_CLOSE_CELL",
-    "HANG_OPEN_CELL",
-    "LINE_BREAK_CELL",
     "BrailleBlock",
     "BrailleCell",
     "BrailleDocument",

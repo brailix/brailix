@@ -6,10 +6,15 @@ these contracts — concrete implementations live behind registries (see
 the per-subsystem ``adapters/`` packages) and are loaded lazily so a
 user without HanLP installed can still run a jieba-only pipeline.
 
-These are :func:`typing.runtime_checkable` Protocols so registries can
-validate at registration time. The structural check only verifies method
-names, not signatures, so you should also write unit tests for adapter
-behaviour.
+These are :func:`typing.runtime_checkable` Protocols so a registry can
+validate the adapters it hands out. The check happens at **load time**, not
+registration time: :meth:`brailix.core.registry.Registry.register` only
+stores the loader (that is what keeps the heavy import lazy), and the
+``isinstance`` check runs in :meth:`~brailix.core.registry.Registry.get`,
+once the loader has produced an instance. So a non-conforming adapter
+surfaces on first use, not at import of the module that registered it. The
+structural check only verifies method names, not signatures, so you should
+also write unit tests for adapter behaviour.
 """
 
 from __future__ import annotations

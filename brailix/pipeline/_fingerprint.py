@@ -38,17 +38,25 @@ re-resolves names on every run — so a configuration digest alone would let
 a cache keep serving output compiled by the replaced implementation.
 :attr:`Pipeline.fingerprint` therefore folds every compilation-relevant
 registry's ``generation`` counter (:func:`registries_generation`) into the
-digest it exposes: any runtime ``register`` / ``unregister`` advances the
-fingerprint of every live Pipeline (deliberately coarse — per-registry, not
-per-name — because which names a compile touches isn't statically known;
-over-invalidation is the safe direction).
+digest it exposes: any runtime ``register`` / ``unregister`` /
+``clear_cache`` advances the fingerprint of every live Pipeline
+(deliberately coarse — per-registry, not per-name — because which names a
+compile touches isn't statically known; over-invalidation is the safe
+direction). ``clear_cache`` counts because dropping a cached ``auto``
+adapter lets the replacement re-probe the environment and pick a different
+delegate.
 
 Deliberately NOT covered — the fingerprint identifies *configuration*, not
 *environment*: third-party adapter library versions, model files on disk,
-and what ``"auto"`` adapter names probe to at run time are invisible to
-it. Within one process those are fixed, so in-memory caches (the intended
-consumer) are sound; a cache persisted across machines or installs needs
-an environment stamp of its own on top.
+and what an ``"auto"`` name probes to on its **first** resolution are
+invisible to it. Once resolved, that choice is memoised (on the adapter
+instance, which the registry caches), and every way of discarding it moves
+a generation — so within one process a name that has already compiled
+something keeps compiling it the same way, which is what makes in-memory
+caches (the intended consumer) sound. An adapter whose own behaviour
+changes underneath it (a model downloaded mid-process) is still outside
+the coverage, as is a cache persisted across machines or installs: that
+needs an environment stamp of its own on top.
 """
 
 from __future__ import annotations
