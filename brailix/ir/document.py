@@ -48,6 +48,20 @@ class Block:
       **leaf-local**: offsets into the owning leaf block's ``text``,
       starting at 0 per block. Under the exact-slice contract,
       ``block.span.start + leaf_local`` is the exact source position.
+
+    **The one exception: a table row is the leaf.** The backend flattens a
+    :class:`TableRow` into a single braille block, joining its cells with two
+    blank cells, so the row — not the cell — is the unit a consumer resolves
+    against. Both a :class:`TableCell`'s own ``span`` and the spans inside it
+    are therefore **row-local**: offsets into ``"  ".join(cell.text for cell
+    in row.cells)``, so ``row_text[node.span]`` slices the node's surface
+    exactly. The pipeline establishes this on every populate pass (see
+    :meth:`brailix.pipeline.FrontendDriver._populate_row`), so it also holds
+    after an edit shifts one column's width. Consequently a cell's ``span``
+    is *not* a source-document span the way every other block's is — a table
+    has no per-cell document coordinate to begin with, since the Markdown
+    adapter rebuilds cell offsets from the de-syntaxed text rather than
+    slicing the source row.
     """
 
     type: ClassVar[str] = "block"
@@ -219,6 +233,15 @@ class List(Block):
 
 @dataclass(slots=True)
 class TableCell(Block):
+    """One table cell.
+
+    Span note: a cell and everything under it carries **row-local** offsets,
+    not the leaf-local ones every other block uses — see the coordinate
+    contract on :class:`Block`. The backend renders a whole
+    :class:`TableRow` as one braille block, so the row's joined text is the
+    coordinate system its provenance has to resolve against.
+    """
+
     type: ClassVar[str] = "table_cell"
 
 

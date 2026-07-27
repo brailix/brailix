@@ -104,7 +104,18 @@ class TestSourceSpanContract:
 
 def _leaves(blocks: Iterable[Block]) -> Iterator[Block]:
     """Leaf blocks in backend expansion order (a List expands per item),
-    so leaves zip positionally with ``braille_ir.blocks``."""
+    so leaves zip positionally with ``braille_ir.blocks``.
+
+    A :class:`~brailix.ir.document.Table` is deliberately NOT expanded here:
+    its cells are the documented **row-local** exception to the coordinate
+    contract (see :class:`~brailix.ir.document.Block`), so composing them
+    with a block span cannot recover the source — a row's joined text is not
+    a slice of the Markdown source, whose ``|`` separators the adapter
+    strips. Table provenance accuracy is checked against the row coordinate
+    instead, in ``tests/integration/test_document_pipeline.py``
+    (``TestTableCellSpanRebasingOnRecompile``). Presence of a span on table
+    cells is covered above, by the whole-document traceability check.
+    """
     for b in blocks:
         if isinstance(b, ListBlock):
             yield from b.items

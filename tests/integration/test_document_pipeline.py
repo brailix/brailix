@@ -6,13 +6,19 @@ Markdown adapter, covering the frontend/backend boundary contracts:
 * The Chinese frontend runs over text-bearing blocks (paragraph,
   heading, list_item, quote, footnote, table_cell) — those land with
   populated ``children``.
-* It deliberately skips :class:`MathBlock` and :class:`CodeBlock` —
-  their ``text`` is not language text, so populating ``children``
-  with Chinese tokens would pollute the IR. The backend's block
-  expander reads ``block.text`` directly for both.
+* :class:`MathBlock` and :class:`CodeBlock` deliberately bypass the
+  Chinese frontend — their ``text`` is not language text, so Chinese
+  tokens in ``children`` would pollute the IR. They are populated by
+  their own vertical instead (the math frontend's ``MathInline``
+  carrying a parsed MathML tree, a verbatim ``CodeInline``), and the
+  backend consumes those children like any other inline node rather
+  than re-reading ``block.text``.
 * The block expander produces one :class:`BrailleBlock` per
   paragraph / heading / quote / footnote / image_alt / math_block /
   code_block, and multiple blocks per List / Table.
+* Table cells carry **row-local** spans, and that stays true across a
+  re-compile of an edited table (the coordinate contract on
+  :class:`~brailix.ir.document.Block`).
 * The layout renderer honors ``heading_level`` (level 1 centred,
   deeper levels flush left).
 """
@@ -86,7 +92,7 @@ class TestNoFrontendPollution:
 
 
 # ---------------------------------------------------------------------------
-# Backend produces cells for both math/code despite empty children
+# Backend produces cells for both math and code, from their own children
 # ---------------------------------------------------------------------------
 
 
@@ -171,6 +177,121 @@ class TestTableCellSpanRebasing:
         table = next(b for b in doc.blocks if isinstance(b, Table))
         child = table.rows[0].cells[0].children[0]
         assert child.span.start == 0
+
+
+class TestTableCellSpanRebasingOnRecompile:
+    """The rebase must survive a **re-compile of an edited table**, not only
+    the first compile.
+
+    Each cell decides on its own whether its children are stale (its text
+    changed) — but a cell's row-local offset depends on the cells *before* it.
+    Widening column 0 moves every later column even though their own text is
+    untouched, and a cell whose text DID change must not have the previous
+    compile's row-local span treated as a cell-local one and shifted twice.
+    Both used to leave ``source_span`` pointing at the wrong column: braille
+    still correct, provenance silently wrong (click-to-jump, cross-pane
+    highlight, proofreading anchors).
+    """
+
+    @staticmethod
+    def _row_text(row) -> str:
+        # What the backend flattens a row into: cells joined by two spaces.
+        return "  ".join(cell.text for cell in row.cells)
+
+    def _assert_row_local(self, row) -> None:
+        text = self._row_text(row)
+        for cell in row.cells:
+            assert cell.span is not None
+            assert text[cell.span.start : cell.span.end] == cell.text
+            for child in cell.children:
+                assert child.span is not None
+                assert text[child.span.start : child.span.end] == child.surface
+
+    def _table(self, pipe, source: str):
+        from brailix.ir.document import Table
+
+        doc = parse_markdown(source, profile="cn_current", language="zh-CN")
+        pipe.translate_document(doc)
+        return doc, next(b for b in doc.blocks if isinstance(b, Table))
+
+    def test_widening_first_column_moves_later_columns(self, pipe):
+        doc, table = self._table(pipe, "| AB | CDE |\n| --- | --- |\n")
+        self._assert_row_local(table.rows[0])
+
+        # Column 0 grows by two characters; column 1's own text is untouched,
+        # so its children are reused — they must still be rebased.
+        table.rows[0].cells[0].text = "ABCD"
+        pipe.translate_document(doc)
+        self._assert_row_local(table.rows[0])
+        c1 = table.rows[0].cells[1].children[0]
+        assert (c1.span.start, c1.span.end) == (6, 9)  # was (4, 7)
+
+    def test_editing_a_later_column_does_not_double_shift(self, pipe):
+        doc, table = self._table(pipe, "| AB | CDE |\n| --- | --- |\n")
+        # Column 1's text changes: its children are dropped and rebuilt, and
+        # the span left over from the previous compile is already row-local —
+        # shifting it again would land the cell past the end of the row.
+        table.rows[0].cells[1].text = "XY"
+        pipe.translate_document(doc)
+        self._assert_row_local(table.rows[0])
+        cell = table.rows[0].cells[1]
+        assert (cell.span.start, cell.span.end) == (4, 6)
+
+    def test_shrinking_first_column_pulls_later_columns_back(self, pipe):
+        doc, table = self._table(pipe, "| ABCD | EF |\n| --- | --- |\n")
+        table.rows[0].cells[0].text = "A"
+        pipe.translate_document(doc)
+        self._assert_row_local(table.rows[0])
+
+    def test_repeated_translation_is_idempotent(self, pipe):
+        doc, table = self._table(pipe, "| AB | CDE | F |\n| --- | --- | --- |\n")
+        before = [
+            (cell.span.start, cell.span.end) for cell in table.rows[0].cells
+        ]
+        pipe.translate_document(doc)
+        pipe.translate_document(doc)
+        after = [
+            (cell.span.start, cell.span.end) for cell in table.rows[0].cells
+        ]
+        assert before == after
+        self._assert_row_local(table.rows[0])
+
+    def test_multi_row_multi_column_with_empty_cell(self, pipe):
+        doc, table = self._table(
+            pipe,
+            "| AB | CDE |\n| --- | --- |\n|  | GH |\n| IJ | KL |\n",
+        )
+        table.rows[0].cells[0].text = "ABCDEF"
+        table.rows[2].cells[0].text = "I"
+        pipe.translate_document(doc)
+        for row in table.rows:
+            text = self._row_text(row)
+            for cell in row.cells:
+                if not cell.text:
+                    continue
+                assert text[cell.span.start : cell.span.end] == cell.text
+                for child in cell.children:
+                    assert (
+                        text[child.span.start : child.span.end] == child.surface
+                    )
+
+    def test_braille_cell_source_text_matches_row_slice(self, pipe):
+        doc, table = self._table(pipe, "| AB | CDE |\n| --- | --- |\n")
+        table.rows[0].cells[0].text = "ABCD"
+        result = pipe.translate_document(doc)
+        row_text = self._row_text(table.rows[0])
+        rows = [
+            b for b in result.braille_ir.blocks if b.block_type == "table_row"
+        ]
+        assert rows
+        checked = 0
+        for cell in rows[0].cells:
+            if cell.source_span is None or not cell.source_text:
+                continue
+            sliced = row_text[cell.source_span.start : cell.source_span.end]
+            assert sliced == cell.source_text
+            checked += 1
+        assert checked, "no braille cell carried provenance to check"
 
 
 # ---------------------------------------------------------------------------
