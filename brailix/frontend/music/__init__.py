@@ -16,7 +16,11 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 
 from brailix.core.context import MusicContext
-from brailix.core.errors import PROGRAMMING_ERRORS, MissingExtraError
+from brailix.core.errors import (
+    PROGRAMMING_ERRORS,
+    MissingExtraError,
+    StrictModeError,
+)
 from brailix.frontend.music.adapters.musicxml import music_error_wrap
 from brailix.frontend.music.normalizer import normalize
 
@@ -40,6 +44,14 @@ def parse_music_tree(
     Soft-failure backstop: an adapter (or the normalizer) that raises
     anyway — the registry is open to third-party adapters — degrades to
     the standard ``<music-error>`` tree instead of crashing the caller.
+
+    Two exception classes are exempt from that backstop, identically here and
+    in the math / graphics entry points (the shared policy is pinned by
+    ``tests/frontend/test_soft_failure_policy.py``):
+    :class:`~brailix.core.errors.StrictModeError` (the adapter's own warning,
+    already promoted and carrying its real code) and
+    :data:`~brailix.core.errors.PROGRAMMING_ERRORS` (a code defect, never a
+    property of the score).
     """
     from brailix.frontend.music.registry import music_source_registry
 
@@ -65,6 +77,11 @@ def parse_music_tree(
     try:
         musicxml = adapter.to_musicxml(src, ctx)
         return normalize(musicxml, ctx)
+    except StrictModeError:
+        # The adapter reported a diagnostic and STRICT mode promoted it. It
+        # already carries the real code; degrading it to <music-error> would
+        # hide the failure the caller explicitly asked to be raised.
+        raise
     except PROGRAMMING_ERRORS:
         # A genuine code defect (AttributeError / NameError / AssertionError) is
         # never the right response to bad music input — let it crash loudly

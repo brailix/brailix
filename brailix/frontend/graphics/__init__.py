@@ -23,7 +23,11 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 
 from brailix.core.context import GraphicsContext
-from brailix.core.errors import MissingExtraError
+from brailix.core.errors import (
+    PROGRAMMING_ERRORS,
+    MissingExtraError,
+    StrictModeError,
+)
 from brailix.frontend.graphics.normalizer import normalize
 
 
@@ -48,6 +52,16 @@ def parse_graphic_tree(
     Soft-failure backstop: an adapter that raises anyway — the registry
     is open to third-party adapters — degrades to the same error-marked
     tree instead of crashing the caller.
+
+    "Always a tree" is a soft-*failure* promise, not a never-raises one. Two
+    exception classes are exempt from the backstop, identically here and in the
+    math / music entry points (the shared policy is pinned by
+    ``tests/frontend/test_soft_failure_policy.py``):
+    :class:`~brailix.core.errors.StrictModeError` — which this function can
+    already raise from a warning on the missing-adapter path, since STRICT mode
+    means "any diagnostic is a failure" — and
+    :data:`~brailix.core.errors.PROGRAMMING_ERRORS`, a code defect that must
+    stay locatable instead of hiding inside a blank figure.
     """
     from brailix.frontend.graphics.adapters.svg import svg_error_wrap
     from brailix.frontend.graphics.registry import graphic_source_registry
@@ -74,6 +88,15 @@ def parse_graphic_tree(
 
     try:
         return normalize(adapter.to_svg(src, ctx))
+    except StrictModeError:
+        # The adapter reported a diagnostic and STRICT mode promoted it. It
+        # already carries the real code; degrading it to an error-marked SVG
+        # would hide the failure the caller explicitly asked to be raised.
+        raise
+    except PROGRAMMING_ERRORS:
+        # AttributeError / NameError / AssertionError = our (or the adapter's)
+        # bug, not a bad figure. See brailix.core.errors.
+        raise
     except Exception as e:  # noqa: BLE001 — pipeline must never crash
         # Adapters promise soft failure (an error-marked SVG) and the
         # normalizer promises never to raise, but the registry is
