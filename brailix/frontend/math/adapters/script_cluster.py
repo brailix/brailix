@@ -8,7 +8,7 @@ baseline characters verbatim, a superscript run as ``^{...}``, a subscript
 run as ``_{...}`` (e.g. ``H_{2}O``, ``x^{2}``, ``Fe^{3+}``). That string is
 all the input layer produces: reconstructing the MathML, and deciding
 whether the cluster is chemistry or generic math, is *analysis* and lives
-here in the frontend (ARCHITECTURE §1, "source → MathML is the frontend's
+here in the frontend (ARCHITECTURE#arch-layers, "source → MathML is the frontend's
 job").
 
 Two source names share this adapter:

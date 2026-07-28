@@ -1263,7 +1263,7 @@ class TestCoerceDotsField:
 
 
 # ---------------------------------------------------------------------------
-# Per-language ``tables.<lang>`` slot (§7.6)
+# Per-language ``tables.<lang>`` slot (ARCHITECTURE#arch-language-slots)
 # ---------------------------------------------------------------------------
 
 
@@ -1331,7 +1331,8 @@ class TestLangTablesValidation:
         # A profile that omits tables.ja declares no ``_required`` groups, so
         # there is nothing to enforce — which groups are mandatory is the
         # profile's own data (``tables.<lang>._required``), keeping the
-        # validator language-agnostic (§7.6). It loads with no ja cell tables
+        # validator language-agnostic (ARCHITECTURE#arch-language-slots). It
+            # loads with no ja cell tables
         # (the backend would warn at translation if such a profile were used).
         name = _write_ja_profile(tmp_path, ja_section=None)
         p = load_profile(name, root=tmp_path)

@@ -12,7 +12,7 @@ stored as OMML / EQ arrives as a deferred source-tagged island
 (:mod:`brailix.core.inline_math`) and is converted by
 :func:`~brailix.frontend.math.parse_math_tree`, exactly as a user-typed
 ``$...$`` fragment is. The boundary rule (text defers, binary is decoded
-at input) is stated in ARCHITECTURE §1; the dependency is one-way (input
+at input) is stated in ARCHITECTURE#arch-layers; the dependency is one-way (input
 imports this; this never imports input).
 
 ## One public callable per subsystem
@@ -110,7 +110,7 @@ class _ZhFrontend(LanguageFrontend):
     Lives here (frontend orchestration level), not inside
     ``frontend.zh.analyzer``, because it chains the analyzer with the
     pinyin resolver — and the analyzer must not import
-    ``frontend.zh.pinyin`` (subsystem independence, ARCHITECTURE §7.1).
+    ``frontend.zh.pinyin`` (subsystem independence, ARCHITECTURE#arch-mediators).
     """
 
     # Chinese prose reaches the frontend as ``hanzi_text`` segments (Han
@@ -167,7 +167,8 @@ language_frontend_registry.register("ja", _JaFrontend)
 # boundaries; a language with no handler passes through unchanged — its
 # within-segment spacing already ran in its frontend (e.g. Japanese
 # wakachigaki in ``tokens_to_inline``). Keyed by the language subtag,
-# mirroring the §7.6 registries, so the orchestrator stays language-blind.
+# mirroring the ARCHITECTURE#arch-language-slots registries, so the
+# orchestrator stays language-blind.
 boundary_registry: dict[str, BoundaryHandler] = {}
 
 

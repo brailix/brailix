@@ -738,7 +738,7 @@ class Pipeline:
         profile is a later refinement (plan §3). ``margin_mm`` and
         ``item_gap_mm`` default to one cell advance and one interline pitch.
 
-        Braille state does not leak across blocks (ARCHITECTURE §12), so
+        Braille state does not leak across blocks (ARCHITECTURE#arch-boundaries), so
         compiling block-by-block is sound. The document is **mutated in place**
         (children filled where missing), like :meth:`translate_document`.
         """
@@ -904,7 +904,7 @@ class Pipeline:
 
         Block-level translation is sound because braille state
         (number_sign, capital indicator, math state machine) **does
-        not leak** across block boundaries — see ARCHITECTURE.md §12.
+        not leak** across block boundaries — see ARCHITECTURE#arch-boundaries.
 
         ``ir_transformer`` is an optional in-place mutation hook that
         runs between frontend and backend.  The compiler doesn't care

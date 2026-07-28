@@ -373,7 +373,7 @@ class DocumentIR:
     blocks reference via :attr:`ImageAlt.target` (and, once converted, a
     ``graphic-image`` fence's ``path``). It is the document-level side
     table OOXML itself uses, decoded eagerly at the input boundary per
-    the ARCHITECTURE §1 rule that the text IR carries no binary payload;
+    the ARCHITECTURE#arch-layers rule that the text IR carries no binary payload;
     :meth:`to_dict` deliberately excludes it (that is the text-IR view —
     a container format that persists a document's assets serialises them
     itself, in its own encoding)."""

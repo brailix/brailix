@@ -2,7 +2,7 @@
 
 Locks the infrastructure that lets a new language (Japanese, Korean,
 ...) plug in without re-architecting the orchestrator — see
-ARCHITECTURE §7.6. The concrete language rules are out of scope here;
+ARCHITECTURE#arch-language-slots. The concrete language rules are out of scope here;
 these tests exercise the *seam*, using Chinese as the one shipped
 implementation plus throwaway registrations.
 """

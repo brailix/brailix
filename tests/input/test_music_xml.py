@@ -317,7 +317,7 @@ class TestParseScoreFileMissingExtra:
 
 class TestParseDeferredScore:
     """.abc is a text dialect: stored raw at input and deferred to the
-    frontend (ARCHITECTURE §1 rule 1), exactly as a LaTeX MathBlock — the
+    frontend (ARCHITECTURE#arch-layers rule 1), exactly as a LaTeX MathBlock — the
     input layer runs no adapter and imports no frontend for it."""
 
     def test_abc_via_parse_file_stored_raw(self, tmp_path):

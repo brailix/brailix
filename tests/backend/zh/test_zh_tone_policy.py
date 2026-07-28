@@ -472,7 +472,7 @@ class TestEndToEnd:
 
 
 # ---------------------------------------------------------------------------
-# Registry behavior — ARCHITECTURE.md §7.3
+# Registry behavior — ARCHITECTURE#arch-registries
 # ---------------------------------------------------------------------------
 
 
@@ -510,8 +510,8 @@ class TestRegistry:
     ):
         """A plugin / out-of-tree caller registers a custom strategy
         and the profile picks it up by name.  No changes to backend.zh
-        or its tone package itself.  This is what ARCHITECTURE.md
-        §7.3 calls out: an adapter is imported only when first requested —
+        or its tone package itself.  This is what
+        ARCHITECTURE#arch-registries calls out: an adapter is imported only when first requested —
         third-party adapters live wherever, register their name, and
         get dispatched."""
         from brailix.backend.zh.pinyin_parser import ParsedPinyin

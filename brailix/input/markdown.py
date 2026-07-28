@@ -122,7 +122,7 @@ def is_closing_fence(line: str) -> bool:
 # SVG (the common inline case) — the same shape as inline math's
 # dialect-tagged islands, where the tag *is* the source name. Namespaced
 # under ``graphic`` so a figure fence can't be mistaken for an ordinary
-# ```code fence. The input layer stays registry-free (ARCHITECTURE §7.3):
+# ```code fence. The input layer stays registry-free (ARCHITECTURE#arch-registries):
 # a name no adapter answers to soft-fails at compile time as
 # ``GRAPHICS_ADAPTER_MISSING`` plus a blank raster, so registering a new
 # graphics source needs no input-layer change at all.

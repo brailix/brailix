@@ -16,7 +16,7 @@ the image relationships once per document (mirroring
 of python-docx specifics. The bytes themselves ride out of the parse on
 :attr:`~brailix.ir.document.DocumentIR.assets` under the same asset
 name, per the "binary payloads decode eagerly at the input boundary"
-rule (ARCHITECTURE §1); whether an image then *becomes* a tactile
+rule (ARCHITECTURE#arch-layers); whether an image then *becomes* a tactile
 graphic is the user's explicit, per-image decision
 (ARCHITECTURE.md) — this layer only preserves it.
 

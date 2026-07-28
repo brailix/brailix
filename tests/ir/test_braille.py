@@ -119,7 +119,7 @@ class TestSpanCarryingFactories:
     """The traceable counterparts of the span-less sentinel constants.
 
     Every control / spacing cell the backend emits goes through these
-    factories, so "every cell maps to a source span" (ARCHITECTURE §3)
+    factories, so "every cell maps to a source span" (ARCHITECTURE#arch-traceability)
     stands on their exact output: zero dots, the exact role the renderers
     key on, the caller's span carried through UNTOUCHED (including a
     zero-width boundary span and the explicit None a hand-built caller may
@@ -187,7 +187,7 @@ class TestMalformedSourceSpan:
 class TestValidateTraceability:
     """:meth:`BrailleDocument.validate_traceability` reports the position of
     every cell missing a ``source_span`` — the reusable, first-class form of
-    the "every cell maps to a source span" contract (ARCHITECTURE §3)."""
+    the "every cell maps to a source span" contract (ARCHITECTURE#arch-traceability)."""
 
     def test_empty_document_is_traceable(self):
         assert BrailleDocument().validate_traceability() == []

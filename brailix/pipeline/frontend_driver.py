@@ -420,7 +420,7 @@ class FrontendDriver:
     # normalizer and the prose frontend are each selected by the active
     # profile's language (see :meth:`frontend_options` /
     # :meth:`_process_segment`), so adding a language is registration,
-    # not a change here. See ARCHITECTURE §7.6.
+    # not a change here. See ARCHITECTURE#arch-language-slots.
 
     def frontend_options(self) -> dict[str, Any]:
         lang = self._profile.language.split("-")[0]
@@ -487,7 +487,7 @@ class FrontendDriver:
         # segment types are its prose (``prose_types``), so this
         # orchestrator never hard-codes a script. Adding a language means
         # registering a LanguageFrontend (plus a matching segmenter for
-        # its script) — no change here. See ARCHITECTURE §7.6.
+        # its script) — no change here. See ARCHITECTURE#arch-language-slots.
         lang = self._profile.language.split("-")[0]
         if language_frontend_registry.has(lang):
             frontend = language_frontend_registry.get(lang)

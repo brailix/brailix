@@ -345,7 +345,7 @@ def _try_atomic(seg: Segment) -> InlineNode | None:
         # but did not convert (Word OMML / EQ field); decode it back to its
         # raw payload + source dialect so the right adapter runs later. This
         # is what lets the input layer defer instead of importing the math
-        # frontend (see brailix.core.inline_math / ARCHITECTURE §1).
+        # frontend (see brailix.core.inline_math / ARCHITECTURE#arch-layers).
         if inline_math.is_tagged(seg.surface):
             source, payload = inline_math.unwrap(seg.surface)
             return MathInline(surface=payload, span=seg.span, source=source)

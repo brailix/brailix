@@ -17,7 +17,7 @@ date marker (年/月/日…) to the profile language's
 ``LanguageBackend.translate_date_marker``, resolved through the registry
 rather than a hard import. That backend owns the marker reading and the
 connector rule (Chinese exempts the year marker 年), so no per-language
-date rule lives in this module (ARCHITECTURE §7.6 / §12).
+date rule lives in this module (ARCHITECTURE#arch-language-slots / #arch-boundaries).
 """
 
 from __future__ import annotations
@@ -196,7 +196,7 @@ def translate_date(node: Date, ctx: BackendContext, profile: BrailleProfile) -> 
     ``LanguageBackend.translate_date_marker`` (resolved through the
     registry, **not** a hard import), which owns the marker reading and
     the connector rule. So no per-language date rule lives in this
-    language-neutral module (ARCHITECTURE §7.6 / §12).
+    language-neutral module (ARCHITECTURE#arch-language-slots / #arch-boundaries).
 
     ``follows_number=True`` is passed when the marker directly follows a
     Number, so the language backend can decide whether a connector ⠤

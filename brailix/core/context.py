@@ -141,7 +141,7 @@ class MusicContext:
 # ``GraphicsContext.options``. Read it via
 # :meth:`GraphicsContext.asset_resolver`, never by the literal string —
 # see :class:`brailix.core.protocols.GraphicAssetResolver` and
-# ARCHITECTURE §12 (the same inject-a-callable seam as the inline-text
+# ARCHITECTURE#arch-boundaries (the same inject-a-callable seam as the inline-text
 # translator).
 GRAPHIC_ASSET_RESOLVER_KEY = "graphic_asset_resolver"
 
@@ -175,7 +175,7 @@ class GraphicsContext:
         ``None`` in a bare run (a hand-authored figure that references a
         real file, a unit test), where the adapter falls back to resolving
         the reference as a filesystem path. The sanctioned injection seam
-        (ARCHITECTURE §12) — the callable is handed in, never imported."""
+        (ARCHITECTURE#arch-boundaries) — the callable is handed in, never imported."""
         return self.options.get(GRAPHIC_ASSET_RESOLVER_KEY)
 
 
@@ -187,7 +187,7 @@ class GraphicsContext:
 # ``BackendContext.options``. Read it via
 # :meth:`BackendContext.inline_text_translator`, never by the literal
 # string — see :class:`brailix.core.protocols.InlineTextTranslator` and
-# ARCHITECTURE §12.
+# ARCHITECTURE#arch-boundaries.
 INLINE_TEXT_TRANSLATOR_KEY = "inline_text_translator"
 
 
@@ -226,7 +226,7 @@ class BackendContext:
         chem reaction conditions, math ``\\text{...}``) call this to render
         text through the zh / latin path. ``None`` in a bare backend run or
         a unit test, so callers fall back to a warning + marker. This is the
-        sanctioned backend→frontend seam (ARCHITECTURE §12) — the
+        sanctioned backend→frontend seam (ARCHITECTURE#arch-boundaries) — the
         callable is injected, never imported.
 
         ``domain`` / ``span`` attribute the embedded run's diagnostics: the

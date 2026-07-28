@@ -3,7 +3,7 @@
 Embedded prose (a math ``<mtext>`` / ``\\text{...}`` run, a chemistry
 reaction condition, a music ``<words>`` direction, inline lyrics) is
 translated through the callable the Pipeline injects onto
-``BackendContext.options`` — ARCHITECTURE.md §12's one controlled
+``BackendContext.options`` — ARCHITECTURE#arch-boundaries's one controlled
 exception to "backend never calls the frontend".  That translator runs
 a private frontend over a throwaway one-paragraph document, so the
 cells it returns carry 0-based spans of THAT document.  Those are

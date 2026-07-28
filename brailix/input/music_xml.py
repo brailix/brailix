@@ -2,7 +2,7 @@
 
 Read a score file from disk and wrap it as a single-block
 :class:`DocumentIR` carrying a :class:`ScoreBlock`. Three entry points,
-split by how — and *when* — the source reaches MusicXML (ARCHITECTURE §1,
+split by how — and *when* — the source reaches MusicXML (ARCHITECTURE#arch-layers,
 the input/frontend payload-shape boundary):
 
 :func:`parse_musicxml` — the MusicXML family (no source adapter needed):
@@ -15,14 +15,16 @@ the input/frontend payload-shape boundary):
   MusicXML so the backend doesn't need to re-unzip later).
 
 :func:`parse_score_file` — *binary* dialects decoded eagerly at the input
-boundary, because the text IR can't carry binary bytes (§1 rule 2, the same
+boundary, because the text IR can't carry binary bytes
+(ARCHITECTURE#arch-layers rule 2, the same
 exception ``.mxl`` / MTEF take):
 
 * ``.mid`` / ``.midi`` → MIDI bytes converted through the ``midi`` adapter
   (needs the ``midi`` extra); ``source`` normalised to ``"musicxml"``.
 
 :func:`parse_deferred_score` — *text* dialects kept **raw** and deferred to
-the frontend (§1 rule 1), exactly as ``MathBlock(source="latex")`` defers
+the frontend (ARCHITECTURE#arch-layers rule 1), exactly as
+``MathBlock(source="latex")`` defers
 LaTeX; the input layer imports no frontend for these:
 
 * ``.abc`` → stored verbatim as ``ScoreBlock(source="abc")``;
@@ -56,7 +58,7 @@ _MXL_SUFFIXES = frozenset({".mxl"})
 MUSIC_SUFFIXES = _MUSICXML_TEXT_SUFFIXES | _MXL_SUFFIXES
 
 # Binary score dialects: decoded eagerly at the input boundary because the
-# text IR can't carry binary bytes (ARCHITECTURE §1 rule 2 — the same
+# text IR can't carry binary bytes (ARCHITECTURE#arch-layers rule 2 — the same
 # exception MTEF and the ``.mxl`` ZIP take). Suffix → music source name;
 # kept as data so a new binary score format is one more entry plus its
 # registered adapter — no new branch (ARCHITECTURE.md, adapter pattern).
@@ -67,7 +69,7 @@ _BINARY_SCORE_SOURCES: dict[str, str] = {
 BINARY_SCORE_SUFFIXES = frozenset(_BINARY_SCORE_SOURCES)
 
 # Text score dialects: kept RAW at input and deferred to the frontend
-# (ARCHITECTURE §1 rule 1), exactly as ``MathBlock(source="latex")`` defers
+# (ARCHITECTURE#arch-layers rule 1), exactly as ``MathBlock(source="latex")`` defers
 # LaTeX. ABC is UTF-8 text, so it fits the text IR and rides the
 # defer-to-frontend seam rather than the binary eager path — the input layer
 # holds no frontend import for it. Suffix → music source name (the block's
@@ -160,7 +162,8 @@ def parse_score_file(
     """Read a *binary* score file (``.mid`` / ``.midi``) and eagerly decode
     it to MusicXML at the input boundary.
 
-    Binary dialects are the deliberate §1-rule-2 exception: the text IR
+    Binary dialects are the deliberate ARCHITECTURE#arch-layers rule-2
+        exception: the text IR
     can't carry raw bytes, so the matching music source adapter (the
     ``midi`` adapter, needing the ``midi`` extra) runs here at input time —
     the same strategy :func:`parse_musicxml` uses for ``.mxl``. The result
@@ -171,7 +174,7 @@ def parse_score_file(
     per the music subsystem's soft-failure contract.
 
     Text dialects (``.abc``) do **not** come here — they stay raw and defer
-    to the frontend via :func:`parse_deferred_score` (ARCHITECTURE §1 rule
+    to the frontend via :func:`parse_deferred_score` (ARCHITECTURE#arch-layers rule
     1), so this function imports the music source registry only for the
     binary-decode exception.
 
@@ -228,7 +231,7 @@ def parse_deferred_score(
     deferring conversion to the frontend.
 
     ABC is UTF-8 text, so — unlike the binary MIDI path — it fits in the
-    text IR and follows ARCHITECTURE §1 rule 1 (text dialects are kept raw
+    text IR and follows ARCHITECTURE#arch-layers rule 1 (text dialects are kept raw
     at input and converted in the frontend), exactly as a
     ``MathBlock(source="latex")`` defers LaTeX. The ``ScoreBlock`` carries
     the raw source with ``source`` set to the dialect name (``"abc"``); the

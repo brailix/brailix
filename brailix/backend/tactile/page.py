@@ -22,7 +22,7 @@ Layering: this stays in the tactile **backend** — it produces a
 neither the renderer nor the frontend. The caller (``Pipeline``) does the
 cell **wrapping** with the layout renderer and hands the finished lines here,
 so the renderer→backend dependency the compositor would otherwise need never
-forms (ARCHITECTURE §12: ``Backend → BrailleIR → Renderer``, one direction).
+forms (ARCHITECTURE#arch-boundaries: ``Backend → BrailleIR → Renderer``, one direction).
 
 Coordinate model matches :mod:`brailix.ir.tactile`: origin top-left, ``y``
 downward, physical millimetres mapped to device pixels through the profile's

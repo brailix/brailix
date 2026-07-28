@@ -43,9 +43,12 @@ and the patterns the codebase is built on. A few rules matter more than the rest
   adapters. Add a new tool as an adapter, not by editing core code.
 - **No hardcoding, low coupling.** Prefer a registry / adapter plus a normalized
   mediator over `if/else` dispatch on a concrete type.
-- **Respect the component responsibilities** in `ARCHITECTURE.md` §14 (the frontend
-  classifies, the backend follows the rules, the renderer only encodes bytes, and
-  so on). Breaking one turns the next change into a rewrite.
+- **Respect the component responsibilities** in
+  [`ARCHITECTURE.md`](ARCHITECTURE.md#arch-boundaries) (the frontend classifies,
+  the backend follows the rules, the renderer only encodes bytes, and so on).
+  Breaking one turns the next change into a rewrite. Code cites that document by
+  stable anchor (`ARCHITECTURE#arch-boundaries`) rather than by section number —
+  see the note at the top of it.
 - **Match the surrounding code**: comments in English, `ruff` line length 100.
 
 ## Tests

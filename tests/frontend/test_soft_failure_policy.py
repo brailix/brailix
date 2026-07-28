@@ -17,7 +17,7 @@ under STRICT mode came back as a degraded tree instead of the failure the
 caller had asked for.
 
 The fix is one shared *contract test*, not one shared helper: the three
-frontend subsystems must stay independently replaceable (ARCHITECTURE §7.1), so
+frontend subsystems must stay independently replaceable (ARCHITECTURE#arch-mediators), so
 welding their entry points onto a common code path would trade a real
 architectural property for duplicate-line removal. A test may span them; the
 production code may not.

@@ -612,7 +612,7 @@ def _emit_mtext(
     ``\\text{...}`` is natural-language text, so the primary path hands it
     to the Pipeline-injected ``inline_text_translator`` — the same zh /
     latin text seam chem reaction conditions and music lyrics use
-    (ARCHITECTURE §12). That makes Chinese render as Chinese braille,
+    (ARCHITECTURE#arch-boundaries). That makes Chinese render as Chinese braille,
     English as word-level text (one letter prefix per word, not per char),
     and spaces translate correctly — including the U+00A0 latex2mathml
     emits for a literal space inside ``\\text``.

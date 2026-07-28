@@ -17,7 +17,7 @@ and ``.doc`` (legacy binary, via external conversion).
 Math handling
     Word stores formulas as OMML (and, for older documents, OLE
     MathType or legacy EQ fields). This adapter follows one rule, the
-    same one ARCHITECTURE §1 states for the input/frontend boundary: a
+    same one ARCHITECTURE#arch-layers states for the input/frontend boundary: a
     math source that arrives as **text** is left raw and *deferred* to
     the frontend's math pass; a source that arrives as **binary** is
     decoded here, because the text IR carries no binary payload. So:
@@ -311,7 +311,7 @@ def parse_docx(
         blocks=blocks,
         # The pictures the body references, keyed by the asset name each
         # ImageAlt.target carries — decoded eagerly here because the text IR
-        # carries no binary payload (ARCHITECTURE §1, same rule as MTEF).
+        # carries no binary payload (ARCHITECTURE#arch-layers, same rule as MTEF).
         assets={name: blob for name, blob in image_blobs.values()},
     )
 

@@ -1,4 +1,4 @@
-"""Tone-emission strategy registry — ARCHITECTURE.md §7.3 form.
+"""Tone-emission strategy registry — ARCHITECTURE#arch-registries form.
 
 A profile's ``features.zh.tone_strategy`` is a strategy *name*; the
 backend looks it up in :data:`_REGISTRY` and calls the registered

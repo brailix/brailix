@@ -4,7 +4,7 @@ Covers :func:`brailix.frontend.zh.shift_token_spans` and
 :func:`brailix.frontend.zh.tokens_to_inline` — the helpers that used
 to live inside :mod:`brailix.pipeline` and got moved to the Chinese
 frontend subsystem so the orchestrator stops carrying Chinese-braille
-typesetting knowledge (ARCHITECTURE §7.1, §12).
+typesetting knowledge (ARCHITECTURE#arch-mediators, #arch-boundaries).
 
 These tests are pure-Python — no QApplication, no Pipeline — so the
 contract holds regardless of which higher-level integration evolves
@@ -593,7 +593,7 @@ class TestLetterHanziCompoundConnector:
 
 
 class TestSubsystemIndependence:
-    """Per ARCHITECTURE §7.1, the analyzer subsystem must not import the
+    """Per ARCHITECTURE#arch-mediators, the analyzer subsystem must not import the
     pinyin subsystem.  Coupling them would mean a different pinyin
     adapter would force changes inside ``frontend/zh/analyzer/`` —
     breaking the "swap an adapter, downstream untouched" guarantee."""
@@ -625,8 +625,8 @@ class TestSubsystemIndependence:
                 if module.startswith("brailix.frontend.zh.pinyin"):
                     offenders.append(module)
         assert not offenders, (
-            "frontend/zh/analyzer must not import frontend/zh/pinyin (ARCHITECTURE "
-            f"§7.1); found imports: {offenders}.  The orchestrator "
+            "frontend/zh/analyzer must not import frontend/zh/pinyin "
+            f"(ARCHITECTURE#arch-mediators); found imports: {offenders}.  The orchestrator "
             "chains zh + pinyin separately so either subsystem's "
             "adapter can be swapped independently."
         )

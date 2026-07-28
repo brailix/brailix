@@ -699,7 +699,7 @@ class TestFunctionAbbreviations:
 
 # ---------------------------------------------------------------------------
 # \text{...} (mtext): natural-language text routed through the zh / latin
-# language path (the ARCHITECTURE §12 inline_text_translator seam), NOT the
+# language path (the ARCHITECTURE#arch-boundaries inline_text_translator seam), NOT the
 # per-char math-table path. Regression lock for "\\text can't render": the
 # old path dropped Chinese to blank cells + MATH_UNKNOWN_TEXT_CHAR and
 # choked on the U+00A0 latex2mathml emits for a space inside \text.

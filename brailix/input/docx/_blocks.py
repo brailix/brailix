@@ -635,7 +635,7 @@ def _cluster_to_inline_math(
     *linearised* to a compact ``base ^{..} _{..}`` source string and wrapped
     as a source-tagged island (:mod:`brailix.core.inline_math`). Building the
     MathML, and judging whether the cluster is chemistry, is the frontend's
-    job: the ``script_cluster`` adapter does it later (ARCHITECTURE §1). The
+    job: the ``script_cluster`` adapter does it later (ARCHITECTURE#arch-layers). The
     ``chem_detection`` *config* selects the source name; the chemical
     *judgment* itself runs in the adapter, not here.
     """

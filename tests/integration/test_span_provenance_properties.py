@@ -1,6 +1,6 @@
 """Property-based tests for cell-level provenance through a real compile.
 
-ARCHITECTURE §3's core promise — *every braille cell maps to a source span* —
+ARCHITECTURE#arch-traceability's core promise — *every braille cell maps to a source span* —
 is what the whole proofreading system (click a cell, land on the character)
 stands on. The backend upholds it structurally (the dispatch boundary raises
 on a span-less cell), and :meth:`BrailleDocument.validate_traceability` turns

@@ -4,7 +4,7 @@ Reached when a profile's language has no registered ``LanguageBackend`` (a
 third-party / future-language profile, e.g. ``fr-FR`` with no French backend).
 The frontend twin ``NO_LANGUAGE_FRONTEND`` returns ``[]`` so a prose node never
 reaches the backend, making this branch structurally unreachable through the
-pipeline — so it is exercised directly here. See ARCHITECTURE §7.6.
+pipeline — so it is exercised directly here. See ARCHITECTURE#arch-language-slots.
 """
 
 from __future__ import annotations

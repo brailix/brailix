@@ -18,12 +18,24 @@ Design goals:
 
 Requirements: Python `>=3.13` (the code uses `match` and modern type syntax).
 
+**How the code cites this document.** Section *numbers* are not stable
+references: the Chinese canonical copy and this English one are organised
+independently — "§12" is 不变的边界 there and "Adding a language" here — so a
+comment citing a number would be right in at most one of them. Code therefore
+cites a **stable anchor** instead, written `ARCHITECTURE#arch-boundaries`, which
+is both a working link and a string you can search for. Each anchor is declared
+as an `<a id="...">` above the section it names, in *both* copies, and
+`tests/test_architecture_anchors.py` fails if code cites one that either copy
+does not declare. Renumbering or reordering a section is free; moving an
+invariant means moving its anchor with it.
+
 ---
 
 ## 2. Two ideas the whole design rests on
 
 Everything below is an application of two decisions.
 
+<a id="arch-mediators"></a>
 ### 2.1 Normalized mediators and adapters
 
 > For each subsystem that has a choice of external library, `brailix` defines its own **normalized mediator format** and plugs the external tools in through **adapters**, so the library stays independent of any one third-party implementation.
@@ -41,6 +53,7 @@ Each such subsystem is built the same three-part way: an adapter converts some e
 
 Whichever adapter you pick, downstream only ever sees the mediator format, so **swapping an adapter leaves every line of downstream code untouched.** The same property is what makes each layer testable on its own: feed a fixed mediator value in, assert on the mediator value out.
 
+<a id="arch-traceability"></a>
 ### 2.2 Source-span traceability
 
 Every `BrailleCell` carries the `source_span` it was produced from. That single field is what makes the output debuggable, lets the renderer wrap lines without losing provenance, and powers the proofreading system (§10): a tool can map any braille cell back to the exact source characters behind it.
@@ -53,6 +66,7 @@ These two ideas — *isolate behind a mediator* and *keep provenance on every ce
 
 ---
 
+<a id="arch-layers"></a>
 ## 3. The pipeline
 
 The compiler is a stack of layers. The Profile and its resource tables sit alongside the whole stack, supplying the rules and dot tables that the backend and renderer read.
@@ -274,6 +288,7 @@ A math formula uses its **normalized MathML tree** as its IR directly, and a sco
 
 The full math and music subsystems are described in §7 and §8.
 
+<a id="arch-braille-ir"></a>
 ### 5.4 BrailleIR (cell sequence)
 
 ```python
@@ -302,6 +317,7 @@ What BrailleIR buys you: easy debugging, traceability, line-wrapping, BRF genera
 
 ---
 
+<a id="arch-adapters"></a>
 ## 6. Adapters: protocols, registries, and dependency groups
 
 §2.1 stated the pattern; this section is its machinery. The library core ships with **zero third-party parsing dependencies** — every concrete parser is an adapter behind an optional extra.
@@ -358,6 +374,7 @@ class Renderer(Protocol):
 
 There is deliberately **no `Backend` protocol**. The backend isn't a pluggable-by-name adapter; it's a node-type dispatcher (§9.1), so it has no registry and no name→implementation contract. A new braille standard is added with a Profile JSON plus resources, not by registering a backend. Per-language *prose* translation is the one pluggable seam, and it goes through `LanguageBackend` above (§12).
 
+<a id="arch-registries"></a>
 ### 6.2 Registries and on-demand loading
 
 Each subsystem keeps a name→implementation registry, and **an adapter is imported only when it is first requested**, so a user who hasn't installed HanLP can still run a jieba-only path.
@@ -435,6 +452,7 @@ The first batch of adapters in the box — the profile always selects which one 
 | Graphic sources | `svg` (stdlib tag-walk) / `primitives` / `figure` (both stdlib) / `image` (`pillow`; full external-SVG render adds `resvg-py`) | SVG and primitives |
 | Document input | plain text / Markdown (pure-stdlib reader) / Word `.docx` / `.doc` (`python-docx` + `olefile`) / score files | enable per scenario |
 
+<a id="arch-open-closed"></a>
 ### 6.5 Adding a tool is one file
 
 Adding any external tool means writing one adapter file: a new tokenizer goes under `frontend/zh/analyzer/adapters/`, a new pinyin engine under `frontend/zh/pinyin/adapters/`, a new math source under `frontend/math/adapters/`, a new language's braille rules become a `LanguageBackend` module under `backend/` plus a profile (a new *standard* for an existing language is just a profile + resources, no code — see §9.3), and a new output format becomes a module under `renderer/`.
@@ -524,6 +542,7 @@ The tactile-graphics path reuses the same shape with a different product. A sour
 
 ## 9. The backend
 
+<a id="arch-dispatch"></a>
 ### 9.1 Dispatcher
 
 ```python
@@ -683,6 +702,7 @@ brailix --file input.md --profile cn_current --to brf --output out.brf
 echo "文本" | brailix --profile cn_current --to unicode
 ```
 
+<a id="arch-pipeline-api"></a>
 ### 11.1 What the Pipeline does
 
 The Pipeline's public entry points group by what you want back, and all of them work under one configuration (profile, adapter selection, run mode).
@@ -717,6 +737,7 @@ If you need custom block boundaries (for example, preserving soft line breaks), 
 
 ---
 
+<a id="arch-language-slots"></a>
 ## 12. Adding a language
 
 §6.5 is about swapping one adapter in a single layer; this is the bigger step of making the whole pipeline support a new language (Japanese, Korean, and so on). The design goal is to keep the orchestrator (`Pipeline` and `backend.dispatch`) entirely language-agnostic: all four subsystems — segmentation, normalization, frontend, backend — pick their implementation by language, a new language is realized only by registering at these protocol seams plus adding resources, and the orchestrator contains no language-specific branch.
@@ -753,6 +774,7 @@ Run the golden suite on every rule change; **the diff must be reviewed by hand.*
 
 ---
 
+<a id="arch-boundaries"></a>
 ## 14. Component responsibilities
 
 These are the invariants that keep each component swappable — each does exactly its own job:

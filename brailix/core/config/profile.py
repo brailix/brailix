@@ -120,7 +120,7 @@ class BrailleProfile:
     # phoneme wins over its 1-char prefix. Empty when a profile declares
     # no ``tables.phonetic``.
     phonetic: dict[str, tuple[tuple[int, ...], ...]] = field(default_factory=dict)
-    # Per-language braille tables (ARCHITECTURE §7.6 generic language
+    # Per-language braille tables (ARCHITECTURE#arch-language-slots generic language
     # slot): subtag -> table name -> entry -> cell sequence, e.g.
     # ``lang_tables["ja"]["kana"]["カ"] == ((1, 6),)``. New languages put
     # their cell tables here (read via :meth:`lang_table`) instead of
@@ -161,7 +161,7 @@ class BrailleProfile:
                 return value
         return default
 
-    # -- Per-language tables (§7.6 generic slot) ----------------------
+    # -- Per-language tables (ARCHITECTURE#arch-language-slots) -------
 
     def lang_table(self, name: str) -> dict[str, tuple[tuple[int, ...], ...]]:
         """Per-language cell table ``name`` (e.g. ``"kana"``) for this

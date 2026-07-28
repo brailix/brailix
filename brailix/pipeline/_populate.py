@@ -22,7 +22,7 @@ graphics parsers, all independently usable); what happens here is the
 compiler-side concern of running that analysis and reusing its result through
 the shared parsed-tree pools. That is why this module sits in ``pipeline`` and
 may import ``pipeline`` internals, while ``frontend`` may never import either
-(ARCHITECTURE §1 / §12, pinned by ``tests/test_core_layering.py``).
+(ARCHITECTURE#arch-layers / #arch-boundaries, pinned by ``tests/test_core_layering.py``).
 """
 
 from __future__ import annotations
@@ -469,8 +469,9 @@ def populate_graphic_block(
 #
 # Keyed on the block's EXACT type, mirroring the inline dispatcher's
 # :data:`brailix.backend.dispatch._DISPATCH`: the IR block set is a closed, flat
-# set of direct :class:`~brailix.ir.document.Block` dataclasses (ARCHITECTURE
-# §7.5 — the adapter layer is the open extension surface, the IR type set is
+# set of direct :class:`~brailix.ir.document.Block` dataclasses
+# (ARCHITECTURE#arch-open-closed — the adapter layer is the open extension
+# surface, the IR type set is
 # not), so an O(1) table is both correct and cheaper than an isinstance ladder,
 # and a new content vertical costs one entry here instead of another branch.
 #

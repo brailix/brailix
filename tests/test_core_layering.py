@@ -1,6 +1,7 @@
 """The ``brailix`` core library's layer boundaries must stay one-directional.
 
-ARCHITECTURE §1 / §12: the compile pipeline flows Input → Frontend → IR →
+ARCHITECTURE#arch-layers / #arch-boundaries: the compile pipeline flows
+Input → Frontend → IR →
 Backend → Renderer, and the dependency edges only ever point *downstream*:
 
 * **Core** (span, errors, contexts, protocols, the registry) is the base
@@ -43,11 +44,13 @@ coverage while one ordinary ``from ..`` walked straight past it;
 **Input** is guarded by allowlist rather than by a flat ban. It has a
 documented, narrow dependency on the frontend source registries for the
 binary-decode exception — ``.mxl`` / ``.mid`` music and MTEF-in-docx math
-(ARCHITECTURE §1 rule 2 / §7.3) — so an Input → Frontend edge is allowed, but
+(ARCHITECTURE#arch-layers rule 2 / #arch-registries) — so an Input →
+Frontend edge is allowed, but
 only from the modules that actually decode those containers
 (:data:`_INPUT_FRONTEND_ALLOWLIST`). Everything downstream of it (Backend,
 Renderer, Pipeline) stays banned outright. A text dialect like ``.abc`` does
-not qualify: it is kept raw and deferred to the frontend (§1 rule 1),
+not qualify: it is kept raw and deferred to the frontend
+(ARCHITECTURE#arch-layers rule 1),
 importing no frontend from the input layer. A *new* input format that reaches
 for the frontend fails here and has to justify the entry.
 """
@@ -207,7 +210,7 @@ _RULES: dict[str, tuple[str, ...]] = {
 
 # The only ``brailix.input`` modules allowed a frontend import: the binary
 # containers whose payload must be decoded at read time because it can't be
-# deferred as text (ARCHITECTURE §1 rule 2). Both reach a frontend *source
+# deferred as text (ARCHITECTURE#arch-layers rule 2). Both reach a frontend *source
 # registry* to hand the decoded fragment to the right adapter.
 _INPUT_FRONTEND_ALLOWLIST: frozenset[str] = frozenset(
     {
@@ -238,7 +241,8 @@ def _offenders() -> list[str]:
 def test_core_layer_dependencies_are_one_directional() -> None:
     offenders = _offenders()
     assert not offenders, (
-        "core layer-boundary violations (§1/§12 — deps must point downstream; "
+        "core layer-boundary violations (ARCHITECTURE#arch-layers / "
+        "#arch-boundaries — deps must point downstream; "
         "backend's prose-translator exception is DI, not import):\n"
         + "\n".join(offenders)
     )
@@ -275,7 +279,8 @@ def test_input_reaches_the_frontend_only_where_allowlisted() -> None:
             ):
                 offenders.append(f"{rel} imports {mod}")
     assert not offenders, (
-        "input → frontend outside the binary-decode allowlist (§1 rule 1: a "
+        "input → frontend outside the binary-decode allowlist "
+        "(ARCHITECTURE#arch-layers rule 1: a "
         "text dialect is kept raw and deferred, not converted at read time). "
         "If this really is a binary container, add it to "
         "_INPUT_FRONTEND_ALLOWLIST with the reason:\n" + "\n".join(offenders)

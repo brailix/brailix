@@ -1,4 +1,4 @@
-"""The generic per-language table slot (ARCHITECTURE §7.6).
+"""The generic per-language table slot (ARCHITECTURE#arch-language-slots).
 
 A non-zh profile loads its ``tables.<lang>`` section into
 ``profile.lang_tables[<lang>]``; zh keeps its welded

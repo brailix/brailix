@@ -257,7 +257,7 @@ class GraphicSourceAdapter(Protocol):
 # Backend support seam: inline-text translation
 # ---------------------------------------------------------------------------
 #
-# The one sanctioned backend→frontend dependency (ARCHITECTURE §12). A few
+# The one sanctioned backend→frontend dependency (ARCHITECTURE#arch-boundaries). A few
 # backend handlers embed natural-language prose — music ``<words>``
 # directions, inline lyrics, Chinese chemical-reaction conditions. Rather
 # than re-implement the zh / latin text path inside the backend, the
@@ -275,7 +275,7 @@ class InlineTextTranslator(Protocol):
 
     Injected by :class:`~brailix.pipeline.Pipeline` so backend handlers
     that embed natural-language text can render it through the zh / latin
-    frontend path without importing the frontend. See ARCHITECTURE §12.
+    frontend path without importing the frontend. See ARCHITECTURE#arch-boundaries.
 
     The protocol is deliberately just ``(text) -> cells``. Diagnostics are
     the implementation's affair: the Pipeline's translator reports the
@@ -306,7 +306,7 @@ class GraphicAssetResolver(Protocol):
     beside the source file. Returns ``None`` when the name is unknown, so
     the adapter can fall back to reading a filesystem path. This is the
     same inject-a-callable seam as :class:`InlineTextTranslator`
-    (ARCHITECTURE §12) — the resolver is handed in, never imported.
+    (ARCHITECTURE#arch-boundaries) — the resolver is handed in, never imported.
 
     **Caching identity.** What a resolver returns rides into compiled
     output (an ``image`` fence inlines the resolved bytes into the
@@ -331,7 +331,7 @@ class GraphicAssetResolver(Protocol):
 #
 # Note: there is deliberately no ``Backend`` Protocol. The backend isn't a
 # pluggable-by-name adapter — it's a node-type dispatcher (see
-# ``backend/dispatch.py`` and ARCHITECTURE §6.1), so it has no registry
+# ``backend/dispatch.py`` and ARCHITECTURE#arch-dispatch), so it has no registry
 # and no name→impl contract to satisfy. New braille standards are added via
 # Profile JSON + resources, not by registering a Backend implementation.
 

@@ -423,7 +423,7 @@ class TestTranslateDate:
         # exotic char the Normalizer doesn't recognise as a date
         # part), backend/zh emits MISSING_PINYIN and an unknown cell.
         # The Backend never guesses readings — that's the frontend's
-        # job (see ARCHITECTURE §12).
+        # job (see ARCHITECTURE#arch-boundaries).
         node = Date(
             surface="3旬",
             span=Span(0, 2),
@@ -458,7 +458,7 @@ class TestTranslateDate:
 class TestDateMarkerDecoupling:
     """Guard: the date-marker rule (年 connector exemption + marker reading)
     lives in the per-language ``LanguageBackend``, not in the
-    language-neutral number backend (ARCHITECTURE §7.6 / §12). Locks the
+    language-neutral number backend (ARCHITECTURE#arch-language-slots / #arch-boundaries). Locks the
     decoupling so the Chinese rule can't drift back into number.py."""
 
     def test_number_module_has_no_chinese_date_rule(self):
