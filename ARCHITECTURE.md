@@ -331,14 +331,30 @@ class MusicSourceAdapter(Protocol):
     source: str  # musicxml / mxl / midi / abc / plain
     def to_musicxml(self, src: str | bytes, ctx: MusicContext) -> str: ...
 
-class LanguageBackend(Protocol):  # prose nodes (Word / HanziChar) → cells, per language
+class GraphicSourceAdapter(Protocol):
+    source: str  # svg / primitives / figure / image / ...
+    def to_svg(self, src: str | bytes, ctx: GraphicsContext | None = None) -> str: ...
+
+class Normalizer(Protocol):
+    def normalize(self, nodes: list[InlineNode], ctx: FrontendContext) -> list[InlineNode]: ...
+
+class LanguageFrontend(Protocol):        # one language's prose → inline IR
+    prose_types: Collection[str]
+    def process(self, surface: str, base: int, ctx: FrontendContext) -> list[InlineNode]: ...
+
+class LanguageBackend(Protocol):  # prose nodes (Word / HanziChar / HanziMarker) → cells, per language
     def translate_word(self, node: Word, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]: ...
     def translate_hanzi_char(self, node: HanziChar, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]: ...
+    # All three are required — the registry runs a runtime protocol check on
+    # first resolution, so an implementation missing one is rejected at get().
+    def translate_date_marker(self, marker: HanziMarker, follows_number: bool, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]: ...
 
 class Renderer(Protocol):
     name: str
     def render(self, bir: BrailleRenderable) -> Any: ...  # str / bytes / cells / ...
 ```
+
+(Two further protocols support the backend rather than extend a source family: `InlineTextTranslator`, the one controlled backend→frontend dependency, injected through `BackendContext.options` to translate embedded prose (§14); and `GraphicAssetResolver`, which resolves a graphic's asset reference to in-document bytes. `core/protocols.py` is the authoritative list, and the extension-surface manifest in the test suite keeps the two in step.)
 
 There is deliberately **no `Backend` protocol**. The backend isn't a pluggable-by-name adapter; it's a node-type dispatcher (§9.1), so it has no registry and no name→implementation contract. A new braille standard is added with a Profile JSON plus resources, not by registering a backend. Per-language *prose* translation is the one pluggable seam, and it goes through `LanguageBackend` above (§12).
 
@@ -709,7 +725,7 @@ A profile's `language` field drives the whole chain; it takes the primary subtag
 
 1. **Segmenter**: implement the `Segmenter` protocol, recognize the language's writing system and cut its prose into typed `Segment`s (for example, tag a Japanese kana run as `kana_text`), and register it in `frontend.segment.segmenter_registry` under the language subtag. The built-in `default` segmenter recognizes only Han characters (emitting `hanzi_text`) plus the shared categories (numbers, Latin, Greek, and so on), so a non-Han writing system plugs in at this step.
 2. **Frontend**: implement the `LanguageFrontend` protocol's `process(surface, base, ctx)`, which segments a run of the language's prose, annotates its reading, and turns it into inline IR nodes; declare which `Segment` types it consumes via `prose_types` (Chinese is `{"hanzi_text"}`, Japanese might be `{"hanzi_text", "kana_text"}`), and register it in `frontend.language_frontend_registry`. The Pipeline dispatches by `prose_types`, so the segment type stays "writing-system accurate" while routing stays "by language." The Chinese implementation `_ZhFrontend` is the worked example: it wires the zh segmenter and the pinyin resolver together.
-3. **Backend**: implement the `LanguageBackend` protocol's `translate_word` and `translate_hanzi_char`, translating prose nodes into cells by the language's braille rules, and register it in `backend.dispatch.language_backend_registry`. Language-agnostic nodes (numbers, punctuation, Latin, math, music) keep going through the shared `_DISPATCH` table — leave them alone.
+3. **Backend**: implement the `LanguageBackend` protocol — `translate_word`, `translate_hanzi_char` **and** `translate_date_marker` — translating prose nodes into cells by the language's braille rules, and register it in `backend.dispatch.language_backend_registry`. All three are required: the registry runs a runtime protocol check when it first resolves your adapter, so an implementation missing one is rejected at `get()`, not at registration. `translate_date_marker` owns both a marker's reading (年/月/日/号/时/分/秒 and their equivalents) and the orthographic rule for whether a joiner cell precedes it after a number — the language-neutral date skeleton in `backend.number` delegates every marker to it, so no date-marker rule may live outside a `LanguageBackend`. A language with no special date handling still supplies an explicit implementation; there is no inherited default, and returning the plain reading is a one-line body. Language-agnostic nodes (numbers, punctuation, Latin, math, music) keep going through the shared `_DISPATCH` table — leave them alone.
 4. **Word-boundary rules (as needed)**: whether a blank cell lands between two adjacent inline nodes is the language's orthography (Chinese writes word-by-word, Japanese uses 分かち書き), not a backend braille rule. Implement a `BoundaryHandler` (takes the two neighbouring inline nodes, returns whether to insert a blank cell) and register it in `brailix.frontend.boundary_registry` under the language subtag; the zh and ja handlers are the worked examples.
 5. **Normalizer (as needed)**: the default normalizer carries Chinese structural rules (fixed readings for date markers like year/month/day). If the new language has its own structural conventions, implement the `Normalizer` protocol and register it in `frontend.normalize.normalizer_registry` under the language subtag; if not, reuse `default`.
 6. **Resources and profile**: put the language's braille rule tables under `resources/<language>/`; the shared resources (number sign, Latin, Greek, music) are already reusable at the top level. Write a profile JSON whose `language` points at the new language and whose `tables` point at those resources. A profile's `tables.<language subtag>` group is the **generic language table slot**: the loader maps it into `BrailleProfile.lang_tables[<subtag>]` and the backend reads it via `profile.lang_table(lang, name)` (for example `lang_tables["ja"]["kana"]`) — a new language's tables need no new field on the profile dataclass.

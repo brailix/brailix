@@ -21,19 +21,33 @@ Each subsystem under ``frontend/`` exposes **a single high-level
 entry point** plus a registry of internal adapter implementations.
 Users call the entry point with a :class:`FrontendContext`; which
 concrete adapter runs is decided by ``ctx.options[...]`` (or by an
-``"auto"`` default that probes what's installed):
+``"auto"`` default that probes what's installed).
 
-==================  ==============================================
-Module              Public callable
-------------------  ----------------------------------------------
-``frontend.segment``  :func:`segment` (selected by ``segmenter``)
-``frontend.normalize`` :func:`normalize` (selected by ``normalizer``)
-``frontend.zh``       :func:`tokenize` (selected by ``zh_analyzer``)
-``frontend.zh.pinyin``   :func:`annotate` (selected by ``pinyin_resolver``)
-``frontend.math``     :func:`parse_math_tree` (source via :class:`MathContext`)
-``frontend.music``    :func:`parse_music_tree` (source via :class:`MusicContext`)
-``frontend.ja``       :func:`analyze` (selected by ``ja_analyzer``)
-==================  ==============================================
+The table lists each **subsystem's own** entry point, at the module that
+defines it — not the contents of this facade. The two are deliberately
+different sets: this module re-exports the entries a *document translation*
+runs through, while music, graphics and Japanese are reached at their own
+paths by whoever drives that vertical (the Pipeline, or a caller compiling a
+score / figure directly). Import each from the module named in the left
+column; widening ``__all__`` to make the two lists match would publish four
+more compatibility promises for the sake of symmetry.
+
+======================  ==============================================
+Module                  Its public callable
+----------------------  ----------------------------------------------
+``frontend.segment``    :func:`segment` (selected by ``segmenter``)
+``frontend.normalize``  :func:`normalize` (selected by ``normalizer``)
+``frontend.zh``         :func:`tokenize` (selected by ``zh_analyzer``)
+``frontend.zh.pinyin``  :func:`annotate` (selected by ``pinyin_resolver``)
+``frontend.ja``         :func:`analyze` (selected by ``ja_analyzer``)
+``frontend.math``       :func:`parse_math_tree` (source via :class:`MathContext`)
+``frontend.music``      :func:`parse_music_tree` (source via :class:`MusicContext`)
+``frontend.graphics``   :func:`parse_graphic_tree` (source via :class:`GraphicsContext`)
+======================  ==============================================
+
+Re-exported *here*, as this facade's ``__all__``: :func:`segment`,
+:func:`normalize`, ``tokenize_zh``, ``annotate_pinyin``,
+:func:`parse_math_tree`, plus the two language-keyed registries below.
 
 Custom adapters register themselves with the corresponding registry
 (``analyzer_registry`` in :mod:`frontend.zh.analyzer.registry`,
