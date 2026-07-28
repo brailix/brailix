@@ -65,9 +65,10 @@ from __future__ import annotations
 
 import os
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from brailix.backend.block import translate_document
@@ -156,6 +157,47 @@ __all__ = [
 ]
 
 
+# The Pipeline fields that are read ONCE, at construction: they are hashed
+# into ``_fingerprint_base`` and copied into the FrontendDriver, so nothing
+# re-reads them afterwards. Assigning one on a live pipeline therefore lands
+# in one of two failure modes, both silent:
+#
+# * the write is simply ignored (``resolver`` / ``analyzer`` / a *rebound*
+#   ``user_pinyin_dict`` — the driver keeps its own copy), or
+# * it half-applies (``mode`` — each new session reads it, but the
+#   fingerprint does not move, so a cache keyed on ``source_hash`` serves
+#   braille compiled under the other configuration).
+#
+# Either way the caller silently gets output that doesn't match the
+# configuration they think they set, which is exactly the "same cache key,
+# different compile behaviour" hole the fingerprint exists to close. So the
+# fields are read-only after ``__post_init__`` and reconfiguring means
+# building a new pipeline (``dataclasses.replace``), which recomputes the
+# digest and rebuilds the driver.
+#
+# NOT in here, and deliberately assignable:
+#
+# * ``asset_resolver`` — documented as late-bindable (a front-end attaches a
+#   document's assets to an already-built pipeline). Its identity folds into
+#   :attr:`Pipeline.fingerprint` on every read and the session re-syncs it
+#   onto the driver, so both failure modes above are closed for it.
+# * ``default_renderer`` — chooses an *output encoding* after compilation;
+#   it can't change a compiled block, so it is outside the fingerprint's
+#   remit by construction.
+_FROZEN_CONFIG_FIELDS: frozenset[str] = frozenset(
+    {
+        "profile",
+        "mode",
+        "segmenter",
+        "normalizer",
+        "analyzer",
+        "resolver",
+        "user_pinyin_dict",
+        "extra_profile_paths",
+    }
+)
+
+
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
@@ -190,6 +232,21 @@ class Pipeline:
       :class:`TranslationResult` so :meth:`TranslationResult.render`
       knows what to use when called without arguments.
 
+    Configuration is also **read-only once constructed**. Every field above
+    except ``default_renderer`` and ``asset_resolver`` is consumed once, in
+    ``__post_init__``, to build the frontend driver and the compilation
+    :attr:`fingerprint`; assigning one afterwards would change what compiles
+    (or nothing at all) while the fingerprint stayed put, so it raises
+    :class:`AttributeError` instead. Reconfigure by deriving a new pipeline::
+
+        from dataclasses import replace
+
+        strict = replace(pipe, mode="strict")
+
+    which recomputes the digest and rebuilds the driver. ``user_pinyin_dict``
+    is held as a read-only view of a defensive copy for the same reason —
+    mutating the dictionary you passed in cannot reach a built pipeline.
+
     :meth:`translate_text` is the simplest entry point; the rest of the
     public surface is :meth:`translate_document` / :meth:`translate_file`
     / :meth:`translate_block` / :meth:`translate_math_inline` /
@@ -211,7 +268,13 @@ class Pipeline:
     # document.  Multi-char keys only (single-char readings are too
     # context-dependent to force globally).  Empty by default → pure no-op,
     # so the bare library and every test that omits it are unaffected.
-    user_pinyin_dict: dict[str, str] = field(default_factory=dict)
+    #
+    # Taken as a defensive copy behind a read-only view (see
+    # ``_freeze_config``): the mapping is hashed into the compilation
+    # fingerprint at construction, so an in-place ``pipe.user_pinyin_dict[w]
+    # = r`` would change the braille while the fingerprint — and every
+    # ``source_hash`` derived from it — stayed put.
+    user_pinyin_dict: Mapping[str, str] = field(default_factory=dict)
     default_renderer: str = DEFAULT_RENDERER
     # User-folder profile directories injected by the caller so a portable
     # build can ship with its own profile drops.
@@ -241,9 +304,49 @@ class Pipeline:
     _fingerprint_env: tuple[tuple[int, ...], str] | None = field(
         init=False, default=None
     )
+    # Flipped at the end of ``__post_init__``: until then the dataclass's own
+    # ``__init__`` and the normalisation below are still writing the fields,
+    # and they must go through.
+    _configured: bool = field(init=False, default=False)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Reject writes to :data:`_FROZEN_CONFIG_FIELDS` on a built pipeline.
+
+        See that constant for why each field is (or isn't) on the list. The
+        error is an :class:`AttributeError` — the standard "this attribute is
+        read-only" signal, the same one
+        :class:`dataclasses.FrozenInstanceError` subclasses — so it is never
+        mistaken for the soft-failure path an adapter error takes, and the
+        frontend's ``PROGRAMMING_ERRORS`` ladder re-raises it rather than
+        degrading it to a warning.
+        """
+        if name in _FROZEN_CONFIG_FIELDS and getattr(self, "_configured", False):
+            raise AttributeError(
+                f"Pipeline.{name} is read-only after construction: it is "
+                "baked into the compilation fingerprint and copied into the "
+                "frontend at build time, so assigning it would change what "
+                "compiles (or silently nothing) while `fingerprint` — and "
+                "every `CompiledBlock.source_hash` folded from it — stayed "
+                "put. Derive a reconfigured pipeline instead: "
+                f"`dataclasses.replace(pipeline, {name}=...)`. "
+                "(`asset_resolver` and `default_renderer` stay assignable.)"
+            )
+        # ``object.__setattr__``, not ``super().__setattr__``: ``slots=True``
+        # makes the decorator build a *replacement* class, while the implicit
+        # ``__class__`` cell a zero-argument ``super()`` closes over still
+        # points at the original — so ``super()`` raises TypeError on every
+        # instance of the class that actually exists. (The same reason
+        # ``dataclasses`` emits ``object.__setattr__`` for frozen slotted
+        # classes.)
+        object.__setattr__(self, name, value)
 
     def __post_init__(self) -> None:
         self.mode = normalize_run_mode(self.mode)
+        # Defensive copy behind a read-only view: the caller keeps their own
+        # dictionary and may go on editing it, but this pipeline's digest was
+        # computed from the contents at *this* moment, so it must hold a
+        # snapshot nobody else can reach — and one it cannot edit either.
+        self.user_pinyin_dict = MappingProxyType(dict(self.user_pinyin_dict))
         # Accept ``Path`` objects too — keeping the dataclass field type
         # as ``tuple[str, ...]`` simplifies serialization, but the caller
         # naturally passes :class:`pathlib.Path`.
@@ -287,6 +390,9 @@ class Pipeline:
             user_pinyin_dict=self.user_pinyin_dict,
         )
         self._frontend.fingerprint = self.fingerprint
+        # Configuration is complete and hashed: from here on the fields above
+        # are read-only (see ``__setattr__``).
+        self._configured = True
 
     @property
     def profile_name(self) -> str:

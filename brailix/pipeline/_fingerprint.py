@@ -68,6 +68,8 @@ from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from brailix.core.config import BrailleProfile
 
 # Schema version of the fingerprint composition. Bump when the set of
@@ -140,7 +142,7 @@ def compilation_fingerprint(
     normalizer: str,
     analyzer: str,
     resolver: str,
-    user_pinyin_dict: dict[str, str],
+    user_pinyin_dict: Mapping[str, str],
 ) -> str:
     """SHA-256 hex digest of one Pipeline's compilation configuration.
 

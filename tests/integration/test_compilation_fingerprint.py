@@ -423,3 +423,131 @@ class TestAssetResolverIdentity:
         block = GraphicBlock(text="media/image1.png", source="image")
         pipe.translate_block(block)
         assert calls == ["media/image1.png"]
+
+
+# ---------------------------------------------------------------------------
+# Configuration is read-only once constructed
+# ---------------------------------------------------------------------------
+
+
+class TestCompileConfigIsImmutable:
+    """Every compile-relevant field is consumed ONCE, in ``__post_init__``, to
+    build the frontend driver and hash ``_fingerprint_base``. Nothing re-reads
+    them, so assigning one on a live pipeline used to land in one of two silent
+    failure modes:
+
+    * the write was ignored outright (``resolver`` / ``analyzer`` / a rebound
+      ``user_pinyin_dict`` — the driver kept its own copy), or
+    * it half-applied: mutating the user dictionary *in place* really did
+      change the braille, while ``fingerprint`` and every ``source_hash``
+      folded from it stayed byte-identical. That is precisely the "same cache
+      key, two different compiles" hole the fingerprint exists to close —
+      measured before the fix, ``Paragraph("重庆")`` compiled to two different
+      cell strings under one ``source_hash``.
+
+    So the fields are read-only after construction and reconfiguring means
+    deriving a new pipeline. ``asset_resolver`` and ``default_renderer`` stay
+    assignable — see ``_FROZEN_CONFIG_FIELDS`` for why neither can go stale.
+    """
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("profile", "cn_ncb"),
+            ("mode", "strict"),
+            ("segmenter", "regex"),
+            ("normalizer", "default"),
+            ("analyzer", "char"),
+            ("resolver", "pypinyin"),
+            ("user_pinyin_dict", dict(ALT_DICT)),
+            ("extra_profile_paths", ("/nonexistent",)),
+        ],
+    )
+    def test_assigning_a_compile_field_raises(
+        self, field: str, value: object
+    ) -> None:
+        pipe = Pipeline(profile="cn_current", resolver="null")
+        with pytest.raises(AttributeError, match="read-only after construction"):
+            setattr(pipe, field, value)
+
+    def test_the_frozen_set_covers_every_fingerprinted_field(self) -> None:
+        """A new compile-relevant constructor argument must join the frozen
+        set, or it reopens the hole for itself. Pinned as an exact set: the
+        two exempt fields are exempt for stated reasons (see
+        ``_FROZEN_CONFIG_FIELDS``), and a third one appearing silently is the
+        regression."""
+        from dataclasses import fields as dc_fields
+
+        from brailix.pipeline import _FROZEN_CONFIG_FIELDS
+
+        public = {
+            f.name for f in dc_fields(Pipeline) if f.init and not f.name.startswith("_")
+        }
+        assert public - _FROZEN_CONFIG_FIELDS == {
+            "default_renderer",
+            "asset_resolver",
+        }
+
+    def test_user_dict_cannot_be_mutated_in_place(self) -> None:
+        # The in-place path is the dangerous one: it used to change the
+        # braille while leaving the digest untouched.
+        pipe = Pipeline(profile="cn_current", user_pinyin_dict={})
+        with pytest.raises(TypeError):
+            pipe.user_pinyin_dict["重庆"] = "zhong4 qing4"  # type: ignore[index]
+
+    def test_caller_dict_is_snapshotted_at_construction(self) -> None:
+        """The caller keeps their own dictionary and may go on editing it; the
+        pipeline's digest was computed from the contents at construction, so it
+        must hold a copy nobody else can reach."""
+        caller = {"我": "wo3"}
+        pipe = Pipeline(profile="cn_current", user_pinyin_dict=caller)
+        caller["重庆"] = "zhong4 qing4"
+        assert dict(pipe.user_pinyin_dict) == {"我": "wo3"}
+
+    def test_replace_is_the_reconfigure_path(self) -> None:
+        """``dataclasses.replace`` rebuilds the driver and the digest, so the
+        new dictionary both moves the cache key AND reaches the frontend —
+        the two halves that came apart when the field was assignable."""
+        from dataclasses import replace
+
+        base_pipe = Pipeline(profile="cn_current", resolver="null")
+        derived = replace(base_pipe, user_pinyin_dict=dict(ALT_DICT))
+
+        assert derived.fingerprint != base_pipe.fingerprint
+        b1 = base_pipe.translate_block(Paragraph(text="重庆"))
+        b2 = derived.translate_block(Paragraph(text="重庆"))
+        assert b1.source_hash != b2.source_hash
+        # ... and the dictionary actually ran: the null resolver leaves 重庆
+        # unread (blank cells), the dictionary entry gives it a reading.
+        dots = lambda cb: [  # noqa: E731 — tiny local shorthand
+            c.dots for bb in cb.braille_blocks for c in bb.cells
+        ]
+        assert dots(b1) != dots(b2)
+
+    def test_replace_carries_the_whole_configuration(self) -> None:
+        """Deriving must not silently reset the knobs the caller didn't name —
+        otherwise "reconfigure by replace" would trade one silent-wrong-output
+        bug for another."""
+        from dataclasses import replace
+
+        full = Pipeline(
+            profile="cn_current",
+            resolver="null",
+            analyzer="char",
+            user_pinyin_dict=dict(ALT_DICT),
+        )
+        flipped = replace(full, profile="cn_ncb")
+        assert flipped.analyzer == "char"
+        assert flipped.resolver == "null"
+        assert dict(flipped.user_pinyin_dict) == ALT_DICT
+        assert flipped.profile_name == "cn_ncb"
+
+    def test_late_bound_asset_resolver_still_allowed(self) -> None:
+        """The one documented late-binding seam stays open (a front-end
+        attaches a document's assets to an already-built pipeline)."""
+        pipe = Pipeline(profile="cn_current", resolver="null")
+        fp0 = pipe.fingerprint
+        pipe.asset_resolver = lambda name: _ASSET_SVG
+        assert pipe.fingerprint != fp0
+        pipe.default_renderer = "brf"
+        assert pipe.default_renderer == "brf"

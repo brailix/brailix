@@ -65,7 +65,7 @@ from brailix.pipeline._populate import populate_leaf
 from brailix.pipeline._results import TreeSubcache
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from brailix.core.protocols import GraphicAssetResolver
 
@@ -159,7 +159,7 @@ class FrontendDriver:
         normalizer: str,
         analyzer: str,
         resolver: str,
-        user_pinyin_dict: dict[str, str],
+        user_pinyin_dict: Mapping[str, str],
         asset_resolver: GraphicAssetResolver | None,
         parse_math_tree: TreeParser = _frontend_parse_math_tree,
         parse_music_tree: TreeParser = _frontend_parse_music_tree,
