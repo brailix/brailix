@@ -80,7 +80,7 @@ _DEFERRED_SCORE_SOURCES: dict[str, str] = {
 DEFERRED_SCORE_SUFFIXES = frozenset(_DEFERRED_SCORE_SOURCES)
 
 
-def _read_xml_text(p: Path) -> str:
+def _read_xml_text(p: Path, limits: InputLimits = DEFAULT_INPUT_LIMITS) -> str:
     """Read a MusicXML / XML text file, honouring a UTF-16 BOM.
 
     XML may legitimately be encoded UTF-16 — Finale and some Windows exporters
@@ -89,7 +89,7 @@ def _read_xml_text(p: Path) -> str:
     decode accordingly; otherwise ``utf-8-sig`` (strips a UTF-8 BOM, still
     raises on genuinely invalid UTF-8 — the documented contract).
     """
-    raw = p.read_bytes()
+    raw = limits.read_bounded(p)
     if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
         text = raw.decode("utf-16")
     else:
@@ -133,11 +133,11 @@ def parse_musicxml(
     p = Path(path)
     suffix = p.suffix.lower()
     if suffix in _MXL_SUFFIXES:
-        text = _unzip_mxl(p.read_bytes(), profile=profile)
+        text = _unzip_mxl(limits.read_bounded(p), profile=profile)
     elif suffix in _MUSICXML_TEXT_SUFFIXES:
         # Honour a UTF-16 BOM (Finale / Windows exporters) and strip a UTF-8
         # BOM; a surviving BOM would break the score sniff / XML parse.
-        text = _read_xml_text(p)
+        text = _read_xml_text(p, limits)
     else:
         raise ValueError(
             f"unsupported music file extension {suffix!r} "
@@ -209,7 +209,7 @@ def parse_score_file(
     # same way parse_docx surfaces a missing ``docx`` extra.
     adapter = music_source_registry.get(source)
     musicxml = adapter.to_musicxml(
-        p.read_bytes(), MusicContext(source=source, profile=profile)
+        limits.read_bounded(p), MusicContext(source=source, profile=profile)
     )
     limits.check_text_length(musicxml)
 

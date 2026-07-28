@@ -28,6 +28,7 @@ see because it applies before their format is even known.
 from __future__ import annotations
 
 import os
+import stat
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -117,10 +118,18 @@ class InputLimits:
     def check_file_size(self, path: str | os.PathLike[str]) -> None:
         """Reject ``path`` if it is larger than ``max_file_bytes``.
 
-        The pre-read gate: a single ``stat()`` (no bytes read), raising
-        :class:`InputTooLargeError` before an oversized file can be loaded.
+        The cheap pre-read gate: one ``stat()``, no bytes read, so an
+        obviously-oversized file is refused before any adapter is even chosen.
         Propagates :class:`FileNotFoundError` for a missing path, exactly as a
         subsequent read would — the gate never masks it.
+
+        **This is a fast reject, not the guarantee.** It describes the path at
+        one instant; whatever reads the file afterwards opens that path again,
+        and in between it can grow, be atomically replaced, or be a symlink
+        repointed at something else. The binding promise — that no more than
+        ``max_file_bytes`` is ever *consumed* — belongs to
+        :meth:`read_bounded`, which is what every whole-file read in the input
+        layer goes through.
         """
         size = Path(path).stat().st_size
         if size > self.max_file_bytes:
@@ -130,6 +139,65 @@ class InputLimits:
                 self.max_file_bytes,
                 detail=str(path),
             )
+
+    def read_bounded(self, path: str | os.PathLike[str]) -> bytes:
+        """Read ``path`` whole, consuming at most ``max_file_bytes``.
+
+        The gate that actually holds. :meth:`check_file_size` checks the path;
+        this checks the bytes, on a handle it holds open for the whole read, so
+        there is no instant between the decision and the consumption for the
+        file to change underneath:
+
+        * ``fstat`` on the **open descriptor** describes the object being read,
+          not whatever the name resolves to a moment later — a path swapped to
+          a different file, or a symlink repointed after the check, cannot
+          smuggle a larger one in;
+        * the read itself asks for one byte past the ceiling, so even a file
+          growing *while* it is being read stops there. Measured before this
+          existed: a 2-byte file under a 16-byte ceiling was replaced with 4096
+          bytes after the gate and all 4096 were parsed;
+        * a non-regular file is refused outright. ``st_size`` is meaningless
+          for a FIFO or a device — a named pipe reports 0 and then delivers
+          without end, which is the size gate reading as "empty, go ahead" on
+          the one input that can never be bounded by it.
+
+        Returns the file's bytes. Raises :class:`InputTooLargeError` when the
+        content exceeds the ceiling, and propagates :class:`OSError` /
+        :class:`FileNotFoundError` as an ordinary read would.
+        """
+        with Path(path).open("rb") as fp:
+            info = os.fstat(fp.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                raise InputTooLargeError(
+                    "file_bytes",
+                    0,
+                    self.max_file_bytes,
+                    detail=f"{path} is not a regular file",
+                )
+            if info.st_size > self.max_file_bytes:
+                raise InputTooLargeError(
+                    "file_bytes",
+                    info.st_size,
+                    self.max_file_bytes,
+                    detail=str(path),
+                )
+            # One past the ceiling: enough to prove it was exceeded without
+            # loading a byte more than that proof needs. ``unlimited()``
+            # spells its ceiling ``sys.maxsize``, and ``read(maxsize + 1)``
+            # overflows the index-sized argument — there is nothing to bound
+            # there anyway, so read straight through.
+            if self.max_file_bytes >= sys.maxsize:
+                data = fp.read()
+            else:
+                data = fp.read(self.max_file_bytes + 1)
+        if len(data) > self.max_file_bytes:
+            raise InputTooLargeError(
+                "file_bytes",
+                len(data),
+                self.max_file_bytes,
+                detail=f"{path} (grew while being read)",
+            )
+        return data
 
     def check_text_length(self, text: str) -> None:
         """Reject ``text`` if it is longer than ``max_text_chars``.

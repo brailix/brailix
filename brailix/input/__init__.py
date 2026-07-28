@@ -138,13 +138,13 @@ class _FileCtx:
         # wholesale decode is already bounded; apply the decoded-character gate
         # once the text exists (the size the frontend then walks per character).
         if self._text is None:
-            decoded = _decode_text(self.path)
+            decoded = _decode_text(self.path, self.limits)
             self.limits.check_text_length(decoded)
             self._text = decoded
         return self._text
 
 
-def _decode_text(path: Path) -> str:
+def _decode_text(path: Path, limits: InputLimits = DEFAULT_INPUT_LIMITS) -> str:
     """Decode a text file, tolerating the UTF-16 BOM Windows Notepad writes.
 
     Notepad's "save as .txt" historically emits UTF-16 LE with a BOM, and
@@ -155,8 +155,13 @@ def _decode_text(path: Path) -> str:
     endianness); otherwise fall back to ``utf-8-sig`` (which strips a UTF-8
     BOM so a Markdown heading on line one still matches, else behaves like
     utf-8). Genuinely non-UTF-8/16 bytes still raise.
+
+    Reads through :meth:`InputLimits.read_bounded`, so the bytes actually
+    consumed are capped on the handle being read — the ``stat()`` gate in
+    :func:`parse_file` describes the path at one instant and this opens it
+    again afterwards.
     """
-    raw = path.read_bytes()
+    raw = limits.read_bounded(path)
     if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
         return raw.decode("utf-16")
     return raw.decode("utf-8-sig")
