@@ -120,9 +120,12 @@ class FrontendDriver:
     A collaborator :class:`Pipeline` builds once in ``__post_init__`` with
     its own copy of the frontend adapter selection, so the frontend stages
     can be constructed and exercised without a full Pipeline. Backend and
-    rendering stay on :class:`Pipeline`; its two bridge methods
-    (:meth:`Pipeline._fresh_contexts` / :meth:`Pipeline._translate_inline_text`)
-    call back into :meth:`frontend_options` / :meth:`run_frontend` here.
+    rendering stay on :class:`Pipeline`, and two seams reach back in here:
+    :meth:`CompilationSession.begin
+    <brailix.pipeline._session.CompilationSession.begin>` builds a run's
+    contexts from :meth:`frontend_options`, and
+    :meth:`Pipeline._translate_inline_text` translates embedded prose through
+    :meth:`run_frontend`.
 
     The math / music / graphic tree parsers are injected as
     ``_parse_math_tree`` / ``_parse_music_tree`` / ``_parse_graphic_tree``
@@ -555,7 +558,7 @@ class FrontendDriver:
             options=dict(ctx.options),
         )
         # The MathSourceAdapter registry is open, so a non-conforming
-        # adapter can raise; mirror _populate_block's display-math guard so
+        # adapter can raise; mirror populate_math_block's display-math guard so
         # an inline formula can never crash the whole document translate
         # (the backend's MATH_NO_IR path degrades a None tree to a warning).
         try:

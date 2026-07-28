@@ -39,8 +39,9 @@ def compose_document_pages(
     this function is its body. Each block rides the same incremental
     pipeline as every other path (:meth:`Pipeline.translate_block`): text
     blocks yield braille cells that the layout renderer wraps to the page's
-    cell width, figure blocks yield a :class:`~brailix.ir.tactile.
-    TactileRaster`, and the tactile backend's page compositor stamps text
+    cell width, figure blocks yield a
+    :class:`~brailix.ir.tactile.TactileRaster`,
+    and the tactile backend's page compositor stamps text
     as real braille dots and blits the figures into the flow.
     """
     from brailix.backend.tactile.page import (

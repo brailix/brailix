@@ -1011,8 +1011,9 @@ def translate_graphic(
     highlight (off by default — export pays nothing). Bytes input goes to
     the source adapters as-is; they own the decode and its soft-failure.
     ``asset_resolver`` resolves an ``image`` source's reference to
-    in-document bytes (see :class:`~brailix.core.protocols.
-    GraphicAssetResolver`); ``None`` leaves it to read a filesystem path.
+    in-document bytes (see
+    :class:`~brailix.core.protocols.GraphicAssetResolver`);
+    ``None`` leaves it to read a filesystem path.
     """
     from brailix.backend.tactile import rasterize
     from brailix.backend.tactile.profile import load_tactile_profile

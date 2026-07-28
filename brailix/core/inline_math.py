@@ -41,9 +41,23 @@ Two design points make this safe:
   escaping ``$`` is what lets the island survive that segmenter scan,
   whose regex rejects an inner ``$`` or newline.
 
-The escaping is transport-level and fully reversed by :func:`unwrap`, so
-the source adapter downstream receives the byte-for-byte original payload
-(a real ``$``, not an XML character reference).
+What survives the round trip
+---------------------------
+
+The *escaping* is transport-level and fully reversed by :func:`unwrap`: the
+source adapter downstream receives a real ``$``, never a sentinel or an XML
+character reference. The *whitespace flattening* is not reversed, and cannot
+be — it is what lets the island pass the segmenter's protected-region scan,
+whose pattern rejects an inner newline. So :func:`unwrap` returns the payload
+exactly as :func:`wrap` normalised it (single spaces between tokens, no
+leading or trailing space), not the original bytes.
+
+That loss is safe for the dialects this carries, and only for them: OMML and
+EQ-field math are whitespace-insensitive between tokens, so ``x  +  1`` and
+``x + 1`` parse identically. A future payload where inner whitespace is
+*significant* — a verbatim block, a whitespace-sensitive dialect — could not
+ride this format and would need a transport that escapes newlines instead of
+collapsing them.
 """
 
 from __future__ import annotations
@@ -62,8 +76,11 @@ def wrap(source: str, payload: str) -> str:
     """Encode raw ``payload`` (written in dialect ``source``) as a tagged
     inline-math island ready to embed in a paragraph's ``text``.
 
-    Whitespace runs are flattened to single spaces and literal ``$`` is
-    escaped; :func:`unwrap` restores the original payload exactly.
+    Whitespace runs are flattened to single spaces (and the result stripped),
+    then literal ``$`` is escaped. :func:`unwrap` reverses the escaping
+    exactly; the whitespace normalisation is deliberately one-way — see the
+    module docstring for why, and for which payloads that makes this format
+    unsuitable.
     """
     flat = _WS_RE.sub(" ", payload).strip().replace("$", _DOLLAR)
     return f"${_TAG}{source}{_TAG}{flat}$"
@@ -81,9 +98,10 @@ def is_tagged(piece: str) -> bool:
 def unwrap(island: str) -> tuple[str, str]:
     """Decode a tagged island back to ``(source, payload)``.
 
-    Inverse of :func:`wrap`. Raises :class:`ValueError` if ``island`` is
-    not a well-formed tagged island, so callers should gate on
-    :func:`is_tagged` first.
+    Inverse of :func:`wrap` up to whitespace: the escaping is undone exactly,
+    the whitespace flattening :func:`wrap` applied is not (module docstring).
+    Raises :class:`ValueError` if ``island`` is not a well-formed tagged
+    island, so callers should gate on :func:`is_tagged` first.
     """
     if not is_tagged(island):
         raise ValueError("not a tagged inline-math island")

@@ -116,8 +116,9 @@ def parse_musicxml(
     ``limits`` bounds the resolved MusicXML *text*: the ceiling is applied
     after the read / decompression, since that string is what the music
     frontend then walks. (The whole-file byte gate is
-    :meth:`InputLimits.check_file_size`, run by :func:`brailix.input.
-    parse_file` before any read; a ``.mxl``'s archive-internal budget is the
+    :meth:`InputLimits.check_file_size`, run by
+    :func:`brailix.input.parse_file`
+    before any read; a ``.mxl``'s archive-internal budget is the
     ``mxl`` adapter's own, always on.)
 
     Raises :class:`FileNotFoundError` if the path is missing,

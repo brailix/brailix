@@ -669,15 +669,31 @@ echo "文本" | brailix --profile cn_current --to unicode
 
 ### 11.1 What the Pipeline does
 
-The Pipeline offers two entry points:
+The Pipeline's public entry points group by what you want back, and all of them work under one configuration (profile, adapter selection, run mode).
 
-- `Pipeline.translate_text(text)` wraps the input in a single `Paragraph` block.
+**Compile to braille**
+
+- `Pipeline.translate_text(text)` wraps the input in a single `Paragraph` block — the simplest entry point.
 - `Pipeline.translate_document(doc)` accepts a full `DocumentIR` and runs frontend + backend block by block. Combined with `brailix.input.parse_markdown(text)` it can consume Markdown text directly.
+- `Pipeline.translate_file(path)` dispatches an input adapter by suffix, then runs `translate_document`.
+- `Pipeline.translate_block(block, *, ir_transformer=None, tree_subcache=None)` is the **incremental compilation primitive**: it re-compiles one block and returns a `CompiledBlock` carrying the cache-keying `source_hash` and the parsed-tree reuse pool. This is what a proofreading front-end builds on.
+- `Pipeline.translate_math_inline(surface, source)` previews one formula straight to a braille string, discarding diagnostics (the documented preview contract).
+
+**Compile to tactile output**
+
+- `Pipeline.translate_graphic(...)`, and the module-level `brailix.translate_graphic(...)`, rasterize one figure into a `TactileRaster`.
+- `Pipeline.translate_document_to_pages(doc)` composes a document with embedded figures into tactile page rasters (braille text stamped as real dots, figures scaled into the same page).
+
+**Parse without translating**
+
+- `Pipeline.parse_text(text)` / `Pipeline.parse_file(path)` return a `DocumentIR` with `children` already populated, for callers that only want the IR (a proofreading tree, a structural check).
+
+Rendering stays **deferred** throughout: the compiling entry points return a result object, and concrete formats come from `result.render(name)` on demand.
 
 When the Pipeline processes a multi-block document it follows these rules:
 
 - The `text` of `Heading` / `Paragraph` / `Quote` / `Footnote` / `ImageAlt` / `ListItem` / `TableCell` goes through the language frontend, producing `children` (inline nodes such as HanziChar / Word / Space / Number / ...).
-- The `text` of `MathBlock` / `CodeBlock` takes a dedicated path — the Pipeline **pre-fills** their `children` in `_populate_block`. A `MathBlock` goes through the **math frontend** (`brailix.frontend.parse_math_tree`) to parse LaTeX/MathML and produce **one** `MathInline` holding the normalized MathML tree; on parse failure it raises a `MATH_BLOCK_PARSE_FAILED` warning and fills per-character `Unknown` nodes to preserve the layout placeholder. A `CodeBlock` wraps its `text` in **one** `CodeInline`, which the punct backend emits cell by cell. The point: the backend only ever sees a block whose `children` are already filled, and it consumes the IR forward-only.
+- The `text` of `MathBlock` / `CodeBlock` takes a dedicated path — the Pipeline **pre-fills** their `children` during block population (`FrontendDriver.populate_block` dispatching to the per-kind handler in `_populate`). A `MathBlock` goes through the **math frontend** (`brailix.frontend.parse_math_tree`) to parse LaTeX/MathML and produce **one** `MathInline` holding the normalized MathML tree; on parse failure it raises a `MATH_BLOCK_PARSE_FAILED` warning and fills per-character `Unknown` nodes to preserve the layout placeholder. A `CodeBlock` wraps its `text` in **one** `CodeInline`, which the punct backend emits cell by cell. The point: the backend only ever sees a block whose `children` are already filled, and it consumes the IR forward-only.
 - At render time `renderer/layout` decides indentation and blank lines by `block_type`; level-1 headings are centered, deeper headings are left-aligned, and `code_block` / `table_row` / `table` are emitted verbatim.
 - `translate_document` compiles the `DocumentIR` **in place** — this is a deliberate contract, not an implementation detail. The caller owns the source-side fields (`text`, block types, document structure); the compiler owns the derived fields it fills in (`children`, spans, the pipeline-fingerprint stamp on populated blocks). Compiling in place is what makes incremental re-translation cheap: an unchanged, same-configuration block skips the frontend on the next pass, while an edited `text` or a differently-configured pipeline drops and rebuilds its `children`. Hand the method a document you own; deep-copy first if you must keep a pristine original.
 
