@@ -155,7 +155,15 @@ def _imports_in(
             if isinstance(node, ast.If) and _is_type_checking_test(
                 node.test, aliases
             ):
-                skip.update(id(child) for child in ast.walk(node))
+                # ``node.body`` ONLY — not ``ast.walk(node)``. Walking the whole
+                # ``If`` also swallows ``orelse``, which is the ``else`` branch
+                # (and any ``elif`` chain): code that runs precisely when
+                # TYPE_CHECKING is False, i.e. at runtime. An
+                # ``else: from brailix.ir... import ...`` would have been filed
+                # as type-only — the exact edge this guard exists to catch,
+                # exempted by the exemption.
+                for statement in node.body:
+                    skip.update(id(child) for child in ast.walk(statement))
     mods: set[str] = set()
     for node in ast.walk(tree):
         if id(node) in skip:
@@ -441,6 +449,51 @@ class TestTypeCheckingDetection:
         )
         runtime = _imports_in(source, "brailix.core", runtime_only=True)
         assert "brailix.ir.document" in runtime
+
+    def test_an_else_branch_is_runtime(self) -> None:
+        """``else`` runs precisely when TYPE_CHECKING is False — at runtime.
+
+        The skip set was built from ``ast.walk(node)``, which covers the whole
+        ``If`` including ``orelse``, so an import placed there was filed as
+        type-only. The exemption for type-only code exempted the one branch
+        guaranteed to execute.
+        """
+        source = (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    pass\n"
+            "else:\n"
+            "    from brailix.ir.document import Paragraph\n"
+        )
+        runtime = _imports_in(source, "brailix.core", runtime_only=True)
+        assert "brailix.ir.document" in runtime, (
+            "an import in the else branch was treated as type-only"
+        )
+
+    def test_an_elif_branch_is_runtime(self) -> None:
+        """Same for an ``elif`` chain: it lives in ``orelse`` too."""
+        source = (
+            "import sys\n"
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    pass\n"
+            "elif sys.version_info >= (3, 13):\n"
+            "    from brailix.ir.document import Paragraph\n"
+        )
+        runtime = _imports_in(source, "brailix.core", runtime_only=True)
+        assert "brailix.ir.document" in runtime
+
+    def test_the_type_checking_body_is_still_exempt(self) -> None:
+        """The other half — narrowing the skip must not start reporting the
+        type-only imports the exemption exists for."""
+        source = (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    from brailix.ir.document import Paragraph\n"
+            "    from brailix.ir.inline import Word\n"
+        )
+        runtime = _imports_in(source, "brailix.core", runtime_only=True)
+        assert not any(m.startswith("brailix.ir") for m in runtime)
 
     def test_the_default_scan_ignores_type_checking_entirely(self) -> None:
         source = "from typing import TYPE_CHECKING\n" + self._RUNTIME_EDGE.format(

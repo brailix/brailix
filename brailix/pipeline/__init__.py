@@ -372,10 +372,16 @@ class Pipeline:
         # Accept ``Path`` objects too — keeping the dataclass field type
         # as ``tuple[str, ...]`` simplifies serialization, but the caller
         # naturally passes :class:`pathlib.Path`.
-        if self.extra_profile_paths:
-            self.extra_profile_paths = tuple(
-                str(p) for p in self.extra_profile_paths
-            )
+        # Unconditional: guarding this on truthiness left an EMPTY list as the
+        # caller's own mutable object, still reachable from both sides. The
+        # field then contradicted its declared ``tuple[str, ...]``, a caller
+        # could append to it (or to their own list) and silently change a
+        # "read-only after construction" pipeline's public configuration, and
+        # ``dataclasses.replace`` would carry the appended paths into the
+        # derived pipeline as if they had been configured all along.
+        self.extra_profile_paths = tuple(
+            str(p) for p in self.extra_profile_paths
+        )
         self._profile = load_profile(
             self.profile,
             extra_search_paths=[Path(p) for p in self.extra_profile_paths]
