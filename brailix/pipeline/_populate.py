@@ -1,6 +1,6 @@
 """How a leaf block's ``children`` get filled, one handler per block kind.
 
-:meth:`brailix.pipeline.FrontendDriver.populate_block` owns *whether* to
+:meth:`brailix.pipeline.frontend_driver.FrontendDriver.populate_block` owns *whether* to
 populate (structural recursion, the stale-heal, the fingerprint stamp); this
 module owns *how*, per kind: a math / music / graphic block parses through its
 vertical's frontend into a single carrier inline node, a code block is wrapped
@@ -173,7 +173,7 @@ def populate_leaf(
 
     Dispatches on the block's exact type through :data:`BLOCK_POPULATORS`; a
     block type absent from the table is prose and runs the language frontend.
-    :meth:`~brailix.pipeline.FrontendDriver.populate_block` owns the recursion,
+    :meth:`~brailix.pipeline.frontend_driver.FrontendDriver.populate_block` owns the recursion,
     the stale-heal and the fingerprint stamp and calls this for each leaf.
     """
     populate = BLOCK_POPULATORS.get(type(block), populate_prose_block)
@@ -317,7 +317,7 @@ def populate_math_block(
     unknown to the backend).
 
     Parsing goes through the injected ``driver._parse_math_tree`` — the same
-    parser inline math (:meth:`~brailix.pipeline.FrontendDriver.attach_math`)
+    parser inline math (:meth:`~brailix.pipeline.frontend_driver.FrontendDriver.attach_math`)
     uses — so a test injects a fault by replacing that attribute on the driver.
     """
     # Remember whether the caller-supplied block had a span. The

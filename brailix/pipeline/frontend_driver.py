@@ -14,8 +14,11 @@ orchestration stage, so a new content vertical grows the table there rather
 than this class.
 
 Split out of :mod:`brailix.pipeline` so the orchestrator module stays
-focused on :class:`Pipeline`; re-exported there so
-``brailix.pipeline.FrontendDriver`` keeps resolving.
+focused on :class:`Pipeline`. This module is where the driver is imported
+from: the orchestrator takes it under an underscore alias, so it is not
+re-exported as ``brailix.pipeline.FrontendDriver`` — a collaborator the
+Pipeline constructs for itself should not sit in the package namespace
+looking like API.
 
 The math / music / graphic tree parsers are **injected** (constructor
 arguments defaulting to the real :mod:`brailix.frontend` entry points)

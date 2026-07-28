@@ -56,7 +56,7 @@ class Block:
     are therefore **row-local**: offsets into ``"  ".join(cell.text for cell
     in row.cells)``, so ``row_text[node.span]`` slices the node's surface
     exactly. The pipeline establishes this on every populate pass (see
-    :meth:`brailix.pipeline.FrontendDriver._populate_row`), so it also holds
+    :meth:`brailix.pipeline.frontend_driver.FrontendDriver._populate_row`), so it also holds
     after an edit shifts one column's width. Consequently a cell's ``span``
     is *not* a source-document span the way every other block's is — a table
     has no per-cell document coordinate to begin with, since the Markdown

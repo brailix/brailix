@@ -17,6 +17,7 @@ from __future__ import annotations
 from brailix.core.context import (
     BackendContext,
     FrontendContext,
+    GraphicsContext,
     MathContext,
     MusicContext,
 )
@@ -47,9 +48,11 @@ __all__ = (
     # span
     "Span",
     "merge_spans",
-    # contexts
+    # contexts — one per adapter family, so every Protocol an extender
+    # implements can be annotated from this shallow surface
     "BackendContext",
     "FrontendContext",
+    "GraphicsContext",
     "MathContext",
     "MusicContext",
     # default names
