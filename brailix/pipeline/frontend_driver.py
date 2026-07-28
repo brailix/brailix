@@ -41,7 +41,6 @@ from brailix.core.context import (
     MathContext,
 )
 from brailix.core.defaults import DEFAULT_NORMALIZER, DEFAULT_SEGMENTER
-from brailix.core.errors import PROGRAMMING_ERRORS, StrictModeError
 from brailix.core.span import Span
 from brailix.frontend import apply_boundary as _apply_boundary
 from brailix.frontend import language_frontend_registry
@@ -60,11 +59,10 @@ from brailix.pipeline._helpers import (
     _all_prose_types,
     _block_surface,
     _resolve_language_adapter,
-    cache_lookup,
     cache_record,
     tree_cache_key,
 )
-from brailix.pipeline._populate import populate_leaf
+from brailix.pipeline._populate import parse_cached_tree, populate_leaf
 from brailix.pipeline._results import TreeSubcache
 
 if TYPE_CHECKING:
@@ -535,53 +533,55 @@ class FrontendDriver:
         tree_in: TreeSubcache | None = None,
         tree_out: TreeSubcache | None = None,
     ) -> None:
-        # Same key shape (and therefore the same pool) as a display MathBlock:
-        # an identical formula parses to the same tree inline or displayed.
-        cache_key = tree_cache_key(
-            "math", node.source, node.surface, identity=self.parse_identity
-        )
+        # Already parsed (the frontend ran twice, or the caller pre-populated
+        # the node). Still record it in ``tree_out`` so the caller's per-block
+        # snapshot is complete — otherwise a re-parse taking this
+        # short-circuit would silently drop the formula from the next
+        # compile's reuse pool. This is the one step display math has no
+        # equivalent of, which is why it sits here rather than in the shared
+        # helper.
         if node.math is not None:
-            # Already parsed (frontend ran twice, or caller pre-populated).
-            # Still record in tree_out so the caller's per-block cache
-            # snapshot is complete — otherwise a re-parse that hits this
-            # short-circuit path would silently drop the formula from
-            # the next compile's reuse pool.
-            cache_record(tree_out, cache_key, node.math)
-            return
-        cached = cache_lookup(tree_in, cache_key)
-        if cached is not None:
-            node.math = cached
-            cache_record(tree_out, cache_key, cached)
-            return
-        math_ctx = MathContext(
-            source=node.source,
-            mode="inline",
-            profile=self.profile,
-            warnings=ctx.warnings,
-            options=dict(ctx.options),
-        )
-        # The MathSourceAdapter registry is open, so a non-conforming
-        # adapter can raise; mirror populate_math_block's display-math guard so
-        # an inline formula can never crash the whole document translate
-        # (the backend's MATH_NO_IR path degrades a None tree to a warning).
-        try:
-            tree = self._parse_math_tree(node.surface, math_ctx)
-        except StrictModeError:
-            # See _populate.populate_music_block: keep the code, don't rewrap.
-            raise
-        except PROGRAMMING_ERRORS:
-            # A code defect is never a "bad formula" — surface it rather than
-            # degrade the inline node to None. See brailix.core.errors.
-            raise
-        except Exception as exc:  # noqa: BLE001 — adapter errors are wide
-            ctx.warnings.error(
-                code="MATH_INLINE_PARSE_FAILED",
-                message=f"inline math parse failed: {exc!r}",
-                surface=node.surface,
-                span=node.span,
-                source="pipeline",
+            cache_record(
+                tree_out,
+                # Same key shape (and therefore the same pool) as a display
+                # MathBlock: an identical formula parses to the same tree
+                # inline or displayed.
+                tree_cache_key(
+                    "math", node.source, node.surface, identity=self.parse_identity
+                ),
+                node.math,
             )
-            node.math = None
             return
+
+        # Everything else is the shared vertical skeleton: cache key, lookup,
+        # context construction, the parse, the exception ladder, the warning,
+        # and recording a success. This used to be a second copy of all of it,
+        # and the copies drifted exactly as one would expect — inline math's
+        # ladder had to be repaired on its own after the display path's had
+        # been fixed. What stays local is the recovery, which is genuinely
+        # different: display math falls back to one Unknown per character,
+        # inline math keeps the node with no tree (the backend's MATH_NO_IR
+        # path degrades that to a warning).
+        tree, _error = parse_cached_tree(
+            ctx,
+            domain="math",
+            source=node.source,
+            text=node.surface,
+            span=node.span,
+            # Nothing beyond (source, surface) feeds a math parse, so no salt.
+            identity=self.parse_identity,
+            parser=self._parse_math_tree,
+            context_factory=lambda: MathContext(
+                source=node.source,
+                mode="inline",
+                profile=self.profile,
+                warnings=ctx.warnings,
+                options=dict(ctx.options),
+            ),
+            code="MATH_INLINE_PARSE_FAILED",
+            label="inline math",
+            tree_in=tree_in,
+            tree_out=tree_out,
+        )
+        # ``None`` on failure — the documented soft-fail for an inline formula.
         node.math = tree
-        cache_record(tree_out, cache_key, tree)

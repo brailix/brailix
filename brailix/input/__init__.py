@@ -61,16 +61,22 @@ from brailix.input.limits import (
 )
 from brailix.input.markdown import parse_markdown
 from brailix.input.music_xml import (
-    BINARY_SCORE_SUFFIXES,
-    DEFERRED_SCORE_SUFFIXES,
-    MUSIC_SUFFIXES,
+    BINARY_SCORE_SUFFIXES as _BINARY_SCORE_SUFFIXES,
+)
+from brailix.input.music_xml import (
+    DEFERRED_SCORE_SUFFIXES as _DEFERRED_SCORE_SUFFIXES,
+)
+from brailix.input.music_xml import (
+    MUSIC_SUFFIXES as _MUSIC_SUFFIXES_ALL,
+)
+from brailix.input.music_xml import (
     _read_xml_text,
     parse_deferred_score,
     parse_musicxml,
     parse_score_file,
 )
 from brailix.input.plain import parse_plain
-from brailix.ir.document import DocumentIR
+from brailix.ir.document import DocumentIR as _DocumentIR
 
 __all__ = (
     "parse_plain",
@@ -100,7 +106,7 @@ _SNIFFED_XML_SUFFIXES = frozenset({".xml"})
 # minus the sniffed generic ``.xml`` container, so a new MusicXML-family suffix
 # added there flows through here automatically instead of needing a second
 # hand-maintained literal that could silently drift.
-_MUSIC_SUFFIXES = MUSIC_SUFFIXES - _SNIFFED_XML_SUFFIXES
+_MUSIC_SUFFIXES = _MUSIC_SUFFIXES_ALL - _SNIFFED_XML_SUFFIXES
 
 
 def _looks_like_musicxml(text: str) -> bool:
@@ -172,7 +178,7 @@ def _decode_text(path: Path, limits: InputLimits = DEFAULT_INPUT_LIMITS) -> str:
 # ones consume it.
 
 
-def _route_docx(ctx: _FileCtx) -> DocumentIR:
+def _route_docx(ctx: _FileCtx) -> _DocumentIR:
     return parse_docx(
         ctx.path,
         language=ctx.language,
@@ -182,7 +188,7 @@ def _route_docx(ctx: _FileCtx) -> DocumentIR:
     )
 
 
-def _route_doc(ctx: _FileCtx) -> DocumentIR:
+def _route_doc(ctx: _FileCtx) -> _DocumentIR:
     return parse_doc(
         ctx.path,
         language=ctx.language,
@@ -191,7 +197,7 @@ def _route_doc(ctx: _FileCtx) -> DocumentIR:
     )
 
 
-def _route_musicxml(ctx: _FileCtx) -> DocumentIR:
+def _route_musicxml(ctx: _FileCtx) -> _DocumentIR:
     # MusicXML / .mxl → single-block DocumentIR wrapping a ScoreBlock;
     # _populate.populate_music_block later runs the music frontend over it.
     # The adapter reads the path itself (so this stays off ``ctx.text``) and
@@ -204,7 +210,7 @@ def _route_musicxml(ctx: _FileCtx) -> DocumentIR:
     )
 
 
-def _route_binary_score(ctx: _FileCtx) -> DocumentIR:
+def _route_binary_score(ctx: _FileCtx) -> _DocumentIR:
     # .mid / .midi (binary) → MusicXML via the midi source adapter, eagerly
     # at input (ARCHITECTURE#arch-layers rule 2: the text IR can't carry
     # binary). parse_score_file
@@ -218,7 +224,7 @@ def _route_binary_score(ctx: _FileCtx) -> DocumentIR:
     )
 
 
-def _route_deferred_score(ctx: _FileCtx) -> DocumentIR:
+def _route_deferred_score(ctx: _FileCtx) -> _DocumentIR:
     # .abc (text) → kept raw, deferred to the frontend
     # (ARCHITECTURE#arch-layers rule 1), exactly
     # like a LaTeX MathBlock. parse_deferred_score reads the text (BOM-aware)
@@ -233,7 +239,7 @@ def _route_deferred_score(ctx: _FileCtx) -> DocumentIR:
     )
 
 
-def _route_xml(ctx: _FileCtx) -> DocumentIR:
+def _route_xml(ctx: _FileCtx) -> _DocumentIR:
     # Generic .xml: only treat as a score if the head looks like one;
     # otherwise plain text, so a non-score .xml (MathML, DocBook, arbitrary
     # XML) doesn't yield misleading MUSIC_* warnings / an empty score tree.
@@ -257,15 +263,15 @@ def _route_xml(ctx: _FileCtx) -> DocumentIR:
     return parse_plain(text, language=ctx.language, profile=ctx.profile)
 
 
-def _route_markdown(ctx: _FileCtx) -> DocumentIR:
+def _route_markdown(ctx: _FileCtx) -> _DocumentIR:
     return parse_markdown(ctx.text, language=ctx.language, profile=ctx.profile)
 
 
-def _route_plain(ctx: _FileCtx) -> DocumentIR:
+def _route_plain(ctx: _FileCtx) -> _DocumentIR:
     return parse_plain(ctx.text, language=ctx.language, profile=ctx.profile)
 
 
-_Handler = Callable[[_FileCtx], DocumentIR]
+_Handler = Callable[[_FileCtx], _DocumentIR]
 
 # Suffix → handler routing table — the data that replaces a chain of
 # ``if suffix in ...`` branches. Adding a built-in format is one more row plus
@@ -276,8 +282,8 @@ _FORMAT_ROUTES: tuple[tuple[frozenset[str], _Handler], ...] = (
     (_DOCX_SUFFIXES, _route_docx),
     (_DOC_SUFFIXES, _route_doc),
     (_MUSIC_SUFFIXES, _route_musicxml),
-    (BINARY_SCORE_SUFFIXES, _route_binary_score),
-    (DEFERRED_SCORE_SUFFIXES, _route_deferred_score),
+    (_BINARY_SCORE_SUFFIXES, _route_binary_score),
+    (_DEFERRED_SCORE_SUFFIXES, _route_deferred_score),
     (_SNIFFED_XML_SUFFIXES, _route_xml),
     (_MARKDOWN_SUFFIXES, _route_markdown),
 )
@@ -294,7 +300,7 @@ def parse_file(
     mathtype_fallback: str = "off",
     chem_detection: bool = False,
     limits: InputLimits = DEFAULT_INPUT_LIMITS,
-) -> DocumentIR:
+) -> _DocumentIR:
     """Read ``path`` and parse to :class:`DocumentIR` by suffix.
 
     Dispatch table:

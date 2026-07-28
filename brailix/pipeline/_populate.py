@@ -83,7 +83,10 @@ def parse_cached_tree(
     domain: str,
     source: str,
     text: str,
-    span: _Span,
+    # Optional because an inline MathInline can carry no provenance (a
+    # hand-built node); the block paths always synthesise one. It is only ever
+    # passed through to the warning, which accepts None.
+    span: _Span | None,
     salt: str = "",
     identity: str,
     parser: Callable[[str, Any], ET.Element | None],

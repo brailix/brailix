@@ -21,10 +21,10 @@ Adding a new renderer means writing one module under
 
 from __future__ import annotations
 
-from brailix.core.protocols import Renderer
-from brailix.core.registry import Registry
+from brailix.core.protocols import Renderer as _Renderer
+from brailix.core.registry import Registry as _Registry
 
-renderer_registry: Registry[Renderer] = Registry("renderer", protocol=Renderer)
+renderer_registry: _Registry[_Renderer] = _Registry("renderer", protocol=_Renderer)
 
 
 def _register_builtin() -> None:

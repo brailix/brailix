@@ -34,6 +34,7 @@ an integrator are different audiences whose surfaces should move independently.
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 
 import pytest
 
@@ -443,6 +444,78 @@ def test_pipeline_all_is_pinned() -> None:
     import brailix.pipeline as pipeline
 
     assert set(pipeline.__all__) == set(_PIPELINE_ALL)
+
+
+# Names a facade may bind without underscore despite not being in ``__all__``.
+# Only for a deliberate, documented decision — not a parking spot for whatever
+# the check currently reports.
+_NAMESPACE_ALLOWLIST: dict[str, set[str]] = {
+    # ``apply_boundary`` RUNS the registered handler; what an extender supplies
+    # is a handler in ``boundary_registry`` (which is in ``__all__``). The
+    # module docstring states it stays importable for anyone assembling an
+    # inline stream by hand while carrying no compatibility promise — a
+    # decision, so it is recorded here rather than hidden by an alias.
+    "brailix.frontend": {"apply_boundary"},
+}
+
+
+@pytest.mark.parametrize("module", sorted(_FACADE))
+def test_facade_binds_no_unpublished_brailix_name(module: str) -> None:
+    """A **facade** must not bind a ``brailix`` name it does not publish.
+
+    ``__all__`` governs ``import *`` and the generated reference. It does not
+    stop ``from brailix.frontend import LanguageFrontend`` — that imports
+    cleanly, tab-completes, and gives a third party no way to tell it from
+    ``segment`` sitting beside it. A facade is the address the documentation
+    sends people to, so what resolves there is what they will treat as the API.
+
+    Scoped to ``brailix``-owned names on purpose: ``from brailix.input import
+    Path`` is untidy, but nobody mistakes ``pathlib.Path`` for our API, whereas
+    ``Registry`` or ``DocumentIR`` at a facade path reads exactly like one.
+
+    Read from the source rather than from ``vars(module)``: a re-exported
+    *constant* (a suffix ``frozenset``) has no ``__module__`` to trace back,
+    and those are exactly the ones a runtime check misses.
+
+    **Not applied to ``brailix.pipeline``**, which is an implementation module
+    rather than a facade — it imports ``Span``, ``DocumentIR`` and two dozen
+    others because it *uses* them, and aliasing every one would be noise for a
+    module nobody is directed to import from. What matters there is narrower
+    and is checked by
+    :func:`test_pipeline_namespace_exposes_no_internal_collaborators`: it must
+    not publish the collaborators it defines *itself*, because those exist
+    nowhere else and so read as its own API.
+    """
+    import ast
+    import importlib.util
+
+    spec = importlib.util.find_spec(module)
+    assert spec is not None and spec.origin is not None
+    tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
+
+    mod = importlib.import_module(module)
+    published = set(getattr(mod, "__all__", ()))
+    allowed = _NAMESPACE_ALLOWLIST.get(module, set())
+
+    leaked: list[str] = []
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        source = node.module or ""
+        if not source.startswith("brailix"):
+            continue
+        for alias in node.names:
+            bound = alias.asname or alias.name
+            if bound.startswith("_") or bound in published or bound in allowed:
+                continue
+            leaked.append(f"{bound} (from {source})")
+
+    assert not leaked, (
+        f"{module} binds brailix names it does not publish: {leaked}\n"
+        f"Import them as ``... import X as _X`` so the namespace carries the "
+        f"API and nothing else, add them to __all__ as a deliberate promise, "
+        f"or record a documented exception in _NAMESPACE_ALLOWLIST."
+    )
 
 
 def test_pipeline_namespace_exposes_no_internal_collaborators() -> None:

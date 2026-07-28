@@ -69,8 +69,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from brailix.core.protocols import LanguageFrontend
-from brailix.core.registry import Registry
+from brailix.core.protocols import LanguageFrontend as _LanguageFrontend
+from brailix.core.registry import Registry as _Registry
 from brailix.frontend.ja import analyze as _ja_analyze
 from brailix.frontend.ja import ja_boundary as _ja_boundary
 from brailix.frontend.ja import tokens_to_inline as _ja_tokens_to_inline
@@ -103,7 +103,7 @@ if TYPE_CHECKING:
     ]
 
 
-class _ZhFrontend(LanguageFrontend):
+class _ZhFrontend(_LanguageFrontend):
     """Chinese :class:`~brailix.core.protocols.LanguageFrontend`:
     tokenize → pinyin → inline IR.
 
@@ -127,7 +127,7 @@ class _ZhFrontend(LanguageFrontend):
         return _zh_to_inline(tokens)
 
 
-class _JaFrontend(LanguageFrontend):
+class _JaFrontend(_LanguageFrontend):
     """Japanese :class:`~brailix.core.protocols.LanguageFrontend`.
 
     Chains the morphological analyzer (selected by
@@ -153,8 +153,8 @@ class _JaFrontend(LanguageFrontend):
 # Per-language frontend registry — the Pipeline routes each prose
 # segment to the implementation matching the profile's language. Adding
 # a language = register a LanguageFrontend here (or via entry points).
-language_frontend_registry: Registry[LanguageFrontend] = Registry(
-    "language_frontend", LanguageFrontend
+language_frontend_registry: _Registry[_LanguageFrontend] = _Registry(
+    "language_frontend", _LanguageFrontend
 )
 language_frontend_registry.register("zh", _ZhFrontend)
 language_frontend_registry.register("ja", _JaFrontend)
