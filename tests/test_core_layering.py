@@ -309,6 +309,45 @@ def test_input_does_not_import_downstream_layers() -> None:
     )
 
 
+def test_lexical_constants_are_not_duplicated_across_layers() -> None:
+    """A fact about the input belongs in one place, not one copy per layer.
+
+    The percent signs were two hand-kept literals — ``frozenset`` in the
+    frontend, ``tuple`` in the backend — with a comment asking whoever edits
+    one to remember the other. The motive was right (a backend → frontend
+    import would be a real layer violation) but the mechanism was a note: add a
+    third spelling on the frontend side and it builds a valid ``Percent`` that
+    the backend then rejects as malformed IR, with both layers "correct" by
+    their own definition.
+
+    ``core`` is where such a constant lives — the same reasoning that put
+    :mod:`brailix.core.chars` there, so frontend and backend can share without
+    either importing the other. This checks the literal has not been reinstated
+    on either side.
+    """
+    import re
+
+    # An ASSIGNMENT to the name, not a use of it: ``x not in PERCENT_CHARS``
+    # contains an ``=`` (inside ``!=``) and is exactly what should be there.
+    assignment = re.compile(r"^\s*_?PERCENT_CHARS\s*(?::[^=]+)?=")
+    offenders: list[str] = []
+    for layer in ("frontend", "backend"):
+        for py in sorted((_PKG / layer).rglob("*.py")):
+            for lineno, line in enumerate(
+                py.read_text(encoding="utf-8").splitlines(), 1
+            ):
+                if assignment.match(line):
+                    offenders.append(
+                        f"{py.relative_to(_PKG.parent).as_posix()}:{lineno}"
+                    )
+    assert not offenders, (
+        "percent-sign set redefined outside brailix.core.chars — import "
+        "PERCENT_CHARS from there so the frontend's idea of what makes a "
+        "Percent and the backend's idea of how to write one cannot drift:\n"
+        + "\n".join(offenders)
+    )
+
+
 def test_allowlisted_input_modules_still_exist() -> None:
     """A stale allowlist entry would silently widen the rule (a renamed
     decoder's new path would be un-allowlisted, but so would nothing —

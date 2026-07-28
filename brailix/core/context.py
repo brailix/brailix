@@ -1,13 +1,22 @@
 """Per-run context objects threaded through the pipeline.
 
-Each phase (Frontend, Math parsing, Backend) gets its own context type.
-They share a :class:`WarningCollector` so diagnostics from any layer
-end up in the same final report.
+One context type per adapter family: :class:`FrontendContext`,
+:class:`MathContext`, :class:`MusicContext`, :class:`GraphicsContext` and
+:class:`BackendContext`. They share a :class:`WarningCollector` so diagnostics
+from any layer end up in the same final report.
 
-The context types carry the profile name plus mode / options as a
-small bundle adapters can inspect. ``profile`` is required on every
-context — there is no built-in default braille standard; the caller
-(normally :class:`~brailix.Pipeline`) always supplies the chosen one.
+The context types carry mode / options as a small bundle adapters can inspect,
+and — for everything that compiles to braille — the profile name. ``profile``
+is required there because there is no built-in default braille standard; the
+caller (normally :class:`~brailix.Pipeline`) always supplies the chosen one.
+
+:class:`GraphicsContext` is the deliberate exception: it carries **no**
+profile. A graphic's product is a raster, not cells, so its compile needs no
+braille standard at all — and the *tactile* profile it does need (page size,
+DPI, dot geometry) is applied at rasterise time in the backend, not while the
+frontend is normalising the source into an SVG tree. Adding a ``profile`` here
+for symmetry would ask every graphic caller to name a braille standard that
+nothing in the graphic path reads.
 """
 
 from __future__ import annotations

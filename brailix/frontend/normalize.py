@@ -25,6 +25,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from brailix.core import inline_math
+from brailix.core.chars import PERCENT_CHARS
 from brailix.core.context import FrontendContext
 from brailix.core.protocols import Normalizer
 from brailix.core.registry import Registry
@@ -51,7 +52,6 @@ from brailix.ir.inline import (
 # ---------------------------------------------------------------------------
 
 _DATE_MARKERS: tuple[str, ...] = ("年", "月", "日")
-_PERCENT_CHARS: frozenset[str] = frozenset({"%", "％"})
 
 # ASCII characters routed through the math backend that have no HTML5
 # entity (so the symbols table — keyed by entity name resolved to a
@@ -258,7 +258,7 @@ def _try_percent(segs: list[Segment], i: int) -> tuple[Percent, int] | None:
     if i + 1 >= len(segs):
         return None
     nxt = segs[i + 1]
-    if nxt.type != "punct" or nxt.surface not in _PERCENT_CHARS:
+    if nxt.type != "punct" or nxt.surface not in PERCENT_CHARS:
         return None
     number = Number(surface=segs[i].surface, span=segs[i].span)
     span = _span_range(segs[i].span, nxt.span)

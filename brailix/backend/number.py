@@ -28,6 +28,7 @@ from brailix.backend._digits import (
     emit_digit_run,
 )
 from brailix.backend._letters import iter_letter_runs, letter_sign_repeats
+from brailix.core.chars import PERCENT_CHARS
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
@@ -56,10 +57,11 @@ def translate_number(node: Number, ctx: BackendContext, profile: BrailleProfile)
     return _digits_to_cells(node.surface, node.span, ctx, profile)
 
 
-# The percent signs the frontend's _try_percent recognises (half- + full-width).
-# Kept in sync with brailix.frontend.normalize._PERCENT_CHARS, but a tiny
-# literal here avoids backend → frontend coupling.
-_PERCENT_CHARS = ("%", "％")
+# The percent signs a document can carry, from ``core`` — the same set the
+# frontend uses to decide something IS a Percent. It used to be a local literal
+# kept in sync by comment: correct about avoiding a backend → frontend import,
+# but a third spelling added on one side would have the frontend building a
+# valid node this function then rejected as malformed.
 
 
 def translate_percent(node: Percent, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:
@@ -72,7 +74,7 @@ def translate_percent(node: Percent, ctx: BackendContext, profile: BrailleProfil
     cells = _digits_to_cells(node.surface[:-1], _first_part_span(node), ctx, profile)
     last_char = node.surface[-1]
     last_span = _last_char_span(node)
-    if last_char not in _PERCENT_CHARS:
+    if last_char not in PERCENT_CHARS:
         # The last char is meant to be the percent sign. A hand-rolled / IR-
         # round-tripped Percent whose surface ends in some other char (say
         # ':') would otherwise render it as ordinary punctuation if that char

@@ -78,7 +78,14 @@ class InlineNode:
 
 @dataclass(slots=True)
 class Word(InlineNode):
-    """A multi-character Chinese word."""
+    """A multi-character prose word, in whichever language produced it.
+
+    Not Chinese-specific: the Japanese frontend turns its analysed tokens into
+    ``Word`` nodes too, and ``reading`` carries whatever phonetic annotation
+    that language uses — pinyin for Chinese, kana for Japanese. That is the
+    point of the shared prose IR: a new language registers a frontend and a
+    backend, and reuses these nodes rather than adding its own.
+    """
 
     type: ClassVar[str] = "word"
     reading: str | None = None
