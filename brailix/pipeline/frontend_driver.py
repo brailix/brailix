@@ -369,15 +369,21 @@ class FrontendDriver:
         the normal re-translate case — is untouched, preserving the
         "re-translation skips the frontend cost" optimization
         (:meth:`Pipeline.translate_document`).
+
+        Both invalidation paths clear the ``frontend_fingerprint`` stamp along
+        with the children, through :meth:`_invalidate`: the stamp's meaning is
+        "this is the configuration that built the children currently on this
+        block", so a stamp outliving them is already false. It stays false
+        whenever the rebuild doesn't complete — a strict-mode abort or an
+        adapter exception between the drop and the re-populate leaves a block
+        with no children still advertising the *old* configuration, which is
+        the state the populate path's "no stamp before children exist" rule
+        exists to keep out of the IR.
         """
         if not block.children:
             return
         if block.text is not None and _block_surface(block) != block.text:
-            block.children = []
-            # The stamp describes children that no longer exist; clear it so
-            # an emptied block (``text == ""``, never re-populated) doesn't
-            # keep advertising the configuration that built the old ones.
-            block.frontend_fingerprint = None
+            self._invalidate(block)
             return
         if not block.text:
             return
@@ -387,7 +393,18 @@ class FrontendDriver:
             and self.fingerprint is not None
             and stamp != self.fingerprint
         ):
-            block.children = []
+            self._invalidate(block)
+
+    @staticmethod
+    def _invalidate(block: Any) -> None:
+        """Drop a block's populated ``children`` and the stamp describing them.
+
+        The single way children are invalidated, so the pair can't come apart:
+        a stamp is only ever true of children that exist (see
+        :meth:`_heal_stale_children`).
+        """
+        block.children = []
+        block.frontend_fingerprint = None
 
     # --- Frontend orchestration --------------------------------------
     #
