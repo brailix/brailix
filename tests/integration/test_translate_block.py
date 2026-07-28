@@ -734,6 +734,56 @@ class TestTreeSubcacheCrossDomain:
         assert again.ir.children[0].math is pool[("math", pipe.fingerprint, "latex", "$x^2$", "")]
 
 
+class TestIrTransformerMeetsTheCacheContract:
+    """The public ``ir_transformer`` hook versus the pool's by-identity sharing.
+
+    A cache hit lands the pooled tree on the returned IR
+    (``MusicInline.score`` / ``MathInline.math`` / ``GraphicInline.svg``), and
+    the transformer runs with it already attached — so an in-place edit writes
+    straight into the caller's pool, and every later compile that hits the entry
+    builds braille from a tree an unrelated earlier compile altered. The
+    documented way to edit is clone-then-replace; this pins that it does what
+    the contract promises: the block sees the edit, the pool does not.
+    """
+
+    def test_clone_then_replace_leaves_the_pool_pristine(
+        self, pipe: Pipeline
+    ) -> None:
+        import copy
+        import xml.etree.ElementTree as ET
+
+        first = pipe.translate_block(
+            ScoreBlock(text=_SCORE_XML, source="musicxml")
+        )
+        key = ("music", pipe.fingerprint, "musicxml", _SCORE_XML, "score")
+        pooled = first.tree_subcache[key]
+        before = ET.tostring(pooled)
+
+        def edit_a_note(doc: DocumentIR) -> None:
+            node = doc.blocks[0].children[0]
+            cloned = copy.deepcopy(node.score)
+            note = cloned.find(".//note")
+            assert note is not None
+            note.set("data-edited", "yes")
+            node.score = cloned
+
+        second = pipe.translate_block(
+            ScoreBlock(text=_SCORE_XML, source="musicxml"),
+            tree_subcache=first.tree_subcache,
+            ir_transformer=edit_a_note,
+        )
+        # The block carries the edit...
+        edited = second.ir.children[0].score
+        assert edited.find(".//note").get("data-edited") == "yes"
+        # ...on a different object, and the pooled tree is byte-identical to
+        # what it was before the transformer ran.
+        assert edited is not pooled
+        assert ET.tostring(pooled) == before
+        # The recorded pool still holds the pristine parse, not the clone: a
+        # later compile reusing it gets the source's own tree back.
+        assert second.tree_subcache[key] is pooled
+
+
 # ---------------------------------------------------------------------------
 # tree_subcache parse identity (BXL-001)
 # ---------------------------------------------------------------------------
