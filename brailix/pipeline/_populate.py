@@ -1,6 +1,6 @@
 """How a leaf block's ``children`` get filled, one handler per block kind.
 
-:meth:`brailix.pipeline.FrontendDriver.populate_block` owns *whether* to
+:meth:`brailix.pipeline.frontend_driver.FrontendDriver.populate_block` owns *whether* to
 populate (structural recursion, the stale-heal, the fingerprint stamp); this
 module owns *how*, per kind: a math / music / graphic block parses through its
 vertical's frontend into a single carrier inline node, a code block is wrapped
@@ -22,7 +22,7 @@ graphics parsers, all independently usable); what happens here is the
 compiler-side concern of running that analysis and reusing its result through
 the shared parsed-tree pools. That is why this module sits in ``pipeline`` and
 may import ``pipeline`` internals, while ``frontend`` may never import either
-(ARCHITECTURE §1 / §12, pinned by ``tests/test_core_layering.py``).
+(ARCHITECTURE#arch-layers / #arch-boundaries, pinned by ``tests/test_core_layering.py``).
 """
 
 from __future__ import annotations
@@ -173,7 +173,7 @@ def populate_leaf(
 
     Dispatches on the block's exact type through :data:`BLOCK_POPULATORS`; a
     block type absent from the table is prose and runs the language frontend.
-    :meth:`~brailix.pipeline.FrontendDriver.populate_block` owns the recursion,
+    :meth:`~brailix.pipeline.frontend_driver.FrontendDriver.populate_block` owns the recursion,
     the stale-heal and the fingerprint stamp and calls this for each leaf.
     """
     populate = BLOCK_POPULATORS.get(type(block), populate_prose_block)
@@ -317,7 +317,7 @@ def populate_math_block(
     unknown to the backend).
 
     Parsing goes through the injected ``driver._parse_math_tree`` — the same
-    parser inline math (:meth:`~brailix.pipeline.FrontendDriver.attach_math`)
+    parser inline math (:meth:`~brailix.pipeline.frontend_driver.FrontendDriver.attach_math`)
     uses — so a test injects a fault by replacing that attribute on the driver.
     """
     # Remember whether the caller-supplied block had a span. The
@@ -469,8 +469,9 @@ def populate_graphic_block(
 #
 # Keyed on the block's EXACT type, mirroring the inline dispatcher's
 # :data:`brailix.backend.dispatch._DISPATCH`: the IR block set is a closed, flat
-# set of direct :class:`~brailix.ir.document.Block` dataclasses (ARCHITECTURE
-# §7.5 — the adapter layer is the open extension surface, the IR type set is
+# set of direct :class:`~brailix.ir.document.Block` dataclasses
+# (ARCHITECTURE#arch-open-closed — the adapter layer is the open extension
+# surface, the IR type set is
 # not), so an O(1) table is both correct and cheaper than an isinstance ladder,
 # and a new content vertical costs one entry here instead of another branch.
 #

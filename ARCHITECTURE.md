@@ -18,12 +18,24 @@ Design goals:
 
 Requirements: Python `>=3.13` (the code uses `match` and modern type syntax).
 
+**How the code cites this document.** Section *numbers* are not stable
+references: the Chinese canonical copy and this English one are organised
+independently — "§12" is 不变的边界 there and "Adding a language" here — so a
+comment citing a number would be right in at most one of them. Code therefore
+cites a **stable anchor** instead, written `ARCHITECTURE#arch-boundaries`, which
+is both a working link and a string you can search for. Each anchor is declared
+as an `<a id="...">` above the section it names, in *both* copies, and
+`tests/test_architecture_anchors.py` fails if code cites one that either copy
+does not declare. Renumbering or reordering a section is free; moving an
+invariant means moving its anchor with it.
+
 ---
 
 ## 2. Two ideas the whole design rests on
 
 Everything below is an application of two decisions.
 
+<a id="arch-mediators"></a>
 ### 2.1 Normalized mediators and adapters
 
 > For each subsystem that has a choice of external library, `brailix` defines its own **normalized mediator format** and plugs the external tools in through **adapters**, so the library stays independent of any one third-party implementation.
@@ -41,6 +53,7 @@ Each such subsystem is built the same three-part way: an adapter converts some e
 
 Whichever adapter you pick, downstream only ever sees the mediator format, so **swapping an adapter leaves every line of downstream code untouched.** The same property is what makes each layer testable on its own: feed a fixed mediator value in, assert on the mediator value out.
 
+<a id="arch-traceability"></a>
 ### 2.2 Source-span traceability
 
 Every `BrailleCell` carries the `source_span` it was produced from. That single field is what makes the output debuggable, lets the renderer wrap lines without losing provenance, and powers the proofreading system (§10): a tool can map any braille cell back to the exact source characters behind it.
@@ -53,6 +66,7 @@ These two ideas — *isolate behind a mediator* and *keep provenance on every ce
 
 ---
 
+<a id="arch-layers"></a>
 ## 3. The pipeline
 
 The compiler is a stack of layers. The Profile and its resource tables sit alongside the whole stack, supplying the rules and dot tables that the backend and renderer read.
@@ -274,6 +288,7 @@ A math formula uses its **normalized MathML tree** as its IR directly, and a sco
 
 The full math and music subsystems are described in §7 and §8.
 
+<a id="arch-braille-ir"></a>
 ### 5.4 BrailleIR (cell sequence)
 
 ```python
@@ -302,6 +317,7 @@ What BrailleIR buys you: easy debugging, traceability, line-wrapping, BRF genera
 
 ---
 
+<a id="arch-adapters"></a>
 ## 6. Adapters: protocols, registries, and dependency groups
 
 §2.1 stated the pattern; this section is its machinery. The library core ships with **zero third-party parsing dependencies** — every concrete parser is an adapter behind an optional extra.
@@ -331,17 +347,34 @@ class MusicSourceAdapter(Protocol):
     source: str  # musicxml / mxl / midi / abc / plain
     def to_musicxml(self, src: str | bytes, ctx: MusicContext) -> str: ...
 
-class LanguageBackend(Protocol):  # prose nodes (Word / HanziChar) → cells, per language
+class GraphicSourceAdapter(Protocol):
+    source: str  # svg / primitives / figure / image / ...
+    def to_svg(self, src: str | bytes, ctx: GraphicsContext | None = None) -> str: ...
+
+class Normalizer(Protocol):
+    def normalize(self, nodes: list[InlineNode], ctx: FrontendContext) -> list[InlineNode]: ...
+
+class LanguageFrontend(Protocol):        # one language's prose → inline IR
+    prose_types: Collection[str]
+    def process(self, surface: str, base: int, ctx: FrontendContext) -> list[InlineNode]: ...
+
+class LanguageBackend(Protocol):  # prose nodes (Word / HanziChar / HanziMarker) → cells, per language
     def translate_word(self, node: Word, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]: ...
     def translate_hanzi_char(self, node: HanziChar, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]: ...
+    # All three are required — the registry runs a runtime protocol check on
+    # first resolution, so an implementation missing one is rejected at get().
+    def translate_date_marker(self, marker: HanziMarker, follows_number: bool, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]: ...
 
 class Renderer(Protocol):
     name: str
     def render(self, bir: BrailleRenderable) -> Any: ...  # str / bytes / cells / ...
 ```
 
+(Two further protocols support the backend rather than extend a source family: `InlineTextTranslator`, the one controlled backend→frontend dependency, injected through `BackendContext.options` to translate embedded prose (§14); and `GraphicAssetResolver`, which resolves a graphic's asset reference to in-document bytes. `core/protocols.py` is the authoritative list, and the extension-surface manifest in the test suite keeps the two in step.)
+
 There is deliberately **no `Backend` protocol**. The backend isn't a pluggable-by-name adapter; it's a node-type dispatcher (§9.1), so it has no registry and no name→implementation contract. A new braille standard is added with a Profile JSON plus resources, not by registering a backend. Per-language *prose* translation is the one pluggable seam, and it goes through `LanguageBackend` above (§12).
 
+<a id="arch-registries"></a>
 ### 6.2 Registries and on-demand loading
 
 Each subsystem keeps a name→implementation registry, and **an adapter is imported only when it is first requested**, so a user who hasn't installed HanLP can still run a jieba-only path.
@@ -419,6 +452,7 @@ The first batch of adapters in the box — the profile always selects which one 
 | Graphic sources | `svg` (stdlib tag-walk) / `primitives` / `figure` (both stdlib) / `image` (`pillow`; full external-SVG render adds `resvg-py`) | SVG and primitives |
 | Document input | plain text / Markdown (pure-stdlib reader) / Word `.docx` / `.doc` (`python-docx` + `olefile`) / score files | enable per scenario |
 
+<a id="arch-open-closed"></a>
 ### 6.5 Adding a tool is one file
 
 Adding any external tool means writing one adapter file: a new tokenizer goes under `frontend/zh/analyzer/adapters/`, a new pinyin engine under `frontend/zh/pinyin/adapters/`, a new math source under `frontend/math/adapters/`, a new language's braille rules become a `LanguageBackend` module under `backend/` plus a profile (a new *standard* for an existing language is just a profile + resources, no code — see §9.3), and a new output format becomes a module under `renderer/`.
@@ -508,6 +542,7 @@ The tactile-graphics path reuses the same shape with a different product. A sour
 
 ## 9. The backend
 
+<a id="arch-dispatch"></a>
 ### 9.1 Dispatcher
 
 ```python
@@ -667,6 +702,7 @@ brailix --file input.md --profile cn_current --to brf --output out.brf
 echo "文本" | brailix --profile cn_current --to unicode
 ```
 
+<a id="arch-pipeline-api"></a>
 ### 11.1 What the Pipeline does
 
 The Pipeline's public entry points group by what you want back, and all of them work under one configuration (profile, adapter selection, run mode).
@@ -701,6 +737,7 @@ If you need custom block boundaries (for example, preserving soft line breaks), 
 
 ---
 
+<a id="arch-language-slots"></a>
 ## 12. Adding a language
 
 §6.5 is about swapping one adapter in a single layer; this is the bigger step of making the whole pipeline support a new language (Japanese, Korean, and so on). The design goal is to keep the orchestrator (`Pipeline` and `backend.dispatch`) entirely language-agnostic: all four subsystems — segmentation, normalization, frontend, backend — pick their implementation by language, a new language is realized only by registering at these protocol seams plus adding resources, and the orchestrator contains no language-specific branch.
@@ -709,7 +746,7 @@ A profile's `language` field drives the whole chain; it takes the primary subtag
 
 1. **Segmenter**: implement the `Segmenter` protocol, recognize the language's writing system and cut its prose into typed `Segment`s (for example, tag a Japanese kana run as `kana_text`), and register it in `frontend.segment.segmenter_registry` under the language subtag. The built-in `default` segmenter recognizes only Han characters (emitting `hanzi_text`) plus the shared categories (numbers, Latin, Greek, and so on), so a non-Han writing system plugs in at this step.
 2. **Frontend**: implement the `LanguageFrontend` protocol's `process(surface, base, ctx)`, which segments a run of the language's prose, annotates its reading, and turns it into inline IR nodes; declare which `Segment` types it consumes via `prose_types` (Chinese is `{"hanzi_text"}`, Japanese might be `{"hanzi_text", "kana_text"}`), and register it in `frontend.language_frontend_registry`. The Pipeline dispatches by `prose_types`, so the segment type stays "writing-system accurate" while routing stays "by language." The Chinese implementation `_ZhFrontend` is the worked example: it wires the zh segmenter and the pinyin resolver together.
-3. **Backend**: implement the `LanguageBackend` protocol's `translate_word` and `translate_hanzi_char`, translating prose nodes into cells by the language's braille rules, and register it in `backend.dispatch.language_backend_registry`. Language-agnostic nodes (numbers, punctuation, Latin, math, music) keep going through the shared `_DISPATCH` table — leave them alone.
+3. **Backend**: implement the `LanguageBackend` protocol — `translate_word`, `translate_hanzi_char` **and** `translate_date_marker` — translating prose nodes into cells by the language's braille rules, and register it in `backend.dispatch.language_backend_registry`. All three are required: the registry runs a runtime protocol check when it first resolves your adapter, so an implementation missing one is rejected at `get()`, not at registration. `translate_date_marker` owns both a marker's reading (年/月/日/号/时/分/秒 and their equivalents) and the orthographic rule for whether a joiner cell precedes it after a number — the language-neutral date skeleton in `backend.number` delegates every marker to it, so no date-marker rule may live outside a `LanguageBackend`. A language with no special date handling still supplies an explicit implementation; there is no inherited default, and returning the plain reading is a one-line body. Language-agnostic nodes (numbers, punctuation, Latin, math, music) keep going through the shared `_DISPATCH` table — leave them alone.
 4. **Word-boundary rules (as needed)**: whether a blank cell lands between two adjacent inline nodes is the language's orthography (Chinese writes word-by-word, Japanese uses 分かち書き), not a backend braille rule. Implement a `BoundaryHandler` (takes the two neighbouring inline nodes, returns whether to insert a blank cell) and register it in `brailix.frontend.boundary_registry` under the language subtag; the zh and ja handlers are the worked examples.
 5. **Normalizer (as needed)**: the default normalizer carries Chinese structural rules (fixed readings for date markers like year/month/day). If the new language has its own structural conventions, implement the `Normalizer` protocol and register it in `frontend.normalize.normalizer_registry` under the language subtag; if not, reuse `default`.
 6. **Resources and profile**: put the language's braille rule tables under `resources/<language>/`; the shared resources (number sign, Latin, Greek, music) are already reusable at the top level. Write a profile JSON whose `language` points at the new language and whose `tables` point at those resources. A profile's `tables.<language subtag>` group is the **generic language table slot**: the loader maps it into `BrailleProfile.lang_tables[<subtag>]` and the backend reads it via `profile.lang_table(lang, name)` (for example `lang_tables["ja"]["kana"]`) — a new language's tables need no new field on the profile dataclass.
@@ -737,6 +774,7 @@ Run the golden suite on every rule change; **the diff must be reviewed by hand.*
 
 ---
 
+<a id="arch-boundaries"></a>
 ## 14. Component responsibilities
 
 These are the invariants that keep each component swappable — each does exactly its own job:

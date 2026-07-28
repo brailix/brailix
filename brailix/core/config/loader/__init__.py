@@ -170,7 +170,7 @@ def load_profile(
     )
     zh_compounds = _load_compounds(base, t("compounds"))
 
-    # Generic per-language table slot (ARCHITECTURE §7.6): load every
+    # Generic per-language table slot (ARCHITECTURE#arch-language-slots): load every
     # ``tables.<lang>`` cell-sequence table for a non-zh language.
     lang_tables = _load_lang_tables(base, payload, tables, cells_pool)
 
@@ -264,7 +264,7 @@ def _load_lang_tables(
     tables: dict[str, Any],
     cells_pool: dict[str, tuple[int, ...]],
 ) -> dict[str, dict[str, dict[str, tuple[tuple[int, ...], ...]]]]:
-    """Load the generic per-language table slot (ARCHITECTURE §7.6).
+    """Load the generic per-language table slot (ARCHITECTURE#arch-language-slots).
 
     For any non-zh language, load every cell-sequence table declared
     under ``tables.<lang>`` into ``{<lang>: {<name>: table}}`` keyed by

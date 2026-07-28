@@ -16,8 +16,8 @@ join-on-single-newline behaviour go through
 Splitting into blocks (rather than one monolithic block holding the
 whole file) lets a front-end compile, cache, and re-render a large
 document one line at a time instead of recompiling the whole thing
-on every edit — the incremental-compilation pattern (see ARCHITECTURE
-§9.1). Each block carries an exact :class:`Span` back into the source so
+on every edit — the incremental-compilation pattern (see
+ARCHITECTURE#arch-pipeline-api). Each block carries an exact :class:`Span` back into the source so
 per-cell proofread mapping stays aligned.
 """
 

@@ -24,12 +24,15 @@ Typical usage::
 Package layout
 --------------
 
-This is a subpackage; the separable pieces live in sibling modules and
-are re-exported here so ``brailix.pipeline.<name>`` keeps resolving:
+This is a subpackage; the separable pieces live in sibling modules. Only the
+public ones are re-exported here under their own names — the internals are
+imported under underscore aliases, so ``brailix.pipeline`` publishes the API
+and nothing else. Importing an internal means naming the module that defines
+it:
 
 * :mod:`brailix.pipeline._results` — the public result / value types
   :class:`TranslationResult`, :class:`CompiledBlock`,
-  :data:`TreeSubcache`.
+  :data:`TreeSubcache`. Re-exported here; these are the API.
 * :mod:`brailix.pipeline._helpers` — the module-level standalone helpers
   :func:`_resolve_language_adapter`, :func:`_all_prose_types`,
   :func:`_ensure_block_span`, :func:`_block_surface`, :func:`block_hash`,
@@ -38,18 +41,23 @@ are re-exported here so ``brailix.pipeline.<name>`` keeps resolving:
   are pulled up here; the rest are imported from ``_helpers`` directly by
   the code that needs them, so this module's ``__all__`` stays free of
   underscore-prefixed names.
+* :mod:`brailix.pipeline._fingerprint` — the compilation-configuration digest
+  (:func:`~brailix.pipeline._fingerprint.compilation_fingerprint`) plus the
+  runtime-identity folds :attr:`Pipeline.fingerprint` layers on top.
 * :mod:`brailix.pipeline._session` — the run-scoped state:
-  :class:`CompilationSession` (one translate call's collector + contexts +
-  parsed-tree pool) and the :class:`_InlineTextTranslator` binding.
+  :class:`~brailix.pipeline._session.CompilationSession` (one translate call's
+  collector + contexts + parsed-tree pool) and the
+  :class:`~brailix.pipeline._session._InlineTextTranslator` binding.
 * :mod:`brailix.pipeline._incremental` — the block-level incremental
   compile primitive, the body behind :meth:`Pipeline.translate_block`
   (reuse-pool threading, cache-key salting, inline-figure rasterisation).
 * :mod:`brailix.pipeline._pages` — mixed braille + tactile page
   composition, the body behind :meth:`Pipeline.translate_document_to_pages`.
-* :mod:`brailix.pipeline.frontend_driver` — the :class:`FrontendDriver`
-  collaborator (segment → normalize → per-segment routing → inline-math
-  attach → block populate). Its math / music / graphic tree parsers are
-  injected there, so a test simulates an adapter failure by replacing
+* :mod:`brailix.pipeline.frontend_driver` — the
+  :class:`~brailix.pipeline.frontend_driver.FrontendDriver` collaborator
+  (segment → normalize → per-segment routing → inline-math attach → block
+  populate). Its math / music / graphic tree parsers are injected there, so a
+  test simulates an adapter failure by replacing
   ``pipeline._frontend._parse_math_tree`` (etc.) on the instance rather
   than monkeypatching a ``brailix.pipeline.*`` name.
 
@@ -57,17 +65,18 @@ The cohesive :class:`Pipeline` orchestrator stays here, along with the
 module-level :func:`translate_graphic`. :data:`_frontend_parse_math_tree` /
 :data:`_frontend_parse_graphic_tree` are the real frontend entry points this
 module calls directly (:meth:`Pipeline.translate_math_inline` and
-:func:`translate_graphic`); the per-block parses go through the
-:class:`FrontendDriver`'s injected parsers instead.
+:func:`translate_graphic`); the per-block parses go through the frontend
+driver's injected parsers instead.
 """
 
 from __future__ import annotations
 
 import os
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from brailix.backend.block import translate_document
@@ -104,18 +113,31 @@ from brailix.input import parse_plain as _parse_plain
 from brailix.ir.braille import BrailleCell
 from brailix.ir.document import Block, DocumentIR, Paragraph
 from brailix.ir.inline import MathInline
+
+# Under underscore aliases: these are this package's own internals, and a
+# plain ``from ... import X`` would bind ``brailix.pipeline.X`` as a name a
+# third party can import — a namespace that reads like API without being any.
+# The result types below keep their real names; those ARE the API. Each
+# internal stays importable from the module that defines it, which is where
+# in-repo callers take it from and where docstrings point.
 from brailix.pipeline._fingerprint import (
-    asset_resolver_identity,
-    compilation_fingerprint,
-    fold_runtime_identity,
-    registries_generation,
+    asset_resolver_identity as _asset_resolver_identity,
+)
+from brailix.pipeline._fingerprint import (
+    compilation_fingerprint as _compilation_fingerprint,
+)
+from brailix.pipeline._fingerprint import (
+    fold_runtime_identity as _fold_runtime_identity,
+)
+from brailix.pipeline._fingerprint import (
+    registries_generation as _registries_generation,
 )
 from brailix.pipeline._helpers import _block_surface, block_hash
-from brailix.pipeline._incremental import (
-    _DEFAULT_INLINE_TACTILE_PROFILE,
-    compile_block,
+from brailix.pipeline._incremental import _DEFAULT_INLINE_TACTILE_PROFILE
+from brailix.pipeline._incremental import compile_block as _compile_block
+from brailix.pipeline._pages import (
+    compose_document_pages as _compose_document_pages,
 )
-from brailix.pipeline._pages import compose_document_pages
 from brailix.pipeline._results import (
     CompiledBlock,
     GraphicResult,
@@ -123,8 +145,9 @@ from brailix.pipeline._results import (
     TranslationResult,
     TreeSubcache,
 )
-from brailix.pipeline._session import CompilationSession, _InlineTextTranslator
-from brailix.pipeline.frontend_driver import FrontendDriver
+from brailix.pipeline._session import CompilationSession as _CompilationSession
+from brailix.pipeline._session import _InlineTextTranslator
+from brailix.pipeline.frontend_driver import FrontendDriver as _FrontendDriver
 
 if TYPE_CHECKING:
     from brailix.core.protocols import GraphicAssetResolver
@@ -154,6 +177,47 @@ __all__ = [
     "TreeSubcache",
     "block_hash",
 ]
+
+
+# The Pipeline fields that are read ONCE, at construction: they are hashed
+# into ``_fingerprint_base`` and copied into the FrontendDriver, so nothing
+# re-reads them afterwards. Assigning one on a live pipeline therefore lands
+# in one of two failure modes, both silent:
+#
+# * the write is simply ignored (``resolver`` / ``analyzer`` / a *rebound*
+#   ``user_pinyin_dict`` — the driver keeps its own copy), or
+# * it half-applies (``mode`` — each new session reads it, but the
+#   fingerprint does not move, so a cache keyed on ``source_hash`` serves
+#   braille compiled under the other configuration).
+#
+# Either way the caller silently gets output that doesn't match the
+# configuration they think they set, which is exactly the "same cache key,
+# different compile behaviour" hole the fingerprint exists to close. So the
+# fields are read-only after ``__post_init__`` and reconfiguring means
+# building a new pipeline (``dataclasses.replace``), which recomputes the
+# digest and rebuilds the driver.
+#
+# NOT in here, and deliberately assignable:
+#
+# * ``asset_resolver`` — documented as late-bindable (a front-end attaches a
+#   document's assets to an already-built pipeline). Its identity folds into
+#   :attr:`Pipeline.fingerprint` on every read and the session re-syncs it
+#   onto the driver, so both failure modes above are closed for it.
+# * ``default_renderer`` — chooses an *output encoding* after compilation;
+#   it can't change a compiled block, so it is outside the fingerprint's
+#   remit by construction.
+_FROZEN_CONFIG_FIELDS: frozenset[str] = frozenset(
+    {
+        "profile",
+        "mode",
+        "segmenter",
+        "normalizer",
+        "analyzer",
+        "resolver",
+        "user_pinyin_dict",
+        "extra_profile_paths",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +254,21 @@ class Pipeline:
       :class:`TranslationResult` so :meth:`TranslationResult.render`
       knows what to use when called without arguments.
 
+    Configuration is also **read-only once constructed**. Every field above
+    except ``default_renderer`` and ``asset_resolver`` is consumed once, in
+    ``__post_init__``, to build the frontend driver and the compilation
+    :attr:`fingerprint`; assigning one afterwards would change what compiles
+    (or nothing at all) while the fingerprint stayed put, so it raises
+    :class:`AttributeError` instead. Reconfigure by deriving a new pipeline::
+
+        from dataclasses import replace
+
+        strict = replace(pipe, mode="strict")
+
+    which recomputes the digest and rebuilds the driver. ``user_pinyin_dict``
+    is held as a read-only view of a defensive copy for the same reason —
+    mutating the dictionary you passed in cannot reach a built pipeline.
+
     :meth:`translate_text` is the simplest entry point; the rest of the
     public surface is :meth:`translate_document` / :meth:`translate_file`
     / :meth:`translate_block` / :meth:`translate_math_inline` /
@@ -211,7 +290,13 @@ class Pipeline:
     # document.  Multi-char keys only (single-char readings are too
     # context-dependent to force globally).  Empty by default → pure no-op,
     # so the bare library and every test that omits it are unaffected.
-    user_pinyin_dict: dict[str, str] = field(default_factory=dict)
+    #
+    # Taken as a defensive copy behind a read-only view (see
+    # ``_freeze_config``): the mapping is hashed into the compilation
+    # fingerprint at construction, so an in-place ``pipe.user_pinyin_dict[w]
+    # = r`` would change the braille while the fingerprint — and every
+    # ``source_hash`` derived from it — stayed put.
+    user_pinyin_dict: Mapping[str, str] = field(default_factory=dict)
     default_renderer: str = DEFAULT_RENDERER
     # User-folder profile directories injected by the caller so a portable
     # build can ship with its own profile drops.
@@ -232,7 +317,7 @@ class Pipeline:
     # ``ARCHITECTURE.md``.
     asset_resolver: GraphicAssetResolver | None = None
     _profile: BrailleProfile = field(init=False, default=None)  # type: ignore[assignment]
-    _frontend: FrontendDriver = field(init=False, default=None)  # type: ignore[assignment]
+    _frontend: _FrontendDriver = field(init=False, default=None)  # type: ignore[assignment]
     # The configuration-only digest (compilation_fingerprint) plus the
     # cached fold of it with the registry-generation snapshot it was last
     # combined with — see the ``fingerprint`` property.
@@ -241,9 +326,49 @@ class Pipeline:
     _fingerprint_env: tuple[tuple[int, ...], str] | None = field(
         init=False, default=None
     )
+    # Flipped at the end of ``__post_init__``: until then the dataclass's own
+    # ``__init__`` and the normalisation below are still writing the fields,
+    # and they must go through.
+    _configured: bool = field(init=False, default=False)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Reject writes to :data:`_FROZEN_CONFIG_FIELDS` on a built pipeline.
+
+        See that constant for why each field is (or isn't) on the list. The
+        error is an :class:`AttributeError` — the standard "this attribute is
+        read-only" signal, the same one
+        :class:`dataclasses.FrozenInstanceError` subclasses — so it is never
+        mistaken for the soft-failure path an adapter error takes, and the
+        frontend's ``PROGRAMMING_ERRORS`` ladder re-raises it rather than
+        degrading it to a warning.
+        """
+        if name in _FROZEN_CONFIG_FIELDS and getattr(self, "_configured", False):
+            raise AttributeError(
+                f"Pipeline.{name} is read-only after construction: it is "
+                "baked into the compilation fingerprint and copied into the "
+                "frontend at build time, so assigning it would change what "
+                "compiles (or silently nothing) while `fingerprint` — and "
+                "every `CompiledBlock.source_hash` folded from it — stayed "
+                "put. Derive a reconfigured pipeline instead: "
+                f"`dataclasses.replace(pipeline, {name}=...)`. "
+                "(`asset_resolver` and `default_renderer` stay assignable.)"
+            )
+        # ``object.__setattr__``, not ``super().__setattr__``: ``slots=True``
+        # makes the decorator build a *replacement* class, while the implicit
+        # ``__class__`` cell a zero-argument ``super()`` closes over still
+        # points at the original — so ``super()`` raises TypeError on every
+        # instance of the class that actually exists. (The same reason
+        # ``dataclasses`` emits ``object.__setattr__`` for frozen slotted
+        # classes.)
+        object.__setattr__(self, name, value)
 
     def __post_init__(self) -> None:
         self.mode = normalize_run_mode(self.mode)
+        # Defensive copy behind a read-only view: the caller keeps their own
+        # dictionary and may go on editing it, but this pipeline's digest was
+        # computed from the contents at *this* moment, so it must hold a
+        # snapshot nobody else can reach — and one it cannot edit either.
+        self.user_pinyin_dict = MappingProxyType(dict(self.user_pinyin_dict))
         # Accept ``Path`` objects too — keeping the dataclass field type
         # as ``tuple[str, ...]`` simplifies serialization, but the caller
         # naturally passes :class:`pathlib.Path`.
@@ -256,7 +381,7 @@ class Pipeline:
             extra_search_paths=[Path(p) for p in self.extra_profile_paths]
             or None,
         )
-        self._frontend = FrontendDriver(
+        self._frontend = _FrontendDriver(
             profile=self.profile,
             profile_obj=self._profile,
             segmenter=self.segmenter,
@@ -267,7 +392,7 @@ class Pipeline:
             asset_resolver=self.asset_resolver,
         )
         # Compilation-configuration identity (see
-        # :func:`~brailix.pipeline.compilation_fingerprint`): the
+        # :func:`~brailix.pipeline._fingerprint.compilation_fingerprint`): the
         # configuration digest is computed once; the ``fingerprint``
         # property folds it with the current registry-generation snapshot
         # (re-folding only when a runtime ``register`` / ``unregister``
@@ -277,7 +402,7 @@ class Pipeline:
         # names (per-language selection applied) so two spellings of the
         # same effective configuration fingerprint alike.
         opts = self._frontend.frontend_options()
-        self._fingerprint_base = compilation_fingerprint(
+        self._fingerprint_base = _compilation_fingerprint(
             self._profile,
             mode=normalize_run_mode(self.mode).value,
             segmenter=opts["segmenter"],
@@ -287,6 +412,9 @@ class Pipeline:
             user_pinyin_dict=self.user_pinyin_dict,
         )
         self._frontend.fingerprint = self.fingerprint
+        # Configuration is complete and hashed: from here on the fields above
+        # are read-only (see ``__setattr__``).
+        self._configured = True
 
     @property
     def profile_name(self) -> str:
@@ -316,7 +444,7 @@ class Pipeline:
         compiled output for the same source text: the resolved profile's
         content, the selected adapter names, the user pinyin dictionary,
         the run mode and the brailix version — see
-        :func:`~brailix.pipeline.compilation_fingerprint` for the exact
+        :func:`~brailix.pipeline._fingerprint.compilation_fingerprint` for the exact
         coverage and its limits.  Two pipelines with equal fingerprints
         compile any block identically (within one process); a front-end
         that keys a cache across pipeline reconfigurations folds this in
@@ -348,12 +476,12 @@ class Pipeline:
         reads — no re-hashing.
         """
         env = (
-            registries_generation(),
-            asset_resolver_identity(self.asset_resolver),
+            _registries_generation(),
+            _asset_resolver_identity(self.asset_resolver),
         )
         if env != self._fingerprint_env:
             self._fingerprint_env = env
-            self._fingerprint = fold_runtime_identity(
+            self._fingerprint = _fold_runtime_identity(
                 self._fingerprint_base, env[0], env[1]
             )
         return self._fingerprint
@@ -380,7 +508,7 @@ class Pipeline:
         an ``ir_transformer`` — Pipeline keeps no override / workflow
         concept, that lives in the front-end layer.
         """
-        session = CompilationSession.begin(self)
+        session = _CompilationSession.begin(self)
         children = self._frontend.run_frontend(text, session.frontend_ctx)
         paragraph = Paragraph(
             children=children, span=Span(0, len(text)) if text else None
@@ -553,7 +681,7 @@ class Pipeline:
         instead of reusing semantic IR built under the old configuration.
         Hand-built children (never stamped) are used as-is.
         """
-        session = CompilationSession.begin(self)
+        session = _CompilationSession.begin(self)
         # Stamp the pipeline's identity onto the (possibly hand-built) doc
         # so the result is self-describing the same way translate_text /
         # parse_* leave it.  The backend reads ``self._profile`` directly,
@@ -610,11 +738,11 @@ class Pipeline:
         profile is a later refinement (plan §3). ``margin_mm`` and
         ``item_gap_mm`` default to one cell advance and one interline pitch.
 
-        Braille state does not leak across blocks (ARCHITECTURE §12), so
+        Braille state does not leak across blocks (ARCHITECTURE#arch-boundaries), so
         compiling block-by-block is sound. The document is **mutated in place**
         (children filled where missing), like :meth:`translate_document`.
         """
-        return compose_document_pages(
+        return _compose_document_pages(
             self,
             doc,
             tactile_profile=tactile_profile,
@@ -776,7 +904,7 @@ class Pipeline:
 
         Block-level translation is sound because braille state
         (number_sign, capital indicator, math state machine) **does
-        not leak** across block boundaries — see ARCHITECTURE.md §12.
+        not leak** across block boundaries — see ARCHITECTURE#arch-boundaries.
 
         ``ir_transformer`` is an optional in-place mutation hook that
         runs between frontend and backend.  The compiler doesn't care
@@ -851,7 +979,7 @@ class Pipeline:
         editing front-end re-parses source into fresh blocks anyway); the
         guards only make reuse *safe*, not free.
         """
-        return compile_block(
+        return _compile_block(
             self,
             block,
             ir_transformer=ir_transformer,

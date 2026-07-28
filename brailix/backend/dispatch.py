@@ -149,7 +149,7 @@ def _enforce_source_spans(
     """Post-condition at the dispatch boundary: a node that carries a
     ``span`` must come back as cells that ALL carry a ``source_span``.
 
-    "Every cell maps to a source span" (ARCHITECTURE §3) is what
+    "Every cell maps to a source span" (ARCHITECTURE#arch-traceability) is what
     proofreading navigation is built on, and the backend upholds it via the
     span-carrying factories (:func:`brailix.ir.braille.blank_cell` & co).
     The dispatcher is where third-party code enters — an open
@@ -172,7 +172,7 @@ def _enforce_source_spans(
                 f"source_span for {type(node).__name__} "
                 f"{getattr(node, 'surface', '')!r}, which carries span "
                 f"{node.span}; every cell emitted for a span-carrying node "
-                f"must be traceable (ARCHITECTURE §3) — use the "
+                f"must be traceable (ARCHITECTURE#arch-traceability) — use the "
                 f"span-carrying factories in brailix.ir.braille instead of "
                 f"the span-less sentinels"
             )

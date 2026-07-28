@@ -56,7 +56,7 @@ class Block:
     are therefore **row-local**: offsets into ``"  ".join(cell.text for cell
     in row.cells)``, so ``row_text[node.span]`` slices the node's surface
     exactly. The pipeline establishes this on every populate pass (see
-    :meth:`brailix.pipeline.FrontendDriver._populate_row`), so it also holds
+    :meth:`brailix.pipeline.frontend_driver.FrontendDriver._populate_row`), so it also holds
     after an edit shifts one column's width. Consequently a cell's ``span``
     is *not* a source-document span the way every other block's is — a table
     has no per-cell document coordinate to begin with, since the Markdown
@@ -373,7 +373,7 @@ class DocumentIR:
     blocks reference via :attr:`ImageAlt.target` (and, once converted, a
     ``graphic-image`` fence's ``path``). It is the document-level side
     table OOXML itself uses, decoded eagerly at the input boundary per
-    the ARCHITECTURE §1 rule that the text IR carries no binary payload;
+    the ARCHITECTURE#arch-layers rule that the text IR carries no binary payload;
     :meth:`to_dict` deliberately excludes it (that is the text-IR view —
     a container format that persists a document's assets serialises them
     itself, in its own encoding)."""

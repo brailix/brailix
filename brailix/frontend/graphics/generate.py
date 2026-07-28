@@ -11,7 +11,7 @@ textures (T2) for free, and the intermediate primitives spec stays
 inspectable / editable.
 
 Generators are looked up by ``kind`` through a small registry (no
-``if/else`` dispatch — see ``ARCHITECTURE.md`` §7); adding a figure type
+``if/else`` dispatch — see ``ARCHITECTURE#arch-adapters``); adding a figure type
 is one function plus one ``register_generator`` call. The
 :class:`~brailix.frontend.graphics.adapters.figure.FigureSourceAdapter`
 drives the lookup and chains the result through ``primitives_to_svg``.

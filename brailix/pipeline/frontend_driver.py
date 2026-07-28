@@ -14,8 +14,11 @@ orchestration stage, so a new content vertical grows the table there rather
 than this class.
 
 Split out of :mod:`brailix.pipeline` so the orchestrator module stays
-focused on :class:`Pipeline`; re-exported there so
-``brailix.pipeline.FrontendDriver`` keeps resolving.
+focused on :class:`Pipeline`. This module is where the driver is imported
+from: the orchestrator takes it under an underscore alias, so it is not
+re-exported as ``brailix.pipeline.FrontendDriver`` — a collaborator the
+Pipeline constructs for itself should not sit in the package namespace
+looking like API.
 
 The math / music / graphic tree parsers are **injected** (constructor
 arguments defaulting to the real :mod:`brailix.frontend` entry points)
@@ -65,7 +68,7 @@ from brailix.pipeline._populate import populate_leaf
 from brailix.pipeline._results import TreeSubcache
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from brailix.core.protocols import GraphicAssetResolver
 
@@ -159,7 +162,7 @@ class FrontendDriver:
         normalizer: str,
         analyzer: str,
         resolver: str,
-        user_pinyin_dict: dict[str, str],
+        user_pinyin_dict: Mapping[str, str],
         asset_resolver: GraphicAssetResolver | None,
         parse_math_tree: TreeParser = _frontend_parse_math_tree,
         parse_music_tree: TreeParser = _frontend_parse_music_tree,
@@ -417,7 +420,7 @@ class FrontendDriver:
     # normalizer and the prose frontend are each selected by the active
     # profile's language (see :meth:`frontend_options` /
     # :meth:`_process_segment`), so adding a language is registration,
-    # not a change here. See ARCHITECTURE §7.6.
+    # not a change here. See ARCHITECTURE#arch-language-slots.
 
     def frontend_options(self) -> dict[str, Any]:
         lang = self._profile.language.split("-")[0]
@@ -484,7 +487,7 @@ class FrontendDriver:
         # segment types are its prose (``prose_types``), so this
         # orchestrator never hard-codes a script. Adding a language means
         # registering a LanguageFrontend (plus a matching segmenter for
-        # its script) — no change here. See ARCHITECTURE §7.6.
+        # its script) — no change here. See ARCHITECTURE#arch-language-slots.
         lang = self._profile.language.split("-")[0]
         if language_frontend_registry.has(lang):
             frontend = language_frontend_registry.get(lang)

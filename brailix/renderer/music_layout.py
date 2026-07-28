@@ -7,7 +7,7 @@ an editorial choice.  Rather than branch on the format inside the
 renderer, each format is a :class:`MusicLayoutScheme` registered by
 name; :class:`brailix.renderer.layout.LayoutRenderer` looks the active
 scheme up by :attr:`LayoutOptions.music_scheme` and delegates (registry,
-not ``if/else`` — see ``ARCHITECTURE.md`` §7 and
+not ``if/else`` — see ``ARCHITECTURE#arch-adapters`` and
 ``ARCHITECTURE.md``).
 
 Schemes (BANA 2015):

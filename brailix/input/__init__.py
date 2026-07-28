@@ -7,7 +7,7 @@ populated. Inline content stays as raw ``Block.text`` until the
 Pipeline's frontend runs over it.
 
 Embedded foreign math / music sources follow one boundary rule
-(ARCHITECTURE §1). A **text** dialect (Word OMML / EQ field, LaTeX, ABC)
+(ARCHITECTURE#arch-layers). A **text** dialect (Word OMML / EQ field, LaTeX, ABC)
 is left raw and deferred to the frontend — inline ones travel as a
 source-tagged island (:mod:`brailix.core.inline_math`) inside
 ``Block.text``, block ones as ``MathBlock(source=...)`` /
@@ -201,7 +201,8 @@ def _route_musicxml(ctx: _FileCtx) -> DocumentIR:
 
 def _route_binary_score(ctx: _FileCtx) -> DocumentIR:
     # .mid / .midi (binary) → MusicXML via the midi source adapter, eagerly
-    # at input (§1 rule 2: the text IR can't carry binary). parse_score_file
+    # at input (ARCHITECTURE#arch-layers rule 2: the text IR can't carry
+    # binary). parse_score_file
     # reads the bytes itself, so this stays a path handler (never UTF-8
     # decoded); the char gate applies to the MusicXML it decodes to.
     return parse_score_file(
@@ -213,7 +214,8 @@ def _route_binary_score(ctx: _FileCtx) -> DocumentIR:
 
 
 def _route_deferred_score(ctx: _FileCtx) -> DocumentIR:
-    # .abc (text) → kept raw, deferred to the frontend (§1 rule 1), exactly
+    # .abc (text) → kept raw, deferred to the frontend
+    # (ARCHITECTURE#arch-layers rule 1), exactly
     # like a LaTeX MathBlock. parse_deferred_score reads the text (BOM-aware)
     # and imports no frontend, so no music adapter / extra is touched here.
     # It applies the char gate to that text, so a score suffix is not a way

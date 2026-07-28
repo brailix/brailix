@@ -125,7 +125,7 @@ def _leaves(blocks: Iterable[Block]) -> Iterator[Block]:
 
 class TestSourceSpanAccuracy:
     """Presence (above) is not enough — a span must point at the RIGHT
-    source. The coordinate contract (``Block.span`` / ARCHITECTURE §4.4):
+    source. The coordinate contract (``Block.span`` / ARCHITECTURE#arch-braille-ir):
     a cell's ``source_span`` is leaf-local, ``Block.span`` locates the
     block, and wherever the exact-slice contract
     ``source[block.span] == block.text`` holds, composing the two recovers

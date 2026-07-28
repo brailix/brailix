@@ -158,7 +158,7 @@ class TestDate:
         assert isinstance(d.parts[1], HanziMarker) and d.parts[1].surface == "年"
         assert d.parts[2].role == "month"
         assert d.parts[4].role == "day"
-        # ARCHITECTURE §12: structural-marker readings are filled by the
+        # ARCHITECTURE#arch-boundaries: structural-marker readings are filled by the
         # normalizer (fixed 年→nián etc.), NOT the PinyinResolver — guard
         # that observable result so a deleted/renamed _MARKER_PINYIN can't
         # pass green while the braille silently changes.

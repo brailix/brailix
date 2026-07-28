@@ -12,7 +12,7 @@ Proper handling is future work.
 LatinWord / LatinAcronym translation lives in
 :mod:`brailix.backend.latin` (it used to share this module but
 was moved to its own layer in line with the architecture in
-``ARCHITECTURE.md`` §1).
+``ARCHITECTURE#arch-layers``).
 """
 
 from __future__ import annotations

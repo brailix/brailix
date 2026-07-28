@@ -402,7 +402,7 @@ class TestDocumentRoundTrip:
         )
         payload = doc.to_dict()
         json.dumps(payload)
-        # The text IR carries no binary payload (ARCHITECTURE §1): assets are
+        # The text IR carries no binary payload (ARCHITECTURE#arch-layers): assets are
         # deliberately not serialized, so a round-trip drops them.
         assert "assets" not in payload
         restored = DocumentIR.from_dict(payload)

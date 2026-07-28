@@ -19,11 +19,12 @@ CLI and any caller that enumerates the analyzer registry:
 * :func:`insert_cross_kind_boundary_spaces` — insert spaces at
   hanzi↔non-hanzi boundaries.  Pure helper; no adapter choice.
 
-ARCHITECTURE.md §3 names the "IRBuilder" step that follows
+ARCHITECTURE#arch-traceability names the "IRBuilder" step that follows
 ZhAnalyzer + PinyinResolver in the data flow.  The Chinese slice
 of that step lives here rather than in the orchestrator so
 :mod:`brailix.pipeline` doesn't contain Chinese-specific
-typesetting knowledge.  §7.1 keeps zh and pinyin independent
+typesetting knowledge.  ARCHITECTURE#arch-mediators keeps zh and
+pinyin independent
 subsystems — :func:`tokens_to_inline` deliberately doesn't invoke
 pinyin; the orchestrator chains the steps.
 """
@@ -147,7 +148,7 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
     Inputs of length 0 or 1 are returned without any Space insertion
     — a single-word segment has no boundaries to mark.
 
-    No pinyin lookup happens here.  Per ARCHITECTURE §7.1 / §12, this
+    No pinyin lookup happens here.  Per ARCHITECTURE#arch-mediators / #arch-boundaries, this
     helper deliberately doesn't import :mod:`brailix.frontend.zh.pinyin`;
     the orchestrator (:class:`brailix.Pipeline`) chains
     :func:`tokenize` → :func:`pinyin.annotate` → :func:`tokens_to_inline`

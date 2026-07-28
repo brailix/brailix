@@ -10,7 +10,7 @@ language's two frontend jobs:
 * :mod:`~brailix.frontend.zh.pinyin` — fill each token's reading
   (pypinyin / g2pM / g2pW adapters).
 
-Per ARCHITECTURE §7.1 they stay swap-independent: the analyzer must not
+Per ARCHITECTURE#arch-mediators they stay swap-independent: the analyzer must not
 import the resolver, so the orchestrator (:class:`brailix.Pipeline`)
 chains ``tokenize`` → ``pinyin.annotate`` → ``tokens_to_inline`` rather
 than letting one call the other. This umbrella therefore re-exports only

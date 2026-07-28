@@ -11,7 +11,7 @@ source-tagged islands (:mod:`brailix.core.inline_math`) — MTEF is
 **binary** and cannot ride the text IR, so it is decoded here at the
 input boundary. That is the deliberate exception to the "text math
 defers" rule; see the package ``__init__`` "Math handling" note and
-ARCHITECTURE §1.
+ARCHITECTURE#arch-layers.
 
 DAG position: depends only on :mod:`._xml`. The python-docx / olefile
 imports stay lazy (inside function bodies) so this module imports

@@ -124,7 +124,7 @@ def _inline_math_as_text(omath: Element) -> str:
     (``FrontendDriver.attach_math``), exactly as a display ``MathBlock`` with
     ``source="omml"`` defers. Keeping the conversion out of the input
     layer is what lets this module take no math-frontend dependency; see
-    the docx ``__init__`` "Math handling" note and ARCHITECTURE §1.
+    the docx ``__init__`` "Math handling" note and ARCHITECTURE#arch-layers.
     """
     return inline_math.wrap("omml", _serialize(omath))
 

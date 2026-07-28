@@ -123,7 +123,7 @@ def block_hash(
     change in the compilation configuration: the resolved profile's actual
     content, the selected segmenter / normalizer / analyzer / resolver, the
     user pinyin dictionary, the run mode, or the brailix version (see
-    :func:`brailix.pipeline.compilation_fingerprint` for the exact coverage
+    :func:`brailix.pipeline._fingerprint.compilation_fingerprint` for the exact coverage
     and its limits). :meth:`Pipeline.translate_block` always passes its own
     fingerprint, so :attr:`CompiledBlock.source_hash` is safe to cache on
     within one process without ever serving output compiled under a
@@ -187,7 +187,7 @@ def tree_cache_key(
     ``identity`` is the *parse identity*: the compilation configuration the
     tree was parsed under, i.e. the producing pipeline's
     :attr:`~brailix.pipeline.Pipeline.fingerprint` (``""`` for a bare
-    :class:`~brailix.pipeline.FrontendDriver` that has none). Keyword-only and
+    :class:`~brailix.pipeline.frontend_driver.FrontendDriver` that has none). Keyword-only and
     required, because forgetting it is exactly the failure this slot exists to
     prevent: a source adapter receives the whole
     :class:`~brailix.core.context.MathContext` / ``MusicContext`` /
@@ -200,7 +200,7 @@ def tree_cache_key(
     under the current one — silently wrong braille wearing a fresh cache key.
     The fingerprint already covers profile content, adapter selection, run
     mode, the user dictionary and every compilation registry's generation
-    (see :func:`brailix.pipeline.compilation_fingerprint`), so folding it in
+    (see :func:`brailix.pipeline._fingerprint.compilation_fingerprint`), so folding it in
     is deliberately coarse in the safe direction: a same-configuration
     re-compile — the proofreading case the pool exists for — still hits.
 

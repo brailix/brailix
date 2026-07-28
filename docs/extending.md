@@ -76,6 +76,29 @@ math_source_registry.register("asciimath", lambda: AsciiMathAdapter(), extra="as
 
 Symmetric to math, with **MusicXML** as the mediator. The protocol is `MusicSourceAdapter`: a `source` attribute and `to_musicxml(src, ctx) -> str`. Register with `music_source_registry` from `brailix.frontend.music.registry`.
 
+## Add a tactile-graphic source format
+
+The third vertical follows the same shape, with **SVG** as the mediator: every graphic source is converted to an SVG string, and the tactile backend rasterizes that tree into dots. The protocol is `GraphicSourceAdapter`: a `source` attribute and `to_svg(src, ctx) -> str`, where `ctx` is a `GraphicsContext`. Register with `graphic_source_registry` from `brailix.frontend.graphics.registry`.
+
+```python
+from brailix.core import GraphicsContext
+from brailix.frontend.graphics.registry import graphic_source_registry
+
+
+class DotPlotAdapter:
+    source = "dotplot"
+
+    def to_svg(self, src: str | bytes, ctx: GraphicsContext | None = None) -> str:
+        return _plot_to_svg(src)          # returns an SVG string
+
+
+graphic_source_registry.register("dotplot", lambda: DotPlotAdapter(), extra="dotplot")
+```
+
+Unlike math and music, the graphics entry point never raises: a missing adapter or a failed conversion degrades to an SVG carrying a `data-bk-error` marker, which the backend surfaces as a `GRAPHICS_SOFT_FAIL` warning and a blank figure. Your adapter should follow the same rule and return an error-marked SVG rather than raise — though a `StrictModeError` you report through `ctx.warnings`, and any genuine programming error, both propagate by design.
+
+Once registered, the name is selectable two ways: as the source format of a standalone compile, `translate_graphic(src, source_format="dotplot")`, and as the suffix of an embedded figure's fence in a document, ```` ```graphic-dotplot ````.
+
 ## Add an input format
 
 An input adapter reads one document format and returns a `DocumentIR` with block structure populated (inline content stays as raw `Block.text` until the frontend runs). The input layer keeps no registry — the choice is usually static (a file suffix or MIME type) — so you call your parser directly, or add a branch to your own dispatch. `brailix.input.parse_file` is the suffix dispatch the library ships; mirror its shape for a new format.
@@ -111,7 +134,29 @@ Supporting a new language (Japanese, Korean, and so on) is additive — the orch
 
 1. **Segmenter** (`Segmenter` protocol) — recognize the writing system and cut prose into typed segments; register in `frontend.segment.segmenter_registry` under the language subtag.
 2. **Frontend** (`LanguageFrontend` protocol) — turn a prose run into inline IR (segment, annotate the reading, build nodes); declare the `prose_types` it consumes; register in `frontend.language_frontend_registry`.
-3. **Backend** (`LanguageBackend` protocol) — translate prose nodes (`Word`, `HanziChar`) into cells by the language's braille rules; register in `backend.dispatch.language_backend_registry`. Language-neutral nodes (numbers, punctuation, Latin, math, music) keep going through the shared dispatch.
+3. **Backend** (`LanguageBackend` protocol) — translate prose nodes into cells by the language's braille rules; register in `backend.dispatch.language_backend_registry`. Three methods, all required: `translate_word` (`Word`), `translate_hanzi_char` (`HanziChar`) and `translate_date_marker` (`HanziMarker`). The registry runs a runtime protocol check the first time it resolves your adapter, so one missing method means rejection at `get()` rather than at registration. `translate_date_marker` owns both the marker's reading and whether a joiner cell follows a number — a language with no special date rules still writes an explicit implementation, since there is no inherited default:
+
+    ```python
+    from brailix.core import BackendContext
+    from brailix.backend.dispatch import language_backend_registry
+
+
+    class KoBackend:
+        def translate_word(self, node, ctx, profile):
+            return _ko_word_to_cells(node, profile)
+
+        def translate_hanzi_char(self, node, ctx, profile):
+            return _ko_hanja_to_cells(node, profile)
+
+        def translate_date_marker(self, marker, follows_number, ctx, profile):
+            # No special rule: write the marker the way ordinary prose is written.
+            return _ko_word_to_cells(marker, profile)
+
+
+    language_backend_registry.register("ko", lambda: KoBackend())
+    ```
+
+    Language-neutral nodes (numbers, punctuation, Latin, math, music) keep going through the shared dispatch.
 4. **Normalizer** (`Normalizer` protocol, as needed) — if the language has its own structural conventions; otherwise reuse the default.
 5. **Resources and profile** — put the rule tables under `resources/<language>/` and write a profile whose `language` points at the new language.
 6. **Boundary pass** (optional) — for cross-kind or word-boundary separators on the assembled inline stream (Chinese spaces hanzi↔Latin; Japanese inserts a number joiner), register a handler in `frontend.boundary_registry` under the language subtag.

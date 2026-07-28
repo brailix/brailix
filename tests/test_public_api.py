@@ -108,6 +108,7 @@ _FACADE: dict[str, list[str]] = {
         "merge_spans",
         "BackendContext",
         "FrontendContext",
+        "GraphicsContext",
         "MathContext",
         "MusicContext",
         "DEFAULT_NORMALIZER",
@@ -342,6 +343,52 @@ def test_every_registry_in_the_extension_surface_is_a_registry() -> None:
     assert not bad, f"extension surface entries that aren't registries: {bad}"
 
 
+def test_every_context_a_protocol_names_is_on_the_shallow_surface() -> None:
+    """An adapter author must be able to *annotate* what they implement.
+
+    The guide tells extenders to take core types from the shallow
+    ``brailix.core`` and treats deeper paths as internal and free to move. So
+    every ``*Context`` appearing in a Protocol signature has to be exported
+    there, or that instruction contradicts itself for whoever implements that
+    protocol: ``GraphicsContext`` was missing, leaving a
+    ``GraphicSourceAdapter`` author to choose between an unannotated signature
+    and importing from a path policy calls internal.
+
+    Derived from the signatures rather than hand-listed — the same reason the
+    protocol manifest walks the module. A new vertical adds its context to a
+    signature; this is what makes it also add it to the facade.
+    """
+    import inspect
+    import re
+    import typing
+
+    import brailix.core as core
+    import brailix.core.protocols as protocols
+
+    named: set[str] = set()
+    for name, obj in vars(protocols).items():
+        if name.startswith("_") or not isinstance(obj, type):
+            continue
+        if typing.Protocol not in getattr(obj, "__bases__", ()):
+            continue
+        for member in vars(obj).values():
+            if not inspect.isfunction(member):
+                continue
+            # ``from __future__ import annotations`` keeps these as strings,
+            # which is all this needs — and avoids resolving IR types that
+            # core deliberately imports only under TYPE_CHECKING.
+            for annotation in getattr(member, "__annotations__", {}).values():
+                named.update(re.findall(r"\b(\w+Context)\b", str(annotation)))
+
+    missing = sorted(named - set(core.__all__))
+    assert not missing, (
+        f"contexts named in a Protocol signature but absent from "
+        f"brailix.core.__all__: {missing} — an extender told to import core "
+        f"types from the shallow surface cannot annotate against them"
+    )
+    assert named, "no contexts found — the signature scan stopped working"
+
+
 def test_every_protocol_is_named_in_the_extension_surface() -> None:
     """A new Protocol in ``core.protocols`` is a new extension point, so it
     belongs in the manifest (and therefore in the guide).
@@ -396,6 +443,43 @@ def test_pipeline_all_is_pinned() -> None:
     import brailix.pipeline as pipeline
 
     assert set(pipeline.__all__) == set(_PIPELINE_ALL)
+
+
+def test_pipeline_namespace_exposes_no_internal_collaborators() -> None:
+    """``__all__`` governs ``import *`` and the generated reference — it does
+    not stop ``from brailix.pipeline import CompilationSession``.
+
+    So a plain ``from ._session import CompilationSession`` for internal use
+    also *publishes* that name in every practical sense: it imports cleanly, it
+    tab-completes, and a downstream author has no way to tell it apart from
+    ``Pipeline`` sitting beside it. ``_session`` states it has no public API and
+    that only Pipeline may construct a session — a promise the package namespace
+    was quietly contradicting, along with the frontend driver, ``compile_block``,
+    ``compose_document_pages`` and the four fingerprint functions.
+
+    The internals are imported under underscore aliases instead. This checks
+    only names the pipeline package *itself* defines: a re-export like
+    ``Paragraph`` is another package's published type that merely also resolves
+    here, which is untidy but promises nothing new.
+    """
+    import types
+
+    import brailix.pipeline as pipeline
+
+    leaked = sorted(
+        name
+        for name, obj in vars(pipeline).items()
+        if not name.startswith("_")
+        and name not in pipeline.__all__
+        and not isinstance(obj, types.ModuleType)
+        and getattr(obj, "__module__", "").startswith("brailix.pipeline")
+    )
+    assert not leaked, (
+        f"brailix.pipeline exposes its own internals as importable names: "
+        f"{leaked} — import them as ``from ._module import X as _X`` so the "
+        f"package namespace carries the API and nothing else, or add the name "
+        f"to __all__ (and _PIPELINE_ALL) as a deliberate promise"
+    )
 
 
 @pytest.mark.parametrize("module", [*sorted(_FACADE), "brailix.pipeline"])

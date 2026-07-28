@@ -45,7 +45,7 @@ class BrailleCell:
     matrix row breaks, hanging-indent brackets), built via the span-carrying
     factories below (:func:`blank_cell` / :func:`line_break_cell` /
     :func:`hang_open_cell` / :func:`hang_close_cell`) — so a compiled document
-    upholds "every cell maps to a source span" (ARCHITECTURE.md §3).
+    upholds "every cell maps to a source span" (ARCHITECTURE#arch-traceability).
 
     **Coordinate contract**: ``source_span`` is **leaf-local** — offsets
     into the *owning leaf block's* ``text``, starting at 0 per block, NOT
@@ -340,7 +340,7 @@ class BrailleDocument:
     def validate_traceability(self) -> list[tuple[int, int]]:
         """``(block_index, cell_index)`` of every cell carrying no
         ``source_span`` — empty when the document upholds "every cell maps to a
-        source span" (ARCHITECTURE.md §3), the basis of the proofreading
+        source span" (ARCHITECTURE#arch-traceability), the basis of the proofreading
         system's click-a-cell → jump-to-source tracking.
 
         A *compiled* document satisfies this unconditionally: the Backend gives

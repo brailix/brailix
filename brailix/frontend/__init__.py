@@ -12,7 +12,7 @@ stored as OMML / EQ arrives as a deferred source-tagged island
 (:mod:`brailix.core.inline_math`) and is converted by
 :func:`~brailix.frontend.math.parse_math_tree`, exactly as a user-typed
 ``$...$`` fragment is. The boundary rule (text defers, binary is decoded
-at input) is stated in ARCHITECTURE §1; the dependency is one-way (input
+at input) is stated in ARCHITECTURE#arch-layers; the dependency is one-way (input
 imports this; this never imports input).
 
 ## One public callable per subsystem
@@ -21,19 +21,33 @@ Each subsystem under ``frontend/`` exposes **a single high-level
 entry point** plus a registry of internal adapter implementations.
 Users call the entry point with a :class:`FrontendContext`; which
 concrete adapter runs is decided by ``ctx.options[...]`` (or by an
-``"auto"`` default that probes what's installed):
+``"auto"`` default that probes what's installed).
 
-==================  ==============================================
-Module              Public callable
-------------------  ----------------------------------------------
-``frontend.segment``  :func:`segment` (selected by ``segmenter``)
-``frontend.normalize`` :func:`normalize` (selected by ``normalizer``)
-``frontend.zh``       :func:`tokenize` (selected by ``zh_analyzer``)
-``frontend.zh.pinyin``   :func:`annotate` (selected by ``pinyin_resolver``)
-``frontend.math``     :func:`parse_math_tree` (source via :class:`MathContext`)
-``frontend.music``    :func:`parse_music_tree` (source via :class:`MusicContext`)
-``frontend.ja``       :func:`analyze` (selected by ``ja_analyzer``)
-==================  ==============================================
+The table lists each **subsystem's own** entry point, at the module that
+defines it — not the contents of this facade. The two are deliberately
+different sets: this module re-exports the entries a *document translation*
+runs through, while music, graphics and Japanese are reached at their own
+paths by whoever drives that vertical (the Pipeline, or a caller compiling a
+score / figure directly). Import each from the module named in the left
+column; widening ``__all__`` to make the two lists match would publish four
+more compatibility promises for the sake of symmetry.
+
+======================  ==============================================
+Module                  Its public callable
+----------------------  ----------------------------------------------
+``frontend.segment``    :func:`segment` (selected by ``segmenter``)
+``frontend.normalize``  :func:`normalize` (selected by ``normalizer``)
+``frontend.zh``         :func:`tokenize` (selected by ``zh_analyzer``)
+``frontend.zh.pinyin``  :func:`annotate` (selected by ``pinyin_resolver``)
+``frontend.ja``         :func:`analyze` (selected by ``ja_analyzer``)
+``frontend.math``       :func:`parse_math_tree` (source via :class:`MathContext`)
+``frontend.music``      :func:`parse_music_tree` (source via :class:`MusicContext`)
+``frontend.graphics``   :func:`parse_graphic_tree` (source via :class:`GraphicsContext`)
+======================  ==============================================
+
+Re-exported *here*, as this facade's ``__all__``: :func:`segment`,
+:func:`normalize`, ``tokenize_zh``, ``annotate_pinyin``,
+:func:`parse_math_tree`, plus the two language-keyed registries below.
 
 Custom adapters register themselves with the corresponding registry
 (``analyzer_registry`` in :mod:`frontend.zh.analyzer.registry`,
@@ -96,7 +110,7 @@ class _ZhFrontend(LanguageFrontend):
     Lives here (frontend orchestration level), not inside
     ``frontend.zh.analyzer``, because it chains the analyzer with the
     pinyin resolver — and the analyzer must not import
-    ``frontend.zh.pinyin`` (subsystem independence, ARCHITECTURE §7.1).
+    ``frontend.zh.pinyin`` (subsystem independence, ARCHITECTURE#arch-mediators).
     """
 
     # Chinese prose reaches the frontend as ``hanzi_text`` segments (Han
@@ -153,7 +167,8 @@ language_frontend_registry.register("ja", _JaFrontend)
 # boundaries; a language with no handler passes through unchanged — its
 # within-segment spacing already ran in its frontend (e.g. Japanese
 # wakachigaki in ``tokens_to_inline``). Keyed by the language subtag,
-# mirroring the §7.6 registries, so the orchestrator stays language-blind.
+# mirroring the ARCHITECTURE#arch-language-slots registries, so the
+# orchestrator stays language-blind.
 boundary_registry: dict[str, BoundaryHandler] = {}
 
 

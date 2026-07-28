@@ -315,8 +315,8 @@ class TestPipelineAttachMath:
 class TestTokensToInlineEmpty:
     """``tokens_to_inline`` short-circuits on an empty token list.
 
-    The helper now lives in :mod:`brailix.frontend.zh` (ARCHITECTURE
-    §7.1 — Chinese-typesetting logic belongs in the Chinese subsystem,
+    The helper now lives in :mod:`brailix.frontend.zh`
+    (ARCHITECTURE#arch-mediators — Chinese-typesetting logic belongs in the Chinese subsystem,
     not in the language-agnostic orchestrator).  More comprehensive
     coverage in :mod:`tests.frontend.zh.analyzer.test_inline`; this one stays
     here as a Pipeline-context smoke that the public API works."""

@@ -10,7 +10,7 @@ pass adds:
      second level must be a dict)
   3. role values in symbols.json (must be one of the known set)
   4. ``big_op`` / ``script_prefix`` types (must be ``bool`` when set)
-  5. per-language ``tables.<lang>`` slot (ARCHITECTURE §7.6): the slot is
+  5. per-language ``tables.<lang>`` slot (ARCHITECTURE#arch-language-slots): the slot is
      a dict of group → resource ref, required groups present, and the
      referenced cell tables well-shaped (so a typo'd ref / empty group no
      longer silently misses at first translation)
@@ -130,7 +130,8 @@ def validate_profile(
 
       * profile.json top-level keys (name / language / cell / tables;
         features optional; tables.math + tables.zh shapes when present)
-      * per-language ``tables.<lang>`` slot (§7.6): dict shape, required
+      * per-language ``tables.<lang>`` slot (ARCHITECTURE#arch-language-slots):
+        dict shape, required
         groups present, referenced cell tables well-formed
       * symbols.json roles (must be one of the known set; missing role
         on a real entry is an error)
@@ -160,7 +161,8 @@ def validate_profile(
             f"{type(zh_tables).__name__}"
         )
 
-    # Per-language cell-table slot (§7.6). The loader resolves the slot
+    # Per-language cell-table slot (ARCHITECTURE#arch-language-slots).
+    # The loader resolves the slot
     # named by the profile's language subtag (``ja-JP`` -> ``ja``); zh
     # keeps its welded loaders, so it's exempt from this generic check.
     lang_subtag = str(payload["language"]).split("-")[0]
@@ -194,7 +196,8 @@ def _validate_lang_tables(
     lang: str,
     profile_file: str,
 ) -> None:
-    """Validate the per-language ``tables.<lang>`` slot (§7.6).
+    """Validate the per-language ``tables.<lang>`` slot
+        (ARCHITECTURE#arch-language-slots).
 
     The slot maps a group name (e.g. ``kana``) to a resource-file ref.
     The loader silently drops a group whose ref isn't a string and a
@@ -211,7 +214,8 @@ def _validate_lang_tables(
 
     Which groups are mandatory is **data, not code** — it comes from the
     profile's own ``tables.<lang>._required`` list, so the validator stays
-    language-agnostic (§7.6) and a new language opts in by declaring
+    language-agnostic (ARCHITECTURE#arch-language-slots) and a new
+        language opts in by declaring
     ``_required`` in its resource, not by editing this module. A profile
     that omits the slot — or declares no ``_required`` — is allowed; only a
     *present-but-broken* slot, or one missing a self-declared required
