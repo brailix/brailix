@@ -31,6 +31,7 @@ from brailix.core.context import (
 )
 from brailix.core.errors import WarningCollector
 from brailix.core.span import Span
+from brailix.pipeline._fingerprint import registries_generation
 from brailix.pipeline._results import TreeSubcache
 
 if TYPE_CHECKING:
@@ -54,8 +55,34 @@ class CompilationSession:
     warnings: WarningCollector
     frontend_ctx: FrontendContext
     backend_ctx: BackendContext
+    # The compilation identity this run is pinned to, read ONCE at ``begin``.
+    # Everything that has to agree with the braille this run emits — the
+    # frontend's stamp, the parsed-tree cache identity, the caller's
+    # ``source_hash`` — reads it from here rather than re-reading
+    # :attr:`Pipeline.fingerprint`, which moves under a concurrent
+    # ``register`` / ``unregister``. Re-reading it at the end of a compile
+    # produced a block whose cells came from one epoch and whose cache key
+    # named another: two compiles either side of a mid-run registration
+    # returned *the same* ``source_hash`` for provably different braille.
+    fingerprint: str = ""
+    # The registry-generation vector at ``begin``, kept so the end of the run
+    # can tell whether the registration surface moved underneath it (see
+    # :meth:`epoch_drifted`).
+    generation: tuple[int, ...] = ()
     tree_in: TreeSubcache = field(default_factory=dict)
     tree_out: TreeSubcache = field(default_factory=dict)
+
+    def epoch_drifted(self) -> bool:
+        """True if an adapter registration landed while this run was compiling.
+
+        Pinning the fingerprint keeps the cache key honest about *an* epoch,
+        but it cannot make the run itself single-epoch: the frontend resolves
+        adapter names on every use, so a registration landing mid-run means
+        earlier nodes were translated by the outgoing implementation and later
+        ones by its replacement. That block is a blend no fingerprint
+        describes, so the run reports it rather than returning it silently.
+        """
+        return registries_generation() != self.generation
 
     @classmethod
     def begin(
@@ -80,14 +107,19 @@ class CompilationSession:
         #   :attr:`Pipeline.fingerprint`), and the stale-children check
         #   compares block stamps against the driver's copy — a run must
         #   compare against the CURRENT identity, or IR populated before a
-        #   runtime re-register would be reused as-is.
+        #   runtime re-register would be reused as-is. Read exactly once and
+        #   kept on the session: every later consumer in this run takes it
+        #   from there, so the run cannot start on one identity and finish on
+        #   another.
         # * ``asset_resolver`` — ``Pipeline.asset_resolver`` is a plain
         #   assignable field (a front-end binds its resolver to an
         #   already-built pipeline: ``pipe.asset_resolver = ...``), while
         #   the driver holds its own copy from ``__post_init__``; without
         #   this sync a late-bound resolver would silently never run and
         #   every in-document image would soft-fail to a blank raster.
-        pipeline._frontend.fingerprint = pipeline.fingerprint
+        generation = registries_generation()
+        fingerprint = pipeline.fingerprint
+        pipeline._frontend.fingerprint = fingerprint
         pipeline._frontend.asset_resolver = pipeline.asset_resolver
         warnings = WarningCollector(mode=pipeline.mode)
         frontend_ctx = FrontendContext(
@@ -116,6 +148,8 @@ class CompilationSession:
             warnings=warnings,
             frontend_ctx=frontend_ctx,
             backend_ctx=backend_ctx,
+            fingerprint=fingerprint,
+            generation=generation,
             tree_in=tree_subcache or {},
         )
 
