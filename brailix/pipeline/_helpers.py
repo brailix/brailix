@@ -175,24 +175,49 @@ def block_hash(
 
 
 def tree_cache_key(
-    domain: str, source: str, surface: str, salt: str = ""
-) -> tuple[str, str, str, str]:
+    domain: str,
+    source: str,
+    surface: str,
+    salt: str = "",
+    *,
+    identity: str,
+) -> tuple[str, str, str, str, str]:
     """Build a parsed-tree cache key — the one place its shape is decided.
 
-    ``salt`` carries whatever else the parse result depended on beyond
-    ``(domain, source, surface)``: the music mode, a graphic's asset-resolver
-    identity. It defaults to ``""`` for a parse that consumes nothing more
-    (math). Routing every key through here is deliberate: the shape drifted
-    once already — music blocks and score blocks parse in different modes,
-    but the mode wasn't in the key, so two blocks with identical source text
-    shared one cached tree. A key built by hand at each call site is exactly
-    where that recurs.
+    ``identity`` is the *parse identity*: the compilation configuration the
+    tree was parsed under, i.e. the producing pipeline's
+    :attr:`~brailix.pipeline.Pipeline.fingerprint` (``""`` for a bare
+    :class:`~brailix.pipeline.FrontendDriver` that has none). Keyword-only and
+    required, because forgetting it is exactly the failure this slot exists to
+    prevent: a source adapter receives the whole
+    :class:`~brailix.core.context.MathContext` / ``MusicContext`` /
+    ``GraphicsContext`` — profile, options, run mode — and the registry behind
+    ``source`` is open, so "same ``(domain, source, surface)``" does **not**
+    imply "same tree". Without this slot a pool threaded from one pipeline
+    into another (``translate_block(tree_subcache=...)``), or reused across a
+    runtime re-``register`` of the adapter that built it, kept handing back the
+    OTHER configuration's tree while the block's ``source_hash`` was minted
+    under the current one — silently wrong braille wearing a fresh cache key.
+    The fingerprint already covers profile content, adapter selection, run
+    mode, the user dictionary and every compilation registry's generation
+    (see :func:`brailix.pipeline.compilation_fingerprint`), so folding it in
+    is deliberately coarse in the safe direction: a same-configuration
+    re-compile — the proofreading case the pool exists for — still hits.
+
+    ``salt`` carries whatever else the parse result depended on *within* one
+    configuration: the music mode, a graphic's asset-resolver identity. It
+    defaults to ``""`` for a parse that consumes nothing more (math). Routing
+    every key through here is deliberate: the shape drifted once already —
+    music blocks and score blocks parse in different modes, but the mode
+    wasn't in the key, so two blocks with identical source text shared one
+    cached tree. A key built by hand at each call site is exactly where that
+    recurs.
     """
-    return (domain, source, surface, salt)
+    return (domain, identity, source, surface, salt)
 
 
 def cache_lookup(
-    tree_in: TreeSubcache | None, key: tuple[str, str, str, str]
+    tree_in: TreeSubcache | None, key: tuple[str, str, str, str, str]
 ) -> ET.Element | None:
     """Return the cached parsed tree for ``key``, or ``None`` on a miss.
 
@@ -207,7 +232,7 @@ def cache_lookup(
 
 def cache_record(
     tree_out: TreeSubcache | None,
-    key: tuple[str, str, str, str],
+    key: tuple[str, str, str, str, str],
     tree: ET.Element | None,
 ) -> None:
     """Record ``tree`` under ``key`` in the output reuse pool.

@@ -35,13 +35,20 @@ Module              Public callable
 ``frontend.ja``       :func:`analyze` (selected by ``ja_analyzer``)
 ==================  ==============================================
 
-Custom adapters register themselves with the corresponding internal
-registry (``analyzer_registry`` in :mod:`frontend.zh.analyzer.registry`,
+Custom adapters register themselves with the corresponding registry
+(``analyzer_registry`` in :mod:`frontend.zh.analyzer.registry`,
 ``resolver_registry`` in :mod:`frontend.zh.pinyin.registry`, etc.) and
 then become available by name. End users never touch the registries
 directly — they set the name via ``ctx.options`` (or the equivalent
 :class:`~brailix.Pipeline` constructor argument) and call the
-public function.
+public function; *extenders* do, and those registry paths are part of the
+supported extension surface (see the top-level :mod:`brailix` docstring).
+
+Two of them live here rather than at a subsystem path, because what they key
+on is the language rather than one subsystem's source format:
+:data:`language_frontend_registry` (which frontend handles a language's prose)
+and :data:`boundary_registry` (the post-frontend pass that inserts cross-kind
+or word-boundary separators on the assembled stream).
 """
 
 from __future__ import annotations
@@ -165,7 +172,15 @@ def apply_boundary(
 ) -> list[InlineNode]:
     """Run the boundary pass registered for ``lang`` on the assembled
     inline stream; a language with no registered handler passes through
-    unchanged."""
+    unchanged.
+
+    Orchestration, not an extension point: the compiler calls this once per
+    run after concatenating the per-segment outputs, and what an extender
+    supplies is a *handler* in :data:`boundary_registry`. That is why it is
+    absent from ``__all__`` while the registry is in it — it stays importable
+    for anyone assembling their own inline stream by hand, but it carries no
+    compatibility promise.
+    """
     handler = boundary_registry.get(lang)
     return handler(nodes, profile) if handler else nodes
 
@@ -177,5 +192,5 @@ __all__ = (
     "annotate_pinyin",
     "parse_math_tree",
     "language_frontend_registry",
-    "apply_boundary",
+    "boundary_registry",
 )

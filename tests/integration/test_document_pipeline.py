@@ -370,8 +370,8 @@ class TestKitchenSinkDocument:
 
 
 # ---------------------------------------------------------------------------
-# Block population edge cases — `_populate_block` recursion through
-# Table / List / hand-built DocumentIR without spans / surface
+# Block population edge cases — `FrontendDriver.populate_block` recursion
+# through Table / List / hand-built DocumentIR without spans / surface
 # reconstruction.
 # ---------------------------------------------------------------------------
 
@@ -380,7 +380,7 @@ class TestPopulateBlockRecursion:
     def test_table_cells_run_through_frontend(self, pipe):
         # Build a Table directly (no Markdown shortcut) and confirm the
         # Chinese frontend reaches into TableRow.cells[].children. This
-        # exercises the Table-recursion branch of ``_populate_block``.
+        # exercises the Table-recursion branch of ``populate_block``.
         from brailix.ir.document import (
             DocumentIR,
             Table,
@@ -410,7 +410,7 @@ class TestPopulateBlockRecursion:
 
     def test_mathblock_without_span_gets_synthesized_span(self, pipe):
         # When a caller hands the pipeline a MathBlock with no span,
-        # `_populate_block` should synthesize one from len(text) so
+        # `populate_block` should synthesize one from len(text) so
         # downstream proofread output doesn't have a None hole.
         from brailix.ir.document import DocumentIR, MathBlock
 

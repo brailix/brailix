@@ -312,11 +312,12 @@ class TestIrTransformer:
 class TestMathSubcache:
     """Per-formula parsed-tree cache threaded through translate_block.
 
-    The pipeline keys math by ``("math", source_format, surface_text)``
-    — the ``"math"`` domain prefix shares one pool with music while
-    keeping the two from colliding.  The cache lets the caller skip
-    re-parsing unchanged formulas when surrounding non-math text in the
-    same block is edited.
+    The pipeline keys math by ``("math", pipeline fingerprint, source_format,
+    surface_text, "")`` — the ``"math"`` domain prefix shares one pool with
+    music while keeping the two from colliding, and the fingerprint slot keeps
+    two configurations' trees apart (see :class:`TestTreeSubcacheParseIdentity`).
+    The cache lets the caller skip re-parsing unchanged formulas when
+    surrounding non-math text in the same block is edited.
     """
 
     @pytest.mark.requires("latex2mathml")
@@ -328,7 +329,7 @@ class TestMathSubcache:
         # The latex inline formula is keyed by its surface (including
         # the ``$...$`` framing — that's exactly what the math frontend
         # gets handed), under the ``"math"`` domain.
-        key = ("math", "latex", "$x^2$", "")
+        key = ("math", pipe.fingerprint, "latex", "$x^2$", "")
         assert key in out.tree_subcache
         from xml.etree.ElementTree import Element
 
@@ -348,7 +349,7 @@ class TestMathSubcache:
         ``parse_math_tree`` for the same ``(domain, source, surface)``."""
         first = pipe.translate_block(Paragraph(text="$x^2$ 是"))
         cached = first.tree_subcache
-        key = ("math", "latex", "$x^2$", "")
+        key = ("math", pipe.fingerprint, "latex", "$x^2$", "")
         assert key in cached
 
         # Sentinel that explodes if the math frontend gets called at all
@@ -383,19 +384,19 @@ class TestMathSubcache:
         )
         # Only the formula actually parsed this compile lands in the
         # output subcache; the stale one is not carried over.
-        assert ("math", "latex", "$x^2$", "") not in second.tree_subcache
-        assert ("math", "latex", "$x^3$", "") in second.tree_subcache
+        assert ("math", pipe.fingerprint, "latex", "$x^2$", "") not in second.tree_subcache
+        assert ("math", pipe.fingerprint, "latex", "$x^3$", "") in second.tree_subcache
 
     @pytest.mark.requires("latex2mathml")
     def test_math_block_uses_cache(self, pipe: Pipeline) -> None:
         """``MathBlock`` (display math) goes through the same caching
-        path as inline math, keyed by ``("math", source, text)``."""
+        path as inline math, keyed by ``("math", identity, source, text, "")``."""
         from brailix.ir.document import MathBlock
 
         first = pipe.translate_block(
             MathBlock(text="\\sum x_i", source="latex")
         )
-        key = ("math", "latex", "\\sum x_i", "")
+        key = ("math", pipe.fingerprint, "latex", "\\sum x_i", "")
         assert key in first.tree_subcache
 
     @pytest.mark.requires("latex2mathml")
@@ -406,7 +407,7 @@ class TestMathSubcache:
         out = pipe.translate_block(
             Paragraph(text="$x$"), tree_subcache={}
         )
-        assert ("math", "latex", "$x$", "") in out.tree_subcache
+        assert ("math", pipe.fingerprint, "latex", "$x$", "") in out.tree_subcache
 
     @pytest.mark.requires("latex2mathml")
     def test_backend_does_not_mutate_cached_tree(self, pipe: Pipeline) -> None:
@@ -426,7 +427,7 @@ class TestMathSubcache:
         assert tree is not None
         before = ET.tostring(tree)
 
-        key = ("math", "latex", "\\sum x_i", "")
+        key = ("math", pipe.fingerprint, "latex", "\\sum x_i", "")
         out = pipe.translate_block(
             MathBlock(text="\\sum x_i", source="latex"),
             tree_subcache={key: tree},
@@ -458,8 +459,8 @@ class TestMusicSubcache:
     ``tree_subcache``, mirroring :class:`TestMathSubcache`.
 
     A :class:`ScoreBlock` parses its MusicXML into a normalised tree
-    keyed by ``("music", source, text, mode)`` (``mode == "score"`` for a
-    ScoreBlock, ``"block"`` for a MusicBlock).  Proofreading edits that leave
+    keyed by ``("music", identity, source, text, mode)`` (``mode == "score"``
+    for a ScoreBlock, ``"block"`` for a MusicBlock).  Proofreading edits that leave
     the score source untouched (an override on surrounding text, a pinyin
     tweak) reuse that tree instead of re-parsing — the win that makes
     large multi-MB scores editable without a stall on every keystroke.
@@ -471,7 +472,7 @@ class TestMusicSubcache:
         out = pipe.translate_block(
             ScoreBlock(text=_SCORE_XML, source="musicxml")
         )
-        key = ("music", "musicxml", _SCORE_XML, "score")
+        key = ("music", pipe.fingerprint, "musicxml", _SCORE_XML, "score")
         assert key in out.tree_subcache
         from xml.etree.ElementTree import Element
 
@@ -486,7 +487,7 @@ class TestMusicSubcache:
             ScoreBlock(text=_SCORE_XML, source="musicxml")
         )
         cached = first.tree_subcache
-        key = ("music", "musicxml", _SCORE_XML, "score")
+        key = ("music", pipe.fingerprint, "musicxml", _SCORE_XML, "score")
         assert key in cached
 
         # Explodes if the music frontend is asked to parse again — the
@@ -520,8 +521,8 @@ class TestMusicSubcache:
             ScoreBlock(text=other_xml, source="musicxml"),
             tree_subcache=first.tree_subcache,
         )
-        assert ("music", "musicxml", _SCORE_XML, "score") not in second.tree_subcache
-        assert ("music", "musicxml", other_xml, "score") in second.tree_subcache
+        assert ("music", pipe.fingerprint, "musicxml", _SCORE_XML, "score") not in second.tree_subcache
+        assert ("music", pipe.fingerprint, "musicxml", other_xml, "score") in second.tree_subcache
 
     def test_music_block_keys_on_block_mode(self, pipe: Pipeline) -> None:
         """A single-passage :class:`MusicBlock` runs in ``"block"`` mode, so
@@ -529,8 +530,8 @@ class TestMusicSubcache:
         out = pipe.translate_block(
             MusicBlock(text=_SCORE_XML, source="musicxml")
         )
-        assert ("music", "musicxml", _SCORE_XML, "block") in out.tree_subcache
-        assert ("music", "musicxml", _SCORE_XML, "score") not in out.tree_subcache
+        assert ("music", pipe.fingerprint, "musicxml", _SCORE_XML, "block") in out.tree_subcache
+        assert ("music", pipe.fingerprint, "musicxml", _SCORE_XML, "score") not in out.tree_subcache
 
     def test_score_and_music_block_do_not_share_cached_tree(
         self, pipe: Pipeline
@@ -542,7 +543,7 @@ class TestMusicSubcache:
             ScoreBlock(text=_SCORE_XML, source="musicxml")
         )
         score_tree = score.tree_subcache[
-            ("music", "musicxml", _SCORE_XML, "score")
+            ("music", pipe.fingerprint, "musicxml", _SCORE_XML, "score")
         ]
         # Feed the score's pool to a MusicBlock compile of identical text.
         music = pipe.translate_block(
@@ -550,7 +551,7 @@ class TestMusicSubcache:
             tree_subcache=dict(score.tree_subcache),
         )
         # It re-parses under the "block" salt instead of reusing "score".
-        assert ("music", "musicxml", _SCORE_XML, "block") in music.tree_subcache
+        assert ("music", pipe.fingerprint, "musicxml", _SCORE_XML, "block") in music.tree_subcache
         assert music.ir.children[0].score is not score_tree
 
     def test_backend_does_not_mutate_cached_tree(self, pipe: Pipeline) -> None:
@@ -578,7 +579,7 @@ class TestMusicSubcache:
 
         # Prime a reuse pool with that exact object, then compile a block that
         # hits it — the backend renders the shared tree.
-        key = ("music", "musicxml", _SCORE_XML, "score")
+        key = ("music", pipe.fingerprint, "musicxml", _SCORE_XML, "score")
         out = pipe.translate_block(
             ScoreBlock(text=_SCORE_XML, source="musicxml"),
             tree_subcache={key: tree},
@@ -608,7 +609,7 @@ class TestGraphicSubcache:
 
     def test_reuses_cached_tree(self, pipe: Pipeline) -> None:
         first = pipe.translate_block(GraphicBlock(text=_SVG_FIGURE, source="svg"))
-        key = ("graphic", "svg", _SVG_FIGURE, "")
+        key = ("graphic", pipe.fingerprint, "svg", _SVG_FIGURE, "")
         assert key in first.tree_subcache
 
         second = pipe.translate_block(
@@ -634,7 +635,7 @@ class TestGraphicSubcache:
         assert tree is not None
         before = ET.tostring(tree)
 
-        key = ("graphic", "svg", _SVG_FIGURE, "")
+        key = ("graphic", pipe.fingerprint, "svg", _SVG_FIGURE, "")
         out = pipe.translate_block(
             GraphicBlock(text=_SVG_FIGURE, source="svg"),
             tree_subcache={key: tree},
@@ -724,13 +725,244 @@ class TestTreeSubcacheCrossDomain:
             ScoreBlock(text=_SCORE_XML, source="musicxml")
         )
         pool = {**math_out.tree_subcache, **score_out.tree_subcache}
-        assert ("math", "latex", "$x^2$", "") in pool
-        assert ("music", "musicxml", _SCORE_XML, "score") in pool
+        assert ("math", pipe.fingerprint, "latex", "$x^2$", "") in pool
+        assert ("music", pipe.fingerprint, "musicxml", _SCORE_XML, "score") in pool
 
         # Feeding the union back in lets a recompile reuse the math tree
         # without the music entry interfering.
         again = pipe.translate_block(Paragraph(text="$x^2$"), tree_subcache=pool)
-        assert again.ir.children[0].math is pool[("math", "latex", "$x^2$", "")]
+        assert again.ir.children[0].math is pool[("math", pipe.fingerprint, "latex", "$x^2$", "")]
+
+
+class TestIrTransformerMeetsTheCacheContract:
+    """The public ``ir_transformer`` hook versus the pool's by-identity sharing.
+
+    A cache hit lands the pooled tree on the returned IR
+    (``MusicInline.score`` / ``MathInline.math`` / ``GraphicInline.svg``), and
+    the transformer runs with it already attached — so an in-place edit writes
+    straight into the caller's pool, and every later compile that hits the entry
+    builds braille from a tree an unrelated earlier compile altered. The
+    documented way to edit is clone-then-replace; this pins that it does what
+    the contract promises: the block sees the edit, the pool does not.
+    """
+
+    def test_clone_then_replace_leaves_the_pool_pristine(
+        self, pipe: Pipeline
+    ) -> None:
+        import copy
+        import xml.etree.ElementTree as ET
+
+        first = pipe.translate_block(
+            ScoreBlock(text=_SCORE_XML, source="musicxml")
+        )
+        key = ("music", pipe.fingerprint, "musicxml", _SCORE_XML, "score")
+        pooled = first.tree_subcache[key]
+        before = ET.tostring(pooled)
+
+        def edit_a_note(doc: DocumentIR) -> None:
+            node = doc.blocks[0].children[0]
+            cloned = copy.deepcopy(node.score)
+            note = cloned.find(".//note")
+            assert note is not None
+            note.set("data-edited", "yes")
+            node.score = cloned
+
+        second = pipe.translate_block(
+            ScoreBlock(text=_SCORE_XML, source="musicxml"),
+            tree_subcache=first.tree_subcache,
+            ir_transformer=edit_a_note,
+        )
+        # The block carries the edit...
+        edited = second.ir.children[0].score
+        assert edited.find(".//note").get("data-edited") == "yes"
+        # ...on a different object, and the pooled tree is byte-identical to
+        # what it was before the transformer ran.
+        assert edited is not pooled
+        assert ET.tostring(pooled) == before
+        # The recorded pool still holds the pristine parse, not the clone: a
+        # later compile reusing it gets the source's own tree back.
+        assert second.tree_subcache[key] is pooled
+
+
+# ---------------------------------------------------------------------------
+# tree_subcache parse identity (BXL-001)
+# ---------------------------------------------------------------------------
+
+
+class _FixedMathAdapter:
+    """A conforming ``MathSourceAdapter`` returning one fixed formula.
+
+    Stands in for a third-party adapter so these tests need no optional
+    dependency — and, decisively, lets one registered *name* be made to
+    produce two different trees, which is exactly what re-registering an
+    adapter does in a live process.
+    """
+
+    source = "swappable"
+
+    def __init__(self, letter: str) -> None:
+        self.letter = letter
+
+    def to_mathml(self, formula, ctx=None) -> str:  # noqa: ANN001
+        return f"<math><mi>{self.letter}</mi></math>"
+
+
+class _OptionsEchoMathAdapter:
+    """An adapter whose MathML depends on the *context*, not only on the
+    formula.
+
+    Entirely legal: ``to_mathml`` receives the whole
+    :class:`~brailix.core.context.MathContext` — profile, run mode, options —
+    and the protocol never promises an adapter reads nothing but the source
+    text. That is why ``(domain, source, surface)`` cannot identify a parsed
+    tree on its own.
+    """
+
+    source = "optecho"
+
+    def to_mathml(self, formula, ctx=None) -> str:  # noqa: ANN001
+        letter = "B" if ctx is not None and ctx.options.get(
+            "user_pinyin_dict"
+        ) else "A"
+        return f"<math><mi>{letter}</mi></math>"
+
+
+def _mi(tree) -> str:  # noqa: ANN001
+    """The single ``<mi>``'s text in a tree one of the fakes above produced."""
+    node = tree.find("mi")
+    assert node is not None, "adapter output lost its <mi>"
+    return node.text or ""
+
+
+class TestTreeSubcacheParseIdentity:
+    """A pool entry is reused only under the configuration that parsed it.
+
+    ``tree_subcache`` is a **caller-held** dict: the caller may thread it into
+    any pipeline, and it survives a runtime re-``register`` of the very adapter
+    that filled it. Since an adapter reads the whole context, "same
+    ``(domain, source, surface)``" does not mean "same tree" — so every key
+    carries the producing pipeline's ``fingerprint`` (BXL-001).
+
+    Before that slot existed the failure was silent and the worst kind: the
+    block's ``source_hash`` was minted under the *current* configuration while
+    the tree inside it came from the *previous* one, so a stale parse shipped
+    wearing a fresh-looking cache key, with no warning to notice in proofreading.
+    """
+
+    def test_two_configurations_do_not_share_one_pool(self) -> None:
+        """Threading A's pool into B re-parses under B's own configuration."""
+        from brailix.frontend.math.registry import math_source_registry
+
+        with math_source_registry.overriding(
+            "optecho", lambda: _OptionsEchoMathAdapter()
+        ):
+            pipe_a = Pipeline(
+                profile="cn_current", analyzer="char", resolver="null"
+            )
+            pipe_b = Pipeline(
+                profile="cn_current",
+                analyzer="char",
+                resolver="null",
+                user_pinyin_dict={"重庆": "chong2 qing4"},
+            )
+            assert pipe_a.fingerprint != pipe_b.fingerprint
+
+            first = pipe_a.translate_block(MathBlock(text="f", source="optecho"))
+            second = pipe_b.translate_block(
+                MathBlock(text="f", source="optecho"),
+                tree_subcache=first.tree_subcache,
+            )
+            # Same source + same surface, and B still got ITS tree, not A's.
+            assert _mi(first.ir.children[0].math) == "A"
+            assert _mi(second.ir.children[0].math) == "B"
+            assert second.ir.children[0].math is not first.ir.children[0].math
+
+    def test_reregistering_the_same_name_invalidates_the_pool(self) -> None:
+        """The headline scenario: one live ``Pipeline``, one adapter name, a
+        replacement implementation registered under it mid-process.
+
+        The block's own ``children`` are dropped by the fingerprint stale-heal
+        either way; what used to survive was the *tree pool*, which kept
+        handing back the replaced adapter's output.
+        """
+        from brailix.frontend.math.registry import math_source_registry
+
+        with math_source_registry.overriding(
+            "swappable", lambda: _FixedMathAdapter("A")
+        ):
+            pipe = Pipeline(
+                profile="cn_current", analyzer="char", resolver="null"
+            )
+            first = pipe.translate_block(
+                MathBlock(text="f", source="swappable")
+            )
+            assert _mi(first.ir.children[0].math) == "A"
+
+            math_source_registry.register(
+                "swappable", lambda: _FixedMathAdapter("B")
+            )
+            second = pipe.translate_block(
+                MathBlock(text="f", source="swappable"),
+                tree_subcache=first.tree_subcache,
+            )
+            assert _mi(second.ir.children[0].math) == "B"
+
+    def test_equal_configurations_still_share_the_pool(self) -> None:
+        """The identity must not break the reuse it protects: two separately
+        constructed but identically configured pipelines have equal
+        fingerprints, so one's pool serves the other (the documented
+        "equal fingerprints compile any block identically" contract)."""
+        from brailix.frontend.math.registry import math_source_registry
+
+        with math_source_registry.overriding(
+            "swappable", lambda: _FixedMathAdapter("A")
+        ):
+            kwargs = {
+                "profile": "cn_current",
+                "analyzer": "char",
+                "resolver": "null",
+            }
+            pipe_1 = Pipeline(**kwargs)
+            pipe_2 = Pipeline(**kwargs)
+            assert pipe_1.fingerprint == pipe_2.fingerprint
+
+            first = pipe_1.translate_block(
+                MathBlock(text="f", source="swappable")
+            )
+            second = pipe_2.translate_block(
+                MathBlock(text="f", source="swappable"),
+                tree_subcache=first.tree_subcache,
+            )
+            assert second.ir.children[0].math is first.ir.children[0].math
+
+    def test_music_pool_misses_after_its_registry_generation_moves(
+        self, pipe: Pipeline
+    ) -> None:
+        """Music parity, through the real ``musicxml`` adapter: dropping the
+        registry's cached instances (what an ``auto`` adapter re-probing the
+        environment does) moves the fingerprint, so the score re-parses instead
+        of being served from a pool built before the change."""
+        from brailix.frontend.music.registry import music_source_registry
+
+        first = pipe.translate_block(
+            ScoreBlock(text=_SCORE_XML, source="musicxml")
+        )
+        music_source_registry.clear_cache()
+        second = pipe.translate_block(
+            ScoreBlock(text=_SCORE_XML, source="musicxml"),
+            tree_subcache=first.tree_subcache,
+        )
+        assert second.ir.children[0].score is not first.ir.children[0].score
+
+    def test_graphic_pool_keys_on_identity_too(self, pipe: Pipeline) -> None:
+        """Graphics parity: the domain's own salt (the asset resolver) is
+        orthogonal to the identity slot, so both appear in the key."""
+        out = pipe.translate_block(GraphicBlock(text=_SVG_FIGURE, source="svg"))
+        assert ("graphic", pipe.fingerprint, "svg", _SVG_FIGURE, "") in (
+            out.tree_subcache
+        )
+        # No entry keyed under a *different* identity, however equal the rest.
+        assert ("graphic", "", "svg", _SVG_FIGURE, "") not in out.tree_subcache
 
 
 # ---------------------------------------------------------------------------

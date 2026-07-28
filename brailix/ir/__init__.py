@@ -27,8 +27,9 @@ encoded bytes themselves live in ``brailix.renderer``.
 This package ``__init__`` re-exports the IR data model as the stable,
 **shallow** public surface. Downstream consumers (a proofreading
 front-end, CLI front-ends, ...) import from ``brailix.ir`` rather than the
-concrete modules (``brailix.ir.document`` / ``.inline`` / ``.braille``)
-so the library can reorganise those modules without breaking callers.
+concrete modules (``brailix.ir.document`` / ``.inline`` / ``.braille`` /
+``.tactile``) so the library can reorganise those modules without breaking
+callers.
 """
 
 from __future__ import annotations
@@ -82,10 +83,11 @@ from brailix.ir.inline import (
     Unknown,
     Word,
 )
+from brailix.ir.tactile import TactileRaster
 
 # What this facade holds is the **data model**: the block / inline / braille
-# types a consumer builds, walks and serialises. Two deliberate exclusions,
-# both on that same criterion rather than on "is it a product":
+# types a consumer builds, walks and serialises. One deliberate exclusion, on
+# that same criterion rather than on "is it a product":
 #
 # * The layout control sentinels (``LINE_BREAK_CELL``, ``HANG_OPEN_CELL`` /
 #   ``HANG_CLOSE_CELL``, ``CASES_OPEN_CELL`` / ``CASES_CLOSE_CELL``) are the
@@ -96,13 +98,17 @@ from brailix.ir.inline import (
 #   stay in ``brailix.ir.braille`` where the backend, the renderers and their
 #   tests already import them. ``BLANK_CELL`` does stay here: an empty cell is
 #   a value a consumer legitimately builds and compares against.
-# * ``TactileRaster`` (the tactile Product IR) belongs to the independent
-#   graphics vertical, whose consumers (the tactile renderers, the graphic
-#   editor) import it straight from ``brailix.ir.tactile``; this shallow
-#   surface serves the braille main line, whose consumers want the document,
-#   inline and braille types together. The graphics *document-model* node
-#   types (:class:`GraphicBlock`, :class:`GraphicInline`) ARE re-exported,
-#   like Math / Music, because they are first-class document IR citizens.
+#
+# ``TactileRaster`` (the tactile Product IR) used to be excluded as belonging
+# to an independent graphics vertical with its own consumers. It isn't one any
+# more: figures live embedded in braille documents, so the braille main line's
+# own public result types carry rasters — ``GraphicResult.raster``,
+# ``TactilePageResult.pages``, ``CompiledBlock.raster``. A type a supported
+# entry point hands back has to be nameable from a supported module, or every
+# caller writing an annotation, an ``isinstance`` check or a serialiser is
+# forced into an internal path. The graphics *document-model* node types
+# (:class:`GraphicBlock`, :class:`GraphicInline`) were already re-exported,
+# like Math / Music, because they are first-class document IR citizens.
 
 __all__ = (
     # braille
@@ -151,4 +157,6 @@ __all__ = (
     "Space",
     "Unknown",
     "Word",
+    # tactile (Product IR — reachable from the public result types)
+    "TactileRaster",
 )

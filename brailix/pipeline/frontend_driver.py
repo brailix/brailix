@@ -120,9 +120,12 @@ class FrontendDriver:
     A collaborator :class:`Pipeline` builds once in ``__post_init__`` with
     its own copy of the frontend adapter selection, so the frontend stages
     can be constructed and exercised without a full Pipeline. Backend and
-    rendering stay on :class:`Pipeline`; its two bridge methods
-    (:meth:`Pipeline._fresh_contexts` / :meth:`Pipeline._translate_inline_text`)
-    call back into :meth:`frontend_options` / :meth:`run_frontend` here.
+    rendering stay on :class:`Pipeline`, and two seams reach back in here:
+    :meth:`CompilationSession.begin
+    <brailix.pipeline._session.CompilationSession.begin>` builds a run's
+    contexts from :meth:`frontend_options`, and
+    :meth:`Pipeline._translate_inline_text` translates embedded prose through
+    :meth:`run_frontend`.
 
     The math / music / graphic tree parsers are injected as
     ``_parse_math_tree`` / ``_parse_music_tree`` / ``_parse_graphic_tree``
@@ -185,6 +188,18 @@ class FrontendDriver:
         self._parse_math_tree = parse_math_tree
         self._parse_music_tree = parse_music_tree
         self._parse_graphic_tree = parse_graphic_tree
+
+    @property
+    def parse_identity(self) -> str:
+        """The identity every parsed-tree cache key carries — this driver's
+        compilation fingerprint, or ``""`` when it has none.
+
+        One place owns that normalisation. A driver with no fingerprint is a
+        bare unit-test construction: it stamps nothing and invalidates nothing
+        (see :meth:`_heal_stale_children`), so its cache entries key on the
+        empty identity rather than on a configuration nobody declared.
+        """
+        return self.fingerprint or ""
 
     def populate_block(
         self,
@@ -357,15 +372,21 @@ class FrontendDriver:
         the normal re-translate case — is untouched, preserving the
         "re-translation skips the frontend cost" optimization
         (:meth:`Pipeline.translate_document`).
+
+        Both invalidation paths clear the ``frontend_fingerprint`` stamp along
+        with the children, through :meth:`_invalidate`: the stamp's meaning is
+        "this is the configuration that built the children currently on this
+        block", so a stamp outliving them is already false. It stays false
+        whenever the rebuild doesn't complete — a strict-mode abort or an
+        adapter exception between the drop and the re-populate leaves a block
+        with no children still advertising the *old* configuration, which is
+        the state the populate path's "no stamp before children exist" rule
+        exists to keep out of the IR.
         """
         if not block.children:
             return
         if block.text is not None and _block_surface(block) != block.text:
-            block.children = []
-            # The stamp describes children that no longer exist; clear it so
-            # an emptied block (``text == ""``, never re-populated) doesn't
-            # keep advertising the configuration that built the old ones.
-            block.frontend_fingerprint = None
+            self._invalidate(block)
             return
         if not block.text:
             return
@@ -375,7 +396,18 @@ class FrontendDriver:
             and self.fingerprint is not None
             and stamp != self.fingerprint
         ):
-            block.children = []
+            self._invalidate(block)
+
+    @staticmethod
+    def _invalidate(block: Any) -> None:
+        """Drop a block's populated ``children`` and the stamp describing them.
+
+        The single way children are invalidated, so the pair can't come apart:
+        a stamp is only ever true of children that exist (see
+        :meth:`_heal_stale_children`).
+        """
+        block.children = []
+        block.frontend_fingerprint = None
 
     # --- Frontend orchestration --------------------------------------
     #
@@ -502,7 +534,9 @@ class FrontendDriver:
     ) -> None:
         # Same key shape (and therefore the same pool) as a display MathBlock:
         # an identical formula parses to the same tree inline or displayed.
-        cache_key = tree_cache_key("math", node.source, node.surface)
+        cache_key = tree_cache_key(
+            "math", node.source, node.surface, identity=self.parse_identity
+        )
         if node.math is not None:
             # Already parsed (frontend ran twice, or caller pre-populated).
             # Still record in tree_out so the caller's per-block cache
@@ -524,7 +558,7 @@ class FrontendDriver:
             options=dict(ctx.options),
         )
         # The MathSourceAdapter registry is open, so a non-conforming
-        # adapter can raise; mirror _populate_block's display-math guard so
+        # adapter can raise; mirror populate_math_block's display-math guard so
         # an inline formula can never crash the whole document translate
         # (the backend's MATH_NO_IR path degrades a None tree to a warning).
         try:

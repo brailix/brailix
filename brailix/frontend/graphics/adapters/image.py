@@ -257,8 +257,9 @@ def image_to_svg(
     Pillow (the ``graphics`` extra) for its pixel size; an SVG's size is read
     from its viewBox (stdlib).
 
-    ``resolver`` (the caller's :class:`~brailix.core.protocols.
-    GraphicAssetResolver`, injected from ``ctx``) is consulted first with the
+    ``resolver`` (the caller's
+    :class:`~brailix.core.protocols.GraphicAssetResolver`, injected from
+    ``ctx``) is consulted first with the
     reference: when it yields bytes — an image embedded in the document, with
     no file on disk — they are inlined as a ``data:`` URI and sized in memory.
     When it returns ``None`` (or is absent), the reference is read as a

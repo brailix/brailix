@@ -8,8 +8,9 @@ accepts *uploads* needs a ceiling: without one, a multi-gigabyte file
 spikes process memory the instant it is read — a cheap denial of service
 in a shared deployment (ARCHITECTURE.md).
 
-:class:`InputLimits` is that ceiling, enforced by :func:`brailix.input.
-parse_file` as a ``stat()`` gate **before** any read, so an oversized file
+:class:`InputLimits` is that ceiling, enforced by
+:func:`brailix.input.parse_file`
+as a ``stat()`` gate **before** any read, so an oversized file
 is rejected without ever being loaded. The defaults
 (:data:`DEFAULT_INPUT_LIMITS`) are deliberately *generous* — far above any
 realistic braille document — so normal use never trips them; a server that

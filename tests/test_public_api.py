@@ -23,6 +23,12 @@ concrete internal modules (``brailix.ir.inline``, ``brailix.core.span``, ...).
 The published API reference is *generated* from these modules' docstrings
 (pdoc honours ``__all__``), so there is no hand-written page to keep in
 step: this manifest decides what the reference contains.
+
+:data:`_EXTENSION_SURFACE` further down is the second, narrower promise: what
+an adapter author imports (the Protocols and the per-subsystem registries).
+Those names sit deeper than any facade and have no ``__all__`` of their own, so
+they need a manifest of their own — kept separate because an adapter author and
+an integrator are different audiences whose surfaces should move independently.
 """
 
 from __future__ import annotations
@@ -93,6 +99,9 @@ _FACADE: dict[str, list[str]] = {
         "Space",
         "Unknown",
         "Word",
+        # tactile Product IR — public result types expose it
+        # (GraphicResult.raster, TactilePageResult.pages, CompiledBlock.raster)
+        "TactileRaster",
     ],
     "brailix.core": [
         "Span",
@@ -156,7 +165,13 @@ _FACADE: dict[str, list[str]] = {
         "annotate_pinyin",
         "parse_math_tree",
         "language_frontend_registry",
-        "apply_boundary",
+        # The language-keyed boundary pass is an extension point (a new
+        # language registers its handler here, and the architecture doc points
+        # extenders at it); ``apply_boundary``, which *runs* the registered
+        # handler, is orchestration the compiler calls once per run and is
+        # deliberately not promised — the two used to be exported the wrong way
+        # round.
+        "boundary_registry",
     ],
 }
 
@@ -236,6 +251,123 @@ def test_all_registered_block_types_are_reexported() -> None:
         if not hasattr(ir, cls.__name__) or cls.__name__ not in ir.__all__
     )
     assert not missing, f"block types missing from brailix.ir: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# The extension surface — a second audience, a second manifest
+# ---------------------------------------------------------------------------
+
+# Writing an adapter needs two things the end-user facade above does not carry:
+# the Protocol to satisfy, and the registry to register a loader with. Those
+# live deeper than the facades on purpose (a registry belongs with its
+# subsystem), which used to mean the officially documented way to extend
+# brailix ran entirely through paths the top-level policy called internal and
+# free to move — an extender could follow the guide or stay inside the
+# supported surface, never both. They are supported; this is where that promise
+# is kept.
+#
+# Deliberately a SEPARATE manifest from ``_FACADE``: the audiences differ (an
+# integrator calling ``translate_text`` versus a plugin author registering an
+# adapter), so the two surfaces should be able to move independently, and a
+# reader of either list should not have to guess which entries concern them.
+_EXTENSION_SURFACE: dict[str, list[str]] = {
+    # The contracts. Every pluggable part of the library satisfies one.
+    "brailix.core.protocols": [
+        "Segmenter",
+        "Normalizer",
+        "ChineseAnalyzer",
+        "PinyinResolver",
+        "LanguageFrontend",
+        "LanguageBackend",
+        "MathSourceAdapter",
+        "MusicSourceAdapter",
+        "GraphicSourceAdapter",
+        "InlineTextTranslator",
+        "GraphicAssetResolver",
+        "Renderer",
+    ],
+    # The registries, at their own subsystem's path.
+    "brailix.frontend.segment": ["segmenter_registry"],
+    "brailix.frontend.normalize": ["normalizer_registry"],
+    "brailix.frontend.zh.analyzer.registry": ["analyzer_registry"],
+    "brailix.frontend.zh.pinyin.registry": ["resolver_registry"],
+    "brailix.frontend.ja.analyzer.registry": ["analyzer_registry"],
+    "brailix.frontend.math.registry": ["math_source_registry"],
+    "brailix.frontend.music.registry": ["music_source_registry"],
+    "brailix.frontend.graphics.registry": ["graphic_source_registry"],
+    "brailix.backend.dispatch": ["language_backend_registry"],
+    # The two keyed on the language rather than on a source format, plus the
+    # renderer registry, already ride the end-user facades — repeated here so
+    # this list answers "where do I register?" on its own.
+    "brailix.frontend": ["language_frontend_registry", "boundary_registry"],
+    "brailix.renderer": ["renderer_registry"],
+}
+
+
+@pytest.mark.parametrize("module", sorted(_EXTENSION_SURFACE))
+def test_extension_surface_resolves(module: str) -> None:
+    """Every promised extension name still exists where the guide says.
+
+    This is the check the end-user manifest could not give: these names are
+    not in any ``__all__`` (a registry module has no facade of its own), so a
+    rename or a move would break third-party adapters silently — the import
+    fails in *their* code, at *their* install time.
+    """
+    mod = importlib.import_module(module)
+    missing = [n for n in _EXTENSION_SURFACE[module] if not hasattr(mod, n)]
+    assert not missing, (
+        f"{module} lost extension names {missing} — third-party adapters "
+        f"import these by path. Keep the name, or update the guide, the "
+        f"top-level policy docstring and this manifest together."
+    )
+
+
+def test_every_registry_in_the_extension_surface_is_a_registry() -> None:
+    """A promised registry name must still be something you can ``register``
+    on — the promise is the capability, not just the attribute."""
+    from brailix.core.registry import Registry
+
+    bad: list[str] = []
+    for module, names in _EXTENSION_SURFACE.items():
+        if module == "brailix.core.protocols":
+            continue
+        mod = importlib.import_module(module)
+        for name in names:
+            obj = getattr(mod, name)
+            # ``boundary_registry`` is a plain dict by design (a handler is a
+            # bare callable, with no protocol to validate), so accept either
+            # shape as long as it can take a registration.
+            if not isinstance(obj, (Registry, dict)):
+                bad.append(f"{module}.{name} is {type(obj).__name__}")
+    assert not bad, f"extension surface entries that aren't registries: {bad}"
+
+
+def test_every_protocol_is_named_in_the_extension_surface() -> None:
+    """A new Protocol in ``core.protocols`` is a new extension point, so it
+    belongs in the manifest (and therefore in the guide).
+
+    Guards the whole module rather than a hand-list — the same reason the
+    inline-node and block-type checks above walk their registries: the
+    manifest is hand-maintained, and "we forgot to document it" is exactly how
+    an extension point ends up existing but undiscoverable.
+    """
+    import typing
+
+    import brailix.core.protocols as protocols
+
+    declared = set(_EXTENSION_SURFACE["brailix.core.protocols"])
+    found = {
+        name
+        for name, obj in vars(protocols).items()
+        if not name.startswith("_")
+        and isinstance(obj, type)
+        and typing.Protocol in getattr(obj, "__bases__", ())
+    }
+    assert found == declared, (
+        f"protocols missing from the extension manifest: "
+        f"{sorted(found - declared)}; manifest names that are no longer "
+        f"protocols: {sorted(declared - found)}"
+    )
 
 
 # ---------------------------------------------------------------------------

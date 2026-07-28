@@ -14,7 +14,11 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 
 from brailix.core.context import MathContext
-from brailix.core.errors import MissingExtraError
+from brailix.core.errors import (
+    PROGRAMMING_ERRORS,
+    MissingExtraError,
+    StrictModeError,
+)
 from brailix.frontend.math.normalizer import normalize
 from brailix.frontend.math.utils import merror_wrap
 
@@ -39,6 +43,19 @@ def parse_math_tree(
     anyway — the registry is open to third-party adapters — degrades to
     the standard ``<merror>`` tree instead of crashing the caller; the
     backend renders an unknown cell plus a ``MATH_ERROR`` warning.
+
+    Two exception classes are exempt from that backstop, identically here and
+    in the music / graphics entry points (the shared policy is pinned by
+    ``tests/frontend/test_soft_failure_policy.py``):
+
+    * :class:`~brailix.core.errors.StrictModeError` — the adapter's own
+      ``ctx.warnings`` call raised it, carrying that diagnostic's real code.
+      Wrapping it into ``<merror>`` would both defeat STRICT mode (the caller
+      asked to fail on any diagnostic and would instead receive a tree) and
+      relabel the real code as a parse failure.
+    * :data:`~brailix.core.errors.PROGRAMMING_ERRORS` — a code defect is never
+      a legitimate response to a formula, so it surfaces loudly instead of
+      being disguised as unreadable input.
     """
     from brailix.frontend.math.registry import math_source_registry
 
@@ -64,6 +81,15 @@ def parse_math_tree(
     try:
         mathml = adapter.to_mathml(formula, ctx)
         return normalize(mathml)
+    except StrictModeError:
+        # The adapter reported a diagnostic and STRICT mode promoted it. It
+        # already carries the real code; degrading it to <merror> would hide
+        # the failure the caller explicitly asked to be raised.
+        raise
+    except PROGRAMMING_ERRORS:
+        # AttributeError / NameError / AssertionError = our (or the adapter's)
+        # bug, not a bad formula. See brailix.core.errors.
+        raise
     except Exception as e:  # noqa: BLE001 — pipeline must never crash
         # Adapters promise soft failure (<merror> + warning) and the
         # normalizer promises never to raise, but the registry is

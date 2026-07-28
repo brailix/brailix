@@ -14,7 +14,7 @@ The loader is a zero-argument callable that imports any heavy dependency and ret
 
 The protocol is `ChineseAnalyzer`: an object with a `name` and an `analyze(text, ctx)` method returning a list of `ChineseToken` (from `brailix.ir.inline`).
 
-Import the IR and core types from the shallow facades (`brailix.ir`, `brailix.core`) the way any other caller does — those are the names the [API reference](https://brailix.github.io/brailix/) pins. The registries are the exception: they sit at their subsystem's own path, since each belongs to one pluggable family.
+Import the IR and core types from the shallow facades (`brailix.ir`, `brailix.core`) the way any other caller does — those are the names the [API reference](https://brailix.github.io/brailix/) pins. The protocols and the registries sit deeper, at `brailix.core.protocols` and each subsystem's own path, since a registry belongs with the pluggable family it serves. That extension surface carries the same compatibility promise as the facades and is pinned by its own manifest in the test suite, so a registry path can't be renamed out from under your adapter — everything else under those subsystems (the built-in adapters, the normalizers, the dispatch tables) stays internal.
 
 ```python
 # mypkg/lac_adapter.py

@@ -788,11 +788,12 @@ class Pipeline:
         ``(0, child_idx, ...)``.
 
         ``tree_subcache`` is an optional parsed-tree cache shared by the
-        math, music and graphic frontends: keys are ``(domain, source,
-        surface, salt)`` (``domain`` ∈ ``{"math", "music", "graphic"}``;
-        ``salt`` is ``""`` for math / music and the asset resolver's
-        identity for graphics — see :data:`TreeSubcache`), values are
-        the normalised
+        math, music and graphic frontends: keys are ``(domain, identity,
+        source, surface, salt)`` (``domain`` ∈ ``{"math", "music",
+        "graphic"}``; ``identity`` is the producing pipeline's
+        :attr:`fingerprint`; ``salt`` is ``""`` for math, the parse mode for
+        music and the asset resolver's identity for graphics — see
+        :data:`TreeSubcache`), values are the normalised
         MathML / MusicXML :class:`ET.Element` trees from a previous
         compile.  When the frontend encounters a math / music node whose
         key matches an entry, it reuses the cached tree instead of
@@ -803,9 +804,19 @@ class Pipeline:
         case; this covers the "block changed but the embedded tree
         didn't" case — decisive for large scores, which are one block
         whose 4MB tree would otherwise re-parse on every override edit).
-        The returned :class:`CompiledBlock.tree_subcache` always reflects
+        Threading one pool through differently-configured pipelines is safe
+        (the ``identity`` slot keys them apart) but shares nothing; the
+        returned :class:`CompiledBlock.tree_subcache` always reflects
         what was actually parsed during this compile (a superset / equal
         subset of the input, never empty when math or music exists).
+
+        Entries are shared **by identity**, and a hit also lands the cached
+        tree on the returned IR (``MathInline.math`` / ``MusicInline.score``
+        / ``GraphicInline.svg``), so an ``ir_transformer`` that edits one of
+        those trees in place writes into the pool and corrupts every later
+        compile that hits the same entry. Clone-then-replace instead: deep-copy
+        the tree, edit the copy, assign it back onto the node. See
+        :data:`TreeSubcache` for the full immutability contract.
 
         Pipeline keeps **no cache of its own** — the caller consults its
         own block cache via ``source_hash`` before calling this method. The
@@ -1000,8 +1011,9 @@ def translate_graphic(
     highlight (off by default — export pays nothing). Bytes input goes to
     the source adapters as-is; they own the decode and its soft-failure.
     ``asset_resolver`` resolves an ``image`` source's reference to
-    in-document bytes (see :class:`~brailix.core.protocols.
-    GraphicAssetResolver`); ``None`` leaves it to read a filesystem path.
+    in-document bytes (see
+    :class:`~brailix.core.protocols.GraphicAssetResolver`);
+    ``None`` leaves it to read a filesystem path.
     """
     from brailix.backend.tactile import rasterize
     from brailix.backend.tactile.profile import load_tactile_profile

@@ -49,6 +49,30 @@ manifest in the test suite: a name cannot go missing without failing a
 test, and cannot quietly become public without a deliberate edit. That is
 also what this reference is generated from, so what you read here and what
 the library supports cannot drift apart.
+
+The extension surface
+---------------------
+
+Writing an adapter is a second kind of use, with a second, narrower surface —
+and it is supported too. It comprises exactly:
+
+* :mod:`brailix.core.protocols`, the structural interface your implementation
+  satisfies (``MathSourceAdapter``, ``Renderer``, ``LanguageBackend``, ...);
+* the **registry** you register a loader with, which lives at its own
+  subsystem's path because each belongs to one pluggable family:
+  ``brailix.frontend.math.registry.math_source_registry``,
+  ``brailix.frontend.zh.analyzer.registry.analyzer_registry``, and so on. The
+  two keyed on the language rather than on a source format
+  (``language_frontend_registry``, ``boundary_registry``) sit on the
+  :mod:`brailix.frontend` facade, and ``renderer_registry`` on
+  :mod:`brailix.renderer`.
+
+Those paths are deeper than the facades above — deliberately, since a registry
+belongs with its subsystem — but they carry the same promise, kept by their own
+exact manifest in the test suite, separate from the end-user one. The two are
+not the same audience and should not move together. The *Extending brailix*
+guide is the how-to; everything else under those subsystems (the concrete
+adapters, the normalizers, the dispatch tables) remains internal.
 """
 
 __version__ = "0.1.0"

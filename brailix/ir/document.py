@@ -127,13 +127,17 @@ class Block:
     def structure_key(self) -> str:
         """Structural identity beyond the text surface, for cache keys.
 
-        :func:`brailix.pipeline.block_hash` keys only on the text surface
-        plus the profile, so two same-text blocks of different shape — a
-        Heading vs a Paragraph, an ordered vs an unordered List, two Tables
-        of different size — hash identically.  A block cache keyed on the
-        bare text hash would then serve one block's compiled braille for the
-        other.  A front-end composes ``block_hash`` with this key to keep
-        its cache sound; the compiler itself stays cache-agnostic.
+        The text surface can't tell two same-text blocks of different shape
+        apart — a Heading from a Paragraph, an ordered from an unordered List,
+        two Tables of different size — and they render under different layout
+        rules, so a cache keyed on the surface alone would serve one block's
+        compiled braille for the other.  This supplies the missing dimension.
+
+        :func:`brailix.pipeline.block_hash` folds it in **itself**, so a bare
+        ``block_hash`` is already structurally safe and a front-end must not
+        compose this key in a second time (it would only re-salt what is
+        already there).  Callers add their own salt for dimensions the compiler
+        knows nothing about — a proofreading front-end's override list, say.
 
         Derived generically from :func:`~dataclasses.fields` so every
         layout-affecting scalar (heading ``level``, list ``ordered``,

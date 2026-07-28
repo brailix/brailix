@@ -7,8 +7,9 @@ an ``r:embed`` relationship id; the legacy VML form is ``<w:pict>``
 whose ``<v:imagedata>`` carries ``r:id``. Both ids resolve through
 ``document.xml.rels`` to the media part.
 
-This module turns either element into an :class:`~brailix.ir.document.
-ImageAlt` placeholder block — alt text from ``wp:docPr`` (or the VML
+This module turns either element into an
+:class:`~brailix.ir.document.ImageAlt`
+placeholder block — alt text from ``wp:docPr`` (or the VML
 shape's ``alt``), ``target`` naming the media asset — and pre-indexes
 the image relationships once per document (mirroring
 :func:`.._ole._build_ole_blob_map`), so the paragraph walker stays free
