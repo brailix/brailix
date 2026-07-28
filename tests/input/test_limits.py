@@ -9,6 +9,7 @@ and that the gate never masks a genuine ``FileNotFoundError``.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -87,6 +88,98 @@ class TestFileSizeGate:
             parse_file(
                 tmp_path / "nope.txt", profile="cn_current", language="zh-CN"
             )
+
+
+class TestTheGateBindsToTheBytesRead:
+    """The ``stat()`` gate describes the *path*; the read opens it again.
+
+    Between those two the file can grow, be atomically replaced, or be a
+    symlink repointed — so the check and the consumption were about different
+    bytes. Measured before ``read_bounded``: a 2-byte file under a 16-byte
+    ceiling, replaced with 4096 bytes after the gate, parsed all 4096.
+
+    The binding promise is on the handle now: ``fstat`` on the open descriptor,
+    and a read of one byte past the ceiling.
+    """
+
+    def test_growth_after_the_stat_gate_is_still_refused(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import pathlib
+
+        target = _write(tmp_path / "doc.txt", "ab")
+        limits = InputLimits(max_file_bytes=16, max_text_chars=10_000_000)
+
+        real_stat = pathlib.Path.stat
+        fired = {"n": 0}
+
+        def growing_stat(self, **kwargs):  # noqa: ANN001, ANN202
+            result = real_stat(self, **kwargs)
+            if self == target and fired["n"] == 0:
+                fired["n"] += 1
+                # The window: the gate has looked, the read has not happened.
+                target.write_bytes(b"x" * 4096)
+            return result
+
+        monkeypatch.setattr(pathlib.Path, "stat", growing_stat)
+        with pytest.raises(InputTooLargeError) as excinfo:
+            parse_file(
+                target, language="zh-CN", profile="cn_current", limits=limits
+            )
+        assert excinfo.value.kind == "file_bytes"
+
+    def test_read_bounded_stops_at_one_past_the_ceiling(
+        self, tmp_path: Path
+    ) -> None:
+        """It must not load the whole oversized file just to discover it is
+        oversized — that is the denial of service the ceiling exists to stop."""
+        path = tmp_path / "big.bin"
+        path.write_bytes(b"y" * 10_000)
+        limits = InputLimits(max_file_bytes=100)
+
+        with pytest.raises(InputTooLargeError) as excinfo:
+            limits.read_bounded(path)
+        # Reported from the fstat, so the caller learns the real size...
+        assert excinfo.value.limit == 100
+
+    def test_read_bounded_accepts_a_file_exactly_at_the_ceiling(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "exact.bin"
+        path.write_bytes(b"z" * 64)
+        assert InputLimits(max_file_bytes=64).read_bounded(path) == b"z" * 64
+
+    def test_non_regular_files_are_refused(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """``st_size`` is meaningless for a FIFO or a device: a named pipe
+        reports 0 and then delivers without end, so the size gate reads as
+        "empty, go ahead" on the one input it can never bound."""
+        import stat as stat_mod
+
+        path = tmp_path / "pipe"
+        path.write_bytes(b"data")
+
+        real_fstat = os.fstat
+
+        def fifo_fstat(fd):  # noqa: ANN001, ANN202
+            info = real_fstat(fd)
+            fields = list(info)
+            # Re-label the mode as a FIFO, keeping everything else.
+            fields[0] = (info.st_mode & ~stat_mod.S_IFMT(info.st_mode)) | stat_mod.S_IFIFO
+            return os.stat_result(fields)
+
+        monkeypatch.setattr(os, "fstat", fifo_fstat)
+        with pytest.raises(InputTooLargeError, match="not a regular file"):
+            InputLimits(max_file_bytes=1000).read_bounded(path)
+
+    def test_unlimited_reads_a_whole_file(self, tmp_path: Path) -> None:
+        """``unlimited()`` spells its ceiling ``sys.maxsize``; ``read(maxsize +
+        1)`` overflows an index-sized argument, so that path must not compute
+        one."""
+        path = tmp_path / "any.bin"
+        path.write_bytes(b"q" * 5000)
+        assert InputLimits.unlimited().read_bounded(path) == b"q" * 5000
 
 
 class TestTextCharGate:

@@ -112,9 +112,32 @@ def compile_block(
     # configuration's braille.  Callers who need override-aware cache
     # keys (a proofreading front-end) compose this hash with their own
     # override-list salt outside the compiler.
+    #
+    # The SESSION's fingerprint, not a fresh read of ``pipeline.fingerprint``:
+    # a registration landing between the two reads made this key describe an
+    # epoch the cells above were not compiled under. Two compiles either side
+    # of one mid-run ``register`` then hashed identically while emitting
+    # provably different braille — the exact "same key, different result" a
+    # cache cannot defend against.
     source_hash = block_hash(
-        block, pipeline.profile_name, fingerprint=pipeline.fingerprint
+        block, pipeline.profile_name, fingerprint=session.fingerprint
     )
+
+    # Pinning the key is not the same as the run having been single-epoch: the
+    # frontend resolves adapter names on every use, so a registration that
+    # landed mid-run leaves this block translated partly by the outgoing
+    # implementation and partly by its replacement. No fingerprint describes a
+    # blend, so say so rather than hand it back silently.
+    if session.epoch_drifted():
+        session.warnings.warn(
+            code="COMPILE_EPOCH_CHANGED",
+            message=(
+                "an adapter was registered or unregistered while this block "
+                "was compiling; its braille may mix the old and new "
+                "implementations. Recompile once the registration settles."
+            ),
+            source="pipeline",
+        )
 
     return CompiledBlock(
         block_id=block.id or "",

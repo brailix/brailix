@@ -296,6 +296,91 @@ class TestRegistryReRegisterInvalidation:
                 pipe.translate_block(Paragraph(text=TEXT)).source_hash != h1
             )
 
+    def test_registration_during_a_compile_cannot_collide_cache_keys(
+        self,
+    ) -> None:
+        """The window the test above steps over: a registration landing *inside*
+        a compile, not between two.
+
+        ``CompilationSession.begin`` snapshots the fingerprint for the frontend,
+        but ``compile_block`` used to re-read ``pipeline.fingerprint`` at the end
+        to build ``source_hash``. A registration between those two reads made
+        run 1's key describe the *new* epoch while its cells came from the old
+        one — so run 1 and run 2 hashed identically and rendered differently,
+        which is the one thing a cache key must never allow.
+
+        Swapping the pinyin resolver is what makes this observable: the readings
+        change, so the braille changes, while surface and structure — the other
+        inputs to ``block_hash`` — stay byte-identical. (A segmenter swap would
+        also move the surface, and the key would flip for the wrong reason.)
+        """
+        from dataclasses import replace as dc_replace
+
+        from brailix.frontend.zh.pinyin.registry import resolver_registry
+
+        class _ResolverB:
+            name = "probe"
+
+            def resolve(self, tokens, ctx=None):  # noqa: ANN001, ANN201
+                return [dc_replace(t, pinyin="zhong4 qing4") for t in tokens]
+
+        class _ResolverA:
+            """Re-registers itself as ``_ResolverB`` the first time it runs, so
+            the generation moves mid-compile — after the session snapshot and
+            before the cache key is built."""
+
+            name = "probe"
+
+            def __init__(self) -> None:
+                self.fired = False
+
+            def resolve(self, tokens, ctx=None):  # noqa: ANN001, ANN201
+                if not self.fired:
+                    self.fired = True
+                    resolver_registry.register("probe", _ResolverB)
+                return [dc_replace(t, pinyin="chong2 qing4") for t in tokens]
+
+        with resolver_registry.overriding("probe", _ResolverA):
+            pipe = Pipeline(profile="cn_current", resolver="probe")
+            first = pipe.translate_block(Paragraph(text="重庆"))
+            second = pipe.translate_block(Paragraph(text="重庆"))
+
+        dots = lambda cb: [  # noqa: E731 — tiny local shorthand
+            c.dots for bb in cb.braille_blocks for c in bb.cells
+        ]
+        # The readings really did differ — otherwise the guard proves nothing.
+        assert dots(first) != dots(second)
+        assert first.source_hash != second.source_hash
+
+    def test_a_registration_mid_compile_is_reported(self) -> None:
+        """Pinning the key keeps the cache honest, but the run itself still
+        straddled two epochs: adapter names resolve on every use, so part of the
+        block met the outgoing implementation and part met its replacement. No
+        fingerprint describes a blend, so the run says so."""
+        from brailix.frontend.segment import DefaultSegmenter, segmenter_registry
+
+        class _SelfRegistering:
+            name = "probe"
+
+            def __init__(self) -> None:
+                self.fired = False
+
+            def segment(self, block, ctx=None):  # noqa: ANN001, ANN201
+                if not self.fired:
+                    self.fired = True
+                    segmenter_registry.register("probe", DefaultSegmenter)
+                return DefaultSegmenter().segment(block, ctx)
+
+        with segmenter_registry.overriding("probe", _SelfRegistering):
+            pipe = Pipeline(profile="cn_current", resolver="null", segmenter="probe")
+            drifted = pipe.translate_block(Paragraph(text=TEXT))
+            settled = pipe.translate_block(Paragraph(text=TEXT))
+
+        assert "COMPILE_EPOCH_CHANGED" in [w.code for w in drifted.warnings]
+        # And it is not a permanent state: once registration settles, a compile
+        # that ran entirely inside one epoch reports nothing.
+        assert "COMPILE_EPOCH_CHANGED" not in [w.code for w in settled.warnings]
+
     def test_steady_state_fingerprint_is_stable(self) -> None:
         # No registration churn between the reads → the cached fold is
         # returned as-is, and an equal-configuration pipeline built in the
