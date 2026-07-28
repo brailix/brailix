@@ -103,6 +103,14 @@ def parse_graphic_tree(
         # deliberately open, so a third-party adapter that raises still
         # degrades to the standard error tree — the backend surfaces it
         # as GRAPHICS_SOFT_FAIL and translation continues.
+        #
+        # No second ``try`` around the recovery, unlike math / music: both of
+        # those wrap theirs in a double-fault backstop because their
+        # normalizers digest arbitrary third-party MathML / MusicXML, while
+        # everything below is first-party stdlib over a string this function
+        # just built. The observable policy is the same either way — a
+        # StrictModeError or a PROGRAMMING_ERROR raised while recovering
+        # propagates — which is what the shared contract test pins.
         return normalize(
             svg_error_wrap(surface[:200], reason=f"adapter failure: {e!r}")
         )

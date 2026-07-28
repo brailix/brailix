@@ -103,6 +103,17 @@ def parse_math_tree(
             return normalize(
                 merror_wrap(surface[:200], reason=f"adapter failure: {e!r}")
             )
+        # The recovery runs the SAME ladder as the parse above. A bare
+        # ``except Exception`` here would have re-opened, one level down,
+        # exactly the two holes the ladder closes: a STRICT-mode diagnostic
+        # raised while building the recovery would come back relabelled
+        # ``MATH_ERROR`` instead of carrying its own code, and a defect in
+        # ``merror_wrap`` / the normalizer would be filed as "this formula is
+        # unreadable" — the one report guaranteed never to be investigated.
+        except StrictModeError:
+            raise
+        except PROGRAMMING_ERRORS:
+            raise
         except Exception:  # pragma: no cover — double fault
             ctx.warnings.warn(
                 code="MATH_ERROR",

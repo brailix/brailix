@@ -103,6 +103,19 @@ def parse_music_tree(
                 ),
                 ctx,
             )
+        # The recovery runs the SAME ladder as the parse above. A bare
+        # ``except Exception`` here would have re-opened, one level down,
+        # exactly the two holes the ladder closes — and this normalizer takes
+        # ``ctx``, so it really can raise :class:`StrictModeError` from its own
+        # diagnostics: under STRICT the failure would have come back as
+        # ``MUSIC_PARSE_RECOVERY`` rather than the code the normalizer
+        # reported. A defect in ``music_error_wrap`` / the normalizer would
+        # likewise be filed as "this score is unreadable", the one report
+        # guaranteed never to be investigated.
+        except StrictModeError:
+            raise
+        except PROGRAMMING_ERRORS:
+            raise
         except Exception:  # pragma: no cover — double fault
             ctx.warnings.warn(
                 code="MUSIC_PARSE_RECOVERY",

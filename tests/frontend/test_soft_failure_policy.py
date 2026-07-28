@@ -38,6 +38,7 @@ import pytest
 
 from brailix.core.context import GraphicsContext, MathContext, MusicContext
 from brailix.core.errors import RunMode, StrictModeError, WarningCollector
+from brailix.core.errors import Warning as BrailixWarning
 from brailix.frontend.graphics import parse_graphic_tree
 from brailix.frontend.graphics.registry import graphic_source_registry
 from brailix.frontend.math import parse_math_tree
@@ -241,3 +242,109 @@ def test_input_shaped_errors_soft_fail_to_the_domain_recovery(
     tree, _warns = _run(vertical, boom)
     assert tree is not None, f"{vertical.name} lost its recovery tree"
     assert vertical.is_recovery(tree)
+
+
+# ---------------------------------------------------------------------------
+# The second rung: the recovery itself
+# ---------------------------------------------------------------------------
+#
+# Reaching the recovery means the adapter already failed, so everything above
+# runs a *second* time on the way out: build the error document, normalise it.
+# Math and music wrap that in a double-fault backstop; graphics doesn't (see
+# each entry point). The backstops were bare ``except Exception``, which
+# re-opened one level down the two holes the first-rung ladder closes — and
+# because the tests only ever injected at the adapter, both were invisible.
+#
+# The normalizer is the injection point: with the adapter raising first, the
+# only ``normalize`` call that runs is the recovery's.
+
+
+def _run_with_broken_recovery(
+    vertical: _Vertical,
+    monkeypatch: pytest.MonkeyPatch,
+    recovery_exc: BaseException,
+    *,
+    mode: RunMode = RunMode.NORMAL,
+) -> tuple[ET.Element | None, WarningCollector]:
+    def boom_normalize(*_args: Any, **_kwargs: Any) -> ET.Element:
+        raise recovery_exc
+
+    monkeypatch.setattr(
+        f"brailix.frontend.{vertical.name}.normalize", boom_normalize
+    )
+
+    def adapter_fails(ctx: Any) -> str:
+        raise ValueError("malformed input")
+
+    return _run(vertical, adapter_fails, mode=mode)
+
+
+@pytest.mark.parametrize("vertical", _VERTICALS, ids=_IDS)
+@pytest.mark.parametrize(
+    "exc",
+    [AttributeError("no such attribute"), NameError("nope"), AssertionError()],
+    ids=["AttributeError", "NameError", "AssertionError"],
+)
+def test_programming_errors_from_the_recovery_propagate(
+    vertical: _Vertical, exc: BaseException, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A defect in the error-wrapper / normalizer is still a defect.
+
+    The failure it used to produce: a third-party adapter rejects malformed
+    input with ``ValueError`` (legitimate soft failure), the recovery path then
+    hits an ``AttributeError`` of our own, and the backstop files the whole
+    thing as one ordinary "unreadable content" warning. The real defect is now
+    invisible in exactly the report nobody re-reads.
+    """
+    with pytest.raises(type(exc)):
+        _run_with_broken_recovery(vertical, monkeypatch, exc)
+
+
+@pytest.mark.parametrize("vertical", _VERTICALS, ids=_IDS)
+def test_strict_mode_error_from_the_recovery_propagates_with_its_code(
+    vertical: _Vertical, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """STRICT mode means "any diagnostic is a failure" — including one raised
+    while building the recovery tree.
+
+    Not merely *that* it raises: under the old backstop math and music caught
+    it and then emitted their own ``MATH_ERROR`` / ``MUSIC_PARSE_RECOVERY``,
+    which under STRICT raises a *different* ``StrictModeError``. The caller
+    still got an exception, so the leak was invisible — while the code
+    identifying what actually went wrong had been overwritten.
+    """
+    reported = StrictModeError(
+        BrailixWarning(
+            code="RECOVERY_DIAGNOSTIC", message="raised while recovering"
+        )
+    )
+    with pytest.raises(StrictModeError) as excinfo:
+        _run_with_broken_recovery(
+            vertical, monkeypatch, reported, mode=RunMode.STRICT
+        )
+    assert excinfo.value.warning.code == "RECOVERY_DIAGNOSTIC"
+
+
+@pytest.mark.parametrize("vertical", _VERTICALS, ids=_IDS)
+def test_the_recovery_backstop_still_covers_input_shaped_errors(
+    vertical: _Vertical, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half: tightening the ladder must not turn the double fault
+    into a crash. Math and music still degrade to ``None`` plus a warning when
+    the recovery fails for an input-shaped reason; graphics has no backstop
+    there by design, so it propagates — the deliberate difference, pinned so a
+    later change to it is a decision rather than a drift."""
+    if vertical.name == "graphics":
+        with pytest.raises(ValueError, match="recovery also failed"):
+            _run_with_broken_recovery(
+                vertical, monkeypatch, ValueError("recovery also failed")
+            )
+        return
+
+    tree, warns = _run_with_broken_recovery(
+        vertical, monkeypatch, ValueError("recovery also failed")
+    )
+    assert tree is None
+    assert [w.code for w in warns] == [
+        "MATH_ERROR" if vertical.name == "math" else "MUSIC_PARSE_RECOVERY"
+    ]
