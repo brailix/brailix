@@ -89,7 +89,7 @@ class TranslationResult:
         Raises :class:`KeyError` if no renderer is registered under
         ``name``; :class:`MissingExtraError` if the renderer needs an
         unavailable optional dependency;
-        :class:`~brailix.core.errors.IncompatibleRendererError` if ``name``
+        :class:`~brailix.core.IncompatibleRendererError` if ``name``
         is a tactile-raster renderer (``bmp`` / ``png`` / ``pdf`` /
         ``tactile_preview``), which cannot consume a braille IR.
         """
@@ -140,7 +140,7 @@ class GraphicResult:
         whatever the renderer produces — ``bytes`` for ``bmp`` / ``png`` / ``pdf``,
         a ``str`` for the ``tactile_preview`` U+2800 readback. Raises
         :class:`KeyError` if no renderer is registered under ``name``;
-        :class:`~brailix.core.errors.IncompatibleRendererError` if ``name`` is a
+        :class:`~brailix.core.IncompatibleRendererError` if ``name`` is a
         braille renderer (``unicode`` / ``brf`` / ``layout`` / ``cells``), which
         cannot consume a tactile raster.
         """
@@ -180,7 +180,7 @@ class TactilePageResult:
         ``name`` defaults to :attr:`default_renderer` (``"bmp"``). Raises
         :class:`IndexError` if ``page`` is out of range, :class:`KeyError` if
         no renderer is registered under ``name``,
-        :class:`~brailix.core.errors.IncompatibleRendererError` if ``name`` is a
+        :class:`~brailix.core.IncompatibleRendererError` if ``name`` is a
         braille renderer (a page is a tactile raster)."""
         renderer = _resolve_renderer(
             name or self.default_renderer, _TACTILE_DOMAIN

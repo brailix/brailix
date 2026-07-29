@@ -29,8 +29,11 @@ from brailix.core.defaults import (
     DEFAULT_ZH_ANALYZER,
 )
 from brailix.core.errors import (
+    BackendContractError,
     BrailixError,
     ConfigurationError,
+    IncompatibleDependencyError,
+    IncompatibleRendererError,
     MissingExtraError,
     ModelNotInstalledError,
     ParseError,
@@ -61,9 +64,14 @@ __all__ = (
     "DEFAULT_RENDERER",
     "DEFAULT_SEGMENTER",
     "DEFAULT_ZH_ANALYZER",
-    # errors + warnings
+    # errors + warnings — every exception a public entry point can raise, so
+    # ``except`` can name the case instead of widening to ``BrailixError`` and
+    # catching every other compile failure with it
+    "BackendContractError",
     "BrailixError",
     "ConfigurationError",
+    "IncompatibleDependencyError",
+    "IncompatibleRendererError",
     "MissingExtraError",
     "ModelNotInstalledError",
     "ParseError",

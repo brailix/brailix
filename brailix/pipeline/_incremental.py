@@ -30,6 +30,7 @@ from brailix.pipeline._results import CompiledBlock, TreeSubcache
 from brailix.pipeline._session import CompilationSession, _InlineTextTranslator
 
 if TYPE_CHECKING:
+    from brailix.backend.tactile.profile import TactileProfile
     from brailix.pipeline import Pipeline
 
 # Tactile profile used when an inline figure block (a GraphicBlock embedded in
@@ -176,7 +177,7 @@ def rasterize_graphic_block(
     block: Any,
     warns: WarningCollector,
     *,
-    tactile_profile: str | Any,
+    tactile_profile: str | TactileProfile,
     label_translator: Callable[[str], list[BrailleCell]] | None,
     record_provenance: bool = False,
 ) -> tuple[TactileRaster, ET.Element]:

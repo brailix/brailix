@@ -48,6 +48,15 @@ _FACADE: dict[str, list[str]] = {
         "CompiledBlock",
         "TreeSubcache",
         "block_hash",
+        # The tactile vertical's one configuration type, beside the graphics
+        # entry point that takes it: ``translate_graphic`` documents an
+        # already-loaded profile as a legal argument, so the type and its
+        # loader must be reachable without importing
+        # ``brailix.backend.tactile.profile`` — a path the policy calls
+        # internal and free to move.
+        "TactileProfile",
+        "load_tactile_profile",
+        "list_tactile_profiles",
         "InputLimits",
         "InputTooLargeError",
         "DEFAULT_INPUT_LIMITS",
@@ -117,8 +126,11 @@ _FACADE: dict[str, list[str]] = {
         "DEFAULT_RENDERER",
         "DEFAULT_SEGMENTER",
         "DEFAULT_ZH_ANALYZER",
+        "BackendContractError",
         "BrailixError",
         "ConfigurationError",
+        "IncompatibleDependencyError",
+        "IncompatibleRendererError",
         "MissingExtraError",
         "ModelNotInstalledError",
         "ParseError",
@@ -238,6 +250,44 @@ def test_all_registered_inline_nodes_are_reexported() -> None:
         if not hasattr(ir, cls.__name__) or cls.__name__ not in ir.__all__
     )
     assert not missing, f"inline node types missing from brailix.ir: {missing}"
+
+
+def test_every_error_type_is_reexported_from_core() -> None:
+    """An exception a caller can be handed must be nameable from the shallow
+    surface it is told to import from.
+
+    ``brailix.core`` calls itself the stable facade for the error types, and
+    the result types' docstrings send readers there — yet
+    ``IncompatibleRendererError`` (raised by every ``result.render(name)``),
+    ``BackendContractError`` and ``IncompatibleDependencyError`` were only
+    reachable as ``brailix.core.errors.…``, a path the top-level policy calls
+    internal and free to move. A caller wanting to catch just that case had to
+    choose between an unsupported import and widening to ``BrailixError``,
+    which also swallows every unrelated compile failure.
+
+    Derived from the module rather than hand-listed, for the same reason the
+    inline-node and block-type guards walk their registries: the manifest is
+    hand-maintained, and "we forgot" is exactly how three of them stayed
+    private.
+    """
+    import brailix.core as core
+    import brailix.core.errors as errors
+
+    defined = {
+        name
+        for name, obj in vars(errors).items()
+        if not name.startswith("_")
+        and isinstance(obj, type)
+        and issubclass(obj, errors.BrailixError)
+        and obj.__module__ == errors.__name__
+    }
+    missing = sorted(defined - set(core.__all__))
+    assert not missing, (
+        f"error types defined in brailix.core.errors but absent from "
+        f"brailix.core.__all__: {missing} — a caller told to import error "
+        f"types from the shallow surface cannot catch them there"
+    )
+    assert defined, "no error types found — the scan stopped working"
 
 
 def test_all_registered_block_types_are_reexported() -> None:

@@ -151,6 +151,7 @@ from brailix.pipeline._session import warn_epoch_changed as _warn_epoch_changed
 from brailix.pipeline.frontend_driver import FrontendDriver as _FrontendDriver
 
 if TYPE_CHECKING:
+    from brailix.backend.tactile.profile import TactileProfile
     from brailix.core.protocols import GraphicAssetResolver
 
 # Note: brailix is the pure compiler — it knows nothing about front-end
@@ -596,7 +597,7 @@ class Pipeline:
         source: str | bytes,
         *,
         source_format: str = "svg",
-        tactile_profile: str | Any = "generic",
+        tactile_profile: str | TactileProfile = "generic",
         braille_profile: str | None = None,
         label_translator: Callable[[str], list[BrailleCell]] | None = None,
         record_provenance: bool = False,
@@ -727,7 +728,7 @@ class Pipeline:
         self,
         doc: DocumentIR,
         *,
-        tactile_profile: str | Any = _DEFAULT_INLINE_TACTILE_PROFILE,
+        tactile_profile: str | TactileProfile = _DEFAULT_INLINE_TACTILE_PROFILE,
         margin_mm: float | None = None,
         item_gap_mm: float | None = None,
     ) -> TactilePageResult:
@@ -746,8 +747,8 @@ class Pipeline:
 
         ``tactile_profile`` names a tactile profile (page size + DPI + braille
         dot geometry + interline pitch) or is an already-loaded
-        :class:`~brailix.backend.tactile.profile.TactileProfile`; it drives the
-        page geometry. Figures are rasterised at the G1 default (``"generic"``)
+        :class:`~brailix.TactileProfile` (the top-level package publishes the
+        type and its loader); it drives the page geometry. Figures are rasterised at the G1 default (``"generic"``)
         and placed at their true millimetre size, so they land correctly
         whatever page profile is chosen — a document-/block-level figure
         profile is a later refinement (plan §3). ``margin_mm`` and
@@ -1119,7 +1120,7 @@ def translate_graphic(
     source: str | bytes,
     *,
     source_format: str = "svg",
-    tactile_profile: str | Any = "generic",
+    tactile_profile: str | TactileProfile = "generic",
     braille_profile: str | None = None,
     label_translator: Callable[[str], list[BrailleCell]] | None = None,
     record_provenance: bool = False,
@@ -1148,8 +1149,10 @@ def translate_graphic(
     :meth:`Pipeline.translate_graphic` delegates here, wiring its own text
     path as the label translator when the standards match.
 
-    ``tactile_profile`` names a tactile profile (mm adaptation params + DPI)
-    or is an already-loaded ``TactileProfile``. ``record_provenance``
+    ``tactile_profile`` names a built-in tactile profile (mm adaptation params
+    + DPI) or is an already-loaded :class:`~brailix.TactileProfile` — that type
+    and its loader, :func:`~brailix.load_tactile_profile`, are published from
+    the top-level package beside this function. ``record_provenance``
     records which pixels each SVG element drew for an editor's cross-pane
     highlight (off by default — export pays nothing). Bytes input goes to
     the source adapters as-is; they own the decode and its soft-failure.
