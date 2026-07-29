@@ -26,9 +26,8 @@ Package layout
 
 This is a subpackage; the separable pieces live in sibling modules. Only the
 public ones are re-exported here under their own names — the internals are
-imported under underscore aliases, so ``brailix.pipeline`` publishes the API
-and nothing else. Importing an internal means naming the module that defines
-it:
+imported under underscore aliases. Importing an internal means naming the
+module that defines it:
 
 * :mod:`brailix.pipeline._results` — the public result / value types
   :class:`TranslationResult`, :class:`CompiledBlock`,
@@ -79,11 +78,16 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from brailix.backend.block import translate_document
-from brailix.core.config import BrailleProfile, load_profile
+from brailix.backend.block import translate_document as _translate_document
+from brailix.core.config import BrailleProfile
+from brailix.core.config import load_profile as _load_profile
 from brailix.core.context import (
-    GRAPHIC_ASSET_RESOLVER_KEY,
-    INLINE_TEXT_TRANSLATOR_KEY,
+    GRAPHIC_ASSET_RESOLVER_KEY as _GRAPHIC_ASSET_RESOLVER_KEY,
+)
+from brailix.core.context import (
+    INLINE_TEXT_TRANSLATOR_KEY as _INLINE_TEXT_TRANSLATOR_KEY,
+)
+from brailix.core.context import (
     BackendContext,
     FrontendContext,
     GraphicsContext,
@@ -114,12 +118,29 @@ from brailix.ir.braille import BrailleCell
 from brailix.ir.document import Block, DocumentIR, Paragraph
 from brailix.ir.inline import MathInline
 
-# Under underscore aliases: these are this package's own internals, and a
-# plain ``from ... import X`` would bind ``brailix.pipeline.X`` as a name a
-# third party can import — a namespace that reads like API without being any.
-# The result types below keep their real names; those ARE the API. Each
-# internal stays importable from the module that defines it, which is where
-# in-repo callers take it from and where docstrings point.
+# Under underscore aliases: these are internals, and a plain ``from ... import
+# X`` would bind ``brailix.pipeline.X`` as a name a third party can import — a
+# namespace that reads like API without being any. The result types below keep
+# their real names; those ARE the API. Each internal stays importable from the
+# module that defines it, which is where in-repo callers take it from and where
+# docstrings point.
+#
+# The rule is "nothing NEW resolves here", not "nothing but ``__all__``
+# resolves here", and the difference is deliberate. ``Paragraph``, ``Span``,
+# ``DocumentIR``, ``BackendContext`` and the rest above keep their plain names:
+# this module imports them because it *uses* them, and each is already
+# published — supported, documented, generated into the reference — at
+# ``brailix.ir`` / ``brailix.core`` / ``brailix.input``. ``from
+# brailix.pipeline import Paragraph`` is untidy, but it hands a third party the
+# same supported type they would have got from the address they were sent to,
+# so aliasing two dozen of them would be noise that closes nothing.
+#
+# What did need closing were the four names published NOWHERE — ``load_profile``
+# and ``translate_document`` (another layer's internal entry points) and the two
+# context option keys, which are backend wire protocol. Those resolved at
+# ``brailix.pipeline`` beside ``Pipeline`` itself, tab-completed there, and a
+# downstream author had no way to tell them apart from the API.
+# ``tests/test_public_api.py`` enforces exactly that line.
 from brailix.pipeline._fingerprint import (
     asset_resolver_identity as _asset_resolver_identity,
 )
@@ -385,7 +406,7 @@ class Pipeline:
         self.extra_profile_paths = tuple(
             str(p) for p in self.extra_profile_paths
         )
-        self._profile = load_profile(
+        self._profile = _load_profile(
             self.profile,
             extra_search_paths=[Path(p) for p in self.extra_profile_paths]
             or None,
@@ -523,7 +544,7 @@ class Pipeline:
             children=children, span=Span(0, len(text)) if text else None
         )
         doc = DocumentIR(metadata=self._ir_metadata(), blocks=[paragraph])
-        braille_doc = translate_document(doc, session.backend_ctx, self._profile)
+        braille_doc = _translate_document(doc, session.backend_ctx, self._profile)
         # Same integrity check the block-level compile runs: a registration
         # that landed mid-run leaves this result a blend of two adapter
         # generations, whichever entry point produced it.
@@ -584,7 +605,7 @@ class Pipeline:
             # Bound with NO host collector: preview diagnostics are
             # discarded by contract.
             options={
-                INLINE_TEXT_TRANSLATOR_KEY: _InlineTextTranslator(self)
+                _INLINE_TEXT_TRANSLATOR_KEY: _InlineTextTranslator(self)
             },
         )
         cells = _math_translate(node, backend_ctx, self._profile)
@@ -706,7 +727,7 @@ class Pipeline:
         doc.metadata.update(self._ir_metadata())
         for block in doc.blocks:
             self._frontend.populate_block(block, session.frontend_ctx)
-        braille_doc = translate_document(doc, session.backend_ctx, self._profile)
+        braille_doc = _translate_document(doc, session.backend_ctx, self._profile)
         session.report_epoch_drift()
         # The surface for a multi-block document is the concatenation
         # of every block's text — useful for proofread output but not
@@ -1090,7 +1111,7 @@ class Pipeline:
         backend_ctx = BackendContext(
             profile=self.profile, mode=RunMode.NORMAL, warnings=warnings
         )
-        braille_doc = translate_document(doc, backend_ctx, self._profile)
+        braille_doc = _translate_document(doc, backend_ctx, self._profile)
         if host_warnings is not None:
             embedded = text if len(text) <= 60 else text[:57] + "..."
             for w in warnings:
@@ -1178,7 +1199,7 @@ def translate_graphic(
         source=source_format,
         warnings=warns,
         options=(
-            {GRAPHIC_ASSET_RESOLVER_KEY: asset_resolver}
+            {_GRAPHIC_ASSET_RESOLVER_KEY: asset_resolver}
             if asset_resolver is not None
             else {}
         ),
