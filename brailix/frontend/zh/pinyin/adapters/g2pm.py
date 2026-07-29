@@ -34,7 +34,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from brailix.core.context import FrontendContext
-from brailix.core.errors import MissingExtraError
+from brailix.core.errors import PROGRAMMING_ERRORS, MissingExtraError
 from brailix.frontend.zh.pinyin.adapters._align import resolve_by_char_alignment
 from brailix.ir.inline import ChineseToken
 
@@ -76,6 +76,15 @@ def _load() -> G2pmPinyinResolver:
 
     try:
         model = g2pM.G2pM()
+    except PROGRAMMING_ERRORS:
+        # Ahead of the broad catch below: what that catch raises is a
+        # candidate-unavailable signal, and ``auto`` — which prefers g2pm —
+        # answers it by silently resolving to pypinyin instead. A code defect
+        # (ours, or an upstream API that moved) would therefore change the
+        # readings this document is translated with while the compile still
+        # reported success. Same ladder as the math / music / graphics
+        # soft-failure boundaries (brailix.core.errors.PROGRAMMING_ERRORS).
+        raise
     except Exception as e:  # noqa: BLE001
         # g2pM loads its bundled numpy ``.pkl`` weights at construction; a
         # corrupt pickle, a numpy version mismatch, or a frozen / Nuitka build
