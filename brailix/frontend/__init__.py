@@ -210,6 +210,11 @@ class _BoundaryRegistry(dict):
     ``tests/frontend/test_boundary_registry.py`` covers each mutator
     individually and fails on any inherited ``dict`` method that is not on its
     reviewed read-only list, so a mutator can no longer be missed by omission.
+
+    The counter tracks *changes*, not calls (:meth:`_bump_if_changed`): a
+    mutator that leaves the table exactly as it was leaves the generation
+    alone, because a bump nobody needs still costs the caller a full
+    recompile.
     """
 
     __slots__ = ("_generation",)
@@ -220,34 +225,68 @@ class _BoundaryRegistry(dict):
 
     @property
     def generation(self) -> int:
-        """Bumped by every mutation; folded into the compilation fingerprint."""
+        """Bumped by every mutation that changes the table; folded into the
+        compilation fingerprint."""
         return self._generation
 
+    def _bump_if_changed(self, before: dict[str, BoundaryHandler]) -> None:
+        """Advance the generation only if the contents actually moved.
+
+        The generation exists to invalidate: it changes the fingerprint, which
+        changes every ``source_hash``, which drops every cached block. So a
+        bump with no cause is not free — it is a full recompile of the open
+        document for nothing. Several spellings genuinely change nothing:
+        ``clear()`` on an empty table, ``update({})``, ``pop(key, default)``
+        for a key that was never there, ``registry["zh"] = <the handler already
+        registered>``. Each of those used to invalidate. (``setdefault`` was
+        already exempted for this exact reason, with a test; this is the same
+        rule applied to the rest instead of to one method.)
+
+        Compared by **identity**, not equality: two handlers that merely
+        compare equal can still behave differently, so anything short of "the
+        same object is still there" counts as a change. Erring that way costs a
+        recompile; erring the other way serves stale braille under an unchanged
+        key, which is what folding the generation in was meant to stop.
+        """
+        if before.keys() != self.keys() or any(
+            before[key] is not self[key] for key in self
+        ):
+            self._generation += 1
+
     def __setitem__(self, key: str, value: BoundaryHandler) -> None:
+        changed = key not in self or self[key] is not value
         super().__setitem__(key, value)
-        self._generation += 1
+        if changed:
+            self._generation += 1
 
     def __delitem__(self, key: str) -> None:
+        # A missing key raises before the bump, so a failed delete is not a
+        # change either.
         super().__delitem__(key)
         self._generation += 1
 
     def pop(self, *args: object, **kwargs: object) -> object:
+        before = dict(self)
         result = super().pop(*args, **kwargs)
-        self._generation += 1
+        self._bump_if_changed(before)
         return result
 
     def popitem(self) -> tuple[str, BoundaryHandler]:
+        # Raises on an empty table, so reaching the bump means one went.
         result = super().popitem()
         self._generation += 1
         return result
 
     def clear(self) -> None:
+        had_entries = bool(self)
         super().clear()
-        self._generation += 1
+        if had_entries:
+            self._generation += 1
 
     def update(self, *args: object, **kwargs: object) -> None:
+        before = dict(self)
         super().update(*args, **kwargs)
-        self._generation += 1
+        self._bump_if_changed(before)
 
     def __ior__(self, other: object) -> _BoundaryRegistry:  # type: ignore[misc]
         # ``registry |= {...}`` is a mutation like any other; inherited from
