@@ -519,6 +519,69 @@ class TestWordRoutesOwnTheirInput:
             )
 
 
+class TestTheGenericXmlRouteOwnsItsInput:
+    """``.xml`` is sniffed and then parsed; both must see the same bytes.
+
+    The generic container has to be classified before it can be routed, so the
+    route reads the head to find the root element — and then handed
+    :func:`parse_musicxml` the *path*, which opened and decoded the file again.
+    Two reads of one path are two different documents the moment something
+    replaces it in between: the sniff classifies one and the parse consumes the
+    other. Exactly the window the ``.docx`` route is already held closed
+    against, and the wasted second decode of a large score was the lesser half.
+    """
+
+    @staticmethod
+    def _swap_after_each_read(monkeypatch, path: Path, substitute: str) -> list[Path]:
+        """Rewrite ``path`` after every bounded read; return the read log."""
+        real = InputLimits.read_bounded
+        reads: list[Path] = []
+
+        def counting_read(self: InputLimits, p: object) -> bytes:
+            reads.append(Path(p))  # type: ignore[arg-type]
+            data = real(self, p)  # type: ignore[arg-type]
+            path.write_text(substitute, encoding="utf-8")
+            return data
+
+        monkeypatch.setattr(InputLimits, "read_bounded", counting_read)
+        return reads
+
+    def test_a_score_xml_is_read_once_and_parsed_from_that_snapshot(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        original = "<score-partwise><part-list/></score-partwise>"
+        path = tmp_path / "score.xml"
+        path.write_text(original, encoding="utf-8")
+        reads = self._swap_after_each_read(
+            monkeypatch, path, "<score-partwise><!--swapped--></score-partwise>"
+        )
+
+        doc = parse_file(path, language="zh-CN", profile="cn_current")
+
+        assert [p for p in reads if p == path] == [path], (
+            f"the .xml route read the file {len(reads)} times — the sniff and "
+            f"the parse must share one snapshot"
+        )
+        assert doc.blocks[0].source == "musicxml"
+        assert doc.blocks[0].text == original
+        assert "swapped" not in doc.blocks[0].text
+
+    def test_a_non_score_xml_is_read_once_too(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The other branch: a generic ``.xml`` falls back to plain text off
+        the same snapshot, so it never re-reads either."""
+        original = "<notes>hello</notes>"
+        path = tmp_path / "doc.xml"
+        path.write_text(original, encoding="utf-8")
+        reads = self._swap_after_each_read(monkeypatch, path, "<notes>swapped</notes>")
+
+        doc = parse_file(path, language="zh-CN", profile="cn_current")
+
+        assert [p for p in reads if p == path] == [path]
+        assert "swapped" not in doc.blocks[0].text
+
+
 class TestPipelineForwardsLimits:
     def test_pipeline_parse_file_enforces_limits(self, tmp_path: Path) -> None:
         path = _write(tmp_path / "big.txt", "x" * 4096)
@@ -533,6 +596,55 @@ class TestPipelineForwardsLimits:
         pipe = Pipeline(profile="cn_current", analyzer="char", resolver="null")
         with pytest.raises(InputTooLargeError):
             pipe.translate_file(path, limits=InputLimits(max_file_bytes=1024))
+
+
+class TestConstructionRefusesANonsenseCeiling:
+    """A ceiling that no input can satisfy is a mistake at the construction
+    site, and that is where it should be reported.
+
+    Left unvalidated it surfaced as a nonsensical rejection ("4096 bytes > -2
+    bytes") from whichever read ran first, and ``True`` / ``False`` — ``int``
+    subclasses both — became a silent one-byte / zero-byte budget. The memory
+    bound also stopped resting on an accident: ``read_bounded`` computes
+    ``read(max_file_bytes + 1)``, which for a negative ceiling is ``read(-1)``
+    — read to EOF — and was unreachable only because the ``fstat`` gate above
+    it happens to reject first.
+    """
+
+    @pytest.mark.parametrize("bad", [-1, -2, -(10**9)])
+    def test_negative_ceilings_are_refused(self, bad: int) -> None:
+        with pytest.raises(ValueError, match="must be >= 0"):
+            InputLimits(max_file_bytes=bad)
+        with pytest.raises(ValueError, match="must be >= 0"):
+            InputLimits(max_text_chars=bad)
+
+    @pytest.mark.parametrize("bad", [True, False])
+    def test_booleans_are_refused(self, bad: bool) -> None:
+        """``bool`` passes an ``isinstance(..., int)`` test, so it has to be
+        rejected by name or it means "one byte" / "zero bytes"."""
+        with pytest.raises(ValueError, match="must be an int"):
+            InputLimits(max_file_bytes=bad)  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="must be an int"):
+            InputLimits(max_text_chars=bad)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("bad", [1.5, "1024", None, 10**6 + 0.0])
+    def test_non_integers_are_refused(self, bad: object) -> None:
+        with pytest.raises(ValueError, match="must be an int"):
+            InputLimits(max_file_bytes=bad)  # type: ignore[arg-type]
+
+    def test_zero_is_a_legitimate_ceiling(self, tmp_path: Path) -> None:
+        """"Only an empty file passes" is extreme but coherent, and the gates
+        already read it that way — so it must not be swept up by the check."""
+        limits = InputLimits(max_file_bytes=0, max_text_chars=0)
+        empty = tmp_path / "empty.txt"
+        empty.write_bytes(b"")
+        assert limits.read_bounded(empty) == b""
+        with pytest.raises(InputTooLargeError):
+            limits.read_bounded(_write(tmp_path / "one.txt", "x"))
+
+    def test_the_shipped_defaults_and_unlimited_still_construct(self) -> None:
+        assert InputLimits().max_file_bytes > 0
+        assert InputLimits.unlimited().max_text_chars > 0
 
 
 class TestDefaults:

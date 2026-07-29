@@ -70,6 +70,7 @@ from brailix.input.music_xml import (
     MUSIC_SUFFIXES as _MUSIC_SUFFIXES_ALL,
 )
 from brailix.input.music_xml import (
+    _score_document,
     parse_deferred_score,
     parse_musicxml,
     parse_score_file,
@@ -308,16 +309,21 @@ def _route_xml(ctx: _FileCtx) -> _DocumentIR:
     # ``DEFAULT_INPUT_LIMITS``, so a caller's tightened ``max_file_bytes``
     # was silently dropped here and an ``.xml`` replaced after the stat gate
     # was read up to the *default* ceiling instead.
+    # ONE read, for both the decision and the document. Sniffing here and then
+    # handing ``parse_musicxml`` the *path* opened and decoded the file a
+    # second time, so the content that was classified and the content that was
+    # parsed were only the same bytes as long as nothing replaced the file in
+    # between — the same "preflight and parse must see one snapshot" rule the
+    # ``.docx`` route is already held to. Both branches build from this
+    # snapshot: ``_score_document`` is the tail of ``parse_musicxml`` for a
+    # text-suffix score, which is precisely what the sniff has established.
     text = ctx.limits.read_bounded_text(ctx.path, normalize_newlines=True)
     # This path reads directly (not via ``ctx.text``), so apply the decoded-
     # character gate here too — the file-byte gate already ran in parse_file.
     ctx.limits.check_text_length(text)
     if _looks_like_musicxml(text):
-        return parse_musicxml(
-            ctx.path,
-            language=ctx.language,
-            profile=ctx.profile,
-            limits=ctx.limits,
+        return _score_document(
+            text, language=ctx.language, profile=ctx.profile
         )
     return parse_plain(text, language=ctx.language, profile=ctx.profile)
 
@@ -371,10 +377,12 @@ def parse_file(
       requires LibreOffice ``soffice`` on PATH for the
       .doc → .docx conversion)
     * ``.musicxml`` / ``.mxl``  → :func:`parse_musicxml`
-    * ``.xml``                 → :func:`parse_musicxml` only when the
-      document head looks like a MusicXML score
-      (``<score-partwise>`` / ``<score-timewise>``); otherwise treated
-      as plain text, since ``.xml`` is a generic container
+    * ``.xml``                 → the same single-block score document
+      :func:`parse_musicxml` builds, but only when the document head looks
+      like a MusicXML score (``<score-partwise>`` / ``<score-timewise>``);
+      otherwise treated as plain text, since ``.xml`` is a generic container.
+      The head is read once and both the decision and the document come from
+      that one snapshot
     * ``.mid`` / ``.midi`` → :func:`parse_score_file` (binary, decoded to
       MusicXML at input; needs the ``midi`` extra)
     * ``.abc`` → :func:`parse_deferred_score` (text, kept raw and deferred

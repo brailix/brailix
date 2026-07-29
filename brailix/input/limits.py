@@ -104,6 +104,43 @@ class InputLimits:
     max_file_bytes: int = _DEFAULT_MAX_FILE_BYTES
     max_text_chars: int = _DEFAULT_MAX_TEXT_CHARS
 
+    def __post_init__(self) -> None:
+        """Reject a ceiling that isn't a non-negative ``int``.
+
+        A negative ceiling is not a smaller budget — it is one no file can
+        satisfy, so every read fails with a nonsensical "4096 bytes > -2
+        bytes" from whatever route happened to run first, far from the
+        construction that got it wrong. A ``bool`` is worse than useless for
+        the same reason it is accepted at all: ``True`` is silently a
+        **one-byte** ceiling and ``False`` a zero-byte one. And the "consume
+        at most the ceiling plus one byte" promise in :meth:`read_bounded` is
+        spelled ``fp.read(self.max_file_bytes + 1)``, where a negative value
+        means ``read(-1)`` — read to EOF, the whole point of the ceiling
+        undone. That call is unreachable today only because the ``fstat``
+        gate above it rejects every regular file first (``st_size`` is never
+        negative); resting a memory bound on the order of two checks is not a
+        bound. Validating here makes it one.
+
+        Zero is allowed: "only an empty file / empty text passes" is a
+        coherent, if extreme, policy, and the gates read it as one.
+        """
+        for name in ("max_file_bytes", "max_text_chars"):
+            value = getattr(self, name)
+            # ``bool`` first: it *is* an ``int`` subclass, so the isinstance
+            # check below would wave True/False straight through.
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(
+                    f"InputLimits.{name} must be an int, got "
+                    f"{type(value).__name__} ({value!r})"
+                )
+            if value < 0:
+                raise ValueError(
+                    f"InputLimits.{name} must be >= 0, got {value!r} — a "
+                    f"negative ceiling rejects every input rather than "
+                    f"loosening the budget (use InputLimits.unlimited() for "
+                    f"no ceiling)"
+                )
+
     @classmethod
     def unlimited(cls) -> InputLimits:
         """An :class:`InputLimits` that never rejects anything.

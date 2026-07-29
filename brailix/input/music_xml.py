@@ -5,11 +5,14 @@ Read a score file from disk and wrap it as a single-block
 split by how — and *when* — the source reaches MusicXML (ARCHITECTURE#arch-layers,
 the input/frontend payload-shape boundary):
 
-:func:`parse_musicxml` — the MusicXML family (no source adapter needed):
+:func:`parse_musicxml` — the MusicXML family. Bare MusicXML needs no source
+adapter; its ZIP container does, and that difference is the whole boundary
+rule, not a footnote to it:
 
-* ``.musicxml`` / ``.xml`` → read UTF-8/UTF-16 text, ``source="musicxml"``
-* ``.mxl``                → ZIP container (binary), unzipped eagerly via the
-  existing frontend
+* ``.musicxml`` / ``.xml`` → read UTF-8/UTF-16 text, ``source="musicxml"``.
+  Text in, text out: no adapter, no frontend import.
+* ``.mxl``                → ZIP container (binary), so it takes the same
+  eager-decode exception ``.mid`` does: unzipped at input through the frontend
   :class:`~brailix.frontend.music.adapters.mxl.MxlSourceAdapter` to extract
   the inner XML, then ``source="musicxml"`` (the decompressed text is plain
   MusicXML so the backend doesn't need to re-unzip later).
@@ -125,11 +128,29 @@ def parse_musicxml(
             f"(expected .musicxml / .xml / .mxl)"
         )
     limits.check_text_length(text)
+    return _score_document(text, language=language, profile=profile)
 
-    block = ScoreBlock(text=text, source="musicxml")
+
+def _score_document(text: str, *, language: str, profile: str) -> DocumentIR:
+    """Wrap resolved MusicXML ``text`` as the single-block ``DocumentIR`` every
+    score route returns.
+
+    Split out so a caller that has *already read* the text can build the same
+    document without reading the file again. The generic ``.xml`` route needs
+    exactly that: it reads the file to sniff the root element, and used to then
+    hand :func:`parse_musicxml` the *path*, which opened and decoded it a
+    second time. Two reads of one path are two different files whenever
+    something replaces it in between — the sniff would classify one document
+    and the parse consume another — which is the window the ``.docx`` route was
+    already closed against. (The wasted second decode of a large score is the
+    lesser half.)
+
+    Not public: callers go through :func:`parse_musicxml` or, inside the input
+    layer, through this.
+    """
     return DocumentIR(
         metadata={"language": language, "profile": profile},
-        blocks=[block],
+        blocks=[ScoreBlock(text=text, source="musicxml")],
     )
 
 
@@ -193,12 +214,7 @@ def parse_score_file(
         limits.read_bounded(p), MusicContext(source=source, profile=profile)
     )
     limits.check_text_length(musicxml)
-
-    block = ScoreBlock(text=musicxml, source="musicxml")
-    return DocumentIR(
-        metadata={"language": language, "profile": profile},
-        blocks=[block],
-    )
+    return _score_document(musicxml, language=language, profile=profile)
 
 
 def parse_deferred_score(
