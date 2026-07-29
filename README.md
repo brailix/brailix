@@ -15,8 +15,9 @@ pip install brailix[hanlp,g2pw]  # accurate Chinese engines (download models)
 pip install brailix[docx]        # Word .docx / .docm (incl. MathType / OMML)
 ```
 
-The `hanlp` and `g2pw` backends download their model weights on first use
-(into a local `models/` directory).
+The `hanlp` and `g2pw` backends download their model weights on first use.
+HanLP's go into a local `models/` directory that brailix points it at; g2pW
+uses its own library's cache location.
 
 ## Command line
 

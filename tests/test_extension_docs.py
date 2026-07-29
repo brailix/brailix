@@ -27,6 +27,7 @@ below vacuous.
 from __future__ import annotations
 
 import inspect
+import re
 from pathlib import Path
 
 import pytest
@@ -208,3 +209,105 @@ def test_the_two_method_backend_the_old_guide_described_is_rejected() -> None:
             return []
 
     assert not isinstance(OldGuideBackend(), LanguageBackend)
+
+
+# ---------------------------------------------------------------------------
+# The import paths the guide prints are the ones it promises to support
+# ---------------------------------------------------------------------------
+#
+# The guide states the rule itself: import IR and core types from the shallow
+# facades, and take the protocols and registries from the deeper paths the
+# extension manifest pins. Everything else under those subsystems is internal
+# and free to move.
+#
+# It was breaking its own rule in the same paragraph — naming `ChineseToken`
+# as coming "from `brailix.ir.inline`" one line above an example that correctly
+# writes `from brailix.ir import ChineseToken`. Both spellings import, so
+# nothing failed; a plugin author following the prose simply pinned their
+# adapter to a path the policy calls internal.
+#
+# The anchor guard next door scans Python only, which is why a drift in a
+# Markdown file that *is* a public contract could sit there. This scans the
+# guides.
+
+_MODULE_MENTION = re.compile(r"`(brailix(?:\.[a-z_][a-z0-9_]*)+)`")
+
+# Only the extension guide, not the architecture documents. Describing the
+# internals *is* what those are for — ``ARCHITECTURE.md`` names
+# ``brailix.core.errors`` and a hundred others because it explains how the
+# library is built, and holding it to "supported paths only" would be holding
+# it to the wrong contract. The guide is different: it tells a third party what
+# to type.
+_GUIDE_CANDIDATES = (
+    "docs/extending.md",
+    "scripts/public_overlay/docs/extending.md",
+)
+
+
+def _guides() -> list[tuple[str, str]]:
+    found = [
+        (rel, (_ROOT / rel).read_text(encoding="utf-8"))
+        for rel in _GUIDE_CANDIDATES
+        if (_ROOT / rel).is_file()
+    ]
+    assert found, f"no extension guide found among {_GUIDE_CANDIDATES}"
+    return found
+
+
+def _supported_paths() -> set[str]:
+    """Every ``brailix`` address a third party is told to import from, plus
+    the published names reachable at each.
+
+    Taken from the two manifests rather than restated, so publishing a new
+    address stays one edit in one place. The names are included because the
+    guide writes both forms — ``brailix.input`` as a module and
+    ``brailix.input.parse_file`` as the function in it — and a fully qualified
+    published name is as supported as the module holding it.
+    """
+    from tests.test_public_api import _EXTENSION_SURFACE, _FACADE
+
+    manifests = {**_FACADE, **_EXTENSION_SURFACE}
+    return set(manifests) | {
+        f"{module}.{name}"
+        for module, names in manifests.items()
+        for name in names
+    }
+
+
+@pytest.mark.parametrize("doc", _guides(), ids=lambda d: d[0])
+def test_the_guide_names_only_supported_paths(doc: tuple[str, str]) -> None:
+    """A path in the guide is an instruction, whether or not it sits in a code
+    block — a reader copies either one."""
+    rel, text = doc
+    supported = _supported_paths()
+    offenders = sorted(
+        {path for path in _MODULE_MENTION.findall(text) if path not in supported}
+    )
+    assert not offenders, (
+        f"{rel} names paths that are not on a supported surface: "
+        f"{offenders} — point readers at the facade or the extension-manifest "
+        f"path instead, or publish it (in _FACADE / _EXTENSION_SURFACE) as a "
+        f"deliberate promise"
+    )
+
+
+@pytest.mark.parametrize("doc", _extension_docs(), ids=lambda d: d[0])
+def test_the_imports_the_guides_print_actually_work(doc: tuple[str, str]) -> None:
+    """And the names really resolve there. A guide is the one piece of
+    documentation a reader executes verbatim."""
+    import importlib
+
+    rel, text = doc
+    broken: list[str] = []
+    for module, names in re.findall(
+        r"^from (brailix[\w.]*) import (.+)$", text, re.MULTILINE
+    ):
+        try:
+            mod = importlib.import_module(module)
+        except ImportError as e:
+            broken.append(f"{module}: {e}")
+            continue
+        for name in (n.strip() for n in names.split(",")):
+            if name and not hasattr(mod, name):
+                broken.append(f"{module}.{name} does not exist")
+    assert not broken, f"{rel} prints imports that fail:\n" + "\n".join(broken)

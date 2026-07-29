@@ -15,7 +15,7 @@ pip install brailix[hanlp,g2pw]  # accurate Chinese engines (download models)
 pip install brailix[docx]        # Word .docx / .docm (incl. MathType / OMML)
 ```
 
-Extras are grouped by language and by tool category — see the [README](../README.md) and [`pyproject.toml`](../pyproject.toml) for the full list (`zh`, `ja`, individual engines, `latex`, `docx`, `midi`, `abc`, `music`, and `all`). The `hanlp` and `g2pw` engines download their model weights on first use into a local `models/` directory; the `zh` pack (jieba plus pypinyin) is lightweight and works offline immediately.
+Extras are grouped by language and by tool category — see the [README](../README.md) and [`pyproject.toml`](../pyproject.toml) for the full list (`zh`, `ja`, individual engines, `latex`, `docx`, `midi`, `abc`, `music`, and `all`). The `hanlp` and `g2pw` engines download their model weights on first use — HanLP's into a local `models/` directory that brailix points it at, g2pW's into its own library's cache; the `zh` pack (jieba plus pypinyin) is lightweight and works offline immediately.
 
 ## Your first translation
 
@@ -104,7 +104,7 @@ The analyzer is selected by name like the Chinese one (`analyzer="janome"` / `"f
 
 ## Profiles and run modes
 
-A **profile** is a braille standard plus its resource tables. Three ship today: `cn_current` (Current Chinese Braille, the default), `cn_ncb` (National Common Braille), and `ja_current` (Japanese kana braille). Select one with the `profile` argument.
+A **profile** is a braille standard plus its resource tables. Three ship today: `cn_current` (Current Chinese Braille), `cn_ncb` (National Common Braille), and `ja_current` (Japanese kana braille). Select one with the `profile` argument, which `Pipeline` requires — the choice of braille standard is always the caller's, and there is no built-in default. (The command line does default to `cn_current`; see the [CLI guide](cli.md).)
 
 The **run mode** controls how strictly the pipeline reacts to input it cannot fully handle:
 

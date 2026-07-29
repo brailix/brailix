@@ -63,6 +63,22 @@ not qualify: it is kept raw and deferred to the frontend
 (ARCHITECTURE#arch-layers rule 1),
 importing no frontend from the input layer. A *new* input format that reaches
 for the frontend fails here and has to justify the entry.
+
+**What it does not cover**, said plainly, because "the layers are clean" is
+easy to read as "the repository is clean". Two things are outside the scan by
+design, and each would be a category error to include:
+
+* ``brailix/cli.py`` — an application entry point, not a layer. Composing the
+  library is its job: it names the pipeline, the registries and the renderers
+  on purpose, and a matrix row for it would either forbid what it exists to do
+  or allow everything and check nothing. (``test_every_top_level_package_is_classified``
+  keeps *packages* honest, and ``cli.py`` is a module, so it never came up.)
+* ``scripts/`` — build and export tooling that ships to nobody. It is not
+  installed, imports nothing at runtime, and its own guard is
+  ``tests/scripts/``.
+
+So a leak reported as absent is absent from the guarded layers. Anywhere else,
+this file is silent rather than reassuring.
 """
 
 from __future__ import annotations
