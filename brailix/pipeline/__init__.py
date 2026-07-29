@@ -313,8 +313,11 @@ class Pipeline:
     # source adapter can inline it as a ``data:`` URI. ``None`` (the default)
     # leaves the adapter to read the reference as a filesystem path — the bare
     # library and every test that omits it are unaffected. See
-    # :class:`~brailix.core.protocols.GraphicAssetResolver` and §2.2 of
-    # ``ARCHITECTURE.md``.
+    # :class:`~brailix.core.protocols.GraphicAssetResolver` and
+    # ``ARCHITECTURE.md`` (Name first, then the section:
+    # the export collapses an unpublished design note to ARCHITECTURE.md and
+    # takes the section number with it, which it can only do when the number
+    # follows the name.)
     asset_resolver: GraphicAssetResolver | None = None
     _profile: BrailleProfile = field(init=False, default=None)  # type: ignore[assignment]
     _frontend: _FrontendDriver = field(init=False, default=None)  # type: ignore[assignment]

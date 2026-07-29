@@ -180,26 +180,32 @@ class TestTheSectionNumberDetector:
             "the layering rule (ARCHITECTURE#arch-layers) applies here"
         )
 
-    def test_leaves_design_note_citations_alone(self) -> None:
-        """These are legitimate and live in the tree today."""
+    def test_leaves_other_documents_citations_alone(self) -> None:
+        """Section numbers that belong to some *other* document are fine.
+
+        The examples deliberately avoid naming an unpublished ``docs/*-plan.md``
+        note. The export rewrites those references to ``ARCHITECTURE.md`` for
+        the mirror — including ones written inside a test — so using one here
+        would make this file mean something different on each side.
+        ``docs/extending.md`` ships, and BANA / RFC are untouched either way.
+        """
         for legitimate in (
-            "there is no parallel registry (``ARCHITECTURE.md``\n"
-            "    §3.1). Each result type passes its own IR",
-            ":class:`GraphicAssetResolver` and §2.2 of\n"
-            "    ``ARCHITECTURE.md``",
+            "the adapter contract in ``docs/extending.md``\n    §2 explains it",
+            "see §2 of ``docs/extending.md`` for the walkthrough",
             "bar-over-bar layout (BANA §28) splits on it",
             "RFC 8032 §7.1 published test vectors",
+            "single_line format (BANA §24.1) for one melodic part",
         ):
             assert not _SECTION_NUMBER.search(legitimate), (
-                f"flagged a design-note citation: {legitimate!r}"
+                f"flagged another document's citation: {legitimate!r}"
             )
 
     def test_does_not_reach_across_an_intervening_document(self) -> None:
         """The window stops at another document's name, so an ARCHITECTURE
         mention and an unrelated note's section number nearby stay separate."""
         assert not _SECTION_NUMBER.search(
-            "layering lives in ARCHITECTURE#arch-layers; the raster geometry "
-            "is in ``ARCHITECTURE.md``"
+            "layering lives in ARCHITECTURE#arch-layers; the geometry "
+            "is in ``docs/extending.md`` §2"
         )
 
 
