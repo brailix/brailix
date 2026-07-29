@@ -19,13 +19,26 @@ from dataclasses import dataclass, field
 
 from brailix.core.context import FrontendContext
 from brailix.core.errors import (
-    IncompatibleDependencyError,
-    MissingExtraError,
-    ModelNotInstalledError,
+    CANDIDATE_UNAVAILABLE_ERRORS,
     UnknownAdapterError,
 )
 from brailix.core.protocols import ChineseAnalyzer
 from brailix.ir.inline import ChineseToken
+
+# The shared list plus one addition this chain owns. OSError: a candidate's
+# loader touched the filesystem (e.g. created its model dir) and failed — a
+# read-only models root when brailix runs inside another application's frozen
+# interpreter. That is this chain's own known failure mode rather than a
+# general "unavailable" signal, so it stays local instead of widening the
+# shared tuple (see :data:`~brailix.core.errors.CANDIDATE_UNAVAILABLE_ERRORS`
+# for why that distinction is kept).
+#
+# Bound to a name rather than unpacked inline in the ``except``: a starred
+# tuple there is not something a type checker can verify.
+_UNAVAILABLE: tuple[type[Exception], ...] = (
+    *CANDIDATE_UNAVAILABLE_ERRORS,
+    OSError,
+)
 
 
 @dataclass(slots=True)
@@ -54,25 +67,10 @@ class AutoChineseAnalyzer:
             try:
                 self._delegate = analyzer_registry.get(name)
                 return self._delegate
-            except (
-                KeyError,
-                MissingExtraError,
-                ModelNotInstalledError,
-                IncompatibleDependencyError,
-                OSError,
-            ) as e:
-                # ModelNotInstalledError: a candidate (e.g. hanlp under
-                # managed download) is importable but its model isn't
-                # downloaded yet. IncompatibleDependencyError: a candidate is
-                # installed alongside a dependency version known to break it
-                # at runtime (e.g. hanlp with transformers >= 5), so selecting
-                # it would crash the first analyze() — skip it up front.
-                # OSError: a candidate's loader touched the filesystem (e.g.
-                # created its model dir) and failed — a read-only models root
-                # when brailix runs inside another app's frozen interpreter.
-                # Treat all of these like any other "candidate unavailable"
-                # and fall through to the next — the shipping default chain
-                # must degrade to char, not crash the compile.
+            except _UNAVAILABLE as e:
+                # Candidate unavailable — fall through to the next. The
+                # shipping default chain must degrade to char, not crash the
+                # compile.
                 last_error = e
 
         if last_error is not None:

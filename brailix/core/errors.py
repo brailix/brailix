@@ -257,6 +257,50 @@ PROGRAMMING_ERRORS: tuple[type[BaseException], ...] = (
 
 
 # ---------------------------------------------------------------------------
+# Candidate-unavailable classification (``auto`` selection chains)
+# ---------------------------------------------------------------------------
+
+# Exception types that mean "this engine cannot be used here", so an ``auto``
+# chain should move on to the next candidate instead of failing the compile.
+# The mirror image of PROGRAMMING_ERRORS above: that tuple lists what a wide
+# boundary must never swallow, this one lists what a narrow one must catch.
+#
+# It lives here rather than in any one chain because there are three of them —
+# zh analyzer, zh pinyin, ja analyzer — and the *fact* of which errors mean
+# "unavailable" is one fact with one owner. Written out per chain it drifted
+# immediately: the zh analyzer caught all four, the pinyin resolver two, the ja
+# analyzer one, while ``IncompatibleDependencyError`` went on documenting
+# itself as a signal "the ``auto`` selection chains" honour — true of exactly
+# one of them. The failure that shape produces is quiet: an adapter starts
+# raising a version-compatibility error correctly, its language's chain doesn't
+# list that type, and what used to degrade now crashes the translation.
+#
+# Only the *tuple* is shared. Each chain keeps its own loop, its own preference
+# order and its own cache: zh and ja are independently replaceable language
+# components (ARCHITECTURE#arch-layers), so a common exception list is a shared
+# fact, while a common ``_pick_delegate`` helper would be a shared code path
+# welding them together.
+#
+# Deliberately NOT here: ``OSError``. It does not *mean* "unavailable" — it is
+# one chain's known failure mode (a loader creating its model directory under a
+# read-only root), and the zh analyzer adds it locally with that reason
+# written down. Widening it to every chain would silently swallow a corrupt
+# dictionary read as "engine not installed".
+CANDIDATE_UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (
+    # Nothing is registered under that name at all.
+    KeyError,
+    # Registered, but its optional dependency isn't installed.
+    MissingExtraError,
+    # Installed, but its downloadable model isn't present yet (managed
+    # download: a front-end fetches it under its own control).
+    ModelNotInstalledError,
+    # Installed, but alongside a dependency version known to break it at
+    # runtime — selecting it would crash on first use, so skip it up front.
+    IncompatibleDependencyError,
+)
+
+
+# ---------------------------------------------------------------------------
 # Warning record
 # ---------------------------------------------------------------------------
 

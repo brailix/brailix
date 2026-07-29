@@ -14,7 +14,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from brailix.core.context import FrontendContext
-from brailix.core.errors import MissingExtraError, UnknownAdapterError
+from brailix.core.errors import (
+    CANDIDATE_UNAVAILABLE_ERRORS,
+    UnknownAdapterError,
+)
 from brailix.core.protocols import PinyinResolver
 from brailix.ir.inline import ChineseToken
 
@@ -45,7 +48,15 @@ class AutoPinyinResolver:
             try:
                 self._delegate = resolver_registry.get(name)
                 return self._delegate
-            except (KeyError, MissingExtraError) as e:
+            except CANDIDATE_UNAVAILABLE_ERRORS as e:
+                # The shared list
+                # (:data:`~brailix.core.errors.CANDIDATE_UNAVAILABLE_ERRORS`),
+                # not a hand-written subset: this chain used to catch only
+                # KeyError and MissingExtraError,
+                # so a resolver that grew a version-compatibility check and
+                # reported it as IncompatibleDependencyError — the type whose
+                # own documentation promises the auto chains skip it — would
+                # have crashed the compile instead of degrading to pypinyin.
                 last_error = e
 
         if last_error is not None:
