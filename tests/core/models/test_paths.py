@@ -102,10 +102,14 @@ class TestGetModelDir:
         assert (tmp_path / "models").is_dir()
         assert (tmp_path / "models" / "g2pw").is_dir()
 
-    @pytest.mark.parametrize("bad", ["", "..", ".", "a/b", "a\\b"])
+    @pytest.mark.parametrize("bad", ["", "..", ".", "a/b", "a\\b", "C:foo"])
     def test_rejects_path_escapes(
         self, bad: str, tmp_path: Path, monkeypatch
     ) -> None:
+        """A spot check that this entry point is guarded at all. The *rule* is
+        shared with the two profile loaders and lives in
+        ``tests/core/test_resource_names.py``, which runs every case through
+        all three — don't grow this list, grow that one."""
         monkeypatch.delattr(sys, "frozen", raising=False)
         monkeypatch.chdir(tmp_path)
         with pytest.raises(ValueError):

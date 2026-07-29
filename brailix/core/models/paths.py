@@ -36,6 +36,8 @@ import os
 import sys
 from pathlib import Path
 
+from brailix.core.paths import validate_resource_component
+
 _MODELS_DIRNAME = "models"
 
 
@@ -107,11 +109,24 @@ def get_model_dir(name: str) -> Path:
 
     ``name`` is the registry key (e.g. ``"hanlp"``, ``"g2pw"``); the
     caller is responsible for picking a stable, filesystem-safe
-    identifier.  Empty or path-component names raise ``ValueError``
-    rather than silently writing outside ``models/``.
+    identifier.  A name that is not a single filename component raises
+    ``ValueError`` rather than silently creating a directory outside
+    ``models/``.
+
+    The check is :func:`brailix.core.paths.validate_resource_component`, the
+    same one the braille and tactile profile loaders use. It used to be four
+    conditions written out here, and they let ``C:foo`` through — not a
+    filename but the drive-relative path "``foo`` under the current directory
+    of drive C". Joining that onto a ``models`` root on any other drive
+    *discards the root*, so the ``mkdir`` below created the directory
+    somewhere else entirely, which is exactly what the guard existed to
+    prevent. Sharing the check is what stops the two copies drifting again;
+    :mod:`brailix.core.paths` explains why the rule lives in ``core``.
+
+    ``ConfigurationError`` is what propagates, and it subclasses
+    :class:`ValueError`, so the documented contract above is unchanged.
     """
-    if not name or "/" in name or "\\" in name or name in (".", ".."):
-        raise ValueError(f"invalid model name: {name!r}")
+    validate_resource_component(name, "model")
     target = get_models_root() / name
     target.mkdir(parents=True, exist_ok=True)
     return target
