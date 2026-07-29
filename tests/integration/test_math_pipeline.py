@@ -161,14 +161,26 @@ class TestMissingAdapter:
         assert "MATH_ADAPTER_MISSING" in codes
 
     def test_unregistered_source_emits_warning(self):
-        ctx = MathContext(source="plain", profile="cn_current")
+        ctx = MathContext(source="nosuchdialect", profile="cn_current")
 
         assert parse_math_tree("x", ctx) is None
 
         warnings = ctx.warnings.by_code("MATH_ADAPTER_MISSING")
         assert len(warnings) == 1
-        assert "plain" in warnings[0].message
+        assert "nosuchdialect" in warnings[0].message
         assert "mathml" in warnings[0].candidates
+
+    def test_the_undeclared_source_soft_fails_rather_than_missing(self):
+        """``"plain"`` — the default of MathContext / MathInline / MathBlock —
+        is a registered last-resort adapter, so the default value of a public
+        type produces a defined ``<merror>`` result instead of a registry
+        miss naming an adapter the caller never chose."""
+        ctx = MathContext(source="plain", profile="cn_current")
+
+        tree = parse_math_tree("x", ctx)
+
+        assert tree is not None and tree[0].tag == "merror"
+        assert not ctx.warnings.by_code("MATH_ADAPTER_MISSING")
 
 
 # ---------------------------------------------------------------------------
