@@ -130,7 +130,7 @@ class MusicContext:
 
     Adapters convert any source format (MusicXML, .mxl, MIDI, ABC, ...)
     into a normalised MusicXML tree — that tree itself is the music
-    IR (see ``ARCHITECTURE.md``). Each music fragment gets its
+    IR. Each music fragment gets its
     own context so per-fragment state stays local.
     """
 
@@ -167,9 +167,8 @@ class GraphicsContext:
     Source-format adapters convert any graphics source (raw SVG, geometry
     primitives, a raster image, a chart spec, ...) into a normalised SVG
     string — that SVG tree itself is the graphics IR (see
-    :mod:`brailix.frontend.graphics` and
-    ``ARCHITECTURE.md``), exactly as MathML / MusicXML
-    are the IR for their verticals. The tactile rendering profile
+    :mod:`brailix.frontend.graphics`), exactly as MathML / MusicXML are the
+    IR for their verticals. The tactile rendering profile
     (millimetre adaptation params + DPI) is deliberately **not** carried
     here: it is a backend concern, applied at rasterize time
     (:func:`brailix.backend.tactile.rasterize`), so the source adapters

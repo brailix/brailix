@@ -1,7 +1,7 @@
 """Geometry-primitives source adapter: a shape spec → SVG.
 
-This is the non-visual **creation** entry point for tactile graphics
-(``ARCHITECTURE.md`` path 2): an author fills in a
+This is the non-visual **creation** entry point for tactile graphics, the
+second of the two authoring paths: an author fills in a
 structured spec — "a circle at (50, 50) radius 30, a label 'A' at
 (20, 20)" — and gets back SVG, with no mouse or canvas involved. The spec
 is a plain ``dict`` (or its JSON serialization), which makes it the

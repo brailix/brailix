@@ -21,7 +21,7 @@ Coordinate mapping
   used (with a warning).
 * **Device pixels** = physical millimetres × DPI ÷ 25.4. The single
   device-dependent dial is the profile's ``dpi``; everything else is
-  device independent (``ARCHITECTURE.md``).
+  device independent.
 
 The backend walks the primitive tags the graphics frontend emits — ``line``
 / ``rect`` / ``circle`` / ``ellipse`` / ``polyline`` / ``polygon`` / ``path``
@@ -872,8 +872,8 @@ def rasterize(
         page_height_mm=phys_h_mm,
     )
     if record_provenance:
-        # Editor highlight: record which pixels each SVG element drew
-        # (ARCHITECTURE.md). Opt-in — off for export / headless.
+        # Editor highlight: record which pixels each SVG element drew.
+        # Opt-in — off for export / headless.
         raster.enable_provenance()
 
     sx, sy = px_w / logw, px_h / logh

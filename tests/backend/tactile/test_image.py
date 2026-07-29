@@ -253,8 +253,8 @@ class TestRasterize:
 
     def test_provenance_attributes_image_pixels(self):
         # The <image> goes through the same _walk begin_element wiring as
-        # every other element, so element→pixel provenance (editor highlight,
-        # ARCHITECTURE.md) comes for free.
+        # every other element, so element→pixel provenance — what the editor's
+        # cross-pane highlight reads — comes for free.
         svg = _svg_image(_data_uri(_solid(0)))
         svg[0].set("data-bk-gid", "img1")
         r = rasterize(svg, _profile(), record_provenance=True)

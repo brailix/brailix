@@ -26,8 +26,7 @@ pattern):
   ``graphic-image`` / any registered adapter) ... ``\`\`\``` →
   :class:`GraphicBlock` — an inline tactile figure whose fence body is the
   figure source (SVG / data spec / image path). Lets a chapter carry its
-  figures inline so the document stays one portable file
-  (ARCHITECTURE.md). See :func:`graphic_fence_source` /
+  figures inline so the document stays one portable file. See :func:`graphic_fence_source` /
   :func:`graphic_fence_open`, the two directions of the fence grammar.
 * ``$$display math$$`` → :class:`MathBlock` (``source="latex"``).
 * ``![alt](target)`` alone on a line → :class:`ImageAlt` — the
@@ -35,7 +34,7 @@ pattern):
   alt text translates as ordinary prose, ``target`` names the image (a
   document-asset name like ``media/image1.png``, or a filesystem path)
   so a later, explicitly user-triggered conversion can turn the line
-  into a ``graphic-image`` fence (ARCHITECTURE.md).
+  into a ``graphic-image`` fence.
   This is *not* graphics syntax — a figure is always a fence; see
   :func:`image_alt_line`, the compose direction. An inline ``![...]``
   inside prose stays literal text (subset rule, same as inline
@@ -110,7 +109,7 @@ def is_closing_fence(line: str) -> bool:
     """
     return bool(_FENCE_RE.match(line.strip()))
 
-# Fenced graphic block (ARCHITECTURE.md): a self-contained
+# Fenced graphic block: a self-contained
 # tactile figure embedded in braille source, mirroring the ```code fence and
 # the ``$$math$$`` fence — the fence body IS the figure source, so the document
 # stays portable (no external file references travelling beside the .blx).
@@ -415,7 +414,7 @@ def _consume_fenced_code(
     A fence whose info string names a graphic format (```graphic /
     ```graphic-figure / ...) yields a :class:`GraphicBlock` instead of a
     :class:`CodeBlock` — an inline tactile figure whose body is the figure
-    source (ARCHITECTURE.md). Any other info string is an
+    source. Any other info string is an
     ordinary code fence.
     """
     start = cur.i

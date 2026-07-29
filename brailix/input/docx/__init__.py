@@ -610,7 +610,7 @@ def parse_doc(
     boundary against a maliciously crafted ``.doc``. A service that converts
     untrusted uploads should isolate the ``soffice`` process (container /
     low-privilege worker, no network, capped CPU/memory, separate scratch
-    HOME) or refuse ``.doc`` entirely — see ``ARCHITECTURE.md``.
+    HOME) or refuse ``.doc`` entirely.
 
     ``limits`` bounds the bytes handed to LibreOffice: the ``.doc`` is read
     once under the caller's ceiling and the converter is pointed at that

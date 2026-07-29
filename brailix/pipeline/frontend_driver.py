@@ -42,8 +42,7 @@ from brailix.core.context import (
 )
 from brailix.core.defaults import DEFAULT_NORMALIZER, DEFAULT_SEGMENTER
 from brailix.core.span import Span
-from brailix.frontend import apply_boundary as _apply_boundary
-from brailix.frontend import language_frontend_registry
+from brailix.frontend import _apply_boundary, language_frontend_registry
 from brailix.frontend import normalize as _frontend_normalize
 from brailix.frontend import parse_math_tree as _frontend_parse_math_tree
 from brailix.frontend import segment as _frontend_segment

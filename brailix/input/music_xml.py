@@ -35,7 +35,7 @@ LaTeX; the input layer imports no frontend for these:
   where a missing ``abc`` extra soft-fails instead of raising at read time.
 
 Neither opens .sib / .musx / .dorico / .mscz — proprietary formats stay
-outside brailix per ``ARCHITECTURE.md``
+outside brailix.
 
 All three take an :class:`~brailix.input.limits.InputLimits` and apply its
 decoded-character ceiling the moment the score text exists — before it is

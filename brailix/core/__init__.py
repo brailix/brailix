@@ -10,6 +10,14 @@ reorganise them freely.
 Sub-packages keep their own surface: profile/config loading via
 ``brailix.core.config``; model-asset infrastructure via
 ``brailix.core.models``.
+
+``BrailleProfile`` is therefore imported from ``brailix.core.config``, not
+from here. That is a supported path, not an internal one — it is named in the
+extension surface (see the top-level :mod:`brailix` docstring), because every
+``LanguageBackend`` method takes a profile and an implementer has to be able
+to annotate it. Re-exporting it here instead would put the whole profile /
+table loader behind every ``import brailix.core``, and so behind
+:mod:`brailix.ir`, which promises to load carrying core primitives alone.
 """
 
 from __future__ import annotations

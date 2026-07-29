@@ -1,5 +1,5 @@
 """G1 of inline tactile graphics — a ``GraphicBlock`` compiles to a raster
-through the *one* braille pipeline (ARCHITECTURE.md).
+through the *one* braille pipeline.
 
 Before G1 the tactile raster only came out of the separate
 ``Pipeline.translate_graphic`` entry; the braille ``translate`` path skipped a

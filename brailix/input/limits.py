@@ -6,7 +6,7 @@ a byte blob handed to :mod:`zipfile`, MIDI as bytes to the decoder). That
 is fine for a desktop user opening their own files, but a service that
 accepts *uploads* needs a ceiling: without one, a multi-gigabyte file
 spikes process memory the instant it is read — a cheap denial of service
-in a shared deployment (ARCHITECTURE.md).
+in a shared deployment.
 
 :class:`InputLimits` is that ceiling, enforced by
 :func:`brailix.input.parse_file`

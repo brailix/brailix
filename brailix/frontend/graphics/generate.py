@@ -1,6 +1,7 @@
 """Parametric figure generators: a data/figure spec → a primitives spec.
 
-The non-visual **creation** high point (``ARCHITECTURE.md`` path 2 / T4): an author describes a figure by data — "a bar chart of
+The high point of the non-visual **creation** path: an author describes a
+figure by data — "a bar chart of
 these values", "a number line 0..10 with 3 and 7 marked" — and gets a
 drawing, no canvas or mouse involved. Each generator expands a high-level
 spec into a **primitives spec** (the same ``{width, height, shapes}`` dict

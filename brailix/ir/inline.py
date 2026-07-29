@@ -200,7 +200,7 @@ class MathInline(InlineNode):
     the raw surface + source format are recorded.
 
     The MathML tree itself is the math IR — there is no separate IR
-    dataclass (see ``ARCHITECTURE.md``).
+    dataclass.
     """
 
     type: ClassVar[str] = "math_inline"
@@ -211,7 +211,7 @@ class MathInline(InlineNode):
 @dataclass(slots=True)
 class MusicInline(InlineNode):
     """Inline music. Also the in-children carrier of :class:`ScoreBlock`
-    / :class:`MusicBlock` (see ``ARCHITECTURE.md``) — the
+    / :class:`MusicBlock` — the
     block layer never holds the tree itself, mirroring how
     :class:`MathBlock` defers to :class:`MathInline`.
 
@@ -232,7 +232,7 @@ class MusicInline(InlineNode):
 class GraphicInline(InlineNode):
     """In-children carrier of :class:`~brailix.ir.document.GraphicBlock`,
     mirroring how :class:`MathInline` carries a :class:`MathBlock`'s tree
-    and :class:`MusicInline` a score's (see ``ARCHITECTURE.md``).
+    and :class:`MusicInline` a score's.
 
     ``svg`` carries the normalised SVG tree as an :class:`ET.Element` once
     the graphics frontend has run; until then it stays ``None`` and only the

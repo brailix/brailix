@@ -320,7 +320,7 @@ boundary_registry["zh"] = _zh_boundary
 boundary_registry["ja"] = _ja_boundary
 
 
-def apply_boundary(
+def _apply_boundary(
     nodes: list[InlineNode], lang: str, profile: BrailleProfile
 ) -> list[InlineNode]:
     """Run the boundary pass registered for ``lang`` on the assembled
@@ -329,10 +329,14 @@ def apply_boundary(
 
     Orchestration, not an extension point: the compiler calls this once per
     run after concatenating the per-segment outputs, and what an extender
-    supplies is a *handler* in :data:`boundary_registry`. That is why it is
-    absent from ``__all__`` while the registry is in it — it stays importable
-    for anyone assembling their own inline stream by hand, but it carries no
-    compatibility promise.
+    supplies is a *handler* in :data:`boundary_registry`, which is published.
+    Underscore-named because this is a **facade**, and a name that resolves
+    here is API to everyone who meets it — it imports, it tab-completes, and
+    nothing distinguishes it from :func:`segment` beside it. It spent a while
+    as the one documented exception to that rule, recorded in an allowlist in
+    the public-API test; a rule with an exception in it is a rule a reader has
+    to check the test suite to know. Doing the pass by hand needs nothing
+    private: ``boundary_registry.get(lang)`` and call what comes back.
     """
     handler = boundary_registry.get(lang)
     return handler(nodes, profile) if handler else nodes

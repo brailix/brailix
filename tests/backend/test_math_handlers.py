@@ -1056,7 +1056,7 @@ class TestFunctionNameCoalesce:
         # MathInline.math is cached by the pipeline and serialized into the
         # proofread JSON; the backend must consume it read-only. The
         # function-name pre-pass must coalesce on a copy, never edit the
-        # caller's tree (ARCHITECTURE.md).
+        # caller's tree.
         tree = mml("<math><mi>c</mi><mi>o</mi><mi>s</mi></math>")
         before = ET.tostring(tree, encoding="unicode")
         cells, _ = emit(tree, profile)

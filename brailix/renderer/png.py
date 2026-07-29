@@ -2,8 +2,8 @@
 
 PNG is the **sighted-reference** sibling of the ``.bmp`` master: the same
 raise grid, the same raised→dark polarity, just a different (compressed)
-container (``ARCHITECTURE.md`` — "PNG 是同一张栅格的
-便宜兄弟,近乎白送"). It is handy for a sighted collaborator's preview, for
+container. It is handy for a
+sighted collaborator's preview, for
 embedding in a document, or anywhere a compact lossless image beats a raw
 BMP. The encoder is pure standard library (``zlib`` for the IDAT stream,
 ``struct`` + ``zlib.crc32`` for the chunks) — no third-party dependency.

@@ -58,6 +58,12 @@ and it is supported too. It comprises exactly:
 
 * :mod:`brailix.core.protocols`, the structural interface your implementation
   satisfies (``MathSourceAdapter``, ``Renderer``, ``LanguageBackend``, ...);
+* ``brailix.core.config.BrailleProfile`` — the one core type those interfaces
+  name that no facade above carries. Every ``LanguageBackend`` method takes a
+  profile, so an implementer has to be able to write the annotation; the
+  profile loader keeps its own surface (like :mod:`brailix.core.models`)
+  rather than being re-exported into :mod:`brailix.core`, which would put the
+  whole table loader behind every ``import brailix.core``;
 * the **registry** you register a loader with, which lives at its own
   subsystem's path because each belongs to one pluggable family:
   ``brailix.frontend.math.registry.math_source_registry``,

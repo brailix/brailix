@@ -526,9 +526,8 @@ def _coalesce_identifier_runs(elem: ET.Element, profile) -> ET.Element:
     common "no run" case allocates nothing and subtrees are shared.
     Otherwise a fresh element is built along the path that changed. The
     math IR (``MathInline.math``) is consumed read-only by the backend
-    and is cached in the pipeline / serialized into the proofread JSON
-    (see ``ARCHITECTURE.md``), so coalescing must never edit
-    it in place.
+    and is cached in the pipeline / serialized into the proofread JSON, so
+    coalescing must never edit it in place.
 
     MTEF stores each character of ``cos`` / ``sin`` / ``arcsin`` as its
     own record, so the math frontend emits one ``<mi>`` per letter and

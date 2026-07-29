@@ -2,7 +2,7 @@
 :class:`ET.Element` tree) into a sequence of braille cells.
 
 The backend dispatches per :attr:`ET.Element.tag` — MusicXML *is* the
-music IR (see ``ARCHITECTURE.md``). State threads through a
+music IR. State threads through a
 small :class:`MusicBrailleContext` so context-sensitive markers fire
 at the right boundaries:
 

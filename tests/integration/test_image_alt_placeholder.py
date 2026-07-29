@@ -2,7 +2,7 @@
 pipeline: its alt text becomes real braille, and the picture's absence is
 surfaced as an ``IMAGE_NOT_CONVERTED`` warning — the reader's running list
 of images still awaiting a per-image "convert to tactile graphic" decision
-(ARCHITECTURE.md, the I1 step).
+— the I1 step.
 """
 
 from __future__ import annotations

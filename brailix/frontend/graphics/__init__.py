@@ -10,8 +10,10 @@ tactile backend (:mod:`brailix.backend.tactile`) then walks the tree by
 element tag, exactly as the math / music backends walk MathML / MusicXML.
 
 Adapters self-register in the sibling :mod:`.registry` module so the
-registry stays populated on a bare install. See
-``ARCHITECTURE.md`` for the full data flow.
+registry stays populated on a bare install. The full flow is that a
+source format goes through its adapter to SVG, the normalizer settles
+that SVG into the shape the backend expects, and the tactile backend
+rasterises it.
 
 Callers only need :func:`parse_graphic_tree` — the graphics counterpart
 of :func:`brailix.frontend.math.parse_math_tree` and

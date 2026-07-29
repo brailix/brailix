@@ -12,7 +12,7 @@ therefore inherits the formula-level :class:`~brailix.ir.inline.MathInline`
 span. Future LaTeX adapters (or wrappers around this one) can opt
 into finer-grained spans by post-processing the MathML tree and
 filling ``data-bk-span="start,end"`` on tokens; the backend will
-honour those per-element. See ``ARCHITECTURE.md``
+honour those per-element.
 """
 
 from __future__ import annotations

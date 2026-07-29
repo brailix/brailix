@@ -17,7 +17,7 @@ Three modes, chosen with the ``data-bk-mode`` attribute:
   (dark ink swells).
 * ``grayscale`` — the full ``0..255`` height range, dark ink mapped to a
   high raise. The information-richest master for a height-modulating
-  embosser (ViewPlus Tiger), per ``ARCHITECTURE.md``
+  embosser (ViewPlus Tiger).
 * ``edge`` — edge detection, so a photo's outlines become raised lines
   rather than an unreadable filled mass. Best for photographs.
 
@@ -27,7 +27,7 @@ ingested here: when the source bytes sniff as SVG, they are handed whole to
 **resvg** (the ``graphics-svg-raster`` extra) which renders them to a PNG,
 and that PNG flows through the very same grayscale → mode pipeline as a
 bitmap. So "any external visual" — raster or vector — becomes a tactile
-raster through one path (``ARCHITECTURE.md``). The result
+raster through one path. The result
 is a raster approximation, not a touch-adapted vector (the ``svg`` source's
 tag-walk is the editable, touch-adapted path; this is the faithful-render
 path), so external text renders as visual ink, not braille.

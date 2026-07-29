@@ -34,8 +34,8 @@ if TYPE_CHECKING:
     from brailix.pipeline import Pipeline
 
 # Tactile profile used when an inline figure block (a GraphicBlock embedded in
-# a braille document) is rasterised through the main pipeline
-# (ARCHITECTURE.md).  ``"generic"`` matches the default a
+# a braille document) is rasterised through the main pipeline.
+# ``"generic"`` matches the default a
 # standalone ``translate_graphic`` call uses; a document-level / per-block
 # tactile profile is a later refinement (G3/G4).
 _DEFAULT_INLINE_TACTILE_PROFILE = "generic"
@@ -86,8 +86,8 @@ def compile_block(
     # on ``raster`` below, not in cells).
     braille_blocks = expand_block(block, session.backend_ctx, pipeline._profile)
 
-    # Tactile-graphics inline embedding (ARCHITECTURE.md):
-    # a figure block rasterises to a TactileRaster through THIS same
+    # Tactile-graphics inline embedding.
+    # A figure block rasterises to a TactileRaster through THIS same
     # incremental pipeline — no separate ``translate_graphic`` call — so a
     # braille document holding figures compiles down one path.  Labels
     # translate through this pipeline's own text path, so a figure's labels
@@ -185,8 +185,8 @@ def rasterize_graphic_block(
     :class:`~brailix.ir.tactile.TactileRaster`.
 
     The rasterising tail shared by the standalone tactile entry and the
-    inline-in-a-braille-document path (:func:`compile_block`,
-    ARCHITECTURE.md) — one rasteriser, not two. Pulls the
+    inline-in-a-braille-document path (:func:`compile_block`) — one
+    rasteriser, not two. Pulls the
     SVG tree off the block's :class:`GraphicInline` child
     (``populate_graphic_block`` always lands one — an error-marked SVG on
     soft-failure, never ``None`` — so a figure always rasterises to

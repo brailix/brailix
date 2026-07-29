@@ -22,7 +22,7 @@ touches ``elem.attrib``, so geometry attributes (``x``, ``cx``,
 
 Deeper SVG handling (resolving ``transform`` matrices, flattening
 ``<use>`` / ``<defs>``, CSS ``<style>``) is intentionally out of scope
-for this first increment — see ``ARCHITECTURE.md``
+for this first increment.
 """
 
 from __future__ import annotations
@@ -57,7 +57,8 @@ def _assign_gids(root: ET.Element) -> None:
 
     The backend's raster provenance keys pixels by this id and the editor's
     SVG object tree reads the same attribute, so the two agree on "which
-    element is which" for cross-pane highlight (ARCHITECTURE.md). Read off the element, so iteration order between producer / consumer
+    element is which" for cross-pane highlight.
+    Read off the element, so iteration order between producer / consumer
     needn't match. Skipped for the rare non-``str`` tag (comments / PIs)."""
     for i, elem in enumerate(root.iter()):
         if isinstance(elem.tag, str):

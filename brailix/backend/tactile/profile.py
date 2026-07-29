@@ -6,7 +6,7 @@ based touch-adaptation knobs (minimum line width, minimum feature
 spacing) plus the one device-dependent dial, ``dpi``, and a default page
 size. Profiles live as JSON under ``resources/tactile/<name>.json``.
 
-Deliberately **device-independent** (``ARCHITECTURE.md``): there is no per-embosser model table. Every adaptation
+Deliberately **device-independent**: there is no per-embosser model table. Every adaptation
 parameter is in millimetres so it survives any device; the renderer turns
 millimetres into pixels with the single ``dpi`` knob the user sets to
 match their own embossing software. The shipped ``generic`` profile is a
@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from brailix.core.errors import ConfigurationError
+from brailix.core.paths import resolve_named_resource
 
 # resources/ lives at the package root: this file is
 # brailix/backend/tactile/profile.py, so parents[2] == the ``brailix``
@@ -69,7 +70,7 @@ class TactileProfile:
     braille_line_spacing_mm: float = 10.0
 
     def __post_init__(self) -> None:
-        """Every metric is a finite number greater than zero.
+        """Every metric is a finite ``float`` greater than zero.
 
         The invariant belongs to the *type*, not only to
         :func:`load_tactile_profile`: everything downstream — the mm→px
@@ -79,11 +80,23 @@ class TactileProfile:
         object rather than a name) reaches all of that without touching the
         loader. Checking here is what makes "positive and finite" a property a
         consumer may rely on instead of a habit the JSON path happens to keep.
+
+        The converted value is **stored**, not just inspected. ``_check_positive``
+        accepts anything ``float()`` accepts — which is what lets the loader take
+        a quoted ``"100"`` out of a hand-edited JSON file — so validating without
+        keeping the result let a value that merely *converts* live on in a field
+        declared ``float``: ``TactileProfile(dpi="100", ...)`` passed every check
+        and then raised ``TypeError`` in ``profile.dpi / 25.4``, deep in page
+        composition. Assigning through ``object.__setattr__`` because the
+        dataclass is frozen and this runs during its own construction — the same
+        move :class:`brailix.core.errors.Warning` makes to freeze its anchor.
         """
         for f in fields(self):
             if f.name == "name":
                 continue
-            _check_positive(getattr(self, f.name), f.name)
+            object.__setattr__(
+                self, f.name, _check_positive(getattr(self, f.name), f.name)
+            )
 
 
 def _check_positive(value: Any, field: str, prefix: str = "") -> float:
@@ -130,11 +143,15 @@ def load_tactile_profile(name: str = DEFAULT_PROFILE) -> TactileProfile:
     """Load the tactile profile named ``name`` from ``resources/tactile``.
 
     Raises :class:`~brailix.core.errors.ConfigurationError` for a missing
-    file, invalid JSON, or an out-of-range parameter — the same failure
-    contract the braille-profile loader uses, so a front-end can surface
-    one error type.
+    file, invalid JSON, an out-of-range parameter, or a ``name`` that is a
+    path rather than a name — the same failure contract the braille-profile
+    loader uses, so a front-end can surface one error type. The name check is
+    :func:`~brailix.core.paths.resolve_named_resource`, shared with that
+    loader: ``"../../config/device"`` used to be read and parsed from outside
+    ``resources/tactile`` entirely, and an absolute name from anywhere on the
+    filesystem.
     """
-    path = _TACTILE_DIR / f"{name}.json"
+    path = resolve_named_resource(_TACTILE_DIR, name, "tactile profile")
     try:
         with path.open("r", encoding="utf-8") as f:
             payload = json.load(f)

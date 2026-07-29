@@ -237,10 +237,10 @@ def populate_music_block(
     music frontend and populate ``children`` with a single :class:`MusicInline`
     carrying the MusicXML tree.
 
-    Mirrors :func:`populate_math_block` for the music subsystem (see
-    ``ARCHITECTURE.md``): the block holds only ``source``; the
-    parsed tree lives on a child ``MusicInline``, so the backend dispatcher can
-    route it like any other inline node.
+    Mirrors :func:`populate_math_block` for the music subsystem: the block
+    holds only ``source``; the parsed tree lives on a child ``MusicInline``,
+    so the backend dispatcher can route it like any other
+    inline node.
 
     Soft-failure: if the adapter is missing the frontend returns ``None`` (a
     ``MUSIC_ADAPTER_MISSING`` warning is already recorded by then). Adapter
@@ -389,7 +389,7 @@ def populate_graphic_block(
     :class:`~brailix.ir.inline.GraphicInline` carrying the SVG tree.
 
     Mirrors :func:`populate_math_block` / :func:`populate_music_block` for the
-    tactile-graphics subsystem (``ARCHITECTURE.md``): the
+    tactile-graphics subsystem: the
     block holds only ``source``; the parsed SVG tree lives on the child carrier.
     Parsing goes through the injected ``driver._parse_graphic_tree`` — the
     graphics frontend's single public entry, same shape as math / music — which

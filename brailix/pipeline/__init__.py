@@ -315,11 +315,9 @@ class Pipeline:
     # source adapter can inline it as a ``data:`` URI. ``None`` (the default)
     # leaves the adapter to read the reference as a filesystem path — the bare
     # library and every test that omits it are unaffected. See
-    # :class:`~brailix.core.protocols.GraphicAssetResolver` and
-    # ``ARCHITECTURE.md`` (Name first, then the section:
-    # the export collapses an unpublished design note to ARCHITECTURE.md and
-    # takes the section number with it, which it can only do when the number
-    # follows the name.)
+    # :class:`~brailix.core.protocols.GraphicAssetResolver`. (Its own parenthesis, name then
+    # section: the export deletes a citation of an unpublished note whole, and
+    # can only do that when the reference is the entire parenthetical.)
     asset_resolver: GraphicAssetResolver | None = None
     _profile: BrailleProfile = field(init=False, default=None)  # type: ignore[assignment]
     _frontend: _FrontendDriver = field(init=False, default=None)  # type: ignore[assignment]
@@ -734,7 +732,7 @@ class Pipeline:
     ) -> TactilePageResult:
         """Lay a braille document with embedded figures onto tactile pages.
 
-        The mixed-layout output (``ARCHITECTURE.md``): each
+        The mixed-layout output: each
         block is compiled through the **same** incremental pipeline every other
         path uses (:meth:`translate_block`) — a text block yields braille
         cells, a :class:`~brailix.ir.document.GraphicBlock` yields a

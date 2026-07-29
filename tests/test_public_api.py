@@ -181,10 +181,10 @@ _FACADE: dict[str, list[str]] = {
         "language_frontend_registry",
         # The language-keyed boundary pass is an extension point (a new
         # language registers its handler here, and the architecture doc points
-        # extenders at it); ``apply_boundary``, which *runs* the registered
-        # handler, is orchestration the compiler calls once per run and is
-        # deliberately not promised — the two used to be exported the wrong way
-        # round.
+        # extenders at it); the function that *runs* the registered handler is
+        # orchestration the compiler calls once per run, and is
+        # ``_apply_boundary`` — the two used to be exported the wrong way
+        # round, and then the wrong one stayed publicly named for a while.
         "boundary_registry",
     ],
 }
@@ -323,6 +323,16 @@ def test_all_registered_block_types_are_reexported() -> None:
 # adapter), so the two surfaces should be able to move independently, and a
 # reader of either list should not have to guess which entries concern them.
 _EXTENSION_SURFACE: dict[str, list[str]] = {
+    # The one core *type* a contract names that no facade carries.
+    # ``LanguageBackend``'s three methods all take ``profile: BrailleProfile``,
+    # so an implementer has to be able to write that name — and the guide sends
+    # them to the shallow ``brailix.core``, which does not export it (nor
+    # should: re-exporting it there would drag the whole profile/table loader
+    # into every ``import brailix.core``, and so into ``brailix.ir``, which
+    # promises to load carrying core primitives alone). ``brailix.core.config``
+    # is where it lives and keeps its own surface, exactly as
+    # ``brailix.core.models`` does; this is the promise that it stays put.
+    "brailix.core.config": ["BrailleProfile"],
     # The contracts. Every pluggable part of the library satisfies one.
     "brailix.core.protocols": [
         "Segmenter",
@@ -374,6 +384,15 @@ def test_extension_surface_resolves(module: str) -> None:
     )
 
 
+# The extension-surface entries that promise *types* rather than a place to
+# register: the contracts themselves, and the one core type those contracts
+# name. Everything else in the manifest is a registry, and is checked to still
+# be one.
+_EXTENSION_TYPE_MODULES = frozenset(
+    {"brailix.core.protocols", "brailix.core.config"}
+)
+
+
 def test_every_registry_in_the_extension_surface_is_a_registry() -> None:
     """A promised registry name must still be something you can ``register``
     on — the promise is the capability, not just the attribute."""
@@ -381,7 +400,7 @@ def test_every_registry_in_the_extension_surface_is_a_registry() -> None:
 
     bad: list[str] = []
     for module, names in _EXTENSION_SURFACE.items():
-        if module == "brailix.core.protocols":
+        if module in _EXTENSION_TYPE_MODULES:
             continue
         mod = importlib.import_module(module)
         for name in names:
@@ -394,50 +413,66 @@ def test_every_registry_in_the_extension_surface_is_a_registry() -> None:
     assert not bad, f"extension surface entries that aren't registries: {bad}"
 
 
-def test_every_context_a_protocol_names_is_on_the_shallow_surface() -> None:
+def test_every_brailix_type_a_protocol_names_has_a_supported_import() -> None:
     """An adapter author must be able to *annotate* what they implement.
 
-    The guide tells extenders to take core types from the shallow
-    ``brailix.core`` and treats deeper paths as internal and free to move. So
-    every ``*Context`` appearing in a Protocol signature has to be exported
-    there, or that instruction contradicts itself for whoever implements that
-    protocol: ``GraphicsContext`` was missing, leaving a
-    ``GraphicSourceAdapter`` author to choose between an unannotated signature
-    and importing from a path policy calls internal.
+    Every brailix type appearing in a Protocol signature has to be importable
+    from a surface this suite pins — a facade or the extension manifest —
+    or the guide contradicts itself for whoever implements that protocol:
+    it sends extenders to the shallow surfaces and calls every deeper path
+    internal and free to move, so a type reachable only from a deeper path
+    leaves the implementer choosing between an unannotated signature and an
+    unsupported import.
 
-    Derived from the signatures rather than hand-listed — the same reason the
-    protocol manifest walks the module. A new vertical adds its context to a
-    signature; this is what makes it also add it to the facade.
+    Two names had already fallen through, and each one shows why this is
+    derived rather than hand-listed. ``GraphicsContext`` was missing from
+    ``brailix.core`` when the graphics vertical landed — caught by the earlier
+    version of this test, which matched ``\\w+Context`` and so could only ever
+    find contexts. ``BrailleProfile`` is the one that shape could not see: it
+    is named by all three ``LanguageBackend`` methods, and lives in
+    ``brailix.core.config``, which no manifest mentioned.
+
+    Read from the **imports** rather than from the annotation strings. A
+    Protocol can only name a brailix type it imported, so the import block is
+    the complete list, and it dodges two problems the string scan had: a local
+    alias (``NormalizedItem = InlineNode | Segment``) is not an importable name
+    and would be reported, while its components — the names that actually have
+    to be reachable — appear only inside it.
+
+    Membership in a manifest is the check; that each promised name really
+    resolves at the module promising it is
+    :func:`test_every_published_name_actually_resolves` /
+    :func:`test_extension_surface_resolves`.
     """
-    import inspect
-    import re
-    import typing
+    import ast
+    import importlib.util
 
-    import brailix.core as core
-    import brailix.core.protocols as protocols
+    spec = importlib.util.find_spec("brailix.core.protocols")
+    assert spec is not None and spec.origin is not None
+    tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
 
-    named: set[str] = set()
-    for name, obj in vars(protocols).items():
-        if name.startswith("_") or not isinstance(obj, type):
-            continue
-        if typing.Protocol not in getattr(obj, "__bases__", ()):
-            continue
-        for member in vars(obj).values():
-            if not inspect.isfunction(member):
-                continue
-            # ``from __future__ import annotations`` keeps these as strings,
-            # which is all this needs — and avoids resolving IR types that
-            # core deliberately imports only under TYPE_CHECKING.
-            for annotation in getattr(member, "__annotations__", {}).values():
-                named.update(re.findall(r"\b(\w+Context)\b", str(annotation)))
+    named = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and (node.module or "").startswith("brailix")
+        for alias in node.names
+    }
+    supported = {
+        name
+        for manifest in (_FACADE, _EXTENSION_SURFACE)
+        for names in manifest.values()
+        for name in names
+    }
 
-    missing = sorted(named - set(core.__all__))
+    missing = sorted(named - supported)
     assert not missing, (
-        f"contexts named in a Protocol signature but absent from "
-        f"brailix.core.__all__: {missing} — an extender told to import core "
-        f"types from the shallow surface cannot annotate against them"
+        f"types named in a Protocol signature with no supported import path: "
+        f"{missing} — an extender told to import from the pinned surfaces "
+        f"cannot annotate against them. Re-export from a facade, or add the "
+        f"module and name to _EXTENSION_SURFACE as a deliberate promise."
     )
-    assert named, "no contexts found — the signature scan stopped working"
+    assert named, "no brailix types found — the import scan stopped working"
 
 
 def test_every_protocol_is_named_in_the_extension_surface() -> None:
@@ -499,14 +534,16 @@ def test_pipeline_all_is_pinned() -> None:
 # Names a facade may bind without underscore despite not being in ``__all__``.
 # Only for a deliberate, documented decision — not a parking spot for whatever
 # the check currently reports.
-_NAMESPACE_ALLOWLIST: dict[str, set[str]] = {
-    # ``apply_boundary`` RUNS the registered handler; what an extender supplies
-    # is a handler in ``boundary_registry`` (which is in ``__all__``). The
-    # module docstring states it stays importable for anyone assembling an
-    # inline stream by hand while carrying no compatibility promise — a
-    # decision, so it is recorded here rather than hidden by an alias.
-    "brailix.frontend": {"apply_boundary"},
-}
+#
+# **Empty, and worth keeping empty.** Its one entry was
+# ``brailix.frontend.apply_boundary``: importable, tab-completing, documented
+# as carrying no compatibility promise — which is a promise a reader can only
+# find by reading this file. It is ``_apply_boundary`` now, so the rule "what
+# resolves at a facade is the API" holds with no exception to look up. The
+# mechanism stays because the next candidate deserves an argument, not a
+# silent alias; adding an entry means writing down why the name has to be
+# reachable *and* unsupported.
+_NAMESPACE_ALLOWLIST: dict[str, set[str]] = {}
 
 
 @pytest.mark.parametrize("module", sorted(_FACADE))

@@ -4,8 +4,7 @@ braille preview (U+2800..U+28FF).
 This is the loop-closing renderer for the tactile-graphics vertical: it
 downsamples the raise grid into 8-dot braille cells so a blind author can
 **read the outline of their own drawing on a refreshable braille display
-or through NVDA** — verifying the result without sight
-(``ARCHITECTURE.md``). It reuses
+or through NVDA** — verifying the result without sight. It reuses
 :func:`brailix.renderer.unicode_braille.dots_to_char`, the same 8-dot →
 code-point encoder the text pipeline uses.
 
@@ -62,8 +61,8 @@ def provenance_cells(
     Maps the element ``gid``'s recorded pixels (``raster.provenance``, the
     element→pixel trace from ``record_provenance``) into the same braille-cell
     grid :func:`raster_to_braille` produced at ``width_cells``, so the editor
-    can highlight "where this element is" in the dot preview (the cross-pane
-    highlight, ``ARCHITECTURE.md``). Empty when
+    can highlight "where this element is" in the dot preview — the cross-pane
+    highlight. Empty when
     provenance wasn't recorded, the gid is unknown, or it drew nothing.
 
     ``width_cells`` must match the preview's — the editor renders and

@@ -7,8 +7,7 @@ when a refactor shifts a marker dot pattern or skips a cell, the
 diff lands here before it can sneak into user output.
 
 The expected strings are derived from the current ``cn_current``
-profile. Every Chinese-math rule referenced is documented in
-``ARCHITECTURE.md``.
+profile; each one is a Chinese-math rule the profile's tables encode.
 """
 
 from __future__ import annotations

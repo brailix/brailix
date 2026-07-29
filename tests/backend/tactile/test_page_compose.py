@@ -1,6 +1,6 @@
 """Mixed tactile-page compositor — ``backend.tactile.page.compose_pages``.
 
-G3 of inline tactile graphics (ARCHITECTURE.md): braille text runs
+G3 of inline tactile graphics: braille text runs
 (already wrapped to cell lines) and figure rasters are laid onto one or more
 page :class:`TactileRaster`\\ s — text stamped as real braille dots, figures
 scaled into the flow. Output model A: a page *is* a raster.
