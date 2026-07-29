@@ -76,6 +76,7 @@ from brailix.core.config.validator import (
     _validate_profile_shape,
     validate_profile,
 )
+from brailix.core.paths import resolve_named_resource
 
 PACKAGE_ROOT: Path = Path(__file__).resolve().parents[3]
 
@@ -343,13 +344,21 @@ def _resolve_profile_path(
     """Locate ``<name>.json``. User-folder ``extras`` win — a same-named
     user profile shadows the builtin — then ``base/profiles`` as the
     fallback. Raises :class:`FileNotFoundError`, listing the union of
-    available profile names, when it is found in none of them."""
+    available profile names, when it is found in none of them, and
+    :class:`~brailix.core.errors.ConfigurationError` when ``name`` is not a
+    name at all (:func:`~brailix.core.paths.resolve_named_resource`: a
+    ``"../secret"`` walked out of every search directory, an absolute one
+    replaced them).
+
+    ``is_file`` rather than ``exists``: a *directory* called ``cn_ncb.json``
+    would otherwise be resolved and then fail on open, one layer too late for
+    the search to move on to the next candidate."""
     for candidate_dir in extras:
-        candidate = candidate_dir / f"{name}.json"
-        if candidate.exists():
+        candidate = resolve_named_resource(candidate_dir, name, "profile")
+        if candidate.is_file():
             return candidate
-    builtin_path = base / "profiles" / f"{name}.json"
-    if builtin_path.exists():
+    builtin_path = resolve_named_resource(base / "profiles", name, "profile")
+    if builtin_path.is_file():
         return builtin_path
 
     available = _list_available_profiles(base, extras)
@@ -358,8 +367,7 @@ def _resolve_profile_path(
     else:
         searched = ", ".join(str(p) for p in (*extras, base / "profiles"))
         hint = f"; no profiles found under {searched}"
-    target = base / "profiles" / f"{name}.json"
-    raise FileNotFoundError(f"profile not found: {target}{hint}")
+    raise FileNotFoundError(f"profile not found: {builtin_path}{hint}")
 
 
 def _list_available_profiles(

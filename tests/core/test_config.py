@@ -11,6 +11,7 @@ from brailix.core.config import (
     load_builtin_numbers_table,
     load_profile,
 )
+from brailix.core.errors import ConfigurationError
 
 
 def test_math_less_profile_does_not_alias_empty_singleton() -> None:
@@ -130,6 +131,90 @@ class TestMissingProfile:
     def test_unknown_profile(self):
         with pytest.raises(FileNotFoundError):
             load_profile("does_not_exist")
+
+
+class TestAProfileNameIsAName:
+    """A profile name must not be able to name a file outside the search dirs.
+
+    ``Path`` treats a name as a path without complaint: ``dir / "../secret"``
+    walks up out of ``dir``, and ``dir / "/srv/app/private/settings"`` discards
+    ``dir`` outright, because joining with an absolute right-hand side keeps
+    only the right-hand side. Either way the loader then read and parsed
+    whatever JSON file it landed on.
+
+    For a local CLI that is the caller opening their own files. ``SECURITY.md``
+    supports embedding brailix in a service that accepts untrusted input,
+    though, and a profile name is exactly the kind of value that arrives as a
+    request parameter there — where the same two spellings are an
+    out-of-directory read and a path prober. The check is
+    :func:`brailix.core.paths.resolve_named_resource`, shared with the tactile
+    loader, which had grown the identical hole (``tests/backend/tactile/
+    test_profile.py::TestAProfileNameIsAName``).
+    """
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "../secret",
+            "..\\secret",
+            "sub/profile",
+            "sub\\profile",
+            "/srv/app/private/settings",
+            "C:/Windows/system",
+            "",
+        ],
+    )
+    def test_a_path_is_refused(self, name: str):
+        with pytest.raises(ConfigurationError, match="single file name"):
+            load_profile(name)
+
+    def test_it_no_longer_reaches_a_real_file_outside_the_search_dir(
+        self, tmp_path: Path
+    ):
+        """The proof rather than the message: a *loadable* profile is planted
+        where the traversal used to land, so a loader that still walked up
+        would return it instead of raising."""
+        (tmp_path / "profiles").mkdir()
+        (tmp_path / "secret.json").write_text(
+            json.dumps({"name": "secret", "language": "zh-CN", "tables": {}}),
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigurationError, match="single file name"):
+            load_profile("../secret", root=tmp_path)
+
+    def test_an_absolute_name_is_refused(self, tmp_path: Path):
+        (tmp_path / "profiles").mkdir()
+        target = tmp_path / "elsewhere.json"
+        target.write_text(
+            json.dumps({"name": "elsewhere", "language": "zh-CN", "tables": {}}),
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigurationError, match="single file name"):
+            load_profile(str(target)[: -len(".json")], root=tmp_path)
+
+    def test_the_extra_search_paths_are_checked_too(self, tmp_path: Path):
+        """The user-folder directories are searched first, so a name that
+        escapes *them* escapes before the builtin directory is ever reached."""
+        user_dir = tmp_path / "user_profiles"
+        user_dir.mkdir()
+        (tmp_path / "secret.json").write_text(
+            json.dumps({"name": "secret", "language": "zh-CN", "tables": {}}),
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigurationError, match="single file name"):
+            load_profile("../secret", extra_search_paths=[user_dir])
+
+    def test_a_directory_is_not_a_profile(self, tmp_path: Path):
+        """``cn_ncb.json/`` as a *directory* used to pass the ``exists`` probe
+        and fail one layer later, on open, instead of letting the search move
+        on to the next candidate."""
+        user_dir = tmp_path / "user_profiles"
+        (user_dir / "cn_current.json").mkdir(parents=True)
+        p = load_profile("cn_current", extra_search_paths=[user_dir])
+        assert p.language == "zh-CN"  # the builtin, not the directory
+
+    def test_an_ordinary_name_still_loads(self):
+        assert load_profile("cn_current").name == "cn_current"
 
 
 class TestCustomRoot:
