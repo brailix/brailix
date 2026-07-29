@@ -26,8 +26,7 @@ from brailix.ir.tactile import TactileRaster
 from brailix.renderer import renderer_registry
 
 # Default tactile-graphics renderer for :meth:`GraphicResult.render` — the
-# embossable 8-bit grayscale BMP master (see ``ARCHITECTURE.md``
-# §1.1). Like the braille renderers, it lives in ``renderer_registry``.
+# embossable 8-bit grayscale BMP master (see ``ARCHITECTURE.md``). Like the braille renderers, it lives in ``renderer_registry``.
 DEFAULT_TACTILE_RENDERER = "bmp"
 
 # The IR domain each result provides, matched against a renderer's ``consumes``

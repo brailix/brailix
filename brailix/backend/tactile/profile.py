@@ -6,7 +6,7 @@ based touch-adaptation knobs (minimum line width, minimum feature
 spacing) plus the one device-dependent dial, ``dpi``, and a default page
 size. Profiles live as JSON under ``resources/tactile/<name>.json``.
 
-Deliberately **device-independent** (``ARCHITECTURE.md`` / §7): there is no per-embosser model table. Every adaptation
+Deliberately **device-independent** (``ARCHITECTURE.md``): there is no per-embosser model table. Every adaptation
 parameter is in millimetres so it survives any device; the renderer turns
 millimetres into pixels with the single ``dpi`` knob the user sets to
 match their own embossing software. The shipped ``generic`` profile is a

@@ -388,3 +388,64 @@ class TestEmbeddedTextSpans:
         assert translated, "embedded text produced no cells"
         for c in translated:
             assert c.source_span == node.span
+
+
+class TestInlineAndDisplayShareOneExceptionLadder:
+    """Inline and display math must fail the same way.
+
+    They had two copies of the whole skeleton — cache key, lookup, context
+    construction, the parse, the exception ladder, the warning — and the copies
+    drifted: the display path's ladder was corrected first, and inline math's
+    had to be repaired separately afterwards, because fixing one did not fix
+    the other. ``attach_math`` now goes through the same ``parse_cached_tree``
+    the block populators use, so there is one ladder to get right.
+
+    This pins the behaviour rather than the call graph: whatever the wiring,
+    an inline formula and a display one must classify the same failure
+    identically.
+    """
+
+    def _pipeline_with_failing_parser(self, monkeypatch, exc: BaseException):
+        from brailix.pipeline import Pipeline
+
+        def _boom(_surface, _ctx):
+            raise exc
+
+        pipe = Pipeline(profile="cn_current", resolver="null")
+        monkeypatch.setattr(pipe._frontend, "_parse_math_tree", _boom)
+        return pipe
+
+    @pytest.mark.parametrize(
+        "exc",
+        [AttributeError("no such attribute"), NameError("nope"), AssertionError()],
+        ids=["AttributeError", "NameError", "AssertionError"],
+    )
+    def test_programming_errors_propagate_from_both(self, monkeypatch, exc):
+        """A code defect is never a "bad formula" — on either path."""
+        from brailix.ir.document import MathBlock
+
+        pipe = self._pipeline_with_failing_parser(monkeypatch, exc)
+        with pytest.raises(type(exc)):
+            pipe.translate_text("看 $x^2$ 完")  # inline
+        with pytest.raises(type(exc)):
+            pipe.translate_block(MathBlock(text="x^2", source="latex"))  # display
+
+    @pytest.mark.parametrize(
+        "exc",
+        [ValueError("malformed"), TypeError("wrong shape"), KeyError("missing")],
+        ids=["ValueError", "TypeError", "KeyError"],
+    )
+    def test_input_shaped_errors_soft_fail_on_both(self, monkeypatch, exc):
+        """And the input-shaped ones degrade on both, each to its own recovery
+        (inline keeps the node with no tree; display falls back to one Unknown
+        per character) — the part that is deliberately NOT shared."""
+        from brailix.ir.document import MathBlock
+
+        pipe = self._pipeline_with_failing_parser(monkeypatch, exc)
+
+        inline = pipe.translate_text("看 $x^2$ 完")
+        assert "MATH_INLINE_PARSE_FAILED" in [w.code for w in inline.warnings]
+        assert inline.render()  # the surrounding prose still renders
+
+        display = pipe.translate_block(MathBlock(text="x^2", source="latex"))
+        assert "MATH_BLOCK_PARSE_FAILED" in [w.code for w in display.warnings]

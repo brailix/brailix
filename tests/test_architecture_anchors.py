@@ -43,8 +43,25 @@ _CODE_DIRS = ("brailix", "tests")
 _DECLARED = re.compile(r'<a\s+id="(arch-[a-z0-9-]+)"\s*>')
 # ``ARCHITECTURE#arch-layers`` and a chained ``/ #arch-boundaries``.
 _CITED = re.compile(r"ARCHITECTURE#(arch-[a-z0-9-]+)|(?<![\w#])#(arch-[a-z0-9-]+)")
-# The spelling this guard exists to keep out.
-_SECTION_NUMBER = re.compile(r"ARCHITECTURE(?:\.md)?`{0,2}[ ]*§[ ]*\d")
+# The spelling this guard exists to keep out — in either order and across a
+# line wrap, since a comment reflows and "§14 of ARCHITECTURE.md" is at least
+# as natural to write as "ARCHITECTURE.md §14". Matching only the forward,
+# single-line form meant the guard's promise held for one phrasing out of
+# several.
+#
+# The window between the two halves is bounded and must not contain another
+# document's name. That is what keeps the legitimate citations out of it:
+# ``ARCHITECTURE.md`` and the other design notes are cited
+# by section number *deliberately* — they are single documents whose numbering
+# is stable, unlike the two independently-organised architecture copies — and
+# several of them sit a line or two away from an ARCHITECTURE mention.
+_OTHER_DOC = r"[\w/-]+\.md|[\w-]+-plan\b|BANA|RFC"
+_SECTION_NUMBER = re.compile(
+    # ARCHITECTURE ... §N
+    r"ARCHITECTURE(?!\.en)(?:\.md)?(?!#)(?:(?!" + _OTHER_DOC + r")[\s\S]){0,80}?§\s*\d"
+    # §N ... ARCHITECTURE
+    r"|§\s*\d[\d.]*(?:(?!" + _OTHER_DOC + r")[\s\S]){0,80}?ARCHITECTURE(?!\.en)(?!#)",
+)
 
 
 def _docs() -> list[tuple[str, str]]:
@@ -55,12 +72,19 @@ def _docs() -> list[tuple[str, str]]:
     ]
 
 
+_SELF = Path(__file__).resolve()
+
+
 def _python_files() -> list[Path]:
     return [
         py
         for d in _CODE_DIRS
         for py in sorted((_ROOT / d).rglob("*.py"))
         if "__pycache__" not in py.parts
+        # This file has to spell out the forbidden forms to explain and to test
+        # them — every example below would otherwise be reported as a
+        # violation of the rule it documents.
+        and py != _SELF
     ]
 
 
@@ -126,15 +150,82 @@ def test_both_documents_declare_the_same_anchor_set() -> None:
     )
 
 
+class TestTheSectionNumberDetector:
+    """What the detector must catch, and what it must leave alone.
+
+    It matched only ``ARCHITECTURE ... §N``, forward and on one line — so the
+    rule held for one phrasing out of several. A reflowed docstring or a
+    reversed clause slipped through while the guard reported success.
+
+    The other half matters as much: design notes under ``docs/`` **are** cited
+    by section number on purpose. They are single documents with stable
+    numbering, unlike the two independently-organised architecture copies, and
+    several sit within a line of an ARCHITECTURE mention. A detector that
+    flagged those would be reverted within a day.
+    """
+
+    def test_catches_the_forward_form(self) -> None:
+        assert _SECTION_NUMBER.search("see ARCHITECTURE.md §14 for the rule")
+
+    def test_catches_the_reverse_form(self) -> None:
+        assert _SECTION_NUMBER.search("see §14 of ARCHITECTURE.md")
+
+    def test_catches_a_reference_split_across_lines(self) -> None:
+        assert _SECTION_NUMBER.search(
+            "the component responsibilities in ARCHITECTURE.md\n    §14 apply"
+        )
+
+    def test_accepts_the_anchor_form(self) -> None:
+        assert not _SECTION_NUMBER.search(
+            "the layering rule (ARCHITECTURE#arch-layers) applies here"
+        )
+
+    def test_leaves_other_documents_citations_alone(self) -> None:
+        """Section numbers that belong to some *other* document are fine.
+
+        The examples deliberately avoid naming an unpublished ``docs/*-plan.md``
+        note. The export rewrites those references to ``ARCHITECTURE.md`` for
+        the mirror — including ones written inside a test — so using one here
+        would make this file mean something different on each side.
+        ``docs/extending.md`` ships, and BANA / RFC are untouched either way.
+        """
+        for legitimate in (
+            "the adapter contract in ``docs/extending.md``\n    §2 explains it",
+            "see §2 of ``docs/extending.md`` for the walkthrough",
+            "bar-over-bar layout (BANA §28) splits on it",
+            "RFC 8032 §7.1 published test vectors",
+            "single_line format (BANA §24.1) for one melodic part",
+        ):
+            assert not _SECTION_NUMBER.search(legitimate), (
+                f"flagged another document's citation: {legitimate!r}"
+            )
+
+    def test_does_not_reach_across_an_intervening_document(self) -> None:
+        """The window stops at another document's name, so an ARCHITECTURE
+        mention and an unrelated note's section number nearby stay separate."""
+        assert not _SECTION_NUMBER.search(
+            "layering lives in ARCHITECTURE#arch-layers; the geometry "
+            "is in ``docs/extending.md`` §2"
+        )
+
+
 def test_no_code_cites_a_section_number() -> None:
     """The regression: a section number is not a reference that survives two
-    independently-organised copies of the document."""
-    offenders = [
-        f"{py.relative_to(_ROOT).as_posix()}:{lineno}: {line.strip()[:80]}"
-        for py in _python_files()
-        for lineno, line in enumerate(py.read_text(encoding="utf-8").splitlines(), 1)
-        if _SECTION_NUMBER.search(line)
-    ]
+    independently-organised copies of the document.
+
+    Scanned over the **whole file**, not line by line: a docstring wraps, and
+    ``ARCHITECTURE.md`` can easily end a line with its ``§3.1`` starting the
+    next. A per-line search reads that as two innocent fragments.
+    """
+    offenders: list[str] = []
+    for py in _python_files():
+        text = py.read_text(encoding="utf-8")
+        for match in _SECTION_NUMBER.finditer(text):
+            lineno = text.count("\n", 0, match.start()) + 1
+            excerpt = " ".join(match.group(0).split())[:80]
+            offenders.append(
+                f"{py.relative_to(_ROOT).as_posix()}:{lineno}: {excerpt}"
+            )
     assert not offenders, (
         "ARCHITECTURE cited by section number — the Chinese and English copies "
         "number sections differently, so this is wrong in at least one of them. "

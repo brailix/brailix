@@ -69,8 +69,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from brailix.core.protocols import LanguageFrontend
-from brailix.core.registry import Registry
+from brailix.core.protocols import LanguageFrontend as _LanguageFrontend
+from brailix.core.registry import Registry as _Registry
 from brailix.frontend.ja import analyze as _ja_analyze
 from brailix.frontend.ja import ja_boundary as _ja_boundary
 from brailix.frontend.ja import tokens_to_inline as _ja_tokens_to_inline
@@ -103,7 +103,7 @@ if TYPE_CHECKING:
     ]
 
 
-class _ZhFrontend(LanguageFrontend):
+class _ZhFrontend(_LanguageFrontend):
     """Chinese :class:`~brailix.core.protocols.LanguageFrontend`:
     tokenize → pinyin → inline IR.
 
@@ -127,7 +127,7 @@ class _ZhFrontend(LanguageFrontend):
         return _zh_to_inline(tokens)
 
 
-class _JaFrontend(LanguageFrontend):
+class _JaFrontend(_LanguageFrontend):
     """Japanese :class:`~brailix.core.protocols.LanguageFrontend`.
 
     Chains the morphological analyzer (selected by
@@ -153,8 +153,8 @@ class _JaFrontend(LanguageFrontend):
 # Per-language frontend registry — the Pipeline routes each prose
 # segment to the implementation matching the profile's language. Adding
 # a language = register a LanguageFrontend here (or via entry points).
-language_frontend_registry: Registry[LanguageFrontend] = Registry(
-    "language_frontend", LanguageFrontend
+language_frontend_registry: _Registry[_LanguageFrontend] = _Registry(
+    "language_frontend", _LanguageFrontend
 )
 language_frontend_registry.register("zh", _ZhFrontend)
 language_frontend_registry.register("ja", _JaFrontend)
@@ -169,7 +169,80 @@ language_frontend_registry.register("ja", _JaFrontend)
 # wakachigaki in ``tokens_to_inline``). Keyed by the language subtag,
 # mirroring the ARCHITECTURE#arch-language-slots registries, so the
 # orchestrator stays language-blind.
-boundary_registry: dict[str, BoundaryHandler] = {}
+class _BoundaryRegistry(dict):
+    """The boundary-handler table, with a generation counter.
+
+    A plain ``dict`` in every respect a caller sees — ``boundary_registry[lang]
+    = handler`` is what the extension guide documents and what the builtins
+    below use — but every mutation advances :attr:`generation`, which
+    :attr:`brailix.pipeline.Pipeline.fingerprint` folds in like any other
+    compilation-relevant registry.
+
+    It needs that because a boundary handler **changes the braille**: it is
+    what inserts the space between a hanzi run and a Latin word, the connector
+    before a number. Left out of the fingerprint, replacing one produced two
+    compiles with identical ``source_hash`` and different cells — measured,
+    ``Paragraph("x轴")`` compiled to ``⠰⠭⠤⠀`` and then ``⠰⠭⠀`` under one key.
+    Nothing else caught it either: the nodes a handler inserts carry
+    ``surface=""``, so the stale-children check (which compares reconstructed
+    surface against ``block.text``) sees no difference, and an
+    already-populated block kept its old spacing on recompile.
+
+    A ``dict`` subclass rather than a :class:`~brailix.core.registry.Registry`
+    on purpose: a handler is a bare callable with no protocol to validate, and
+    ``Registry``'s name-based lazy-loading buys nothing here — while changing
+    the public shape would break the documented ``boundary_registry[lang] = …``
+    idiom for no gain.
+    """
+
+    __slots__ = ("_generation",)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._generation = 0
+
+    @property
+    def generation(self) -> int:
+        """Bumped by every mutation; folded into the compilation fingerprint."""
+        return self._generation
+
+    def __setitem__(self, key: str, value: BoundaryHandler) -> None:
+        super().__setitem__(key, value)
+        self._generation += 1
+
+    def __delitem__(self, key: str) -> None:
+        super().__delitem__(key)
+        self._generation += 1
+
+    def pop(self, *args: object, **kwargs: object) -> object:
+        result = super().pop(*args, **kwargs)
+        self._generation += 1
+        return result
+
+    def popitem(self) -> tuple[str, BoundaryHandler]:
+        result = super().popitem()
+        self._generation += 1
+        return result
+
+    def clear(self) -> None:
+        super().clear()
+        self._generation += 1
+
+    def update(self, *args: object, **kwargs: object) -> None:
+        super().update(*args, **kwargs)
+        self._generation += 1
+
+    def setdefault(
+        self, key: str, default: BoundaryHandler | None = None
+    ) -> BoundaryHandler | None:
+        had = key in self
+        result = super().setdefault(key, default)
+        if not had:
+            self._generation += 1
+        return result
+
+
+boundary_registry: _BoundaryRegistry = _BoundaryRegistry()
 
 
 def _zh_boundary(

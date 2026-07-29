@@ -313,8 +313,11 @@ class Pipeline:
     # source adapter can inline it as a ``data:`` URI. ``None`` (the default)
     # leaves the adapter to read the reference as a filesystem path — the bare
     # library and every test that omits it are unaffected. See
-    # :class:`~brailix.core.protocols.GraphicAssetResolver` and §2.2 of
-    # ``ARCHITECTURE.md``.
+    # :class:`~brailix.core.protocols.GraphicAssetResolver` and
+    # ``ARCHITECTURE.md`` (Name first, then the section:
+    # the export collapses an unpublished design note to ARCHITECTURE.md and
+    # takes the section number with it, which it can only do when the number
+    # follows the name.)
     asset_resolver: GraphicAssetResolver | None = None
     _profile: BrailleProfile = field(init=False, default=None)  # type: ignore[assignment]
     _frontend: _FrontendDriver = field(init=False, default=None)  # type: ignore[assignment]
@@ -372,10 +375,16 @@ class Pipeline:
         # Accept ``Path`` objects too — keeping the dataclass field type
         # as ``tuple[str, ...]`` simplifies serialization, but the caller
         # naturally passes :class:`pathlib.Path`.
-        if self.extra_profile_paths:
-            self.extra_profile_paths = tuple(
-                str(p) for p in self.extra_profile_paths
-            )
+        # Unconditional: guarding this on truthiness left an EMPTY list as the
+        # caller's own mutable object, still reachable from both sides. The
+        # field then contradicted its declared ``tuple[str, ...]``, a caller
+        # could append to it (or to their own list) and silently change a
+        # "read-only after construction" pipeline's public configuration, and
+        # ``dataclasses.replace`` would carry the appended paths into the
+        # derived pipeline as if they had been configured all along.
+        self.extra_profile_paths = tuple(
+            str(p) for p in self.extra_profile_paths
+        )
         self._profile = load_profile(
             self.profile,
             extra_search_paths=[Path(p) for p in self.extra_profile_paths]

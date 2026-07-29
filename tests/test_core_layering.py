@@ -155,7 +155,15 @@ def _imports_in(
             if isinstance(node, ast.If) and _is_type_checking_test(
                 node.test, aliases
             ):
-                skip.update(id(child) for child in ast.walk(node))
+                # ``node.body`` ONLY — not ``ast.walk(node)``. Walking the whole
+                # ``If`` also swallows ``orelse``, which is the ``else`` branch
+                # (and any ``elif`` chain): code that runs precisely when
+                # TYPE_CHECKING is False, i.e. at runtime. An
+                # ``else: from brailix.ir... import ...`` would have been filed
+                # as type-only — the exact edge this guard exists to catch,
+                # exempted by the exemption.
+                for statement in node.body:
+                    skip.update(id(child) for child in ast.walk(statement))
     mods: set[str] = set()
     for node in ast.walk(tree):
         if id(node) in skip:
@@ -301,6 +309,45 @@ def test_input_does_not_import_downstream_layers() -> None:
     )
 
 
+def test_lexical_constants_are_not_duplicated_across_layers() -> None:
+    """A fact about the input belongs in one place, not one copy per layer.
+
+    The percent signs were two hand-kept literals — ``frozenset`` in the
+    frontend, ``tuple`` in the backend — with a comment asking whoever edits
+    one to remember the other. The motive was right (a backend → frontend
+    import would be a real layer violation) but the mechanism was a note: add a
+    third spelling on the frontend side and it builds a valid ``Percent`` that
+    the backend then rejects as malformed IR, with both layers "correct" by
+    their own definition.
+
+    ``core`` is where such a constant lives — the same reasoning that put
+    :mod:`brailix.core.chars` there, so frontend and backend can share without
+    either importing the other. This checks the literal has not been reinstated
+    on either side.
+    """
+    import re
+
+    # An ASSIGNMENT to the name, not a use of it: ``x not in PERCENT_CHARS``
+    # contains an ``=`` (inside ``!=``) and is exactly what should be there.
+    assignment = re.compile(r"^\s*_?PERCENT_CHARS\s*(?::[^=]+)?=")
+    offenders: list[str] = []
+    for layer in ("frontend", "backend"):
+        for py in sorted((_PKG / layer).rglob("*.py")):
+            for lineno, line in enumerate(
+                py.read_text(encoding="utf-8").splitlines(), 1
+            ):
+                if assignment.match(line):
+                    offenders.append(
+                        f"{py.relative_to(_PKG.parent).as_posix()}:{lineno}"
+                    )
+    assert not offenders, (
+        "percent-sign set redefined outside brailix.core.chars — import "
+        "PERCENT_CHARS from there so the frontend's idea of what makes a "
+        "Percent and the backend's idea of how to write one cannot drift:\n"
+        + "\n".join(offenders)
+    )
+
+
 def test_allowlisted_input_modules_still_exist() -> None:
     """A stale allowlist entry would silently widen the rule (a renamed
     decoder's new path would be un-allowlisted, but so would nothing —
@@ -441,6 +488,51 @@ class TestTypeCheckingDetection:
         )
         runtime = _imports_in(source, "brailix.core", runtime_only=True)
         assert "brailix.ir.document" in runtime
+
+    def test_an_else_branch_is_runtime(self) -> None:
+        """``else`` runs precisely when TYPE_CHECKING is False — at runtime.
+
+        The skip set was built from ``ast.walk(node)``, which covers the whole
+        ``If`` including ``orelse``, so an import placed there was filed as
+        type-only. The exemption for type-only code exempted the one branch
+        guaranteed to execute.
+        """
+        source = (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    pass\n"
+            "else:\n"
+            "    from brailix.ir.document import Paragraph\n"
+        )
+        runtime = _imports_in(source, "brailix.core", runtime_only=True)
+        assert "brailix.ir.document" in runtime, (
+            "an import in the else branch was treated as type-only"
+        )
+
+    def test_an_elif_branch_is_runtime(self) -> None:
+        """Same for an ``elif`` chain: it lives in ``orelse`` too."""
+        source = (
+            "import sys\n"
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    pass\n"
+            "elif sys.version_info >= (3, 13):\n"
+            "    from brailix.ir.document import Paragraph\n"
+        )
+        runtime = _imports_in(source, "brailix.core", runtime_only=True)
+        assert "brailix.ir.document" in runtime
+
+    def test_the_type_checking_body_is_still_exempt(self) -> None:
+        """The other half — narrowing the skip must not start reporting the
+        type-only imports the exemption exists for."""
+        source = (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    from brailix.ir.document import Paragraph\n"
+            "    from brailix.ir.inline import Word\n"
+        )
+        runtime = _imports_in(source, "brailix.core", runtime_only=True)
+        assert not any(m.startswith("brailix.ir") for m in runtime)
 
     def test_the_default_scan_ignores_type_checking_entirely(self) -> None:
         source = "from typing import TYPE_CHECKING\n" + self._RUNTIME_EDGE.format(

@@ -21,10 +21,10 @@ Adding a new renderer means writing one module under
 
 from __future__ import annotations
 
-from brailix.core.protocols import Renderer
-from brailix.core.registry import Registry
+from brailix.core.protocols import Renderer as _Renderer
+from brailix.core.registry import Registry as _Registry
 
-renderer_registry: Registry[Renderer] = Registry("renderer", protocol=Renderer)
+renderer_registry: _Registry[_Renderer] = _Registry("renderer", protocol=_Renderer)
 
 
 def _register_builtin() -> None:
@@ -36,8 +36,7 @@ def _register_builtin() -> None:
     # tactile-graphics renderers (which consume a ``TactileRaster``) share
     # this one registry: a tactile renderer is just another file satisfying
     # the single :class:`~brailix.core.protocols.Renderer` protocol, selected
-    # by name — there is no parallel registry (``ARCHITECTURE.md``
-    # §3.1). Each result type passes its own IR to the renderer it names
+    # by name — there is no parallel registry (``ARCHITECTURE.md``). Each result type passes its own IR to the renderer it names
     # (a braille :class:`~brailix.pipeline.TranslationResult` to a braille
     # renderer; a :class:`~brailix.pipeline.GraphicResult` to a tactile one).
     from brailix.renderer import (

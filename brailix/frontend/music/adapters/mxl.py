@@ -5,8 +5,7 @@ The .mxl format is a single-entry (or rarely multi-entry) ZIP whose
 This adapter unzips it with stdlib :mod:`zipfile`, finds the rootfile,
 and hands the inner XML to the :class:`MusicXMLSourceAdapter`.
 
-Zero third-party dependencies. See ``ARCHITECTURE.md`` /
-§17.2.
+Zero third-party dependencies. See ``ARCHITECTURE.md``
 """
 
 from __future__ import annotations

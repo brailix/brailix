@@ -381,6 +381,115 @@ class TestRegistryReRegisterInvalidation:
         # that ran entirely inside one epoch reports nothing.
         assert "COMPILE_EPOCH_CHANGED" not in [w.code for w in settled.warnings]
 
+    def test_swapping_a_boundary_handler_moves_the_fingerprint(self) -> None:
+        """``boundary_registry`` is a documented extension point that changes
+        the braille — it inserts the space between a hanzi run and a Latin
+        word, the connector before a number — so it belongs in the fingerprint.
+
+        It was left out on the strength of its type: the fold walked a list of
+        ``Registry`` instances and this one is a dict. Nothing else covered the
+        gap either, because the nodes a handler inserts carry ``surface=""``:
+        the stale-children check compares a reconstructed surface against
+        ``block.text`` and sees no difference. Measured before the fix,
+        ``Paragraph("x轴")`` compiled to ``⠰⠭⠤⠀`` and then to ``⠰⠭⠀`` under one
+        ``source_hash``.
+        """
+        from brailix.frontend import boundary_registry
+
+        pipe = Pipeline(profile="cn_current", resolver="null")
+        fp_before = pipe.fingerprint
+        first = pipe.translate_block(Paragraph(text="x轴"))
+
+        original = boundary_registry.get("zh")
+        try:
+            boundary_registry["zh"] = lambda nodes, profile: list(nodes)
+            assert pipe.fingerprint != fp_before
+            second = pipe.translate_block(Paragraph(text="x轴"))
+        finally:
+            if original is not None:
+                boundary_registry["zh"] = original
+
+        dots = lambda cb: [  # noqa: E731 — tiny local shorthand
+            c.dots for bb in cb.braille_blocks for c in bb.cells
+        ]
+        # The handler really did change the output — otherwise this proves
+        # nothing about the key.
+        assert dots(first) != dots(second)
+        assert first.source_hash != second.source_hash
+
+    def test_swapping_a_boundary_handler_rebuilds_populated_children(
+        self,
+    ) -> None:
+        """The second half: an already-populated block must not keep spacing
+        produced by a handler that has since been replaced. The zero-width
+        surfaces mean text comparison can't detect it; only the fingerprint
+        stamp can."""
+        from brailix.frontend import boundary_registry
+
+        pipe = Pipeline(profile="cn_current", resolver="null")
+        block = Paragraph(text="x轴")
+        first = pipe.translate_block(block)
+
+        original = boundary_registry.get("zh")
+        try:
+            boundary_registry["zh"] = lambda nodes, profile: list(nodes)
+            second = pipe.translate_block(block)  # same, already-populated
+        finally:
+            if original is not None:
+                boundary_registry["zh"] = original
+
+        dots = lambda cb: [  # noqa: E731
+            c.dots for bb in cb.braille_blocks for c in bb.cells
+        ]
+        assert dots(first) != dots(second), (
+            "the populated block kept children built by the replaced handler"
+        )
+
+    def test_every_documented_extension_registry_is_fingerprinted(self) -> None:
+        """Derived from the extension surface, not from a hand-list.
+
+        ``boundary_registry`` was absent because the fold enumerated
+        ``Registry`` instances and it is a dict — a membership rule based on
+        type rather than on "does replacing an entry change the braille". This
+        checks the rule the fold actually needs: everything the extension
+        manifest publishes as a compile-time registry carries a ``generation``
+        and is folded in.
+        """
+        from brailix.pipeline._fingerprint import _compilation_registries
+
+        folded = {id(r) for r in _compilation_registries()}
+
+        # The renderer registry is deliberately outside: rendering happens
+        # after the braille a cache stores, so swapping one cannot stale it.
+        from brailix.frontend import boundary_registry, language_frontend_registry
+        from brailix.frontend.graphics.registry import graphic_source_registry
+        from brailix.frontend.math.registry import math_source_registry
+        from brailix.frontend.music.registry import music_source_registry
+        from brailix.frontend.normalize import normalizer_registry
+        from brailix.frontend.segment import segmenter_registry
+
+        compile_time = {
+            "segmenter_registry": segmenter_registry,
+            "normalizer_registry": normalizer_registry,
+            "language_frontend_registry": language_frontend_registry,
+            "boundary_registry": boundary_registry,
+            "math_source_registry": math_source_registry,
+            "music_source_registry": music_source_registry,
+            "graphic_source_registry": graphic_source_registry,
+        }
+        missing = [
+            name for name, reg in compile_time.items() if id(reg) not in folded
+        ]
+        assert not missing, (
+            f"compile-time registries missing from the fingerprint: {missing} "
+            f"— replacing an entry in one changes the braille while the cache "
+            f"key stays put"
+        )
+        for name, reg in compile_time.items():
+            assert isinstance(getattr(reg, "generation", None), int), (
+                f"{name} has no generation counter to fold"
+            )
+
     def test_steady_state_fingerprint_is_stable(self) -> None:
         # No registration churn between the reads → the cached fold is
         # returned as-is, and an equal-configuration pipeline built in the
@@ -626,6 +735,30 @@ class TestCompileConfigIsImmutable:
         assert flipped.resolver == "null"
         assert dict(flipped.user_pinyin_dict) == ALT_DICT
         assert flipped.profile_name == "cn_ncb"
+
+    def test_an_empty_path_list_is_snapshotted_too(self) -> None:
+        """The normalisation used to be guarded on truthiness, so an EMPTY list
+        stayed the caller's own mutable object — reachable from both sides,
+        contradicting the declared ``tuple[str, ...]``, and carried into any
+        ``dataclasses.replace`` derivative as if configured."""
+        caller: list[str] = []
+        pipe = Pipeline(profile="cn_current", extra_profile_paths=caller)
+
+        assert isinstance(pipe.extra_profile_paths, tuple)
+        caller.append("/added/afterwards")
+        assert pipe.extra_profile_paths == ()
+
+    def test_a_derived_pipeline_does_not_inherit_appended_paths(self) -> None:
+        """The consequence that actually bites: a path appended to the caller's
+        list after construction must not appear in a pipeline derived later."""
+        from dataclasses import replace
+
+        caller: list[str] = []
+        pipe = Pipeline(profile="cn_current", extra_profile_paths=caller)
+        caller.append("/added/afterwards")
+
+        derived = replace(pipe, resolver="null")
+        assert derived.extra_profile_paths == ()
 
     def test_late_bound_asset_resolver_still_allowed(self) -> None:
         """The one documented late-binding seam stays open (a front-end

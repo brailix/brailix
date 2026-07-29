@@ -157,7 +157,14 @@ class LanguageFrontend(Protocol):
 
 @runtime_checkable
 class LanguageBackend(Protocol):
-    """Translate a language's prose IR nodes (Word / HanziChar) to cells.
+    """Translate a language's prose IR nodes to cells.
+
+    Three node kinds, one required method each: :class:`Word`,
+    :class:`HanziChar` and :class:`HanziMarker` (the date markers, whose
+    reading *and* number-joiner rule are the language's own — see
+    :meth:`translate_date_marker`). All three are required; the registry runs a
+    runtime protocol check on first resolution, so an implementation missing
+    one is rejected at ``get()``.
 
     Registered per language (``backend.dispatch.language_backend_registry``);
     the dispatcher routes prose nodes to the one matching the profile's

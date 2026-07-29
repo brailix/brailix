@@ -183,6 +183,13 @@ def compilation_fingerprint(
 # resolution can change what a compile emits is on the list; the renderer
 # registry is deliberately absent — rendering runs after the compiled
 # braille a cache stores, so swapping a renderer can't stale it.
+#
+# The membership rule is "does replacing an entry change the braille", not
+# "is it a Registry instance". ``boundary_registry`` is a dict subclass and was
+# left out on the strength of its type, which is how a documented extension
+# point ended up outside the fingerprint entirely
+# (``tests/integration/test_compilation_fingerprint.py`` now pins the rule
+# against the extension surface rather than against a hand-list).
 _COMPILATION_REGISTRIES: tuple[Any, ...] | None = None
 
 
@@ -190,7 +197,7 @@ def _compilation_registries() -> tuple[Any, ...]:
     global _COMPILATION_REGISTRIES
     if _COMPILATION_REGISTRIES is None:
         from brailix.backend.dispatch import language_backend_registry
-        from brailix.frontend import language_frontend_registry
+        from brailix.frontend import boundary_registry, language_frontend_registry
         from brailix.frontend.graphics.registry import graphic_source_registry
         from brailix.frontend.ja.analyzer.registry import (
             analyzer_registry as ja_analyzer_registry,
@@ -208,6 +215,14 @@ def _compilation_registries() -> tuple[Any, ...]:
             segmenter_registry,
             normalizer_registry,
             language_frontend_registry,
+            # The boundary pass is a documented extension point whose handler
+            # inserts the Space / Connector nodes between a hanzi run and a
+            # Latin word or a number — it changes the braille, so it belongs
+            # here. It was missing, and nothing else covered it: the nodes it
+            # inserts carry ``surface=""``, so the stale-children check saw no
+            # change either, and two compiles either side of a handler swap
+            # came back with one ``source_hash`` and different cells.
+            boundary_registry,
             language_backend_registry,
             zh_analyzer_registry,
             ja_analyzer_registry,
