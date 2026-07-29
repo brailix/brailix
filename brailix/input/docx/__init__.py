@@ -79,6 +79,7 @@ Subpackage layout
 
 from __future__ import annotations
 
+import io
 import os
 import shutil
 import subprocess
@@ -93,6 +94,7 @@ from brailix.input.docx._blocks import _iter_body_blocks
 from brailix.input.docx._media import _build_image_blob_map
 from brailix.input.docx._ole import _build_ole_blob_map, _is_equation_ole
 from brailix.input.docx._xml import _INLINE_MATH_CLOSE, _INLINE_MATH_OPEN
+from brailix.input.limits import DEFAULT_INPUT_LIMITS, InputLimits
 from brailix.ir.document import Block, DocumentIR
 
 __all__ = (
@@ -123,8 +125,44 @@ _MAX_DOCX_TOTAL_BYTES = 512 * 1024 * 1024  # all parts, decompressed
 _DOCX_READ_CHUNK = 1024 * 1024
 
 
-def _preflight_docx_archive(p: Path) -> None:
-    """Reject an over-large or bomb-like ``.docx`` before python-docx reads it.
+def _read_docx_bytes(p: Path, limits: InputLimits) -> bytes:
+    """Read a ``.docx`` archive whole, under both ceilings that bound it.
+
+    The bytes returned here are the **only** copy the rest of the parse sees:
+    the preflight and python-docx both consume this blob, so what was checked
+    and what is parsed cannot be two different files. Opening the path a
+    second time for python-docx was the hole — the archive could be atomically
+    replaced (or a symlink repointed) between the preflight and the parse, and
+    a caller's tightened ``max_file_bytes`` never reached the second open at
+    all.
+
+    Two ceilings apply, in this order:
+
+    * a ``stat()`` fast reject against the always-on archive cap, so a
+      300 MB ``.docx`` is refused without being loaded (the caller's default
+      whole-file ceiling is *looser* than this one, so ``read_bounded``
+      alone would happily read it first);
+    * :meth:`InputLimits.read_bounded`, which binds the caller's ceiling to
+      the open descriptor, followed by the archive cap re-checked on the
+      bytes actually read — the promise that holds even if the file grew
+      after the stat.
+    """
+    if p.stat().st_size > _MAX_DOCX_FILE_BYTES:
+        raise ParseError(
+            f"not a valid .docx file: {p} (archive is over the "
+            f"{_MAX_DOCX_FILE_BYTES}-byte limit)"
+        )
+    data = limits.read_bounded(p)
+    if len(data) > _MAX_DOCX_FILE_BYTES:
+        raise ParseError(
+            f"not a valid .docx file: {p} (archive is over the "
+            f"{_MAX_DOCX_FILE_BYTES}-byte limit)"
+        )
+    return data
+
+
+def _preflight_docx_archive(data: bytes, p: Path) -> None:
+    """Reject a bomb-like ``.docx`` before python-docx reads it.
 
     Counts the *actual* decompressed bytes of each member (chunked, then
     discarded — peak cost is one chunk, not the whole part) and aborts
@@ -133,17 +171,14 @@ def _preflight_docx_archive(p: Path) -> None:
     ``ZipInfo.file_size`` is only advisory — a crafted archive can understate
     it — so the count is on the real stream, not the metadata.
 
-    A non-ZIP / corrupt file is *not* rejected here: it falls through so the
+    Reads ``data`` (the bytes :func:`_read_docx_bytes` already took) rather
+    than re-opening ``p``; ``p`` is here for the error messages only. A
+    non-ZIP / corrupt blob is *not* rejected here: it falls through so the
     ``Document(...)`` call below raises the canonical "not a valid .docx"
     :class:`ParseError` with its usual message, keeping one error surface.
     """
-    if p.stat().st_size > _MAX_DOCX_FILE_BYTES:
-        raise ParseError(
-            f"not a valid .docx file: {p} (archive is over the "
-            f"{_MAX_DOCX_FILE_BYTES}-byte limit)"
-        )
     try:
-        with zipfile.ZipFile(p) as zf:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
             members = [i for i in zf.infolist() if not i.is_dir()]
             if len(members) > _MAX_DOCX_MEMBERS:
                 raise ParseError(
@@ -185,6 +220,7 @@ def parse_docx(
     profile: str,
     mathtype_fallback: str = "off",
     chem_detection: bool = False,
+    limits: InputLimits = DEFAULT_INPUT_LIMITS,
 ) -> DocumentIR:
     """Parse a ``.docx`` (or ``.docm``) file into :class:`DocumentIR`.
 
@@ -224,6 +260,17 @@ def parse_docx(
         coincides with an element symbol and can't be told apart from a
         formula by structure alone — the caller (Pipeline) turns it on from
         the ``input.docx.detect_chemistry`` profile feature.
+    limits
+        The caller's input budget (see :class:`~brailix.input.InputLimits`).
+        The archive is read **once**, bounded on the open descriptor, and both
+        the zip-bomb preflight and python-docx consume those same bytes — so
+        what was checked is what is parsed, and a caller's tightened
+        ``max_file_bytes`` is honoured by the read that actually happens
+        rather than only by a ``stat()`` on the path. The always-on archive
+        caps (member count, per-member and total decompressed bytes) still
+        apply on top and are unaffected by a generous ``limits``. The
+        *character* ceiling does not apply here: a ``.docx`` has no single
+        decoded string, which is why it has archive caps instead.
 
     Raises
     ------
@@ -233,6 +280,8 @@ def parse_docx(
         If the file is not a valid OOXML document, or
         ``mathtype_fallback="libreoffice"`` is requested but the
         converter is missing.
+    InputTooLargeError
+        If the archive exceeds ``limits.max_file_bytes``.
     FileNotFoundError
         If ``path`` does not exist.
     """
@@ -248,7 +297,11 @@ def parse_docx(
 
     if mathtype_fallback == "libreoffice":
         return _parse_docx_via_libreoffice(
-            p, language=language, profile=profile, chem_detection=chem_detection
+            p,
+            language=language,
+            profile=profile,
+            chem_detection=chem_detection,
+            limits=limits,
         )
 
     try:
@@ -276,12 +329,18 @@ def parse_docx(
     else:
         bad_docx += (PackageNotFoundError,)
 
+    # ONE read, under both ceilings; everything below consumes these bytes.
+    data = _read_docx_bytes(p, limits)
     # Bound the archive before python-docx materialises every part in memory
     # (zip-bomb / OOM guard). A non-ZIP falls through to the canonical error.
-    _preflight_docx_archive(p)
+    _preflight_docx_archive(data, p)
 
     try:
-        document = Document(str(p))
+        # From the bytes, not the path: re-opening ``p`` here would let the
+        # archive be replaced between the preflight and the parse, so the
+        # object that passed the caps and the object python-docx reads could
+        # be two different files.
+        document = Document(io.BytesIO(data))
     except bad_docx as e:
         raise ParseError(f"not a valid .docx file: {p} ({e})") from e
 
@@ -326,7 +385,7 @@ def parse_docx(
             try:
                 return _parse_docx_via_libreoffice(
                     p, language=language, profile=profile,
-                    chem_detection=chem_detection,
+                    chem_detection=chem_detection, limits=limits,
                 )
             except ParseError:
                 # LibreOffice unavailable or refused — silently keep the
@@ -346,6 +405,7 @@ def _convert_via_libreoffice_and_parse(
     profile: str,
     chem_detection: bool,
     prefix: str,
+    limits: InputLimits,
     timeout_hint: str = "",
     produce_hint: str = "",
 ) -> DocumentIR:
@@ -358,14 +418,34 @@ def _convert_via_libreoffice_and_parse(
     ``timeout_hint`` / ``produce_hint`` append path-specific diagnostics to
     the timeout / missing-output errors.
 
+    ``soffice`` takes a **path**, so what it converts is whatever the name
+    resolves to when it opens — not the file the caller's ceiling was ever
+    applied to. The bytes are therefore read once under ``limits`` and copied
+    into the run's own temp directory, and the converter is pointed at that
+    private copy: no more than ``max_file_bytes`` is handed to LibreOffice,
+    and a document swapped after the read cannot reach it.
+    :func:`tempfile.TemporaryDirectory` creates the directory owner-only, so
+    the copy is not readable by other users while it exists.
+
     Re-parses with ``mathtype_fallback="off"`` so a conversion that fails to
-    strip OLE equations can't recurse back into LibreOffice.
+    strip OLE equations can't recurse back into LibreOffice — under the same
+    ``limits``, so the converted document is bounded too (LibreOffice's output
+    is not bounded by its input's size).
     """
-    with tempfile.TemporaryDirectory(prefix=prefix) as out_dir:
+    with tempfile.TemporaryDirectory(prefix=prefix) as work:
+        # Separate in / out directories: LibreOffice names its output after
+        # the input's stem, which would collide with the copy if they shared
+        # one directory.
+        in_dir = Path(work) / "in"
+        out_dir = Path(work) / "out"
+        in_dir.mkdir()
+        out_dir.mkdir()
+        source = in_dir / p.name
+        source.write_bytes(limits.read_bounded(p))
         try:
             subprocess.run(
                 [exe, "--headless", "--convert-to", "docx",
-                 "--outdir", out_dir, str(p)],
+                 "--outdir", str(out_dir), str(source)],
                 check=True,
                 capture_output=True,
                 timeout=60,
@@ -379,7 +459,7 @@ def _convert_via_libreoffice_and_parse(
             raise ParseError(
                 f"LibreOffice timed out converting {p.name!r} (60s){timeout_hint}."
             ) from e
-        converted = Path(out_dir) / (p.stem + ".docx")
+        converted = out_dir / (p.stem + ".docx")
         if not converted.exists():
             raise ParseError(
                 f"LibreOffice did not produce a .docx for {p.name!r}{produce_hint}."
@@ -390,6 +470,7 @@ def _convert_via_libreoffice_and_parse(
             profile=profile,
             mathtype_fallback="off",
             chem_detection=chem_detection,
+            limits=limits,
         )
 
 
@@ -400,6 +481,7 @@ def _parse_docx_via_libreoffice(
     profile: str,
     converter: str | None = None,
     chem_detection: bool = False,
+    limits: InputLimits,
 ) -> DocumentIR:
     """Round-trip the document through LibreOffice and re-parse.
 
@@ -422,6 +504,7 @@ def _parse_docx_via_libreoffice(
     return _convert_via_libreoffice_and_parse(
         p, exe, language=language, profile=profile,
         chem_detection=chem_detection, prefix="brailix-mtef-",
+        limits=limits,
     )
 
 
@@ -508,6 +591,7 @@ def parse_doc(
     profile: str,
     converter: str | None = None,
     chem_detection: bool = False,
+    limits: InputLimits = DEFAULT_INPUT_LIMITS,
 ) -> DocumentIR:
     """Parse a legacy ``.doc`` file by converting to ``.docx`` first.
 
@@ -528,12 +612,20 @@ def parse_doc(
     low-privilege worker, no network, capped CPU/memory, separate scratch
     HOME) or refuse ``.doc`` entirely — see ``ARCHITECTURE.md``.
 
+    ``limits`` bounds the bytes handed to LibreOffice: the ``.doc`` is read
+    once under the caller's ceiling and the converter is pointed at that
+    private copy, so the size policy applies to the document that is actually
+    converted rather than to the path it was named by. The converted ``.docx``
+    is parsed under the same ``limits``.
+
     Raises
     ------
     ParseError
         If no converter is available, or the converter fails to
         produce a ``.docx`` output. The error message hints at the
         manual fix ("convert to .docx first").
+    InputTooLargeError
+        If the ``.doc`` exceeds ``limits.max_file_bytes``.
     """
     p = Path(path)
     if not p.exists():
@@ -550,6 +642,7 @@ def parse_doc(
     return _convert_via_libreoffice_and_parse(
         p, exe, language=language, profile=profile,
         chem_detection=chem_detection, prefix="brailix-doc-",
+        limits=limits,
         timeout_hint="; the file may be corrupt or password-protected",
         produce_hint="; the file may be unreadable",
     )

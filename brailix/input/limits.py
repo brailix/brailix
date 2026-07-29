@@ -199,6 +199,53 @@ class InputLimits:
             )
         return data
 
+    def read_bounded_text(
+        self, path: str | os.PathLike[str], *, normalize_newlines: bool = False
+    ) -> str:
+        """Read ``path`` whole through :meth:`read_bounded` and decode it,
+        tolerating the UTF-16 BOM Windows tools write.
+
+        The single whole-file text read for the input layer. Every text format
+        needs the same two things — the byte ceiling bound to the handle being
+        read, and a BOM-aware decode — and they were implemented twice: once
+        for plain / Markdown, once for XML. Both took ``limits`` as a
+        *defaulted* parameter, so a call site that forgot to pass the caller's
+        policy silently fell back to :data:`DEFAULT_INPUT_LIMITS` and read up
+        to the default ceiling instead of the requested one. Two call sites
+        did exactly that (the generic ``.xml`` route and the ``.abc``
+        deferred-score route). As a method there is no default to fall back
+        to: reading requires an :class:`InputLimits` in hand, so the policy
+        cannot be lost by omission.
+
+        Decoding: a UTF-16 BOM (Notepad's "save as .txt", Finale and some
+        Windows XML exporters) selects ``utf-16``, which reads the mark for
+        endianness; everything else decodes as ``utf-8-sig``, which strips a
+        UTF-8 BOM and otherwise behaves like ``utf-8``. Genuinely
+        non-UTF-8/16 bytes still raise :class:`UnicodeDecodeError` — the
+        documented contract.
+
+        ``normalize_newlines`` folds CRLF / CR to LF the way a text-mode read
+        (universal newlines) does, so a CRLF source reads identically to an LF
+        one downstream. XML wants it; the plain / Markdown path deliberately
+        keeps the file's own bytes.
+
+        Raises :class:`InputTooLargeError` past ``max_file_bytes``, and
+        propagates :class:`OSError` / :class:`FileNotFoundError` as an
+        ordinary read would. The *character* ceiling is deliberately not
+        applied here: an adapter that resolves the text further (unzipping a
+        ``.mxl``, decoding MIDI) must gate the text it finally produces, so
+        each caller applies :meth:`check_text_length` to the string it hands
+        on.
+        """
+        raw = self.read_bounded(path)
+        if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+            text = raw.decode("utf-16")
+        else:
+            text = raw.decode("utf-8-sig")
+        if normalize_newlines:
+            text = text.replace("\r\n", "\n").replace("\r", "\n")
+        return text
+
     def check_text_length(self, text: str) -> None:
         """Reject ``text`` if it is longer than ``max_text_chars``.
 
