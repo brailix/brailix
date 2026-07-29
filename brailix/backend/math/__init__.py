@@ -2,7 +2,7 @@
 :class:`ET.Element` tree) into a sequence of braille cells.
 
 The backend dispatches per :attr:`ET.Element.tag` — MathML *is* the
-math IR (see ``ARCHITECTURE.md``). State threads through a small
+math IR. State threads through a small
 :class:`MathBrailleContext` so context-sensitive markers fire at the
 right boundaries:
 

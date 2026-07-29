@@ -34,8 +34,7 @@ if TYPE_CHECKING:
     from brailix.pipeline import Pipeline
 
 # Tactile profile used when an inline figure block (a GraphicBlock embedded in
-# a braille document) is rasterised through the main pipeline
-# (ARCHITECTURE.md).  ``"generic"`` matches the default a
+# a braille document) is rasterised through the main pipeline.  ``"generic"`` matches the default a
 # standalone ``translate_graphic`` call uses; a document-level / per-block
 # tactile profile is a later refinement (G3/G4).
 _DEFAULT_INLINE_TACTILE_PROFILE = "generic"
@@ -86,7 +85,7 @@ def compile_block(
     # on ``raster`` below, not in cells).
     braille_blocks = expand_block(block, session.backend_ctx, pipeline._profile)
 
-    # Tactile-graphics inline embedding (ARCHITECTURE.md):
+    # Tactile-graphics inline embedding:
     # a figure block rasterises to a TactileRaster through THIS same
     # incremental pipeline — no separate ``translate_graphic`` call — so a
     # braille document holding figures compiles down one path.  Labels

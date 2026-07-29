@@ -1,6 +1,5 @@
 """G3 of inline tactile graphics — a braille document with embedded figures
-lays out onto tactile pages through the one pipeline
-(ARCHITECTURE.md).
+lays out onto tactile pages through the one pipeline.
 
 Where G1 folded a ``GraphicBlock`` into ``translate_block`` (it now carries a
 ``TactileRaster``) and G2 let a ``` ```graphic ``` fence author one, G3 places

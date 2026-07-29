@@ -2,9 +2,8 @@
 
 Two raised features a finger cannot tell apart defeat a tactile graphic, so
 BANA's *Tactile Graphics Guidelines* require a minimum gap between distinct
-features and warn against braille labels printed over the drawing
-(``ARCHITECTURE.md``). This module is the geometry behind
-those checks.
+features and warn against braille labels printed over the drawing. This
+module is the geometry behind those checks.
 
 The backend **detects and warns; it never moves the author's geometry.** An
 author — not an algorithm — must redesign a too-cramped figure: silently

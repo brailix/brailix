@@ -56,10 +56,10 @@ _CITED = re.compile(r"ARCHITECTURE#(arch-[a-z0-9-]+)|(?<![\w#])#(arch-[a-z0-9-]+
 #
 # The window between the two halves is bounded and must not contain another
 # document's name. That is what keeps the legitimate citations out of it:
-# ``ARCHITECTURE.md`` and the other design notes are cited
-# by section number *deliberately* — they are single documents whose numbering
-# is stable, unlike the two independently-organised architecture copies — and
-# several of them sit a line or two away from an ARCHITECTURE mention.
+# the design notes under ``docs/`` are cited by section number *deliberately*
+# — they are single documents whose numbering is stable, unlike the two
+# independently-organised architecture copies — and several of them sit a line
+# or two away from an ARCHITECTURE mention.
 _OTHER_DOC = r"[\w/-]+\.md|[\w-]+-plan\b|BANA|RFC"
 _SECTION_NUMBER = re.compile(
     # ARCHITECTURE ... §N
@@ -290,19 +290,17 @@ def test_no_code_cites_the_document_without_an_anchor() -> None:
     particular, which is worse: the reader has the whole document to search and
     no test notices when the paragraph being cited is gone.
 
-    Unlike every other check here, this one is scoped to the repository where
-    the code is **written**. In the public mirror most unanchored citations are
-    not authored at all: the export collapses a reference to an unpublished
-    ``docs/*.md`` design note into ``ARCHITECTURE.md``, because the note itself
-    does not ship — and it cannot know which invariant the note's author meant,
-    so it cannot supply an anchor. Demanding one there would ask the export to
-    invent a locator. Requiring it of the author instead loses nothing: the
-    mirror is regenerated from this tree, so an authored citation is caught
-    before it can reach it.
+    This runs in the public mirror as well, which it could not while the export
+    *created* unanchored citations: a reference to an unpublished ``docs/*.md``
+    design note used to be rewritten to ``ARCHITECTURE.md``, manufacturing 73
+    citations no author made, of paragraphs mostly not in that document. So the
+    check was skipped wherever only one architecture copy existed — and a skip
+    keyed on "this is the mirror" also skipped every citation written *by a
+    contributor to the mirror*, whose pull request its CI runs this suite
+    against. The export deletes such a reference now, parentheses and all
+    (``scripts/export_public.py``), leaving nothing for this to report and
+    nothing to excuse it from reporting.
     """
-    if len(_docs()) < 2:  # the mirror ships one copy — see above
-        return
-
     offenders: list[str] = []
     for py in _python_files():
         text = py.read_text(encoding="utf-8")

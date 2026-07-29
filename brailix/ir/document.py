@@ -304,8 +304,7 @@ class ScoreBlock(Block):
     """Full score (metadata + parts + measures). Holds only ``source``;
     the parsed MusicXML tree is filled by ``FrontendDriver.populate_block``
     into ``children=[MusicInline(score=tree)]`` — same indirection as
-    :class:`MathBlock` → :class:`~brailix.ir.inline.MathInline` (see
-    ``ARCHITECTURE.md``)."""
+    :class:`MathBlock` → :class:`~brailix.ir.inline.MathInline`."""
 
     type: ClassVar[str] = "score"
     source: str = "plain"  # musicxml / mxl / midi / abc / plain
@@ -315,7 +314,7 @@ class ScoreBlock(Block):
 class MusicBlock(Block):
     """Display-mode single-passage music block, analogue of
     :class:`MathBlock`. Same children-carrier pattern as
-    :class:`ScoreBlock`; see ``ARCHITECTURE.md``"""
+    :class:`ScoreBlock`."""
 
     type: ClassVar[str] = "music_block"
     source: str = "plain"
@@ -330,7 +329,7 @@ class ImageAlt(Block):
     :attr:`DocumentIR.assets` / the document's asset store) or a plain
     filesystem path. The backend flags each one as ``IMAGE_NOT_CONVERTED``
     so the user can decide, image by image, whether to convert it into a
-    ``graphic-image`` fence (ARCHITECTURE.md). ``target``
+    ``graphic-image`` fence. ``target``
     is ``None`` for a bare alt-text block with no locatable image."""
 
     type: ClassVar[str] = "image_alt"
@@ -345,8 +344,7 @@ class GraphicBlock(Block):
     ``FrontendDriver.populate_block`` into ``children=[GraphicInline(svg=tree)]``
     — the same children-carrier indirection as :class:`MathBlock` →
     :class:`~brailix.ir.inline.MathInline` and :class:`ScoreBlock` →
-    :class:`~brailix.ir.inline.MusicInline` (see
-    ``ARCHITECTURE.md``).
+    :class:`~brailix.ir.inline.MusicInline`.
 
     A tactile graphic does **not** translate to braille cells; it compiles to a
     :class:`~brailix.ir.tactile.TactileRaster`. It does still go through the
@@ -354,8 +352,7 @@ class GraphicBlock(Block):
     and emits an **empty** ``"graphic"`` braille block: the figure holds its
     place in the block flow, and its inline child — which has no cells to give
     — is never handed to the braille node dispatcher. The dots ride on the
-    raster instead, attached to the compiled block beside those empty cells
-    (``ARCHITECTURE.md``)."""
+    raster instead, attached to the compiled block beside those empty cells."""
 
     type: ClassVar[str] = "graphic"
     source: str = "svg"  # svg / primitives / figure / image

@@ -36,7 +36,8 @@ def _register_builtin() -> None:
     # tactile-graphics renderers (which consume a ``TactileRaster``) share
     # this one registry: a tactile renderer is just another file satisfying
     # the single :class:`~brailix.core.protocols.Renderer` protocol, selected
-    # by name — there is no parallel registry (``ARCHITECTURE.md``). Each result type passes its own IR to the renderer it names
+    # by name — there is no parallel registry.
+    # Each result type passes its own IR to the renderer it names
     # (a braille :class:`~brailix.pipeline.TranslationResult` to a braille
     # renderer; a :class:`~brailix.pipeline.GraphicResult` to a tactile one).
     from brailix.renderer import (

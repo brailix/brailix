@@ -4,7 +4,7 @@ Source adapters (``latex`` / ``mathml`` / ``omml`` / ``mtef`` / ...) live in
 ``adapters/`` and are picked from an internal registry based on
 :class:`~brailix.core.context.MathContext`. The MathML tree returned
 by an adapter, after normalisation, is the math IR itself — there is no
-separate IR-builder layer (see ``ARCHITECTURE.md``).
+separate IR-builder layer.
 
 Callers only need :func:`parse_math_tree`.
 """

@@ -11,9 +11,9 @@ for the two attributes read here in dispatch:
 ``data-bk-span`` custom span overrides that flow onto every
 :class:`BrailleCell` constructed inside the handler's run, and
 ``data-bk-chem`` which switches :class:`MathBrailleContext` into
-chemistry mode for the duration of the subtree (set by the mhchem
-``\\ce`` adapter; see ``ARCHITECTURE.md`` and
-:mod:`brailix.backend.math.chem`).
+chemistry mode for the duration of the subtree — set by the mhchem
+``\\ce`` adapter, with the rules it turns on living in
+:mod:`brailix.backend.math.chem`.
 
 A third attribute, ``data-bk-chem-state`` (physical-state labels like
 ``(aq)``), is *not* read here — it is consumed solely by the ``<mtext>``
@@ -51,11 +51,10 @@ def _emit_element(
 
     * ``data-bk-span="start,end"`` pushes that span as the "current" one
       so every :class:`BrailleCell` constructed during the handler's run
-      inherits it (see ``ARCHITECTURE.md``);
+      inherits it;
     * ``data-bk-chem`` turns on :attr:`MathBrailleContext.chem` so the
-      handler tree renders with chemistry rules (the mhchem ``\\ce``
-      adapter sets it on the ``<math>`` root; see
-      ``ARCHITECTURE.md``).
+      handler tree renders with chemistry rules — the mhchem ``\\ce``
+      adapter sets it on the ``<math>`` root.
     """
     handler = _dispatcher.resolve(elem.tag)
     override = _parse_bk_span(elem.get("data-bk-span"))

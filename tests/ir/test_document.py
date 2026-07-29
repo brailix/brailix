@@ -56,7 +56,7 @@ class TestConstruction:
     def test_score_block_with_source(self):
         # ScoreBlock holds only source — MusicXML tree lives in
         # children=[MusicInline(score=tree)], filled by the pipeline
-        # (mirrors MathBlock → MathInline, see ARCHITECTURE.md).
+        # mirrors MathBlock → MathInline.
         s = ScoreBlock(text="1=C 4/4 | 1 2 3 - |", source="jianpu")
         assert s.type == "score"
         assert s.source == "jianpu"

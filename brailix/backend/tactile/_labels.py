@@ -1,7 +1,6 @@
 """Stamp translated braille cells onto a tactile raster as raised dots.
 
-The tactile vertical's one overlap with the main braille pipeline
-(``ARCHITECTURE.md``): a graphic's text labels are
+The tactile vertical's one overlap with the main braille pipeline: a graphic's text labels are
 translated to braille cells by the ordinary text→braille backend, then
 those cells are stamped onto the raise grid here as physically-sized
 braille dots. The translation itself is injected as a callable

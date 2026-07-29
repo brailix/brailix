@@ -2,8 +2,7 @@
 
 BMP is the de-facto raster interchange for tactile output: dot-matrix
 embossers (graphics mode), swell / capsule paper, and height-modulating
-embossers (ViewPlus Tiger) all accept it (see
-``ARCHITECTURE.md``). The default is an **8-bit
+embossers (ViewPlus Tiger) all accept it. The default is an **8-bit
 grayscale** master — the most information-rich common form, where
 grayscale encodes dot height — with a **1-bit** black/white degradation
 available behind a flag (the same pipeline, one toggle).

@@ -31,9 +31,6 @@ The raster carries its own ``dpi`` and physical ``page_width_mm`` /
 (BMP pixels-per-metre) without consulting the profile — the renderer is a
 dumb encoder, mirroring how :class:`~brailix.ir.braille.BrailleCell`
 already carries everything the unicode / BRF renderers need.
-
-See ``ARCHITECTURE.md`` for where this sits in the
-data flow.
 """
 
 from __future__ import annotations
@@ -66,7 +63,7 @@ class TactileRaster:
     # levels regardless; the renderer decides how to pack the bytes.
     bit_depth: int = 8
     # Optional element → touched-pixel provenance (flat indices), for the
-    # editor's cross-pane highlight (ARCHITECTURE.md). ``None``
+    # editor's cross-pane highlight. ``None``
     # = not recording (the default; export / headless pay nothing). Enabled
     # by :meth:`enable_provenance`; the backend tags pixels via
     # :meth:`begin_element`. ``compare=False`` so it's metadata, not identity.

@@ -1,6 +1,6 @@
 """Texture area fills for the tactile backend.
 
-A BANA touch rule (``ARCHITECTURE.md``): a filled
+A BANA touch rule: a filled
 region must read as a **texture**, not a solid block — fingers can feel a
 hatch or stipple pattern but cannot tell two solid raised areas apart.
 Distinct fills therefore map to distinct textures (texture replaces colour

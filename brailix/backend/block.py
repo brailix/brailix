@@ -111,7 +111,7 @@ def expand_block(
         # text still translates as prose (the simple path below), but the
         # picture itself is absent from the braille — flag it so the user can
         # decide, image by image, whether to convert it into a graphic-image
-        # fence (ARCHITECTURE.md). The warnings panel is the
+        # fence. The warnings panel is the
         # reader's running list of not-yet-converted images; ignoring one is
         # the ordinary "ignore warning" action. Fall through (no return) to
         # translate the alt text.

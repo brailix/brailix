@@ -29,8 +29,8 @@ with a ``MATH_ERROR`` warning and the pipeline keeps running.
 **Attribute preservation**: the normalizer rewrites ``elem.tag`` (to
 drop namespaces) but never touches ``elem.attrib``. Any
 ``data-bk-*`` provenance attribute set by an adapter (e.g.
-``data-bk-span="3,4"`` for sub-element source spans, see
-``ARCHITECTURE.md``) survives normalization untouched.
+``data-bk-span="3,4"`` for sub-element source spans) survives
+normalization untouched.
 """
 
 from __future__ import annotations

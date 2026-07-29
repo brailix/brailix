@@ -5,8 +5,7 @@ Source adapters (``musicxml`` / ``mxl`` / ``midi`` / ``abc`` /
 ``plain``) live in ``adapters/`` and are picked from an internal
 registry based on :class:`~brailix.core.context.MusicContext`. The
 MusicXML tree returned by an adapter, after normalisation, is the
-music IR itself — there is no separate IR-builder layer (see
-``ARCHITECTURE.md``).
+music IR itself — there is no separate IR-builder layer.
 
 Callers only need :func:`parse_music_tree`.
 """

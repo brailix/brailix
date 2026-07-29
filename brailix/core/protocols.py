@@ -226,8 +226,8 @@ class MusicSourceAdapter(Protocol):
 
     MusicXML is the normalized intermediate format for the music
     subsystem. Adapters never emit braille and never build an IR —
-    the MusicXML tree itself is the IR (see
-    :mod:`brailix.frontend.music` and ``ARCHITECTURE.md``).
+    the MusicXML tree itself is the IR; see
+    :mod:`brailix.frontend.music`.
     """
 
     source: str  # musicxml / mxl / midi / abc / plain / ...
@@ -248,9 +248,8 @@ class GraphicSourceAdapter(Protocol):
 
     SVG is the normalized intermediate format for the tactile-graphics
     subsystem. Adapters never emit a raster and never build an IR — the
-    SVG tree itself is the IR (see :mod:`brailix.frontend.graphics` and
-    ``ARCHITECTURE.md``), the exact analogue of MathML
-    for math and MusicXML for music.
+    SVG tree itself is the IR (see :mod:`brailix.frontend.graphics`), the
+    exact analogue of MathML for math and MusicXML for music.
     """
 
     source: str  # svg / primitives / image / chart / ...

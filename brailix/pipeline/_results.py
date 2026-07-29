@@ -26,7 +26,8 @@ from brailix.ir.tactile import TactileRaster
 from brailix.renderer import renderer_registry
 
 # Default tactile-graphics renderer for :meth:`GraphicResult.render` — the
-# embossable 8-bit grayscale BMP master (see ``ARCHITECTURE.md``). Like the braille renderers, it lives in ``renderer_registry``.
+# embossable 8-bit grayscale BMP master.
+# Like the braille renderers, it lives in ``renderer_registry``.
 DEFAULT_TACTILE_RENDERER = "bmp"
 
 # The IR domain each result provides, matched against a renderer's ``consumes``
@@ -125,7 +126,7 @@ class GraphicResult:
     **same**
     ``renderer_registry`` the braille renderers use: a tactile renderer is just
     another file there, selected by name — there is no parallel renderer
-    registry (see ``ARCHITECTURE.md``).
+    registry.
     """
 
     raster: TactileRaster
@@ -153,8 +154,7 @@ class GraphicResult:
 @dataclass(slots=True)
 class TactilePageResult:
     """Output of one :meth:`Pipeline.translate_document_to_pages` call — a
-    braille document with embedded figures laid onto tactile page rasters
-    (``ARCHITECTURE.md``).
+    braille document with embedded figures laid onto tactile page rasters.
 
     Holds one :class:`~brailix.ir.tactile.TactileRaster` per page: braille text
     stamped as real dots plus the document's figures scaled into the flow
@@ -329,7 +329,7 @@ class CompiledBlock:
     compiled_at: datetime = field(
         default_factory=lambda: datetime.now(UTC)
     )
-    # Tactile-graphics inline embedding (ARCHITECTURE.md):
+    # Tactile-graphics inline embedding:
     # a :class:`~brailix.ir.document.GraphicBlock` rasterises to a
     # :class:`TactileRaster` through the SAME incremental pipeline that
     # compiles text blocks (no separate ``translate_graphic`` call), and it

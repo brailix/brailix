@@ -1,7 +1,7 @@
 """Compose a mixed tactile page: braille text (real dots) + figure rasters.
 
-The mixed-layout typesetter (``ARCHITECTURE.md``). A braille
-document that embeds figures (``ARCHITECTURE.md``) compiles
+The mixed-layout typesetter. A braille
+document that embeds figures compiles
 to a stream of two kinds of item — runs of braille **text** (already
 translated to cells and wrapped into display lines) and **figure** rasters —
 and this module lays that stream onto one or more page

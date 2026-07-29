@@ -1,9 +1,9 @@
 """Raster-image source adapter: an image path / spec → SVG.
 
-The **import / curate** entry point for tactile graphics
-(``ARCHITECTURE.md`` path 1): point at an existing
-picture (PNG / JPEG / BMP / ...) and get a touchable version, instead of
-drawing from scratch. A bitmap has no vector structure to trace cleanly,
+The **import / curate** entry point for tactile graphics, the first of
+the two authoring paths: point at
+an existing picture (PNG / JPEG / BMP / ...) and get a touchable version,
+instead of drawing from scratch. A bitmap has no vector structure to trace cleanly,
 so rather than guess contours this adapter wraps it as a single SVG
 ``<image>`` — which keeps it a positionable, scalable, labelable object in
 the SVG-as-IR tree — and the tactile backend turns its pixels into raise

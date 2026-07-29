@@ -2,8 +2,8 @@
 
 The body of :meth:`Pipeline.translate_document_to_pages`, extracted as a
 module function so the ``Pipeline`` method stays a delegation — the same
-shape as the module-level :func:`brailix.pipeline.translate_graphic`
-(``ARCHITECTURE.md``). Page composition is its own concern:
+shape as the module-level :func:`brailix.pipeline.translate_graphic`.
+Page composition is its own concern:
 it consumes the block-level compile primitive (:meth:`Pipeline.
 translate_block`) and the tactile backend's compositor, and owns nothing
 else — keeping it out of ``pipeline/__init__.py`` stops the orchestrator

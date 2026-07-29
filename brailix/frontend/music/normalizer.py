@@ -17,7 +17,7 @@ special cases to handle:
 The normalizer never raises — malformed input is wrapped into a single
 ``<music-error>`` document and returned. The backend turns that into a
 fallback cell sequence with a ``MUSIC_*`` warning and the pipeline
-keeps running (see ``ARCHITECTURE.md``).
+keeps running.
 
 **Attribute preservation**: the normalizer rewrites ``elem.tag`` (to
 drop namespaces) but never touches ``elem.attrib`` — provenance / data
@@ -66,7 +66,7 @@ def normalize(
 
 def _normalize_voice_numbers(root: ET.Element) -> None:
     """Remap each ``<part>``'s ``<voice>`` numbers to a dense ``1..N``
-    sequence (``ARCHITECTURE.md`` vendor-dialect table).
+    sequence, per the vendor-dialect table.
 
     Finale emits per-staff voice blocks (1/5/9/13...), Sibelius uses
     1/2; the backend's in-accord grouping (BANA Par. 11) expects
@@ -117,7 +117,7 @@ def _note_part_text(note: ET.Element, tag: str) -> str | None:
 
 def _inherit_chord_member_staff_voice(root: ET.Element) -> None:
     """Backfill a chord member's missing ``<staff>`` / ``<voice>`` from its
-    chord root (``ARCHITECTURE.md`` vendor-dialect table).
+    chord root, per the vendor-dialect table.
 
     MusicXML lets a chord member (a ``<note>`` carrying ``<chord/>``) omit
     its own ``<staff>`` / ``<voice>`` and inherit the chord root's — Sibelius
@@ -186,7 +186,7 @@ def _infer_missing_note_types(
     root: ET.Element, ctx: MusicContext | None = None
 ) -> None:
     """Fill a ``<note>``'s missing ``<type>`` from its ``<duration>``
-    and the prevailing ``<divisions>`` (``ARCHITECTURE.md``).
+    and the prevailing ``<divisions>``.
 
     Old / minimal exporters omit ``<type>``, but the backend needs it
     to pick a note shape. ``<divisions>`` (declared in ``<attributes>``,

@@ -1,7 +1,7 @@
 """Embedded-image extraction from ``.docx`` — the modern ``<w:drawing>``
 and legacy ``<w:pict>`` picture forms → :class:`ImageAlt` placeholders,
 with the raster bytes preserved on :attr:`DocumentIR.assets`
-(ARCHITECTURE.md, the I1 step).
+— the I1 step.
 
 The modern path is exercised through python-docx's real
 ``add_picture`` so the test proves genuine relationship resolution and

@@ -4,7 +4,7 @@ A MathML element that carries ``data-bk-span="start,end"`` tells the
 backend to use that range as the source span for every
 :class:`BrailleCell` emitted from inside that element. Without the
 attribute the cells inherit the formula-level
-:attr:`MathInline.span`. See ``ARCHITECTURE.md``
+:attr:`MathInline.span`.
 """
 
 from __future__ import annotations

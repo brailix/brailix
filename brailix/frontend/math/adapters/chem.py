@@ -14,7 +14,7 @@ mechanism as ``data-bk-span``): it states the *semantic* fact "this is a
 chemical formula" and nothing about braille. Every braille *decision* —
 no subscript indicator, the leading chemical-formula indicator ⠸, the
 per-element capital sign — lives in :mod:`brailix.backend.math.chem`, the
-layer that owns output rules. See ``ARCHITECTURE.md``
+layer that owns output rules.
 
 Supported subset (school chemistry, grown incrementally): element symbols
 ``[A-Z][a-z]*`` with numeric subscripts (``H2O``, ``H2SiO3``, ``NaCl``),

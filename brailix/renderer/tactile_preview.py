@@ -4,8 +4,7 @@ braille preview (U+2800..U+28FF).
 This is the loop-closing renderer for the tactile-graphics vertical: it
 downsamples the raise grid into 8-dot braille cells so a blind author can
 **read the outline of their own drawing on a refreshable braille display
-or through NVDA** — verifying the result without sight
-(``ARCHITECTURE.md``). It reuses
+or through NVDA** — verifying the result without sight. It reuses
 :func:`brailix.renderer.unicode_braille.dots_to_char`, the same 8-dot →
 code-point encoder the text pipeline uses.
 
