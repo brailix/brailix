@@ -9,13 +9,16 @@ Backend → Renderer, and the dependency edges only ever point *downstream*:
   ``protocols`` module does name IR types — but under ``TYPE_CHECKING`` only,
   since ``brailix.ir`` imports core and a runtime edge back would close a
   cycle; that is checked separately below.
-* **Frontend** ("what is this?") never imports Input, Backend, or the
-  Pipeline orchestrator.
+* **Frontend** ("what is this?") never imports Input, Backend, Renderer, or
+  the Pipeline orchestrator.
 * **Backend** ("write it by the rules") never reverse-imports Frontend or
-  Input. Its one controlled exception — translating embedded prose in music
-  ``<words>`` / chem conditions — is *dependency injection* via
-  ``BackendContext.options`` (``InlineTextTranslator``), **not** an import,
-  so no import edge is allowed here either.
+  Input, and never reaches *forward* into Renderer either: it produces IR,
+  and how those cells become bytes is the next layer's business — a backend
+  that imported an encoder would make the two replaceable only together. Its
+  one controlled exception — translating embedded prose in music ``<words>``
+  / chem conditions — is *dependency injection* via ``BackendContext.options``
+  (``InlineTextTranslator``), **not** an import, so no import edge is allowed
+  here either.
 * **IR** (the shared mediator types — DocumentIR, BrailleIR, the inline /
   block nodes) never imports Frontend, Backend, Renderer, or the Pipeline. It
   is the neutral currency those layers exchange, so it must stay loadable on
@@ -40,6 +43,13 @@ resolved against its own file's package before matching (:func:`_imports_in`).
 A guard that only saw absolute imports would have advertised whole-repo
 coverage while one ordinary ``from ..`` walked straight past it;
 :class:`TestGuardCatchesEveryImportForm` pins each form it must catch.
+
+**The bans are derived, not listed.** :data:`_ALLOWED_EDGES` names what each
+layer may import and :func:`_forbidden` inverts it, so a pair nobody thought
+about is forbidden rather than unguarded — which is what a hand-written
+blacklist cannot promise, and what it had already failed to deliver: no rule
+banned Frontend or Backend from importing :mod:`brailix.renderer`, and the tree
+was clean only by habit.
 
 **Input** is guarded by allowlist rather than by a flat ban. It has a
 documented, narrow dependency on the frontend source registries for the
@@ -263,30 +273,66 @@ def _matches(mod: str, forbidden: str) -> bool:
     return mod == forbidden or mod.startswith(forbidden + ".")
 
 
-# layer dir -> packages it must never import
+# Every layer, and for each one the brailix layers it MAY import. The bans are
+# *generated* from this (:func:`_forbidden`) rather than written out per layer,
+# because a hand-kept ban list is only as complete as whoever edited it last
+# remembered to be — and two entries were already missing: neither ``frontend``
+# nor ``backend`` forbade ``brailix.renderer``, so a frontend importing an
+# encoder would have passed a guard whose own docstring promises each layer can
+# be replaced on its own. One table of allowed edges cannot have that kind of
+# hole: an unlisted pair is forbidden by construction, and a *new* layer has to
+# be classified before it is scanned at all
+# (:func:`test_every_layer_directory_is_classified`).
+_LAYERS: tuple[str, ...] = (
+    "core",
+    "ir",
+    "input",
+    "frontend",
+    "backend",
+    "renderer",
+    "pipeline",
+)
+
+_ALLOWED_EDGES: dict[str, frozenset[str]] = {
+    # The base everything sits on. It may *name* IR types — but only under
+    # TYPE_CHECKING, since a runtime edge back would close a cycle; that is
+    # what ``test_core_does_not_import_ir_at_runtime`` checks separately, with
+    # ``runtime_only=True``.
+    "core": frozenset({"ir"}),
+    # The neutral currency the stages exchange: loadable on its own, carrying
+    # only core primitives.
+    "ir": frozenset({"core"}),
+    # Input's frontend edge is the binary-decode exception, narrowed further —
+    # per module — by :data:`_INPUT_FRONTEND_ALLOWLIST`.
+    "input": frozenset({"core", "ir", "frontend"}),
+    "frontend": frozenset({"core", "ir"}),
+    "backend": frozenset({"core", "ir"}),
+    "renderer": frozenset({"core", "ir"}),
+    # The orchestrator drives every stage, so it is the one layer with no
+    # restriction — and, being what everything else must stay independent of,
+    # the one nothing else may import.
+    "pipeline": frozenset(_LAYERS),
+}
+
+
+def _forbidden(layer: str) -> tuple[str, ...]:
+    """The packages ``layer`` must never import, derived from the matrix."""
+    allowed = _ALLOWED_EDGES[layer]
+    return tuple(
+        f"brailix.{other}"
+        for other in _LAYERS
+        if other != layer and other not in allowed
+    )
+
+
+# layer dir -> packages it must never import. ``input`` and ``pipeline`` are
+# out of the flat sweep: input has its own pair of tests (the allowlisted
+# frontend edge, then everything downstream), and pipeline is allowed
+# everything.
 _RULES: dict[str, tuple[str, ...]] = {
-    "core": (
-        "brailix.input",
-        "brailix.frontend",
-        "brailix.backend",
-        "brailix.renderer",
-        "brailix.pipeline",
-    ),
-    "frontend": ("brailix.input", "brailix.backend", "brailix.pipeline"),
-    "backend": ("brailix.frontend", "brailix.input", "brailix.pipeline"),
-    "ir": (
-        "brailix.frontend",
-        "brailix.backend",
-        "brailix.input",
-        "brailix.pipeline",
-        "brailix.renderer",
-    ),
-    "renderer": (
-        "brailix.frontend",
-        "brailix.backend",
-        "brailix.input",
-        "brailix.pipeline",
-    ),
+    layer: _forbidden(layer)
+    for layer in _LAYERS
+    if layer not in ("input", "pipeline")
 }
 
 
@@ -303,11 +349,7 @@ _INPUT_FRONTEND_ALLOWLIST: frozenset[str] = frozenset(
 
 # Downstream of Input, with no exception at all: nothing in the input layer has
 # any business writing braille, encoding cells, or driving the orchestrator.
-_INPUT_FORBIDDEN: tuple[str, ...] = (
-    "brailix.backend",
-    "brailix.renderer",
-    "brailix.pipeline",
-)
+_INPUT_FORBIDDEN: tuple[str, ...] = _forbidden("input")
 
 
 def _offenders() -> list[str]:
@@ -443,6 +485,43 @@ def test_lexical_constants_are_not_duplicated_across_layers() -> None:
         "Percent and the backend's idea of how to write one cannot drift:\n"
         + "\n".join(offenders)
     )
+
+
+def test_every_layer_directory_is_classified() -> None:
+    """A new package under ``brailix/`` must land in the matrix.
+
+    The sweep only walks the layers :data:`_ALLOWED_EDGES` names, so an
+    unclassified one is not "allowed everything" — it is *unscanned*, and the
+    suite would go on reporting clean layering for a tree it never read. Both
+    directions are checked: a stale entry naming a package that no longer
+    exists would quietly stop covering anything.
+    """
+    on_disk = {
+        p.name
+        for p in _PKG.iterdir()
+        if p.is_dir() and p.name != "__pycache__" and any(p.rglob("*.py"))
+    }
+    assert on_disk == set(_LAYERS), (
+        f"unclassified package(s) under brailix/: {sorted(on_disk - set(_LAYERS))}; "
+        f"matrix entries with no package: {sorted(set(_LAYERS) - on_disk)} — "
+        f"add the layer to _ALLOWED_EDGES (deciding what it may import) so it "
+        f"is scanned at all"
+    )
+
+
+def test_forbidden_edges_are_the_complement_of_the_allowed_ones() -> None:
+    """The derivation itself, spot-checked at the two edges that matter.
+
+    ``_forbidden`` is what turns the matrix into the rule the sweep applies, so
+    a mistake in it would silently widen every layer's licence.
+    """
+    assert "brailix.renderer" in _forbidden("backend")
+    assert "brailix.renderer" in _forbidden("frontend")
+    assert "brailix.ir" not in _forbidden("backend")
+    assert "brailix.core" not in _forbidden("renderer")
+    # A layer never forbids itself, and pipeline forbids nothing.
+    assert not any(m == "brailix.backend" for m in _forbidden("backend"))
+    assert _forbidden("pipeline") == ()
 
 
 def test_allowlisted_input_modules_still_exist() -> None:
