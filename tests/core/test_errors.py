@@ -117,6 +117,138 @@ class TestWarningRecord:
         assert "anchor" not in Warning(code="X", message="m").to_dict()
 
 
+class TestTheAnchorIsReallyFrozen:
+    """``Warning`` is ``frozen=True``, and ``anchor`` was the hole in that.
+
+    A frozen dataclass freezes the *fields*, not what a field points at, so the
+    one mapping-valued field stayed writable from both sides: through the dict
+    the caller passed in (still theirs, still shared), and through
+    ``warning.anchor`` itself. Either rewrites a diagnostic that was already
+    recorded — one a block cache, the editor's navigation and a test comparison
+    all read as fixed — and neither raises.
+
+    What must survive the fix matters as much: the field exists to be read out
+    by a front-end, a log or a serialized report, so it has to stay JSON-
+    encodable, copyable and picklable. That is why it is a ``dict`` subclass
+    and not a ``MappingProxyType`` (which is none of the three).
+    """
+
+    def _anchored(self) -> tuple[Warning, dict]:
+        source = {"part_id": "P1", "measure_number": "5"}
+        return Warning(code="X", message="m", anchor=source), source
+
+    def test_mutating_the_dict_you_passed_does_not_rewrite_the_record(self):
+        w, source = self._anchored()
+        source["measure_number"] = "99"
+        assert w.anchor == {"part_id": "P1", "measure_number": "5"}
+
+    def test_the_collector_helpers_copy_too(self):
+        """``warn`` / ``error`` take the caller's dict straight through to the
+        constructor, which is the path the aliasing bug actually travelled."""
+        anchor = {"measure_number": "1"}
+        wc = WarningCollector()
+        wc.warn("A", "m", anchor=anchor)
+        wc.error("B", "m", anchor=anchor)
+        anchor["measure_number"] = "99"
+        assert [w.anchor["measure_number"] for w in wc.warnings] == ["1", "1"]
+
+    @pytest.mark.parametrize(
+        "name,write",
+        [
+            ("__setitem__", lambda a: a.__setitem__("part_id", "P9")),
+            ("__delitem__", lambda a: a.__delitem__("part_id")),
+            ("__ior__", lambda a: a.__ior__({"part_id": "P9"})),
+            ("update", lambda a: a.update({"part_id": "P9"})),
+            ("pop", lambda a: a.pop("part_id")),
+            ("popitem", lambda a: a.popitem()),
+            ("clear", lambda a: a.clear()),
+            ("setdefault", lambda a: a.setdefault("new", "v")),
+        ],
+    )
+    def test_writing_through_the_field_is_refused(self, name, write):
+        w, _ = self._anchored()
+        with pytest.raises(TypeError, match="read-only"):
+            write(w.anchor)
+        assert w.anchor == {"part_id": "P1", "measure_number": "5"}
+
+    def test_it_still_reads_as_an_ordinary_dict(self):
+        w, _ = self._anchored()
+        assert w.anchor == {"part_id": "P1", "measure_number": "5"}
+        assert w.anchor.get("part_id") == "P1"
+        assert "measure_number" in w.anchor
+        assert dict(w.anchor) == w.anchor
+        assert sorted(w.anchor.items()) == [("measure_number", "5"), ("part_id", "P1")]
+
+    def test_it_survives_json_copy_and_pickle(self):
+        """The reason this is a ``dict`` subclass. A ``MappingProxyType``
+        would make every one of these raise, on a field whose whole purpose is
+        being read out of the library."""
+        import copy
+        import json
+        import pickle
+
+        w, _ = self._anchored()
+        assert json.loads(json.dumps(w.anchor)) == dict(w.anchor)
+        assert copy.copy(w.anchor) == w.anchor
+        assert copy.deepcopy(w).anchor == w.anchor
+        assert pickle.loads(pickle.dumps(w.anchor)) == w.anchor
+        assert json.dumps(w.to_dict())  # the serialized form, end to end
+
+    def test_replace_keeps_the_anchor_frozen(self):
+        """``dataclasses.replace`` rebuilds the record — the LENIENT-mode
+        downgrade in ``emit`` does exactly this — so the copy must survive it
+        rather than being applied only on the first construction."""
+        import dataclasses
+
+        w, _ = self._anchored()
+        again = dataclasses.replace(w, level=WarningLevel.ERROR)
+        with pytest.raises(TypeError):
+            again.anchor["part_id"] = "P9"
+
+    def test_to_dict_hands_out_a_writable_copy(self):
+        """The serialized form is the caller's to do what they like with —
+        freezing it there would be freezing someone else's data."""
+        w, _ = self._anchored()
+        payload = w.to_dict()
+        payload["anchor"]["part_id"] = "P9"  # must not raise
+        assert w.anchor["part_id"] == "P1"
+
+
+# ``dict``'s own callables that only read. ``copy`` / ``__or__`` / ``__ror__``
+# return a plain ``dict`` and leave the receiver alone; ``fromkeys`` builds a
+# new instance. ``__init__`` is the deliberate exception: it is how the mapping
+# is filled in the first place, so it cannot be refused — calling a constructor
+# again on a live object is not a spelling anything in the tree uses.
+_READ_ONLY_DICT_API = frozenset({
+    "__class_getitem__", "__contains__", "__eq__", "__ge__", "__getattribute__",
+    "__getitem__", "__gt__", "__init__", "__iter__", "__le__", "__len__",
+    "__lt__", "__ne__", "__new__", "__or__", "__repr__", "__reversed__",
+    "__ror__", "__sizeof__", "copy", "fromkeys", "get", "items", "keys",
+    "values",
+})
+
+
+def test_no_dict_mutator_is_inherited_without_review() -> None:
+    """The structural half, mirroring the guard on ``_BoundaryRegistry``.
+
+    ``dict``'s mutators are C-level and independent — overriding
+    ``__setitem__`` does nothing for ``update`` or ``|=`` — and the interpreter
+    adds methods across versions. So an inherited name must be on the read-only
+    list above: "unclassified" means "look at it", not "assume it reads".
+    """
+    from brailix.core.errors import _FrozenAnchor
+
+    inherited = {
+        name for name, value in vars(dict).items() if callable(value)
+    } - set(vars(_FrozenAnchor))
+    unreviewed = sorted(inherited - _READ_ONLY_DICT_API)
+    assert not unreviewed, (
+        f"dict methods inherited by _FrozenAnchor without review: "
+        f"{unreviewed}. Override it to refuse the write, or add it to "
+        f"_READ_ONLY_DICT_API."
+    )
+
+
 class TestWarningCollectorAPI:
     """Collector conveniences with example value. The three-mode emit
     policy itself (strict raises / normal stores / lenient downgrades,

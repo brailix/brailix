@@ -27,7 +27,7 @@ pattern):
   :class:`GraphicBlock` — an inline tactile figure whose fence body is the
   figure source (SVG / data spec / image path). Lets a chapter carry its
   figures inline so the document stays one portable file
-  (ARCHITECTURE.md G2). See :func:`graphic_fence_source` /
+  (ARCHITECTURE.md). See :func:`graphic_fence_source` /
   :func:`graphic_fence_open`, the two directions of the fence grammar.
 * ``$$display math$$`` → :class:`MathBlock` (``source="latex"``).
 * ``![alt](target)`` alone on a line → :class:`ImageAlt` — the
@@ -110,7 +110,7 @@ def is_closing_fence(line: str) -> bool:
     """
     return bool(_FENCE_RE.match(line.strip()))
 
-# Fenced graphic block (ARCHITECTURE.md G2): a self-contained
+# Fenced graphic block (ARCHITECTURE.md): a self-contained
 # tactile figure embedded in braille source, mirroring the ```code fence and
 # the ``$$math$$`` fence — the fence body IS the figure source, so the document
 # stays portable (no external file references travelling beside the .blx).
@@ -415,7 +415,7 @@ def _consume_fenced_code(
     A fence whose info string names a graphic format (```graphic /
     ```graphic-figure / ...) yields a :class:`GraphicBlock` instead of a
     :class:`CodeBlock` — an inline tactile figure whose body is the figure
-    source (ARCHITECTURE.md G2). Any other info string is an
+    source (ARCHITECTURE.md). Any other info string is an
     ordinary code fence.
     """
     start = cur.i

@@ -97,7 +97,7 @@ def expand_block(
     if isinstance(block, GraphicBlock):
         # A tactile figure carries no braille cells — it rasterises to a
         # TactileRaster (attached to the CompiledBlock by
-        # Pipeline.translate_block, ARCHITECTURE.md G1).  Emit an
+        # Pipeline.translate_block, ARCHITECTURE.md).  Emit an
         # empty "graphic" block so the figure holds its place in the block
         # flow WITHOUT translating its GraphicInline child, which has no
         # braille cells and would otherwise warn UNHANDLED_NODE_TYPE.

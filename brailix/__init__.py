@@ -77,6 +77,11 @@ adapters, the normalizers, the dispatch tables) remains internal.
 
 __version__ = "0.1.0"
 
+from brailix.backend.tactile.profile import (  # noqa: E402
+    TactileProfile,
+    list_tactile_profiles,
+    load_tactile_profile,
+)
 from brailix.input import (  # noqa: E402
     DEFAULT_INPUT_LIMITS,
     InputLimits,
@@ -93,12 +98,18 @@ from brailix.pipeline import (  # noqa: E402
     translate_graphic,
 )
 
-# Every result type a public entry point can hand back is nameable from
-# here: ``translate_graphic`` returns a GraphicResult and
+# Every type a public entry point hands back — or takes — is nameable from
+# here. ``translate_graphic`` returns a GraphicResult and
 # ``Pipeline.translate_document_to_pages`` a TactilePageResult, so a caller
 # annotating those had to reach into ``brailix.pipeline`` for the type while
-# the function itself was top-level. The manifest in the public-API test
-# pins this list, and the generated reference documents it.
+# the function itself was top-level. The same held on the way in:
+# ``translate_graphic`` documents an already-loaded ``TactileProfile`` as a
+# legal argument, and the only path to that type — and to the loader that
+# builds one — ran through ``brailix.backend.tactile.profile``, which the
+# policy above calls internal and free to move, so the offer could not be
+# taken from inside the supported surface. The graphics entry point lives
+# here; its configuration belongs beside it. The manifest in the public-API
+# test pins this list, and the generated reference documents it.
 __all__ = [
     "Pipeline",
     "translate_graphic",
@@ -108,6 +119,9 @@ __all__ = [
     "CompiledBlock",
     "TreeSubcache",
     "block_hash",
+    "TactileProfile",
+    "load_tactile_profile",
+    "list_tactile_profiles",
     "InputLimits",
     "InputTooLargeError",
     "DEFAULT_INPUT_LIMITS",

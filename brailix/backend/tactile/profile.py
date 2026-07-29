@@ -21,7 +21,8 @@ independently replaceable component.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -67,20 +68,62 @@ class TactileProfile:
     # single graphic don't use it. Defaulted so older profiles keep loading.
     braille_line_spacing_mm: float = 10.0
 
+    def __post_init__(self) -> None:
+        """Every metric is a finite number greater than zero.
 
-def _require_positive(value: Any, field: str, path: Path) -> float:
+        The invariant belongs to the *type*, not only to
+        :func:`load_tactile_profile`: everything downstream — the mm→px
+        transform, the page compositor, the raster cap — multiplies and rounds
+        these values, and a profile built in code (an editor's settings pane, a
+        test, a caller passing ``translate_graphic(tactile_profile=...)`` an
+        object rather than a name) reaches all of that without touching the
+        loader. Checking here is what makes "positive and finite" a property a
+        consumer may rely on instead of a habit the JSON path happens to keep.
+        """
+        for f in fields(self):
+            if f.name == "name":
+                continue
+            _check_positive(getattr(self, f.name), f.name)
+
+
+def _check_positive(value: Any, field: str, prefix: str = "") -> float:
+    """``value`` as a ``float``, or :class:`ConfigurationError` if it is not a
+    finite number greater than zero.
+
+    ``NaN`` and ``Infinity`` are the reason this is not a bare ``<= 0`` test.
+    Both are ordinary ``float`` values that JSON can carry (Python's decoder
+    accepts the ``NaN`` / ``Infinity`` literals by default), and both slip
+    through a comparison: every ``<=`` against ``NaN`` is false, and infinity
+    genuinely is greater than zero. What they fail is later and elsewhere —
+    ``round(nan)`` raises :class:`ValueError`, ``int(inf)``
+    :class:`OverflowError` — deep in a transform or an encoder, long after the
+    load this loader promises to fail at.
+
+    ``bool`` is refused for the neighbouring reason: it is an ``int`` subclass,
+    so ``"dpi": true`` would quietly resolve to a 1-DPI profile.
+    """
+    where = f"{prefix}tactile profile field {field!r}"
+    if isinstance(value, bool):
+        raise ConfigurationError(f"{where} must be a number, got {value!r}")
     try:
         num = float(value)
     except (TypeError, ValueError):
         raise ConfigurationError(
-            f"{path}: tactile profile field {field!r} must be a number, "
-            f"got {value!r}"
+            f"{where} must be a number, got {value!r}"
         ) from None
-    if num <= 0:
+    if not math.isfinite(num):
         raise ConfigurationError(
-            f"{path}: tactile profile field {field!r} must be > 0, got {num}"
+            f"{where} must be a finite number, got {num}"
         )
+    if num <= 0:
+        raise ConfigurationError(f"{where} must be > 0, got {num}")
     return num
+
+
+def _require_positive(value: Any, field: str, path: Path) -> float:
+    """:func:`_check_positive` with the offending file named, so a bad JSON
+    value points at the profile that carries it."""
+    return _check_positive(value, field, prefix=f"{path}: ")
 
 
 def load_tactile_profile(name: str = DEFAULT_PROFILE) -> TactileProfile:

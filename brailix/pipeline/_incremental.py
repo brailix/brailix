@@ -30,11 +30,12 @@ from brailix.pipeline._results import CompiledBlock, TreeSubcache
 from brailix.pipeline._session import CompilationSession, _InlineTextTranslator
 
 if TYPE_CHECKING:
+    from brailix.backend.tactile.profile import TactileProfile
     from brailix.pipeline import Pipeline
 
 # Tactile profile used when an inline figure block (a GraphicBlock embedded in
 # a braille document) is rasterised through the main pipeline
-# (ARCHITECTURE.md G1).  ``"generic"`` matches the default a
+# (ARCHITECTURE.md).  ``"generic"`` matches the default a
 # standalone ``translate_graphic`` call uses; a document-level / per-block
 # tactile profile is a later refinement (G3/G4).
 _DEFAULT_INLINE_TACTILE_PROFILE = "generic"
@@ -85,7 +86,7 @@ def compile_block(
     # on ``raster`` below, not in cells).
     braille_blocks = expand_block(block, session.backend_ctx, pipeline._profile)
 
-    # Tactile-graphics inline embedding (ARCHITECTURE.md G1):
+    # Tactile-graphics inline embedding (ARCHITECTURE.md):
     # a figure block rasterises to a TactileRaster through THIS same
     # incremental pipeline — no separate ``translate_graphic`` call — so a
     # braille document holding figures compiles down one path.  Labels
@@ -176,7 +177,7 @@ def rasterize_graphic_block(
     block: Any,
     warns: WarningCollector,
     *,
-    tactile_profile: str | Any,
+    tactile_profile: str | TactileProfile,
     label_translator: Callable[[str], list[BrailleCell]] | None,
     record_provenance: bool = False,
 ) -> tuple[TactileRaster, ET.Element]:
@@ -185,7 +186,7 @@ def rasterize_graphic_block(
 
     The rasterising tail shared by the standalone tactile entry and the
     inline-in-a-braille-document path (:func:`compile_block`,
-    ARCHITECTURE.md G1) — one rasteriser, not two. Pulls the
+    ARCHITECTURE.md) — one rasteriser, not two. Pulls the
     SVG tree off the block's :class:`GraphicInline` child
     (``populate_graphic_block`` always lands one — an error-marked SVG on
     soft-failure, never ``None`` — so a figure always rasterises to

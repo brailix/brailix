@@ -15,12 +15,13 @@ Not public API: callers go through
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from brailix.core.errors import WarningCollector
 from brailix.pipeline._results import TactilePageResult
 
 if TYPE_CHECKING:
+    from brailix.backend.tactile.profile import TactileProfile
     from brailix.ir.document import DocumentIR
     from brailix.pipeline import Pipeline
 
@@ -29,7 +30,7 @@ def compose_document_pages(
     pipeline: Pipeline,
     doc: DocumentIR,
     *,
-    tactile_profile: str | Any,
+    tactile_profile: str | TactileProfile,
     margin_mm: float | None = None,
     item_gap_mm: float | None = None,
 ) -> TactilePageResult:

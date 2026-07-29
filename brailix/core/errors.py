@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from typing import NoReturn
 
 from brailix.core.span import Span
 
@@ -260,6 +261,87 @@ PROGRAMMING_ERRORS: tuple[type[BaseException], ...] = (
 # ---------------------------------------------------------------------------
 
 
+class _FrozenAnchor(dict):  # type: ignore[type-arg]
+    """The read-only mapping :attr:`Warning.anchor` holds.
+
+    :class:`Warning` is a frozen value object and every field of it is
+    immutable — except that one, whose ``dict`` stayed writable from both
+    sides. Mutating the dict you *passed* rewrote a diagnostic that had
+    already been recorded::
+
+        anchor = {"measure": "1"}
+        collector.warn(..., anchor=anchor)
+        anchor["measure"] = "99"        # the stored warning now says 99
+
+    and ``warning.anchor["measure"] = "99"`` rewrote it directly. Neither
+    failed; both silently changed a record that a block cache, the editor's
+    navigation and a test comparison all read as fixed.
+
+    A ``dict`` **subclass** rather than :class:`types.MappingProxyType`,
+    deliberately: a proxy cannot be JSON-encoded, deep-copied or pickled, and
+    this field exists to be read out — by a front-end, a log, a serialized
+    report. Immutability that costs ``json.dumps`` is a bad trade for a
+    diagnostic. This stays a real ``dict`` to every reader (equality with a
+    plain dict, ``.get``, ``dict(...)``, ``json.dumps``), so the declared field
+    type is still ``dict[str, str] | None`` and no consumer annotation changes;
+    only the writes are gone.
+
+    ``dict``'s mutators are C-level and do not route through one another —
+    overriding ``__setitem__`` does nothing for ``update`` or ``|=`` — so every
+    one is overridden by hand, the lesson ``_BoundaryRegistry`` in the frontend
+    learned by missing exactly one of them. ``__reduce__`` belongs to that
+    list: the pickle / deepcopy protocol rebuilds a ``dict`` subclass by
+    *setting its items*, so without it the copying this class exists to keep
+    possible would be refused by its own guard. Construction is unaffected for
+    the same C-level reason — ``dict.__init__`` fills the mapping without
+    going through ``__setitem__``.
+    """
+
+    __slots__ = ()
+
+    _MESSAGE = (
+        "Warning.anchor is read-only — a Warning is a frozen record. Build "
+        "the mapping before you construct the Warning, or take a writable "
+        "copy with dict(anchor)."
+    )
+
+    def __setitem__(self, key: str, value: str) -> NoReturn:
+        raise TypeError(self._MESSAGE)
+
+    def __delitem__(self, key: str) -> NoReturn:
+        raise TypeError(self._MESSAGE)
+
+    # ``object`` rather than dict's own narrower parameter, so no spelling of
+    # ``anchor |= …`` slips past the guard; mypy checks an in-place operator
+    # against its binary sibling ``__or__`` and reads the widening as an
+    # incompatible override, the same waiver ``_BoundaryRegistry.__ior__``
+    # takes for the same reason. The body never returns either way.
+    def __ior__(self, other: object) -> _FrozenAnchor:  # type: ignore[misc]
+        raise TypeError(self._MESSAGE)
+
+    def clear(self) -> NoReturn:
+        raise TypeError(self._MESSAGE)
+
+    def pop(self, *args: object, **kwargs: object) -> NoReturn:
+        raise TypeError(self._MESSAGE)
+
+    def popitem(self) -> NoReturn:
+        raise TypeError(self._MESSAGE)
+
+    def setdefault(self, *args: object, **kwargs: object) -> NoReturn:
+        raise TypeError(self._MESSAGE)
+
+    def update(self, *args: object, **kwargs: object) -> NoReturn:
+        raise TypeError(self._MESSAGE)
+
+    def __reduce__(self) -> tuple[object, ...]:
+        # Rebuild through the constructor, which fills the mapping in C. The
+        # default protocol for a dict subclass replays the items with
+        # ``obj[k] = v`` instead, which the guard above would refuse — pickle
+        # and deepcopy would both fail on a perfectly ordinary Warning.
+        return (self.__class__, (dict(self),))
+
+
 @dataclass(frozen=True, slots=True)
 class Warning:
     """A non-fatal diagnostic recorded during translation."""
@@ -277,8 +359,18 @@ class Warning:
     # ``BrailleCell.source_text`` provenance tags carry) so a frontend
     # can navigate to the score location; normalized MusicXML elements
     # carry no source offsets, which is why ``span`` can't serve here.
-    # ``None`` (the default) means "no structural anchor known".
+    # ``None`` (the default) means "no structural anchor known". Stored as a
+    # private read-only copy (:class:`_FrozenAnchor`), so neither the caller's
+    # dict nor the field itself can rewrite a recorded diagnostic afterwards.
     anchor: dict[str, str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.anchor is not None and not isinstance(self.anchor, _FrozenAnchor):
+            # ``object.__setattr__``: the dataclass is frozen, and this runs
+            # during its own construction. Copying is half the point — the
+            # caller keeps a writable dict of their own, and this record stops
+            # tracking it.
+            object.__setattr__(self, "anchor", _FrozenAnchor(self.anchor))
 
     def to_dict(self) -> dict[str, object]:
         d: dict[str, object] = {

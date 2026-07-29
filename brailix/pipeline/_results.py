@@ -89,7 +89,7 @@ class TranslationResult:
         Raises :class:`KeyError` if no renderer is registered under
         ``name``; :class:`MissingExtraError` if the renderer needs an
         unavailable optional dependency;
-        :class:`~brailix.core.errors.IncompatibleRendererError` if ``name``
+        :class:`~brailix.core.IncompatibleRendererError` if ``name``
         is a tactile-raster renderer (``bmp`` / ``png`` / ``pdf`` /
         ``tactile_preview``), which cannot consume a braille IR.
         """
@@ -140,7 +140,7 @@ class GraphicResult:
         whatever the renderer produces — ``bytes`` for ``bmp`` / ``png`` / ``pdf``,
         a ``str`` for the ``tactile_preview`` U+2800 readback. Raises
         :class:`KeyError` if no renderer is registered under ``name``;
-        :class:`~brailix.core.errors.IncompatibleRendererError` if ``name`` is a
+        :class:`~brailix.core.IncompatibleRendererError` if ``name`` is a
         braille renderer (``unicode`` / ``brf`` / ``layout`` / ``cells``), which
         cannot consume a tactile raster.
         """
@@ -154,7 +154,7 @@ class GraphicResult:
 class TactilePageResult:
     """Output of one :meth:`Pipeline.translate_document_to_pages` call — a
     braille document with embedded figures laid onto tactile page rasters
-    (``ARCHITECTURE.md`` G3).
+    (``ARCHITECTURE.md``).
 
     Holds one :class:`~brailix.ir.tactile.TactileRaster` per page: braille text
     stamped as real dots plus the document's figures scaled into the flow
@@ -180,7 +180,7 @@ class TactilePageResult:
         ``name`` defaults to :attr:`default_renderer` (``"bmp"``). Raises
         :class:`IndexError` if ``page`` is out of range, :class:`KeyError` if
         no renderer is registered under ``name``,
-        :class:`~brailix.core.errors.IncompatibleRendererError` if ``name`` is a
+        :class:`~brailix.core.IncompatibleRendererError` if ``name`` is a
         braille renderer (a page is a tactile raster)."""
         renderer = _resolve_renderer(
             name or self.default_renderer, _TACTILE_DOMAIN
@@ -329,7 +329,7 @@ class CompiledBlock:
     compiled_at: datetime = field(
         default_factory=lambda: datetime.now(UTC)
     )
-    # Tactile-graphics inline embedding (ARCHITECTURE.md G1):
+    # Tactile-graphics inline embedding (ARCHITECTURE.md):
     # a :class:`~brailix.ir.document.GraphicBlock` rasterises to a
     # :class:`TactileRaster` through the SAME incremental pipeline that
     # compiles text blocks (no separate ``translate_graphic`` call), and it

@@ -348,10 +348,14 @@ class GraphicBlock(Block):
     :class:`~brailix.ir.inline.MusicInline` (see
     ``ARCHITECTURE.md``).
 
-    A tactile graphic does **not** translate to braille cells; it compiles
-    to a :class:`~brailix.ir.tactile.TactileRaster` via
-    :meth:`~brailix.pipeline.Pipeline.translate_graphic`, so this block is
-    not routed through the braille backend dispatcher."""
+    A tactile graphic does **not** translate to braille cells; it compiles to a
+    :class:`~brailix.ir.tactile.TactileRaster`. It does still go through the
+    *block-level* backend expansion like every other block, which recognises it
+    and emits an **empty** ``"graphic"`` braille block: the figure holds its
+    place in the block flow, and its inline child — which has no cells to give
+    — is never handed to the braille node dispatcher. The dots ride on the
+    raster instead, attached to the compiled block beside those empty cells
+    (``ARCHITECTURE.md``)."""
 
     type: ClassVar[str] = "graphic"
     source: str = "svg"  # svg / primitives / figure / image

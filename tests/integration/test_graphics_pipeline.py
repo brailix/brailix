@@ -17,7 +17,6 @@ from pathlib import Path
 import pytest
 
 from brailix import Pipeline, translate_graphic
-from brailix.backend.tactile.profile import load_tactile_profile
 from brailix.core.errors import WarningCollector
 from brailix.ir.braille import BrailleCell
 from brailix.pipeline import GraphicResult
@@ -88,9 +87,34 @@ class TestSvgToRaster:
         assert r.raised_count() > 0
 
     def test_accepts_profile_object(self):
+        """The documented offer — "a name **or** an already-loaded profile" —
+        taken through the supported path.
+
+        Imported from the top-level package, deliberately: the entry point
+        accepts the object, so the type and its loader have to be reachable
+        without importing ``brailix.backend.tactile.profile``, which the
+        top-level policy calls internal and free to move. This test failing on
+        the import line means that offer became untakeable.
+        """
+        from brailix import TactileProfile, load_tactile_profile
+
         prof = load_tactile_profile("generic")
+        assert isinstance(prof, TactileProfile)
         r = _raster(CIRCLE, tactile_profile=prof)
         assert r.raised_count() > 0
+
+    def test_a_derived_profile_changes_the_raster(self):
+        """``TactileProfile`` is frozen, so ``dataclasses.replace`` is how a
+        caller derives one — the workflow the facade docstring shows."""
+        from dataclasses import replace
+
+        from brailix import load_tactile_profile
+
+        base = load_tactile_profile("generic")
+        denser = replace(base, dpi=base.dpi * 2)
+        assert _raster(CIRCLE, tactile_profile=denser).width > _raster(
+            CIRCLE, tactile_profile=base
+        ).width
 
     def test_warnings_are_captured(self):
         # ``<use>`` is still a deferred element (``<image>`` is now handled).

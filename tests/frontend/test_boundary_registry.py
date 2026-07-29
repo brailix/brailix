@@ -110,6 +110,79 @@ def test_setdefault_on_an_existing_key_is_not_a_mutation() -> None:
         assert pipe.fingerprint == before_fingerprint
 
 
+# The other half of the same rule ``setdefault`` was already held to: a call
+# that leaves the table exactly as it was is not a mutation, whatever its name.
+# Each entry below really is a no-op — the assertions check the contents are
+# unchanged too, so a case that started doing something would fail rather than
+# pass vacuously.
+_NO_OPS: list[tuple[str, Callable[[_BoundaryRegistry], None]]] = [
+    ("update-empty-mapping", lambda r: r.update({})),
+    ("update-no-args", lambda r: r.update()),
+    ("ior-empty", lambda r: r.__ior__({})),
+    ("pop-missing-with-default", lambda r: r.pop("nope", None)),
+    ("reassign-the-same-handler", lambda r: r.__setitem__("zh", r["zh"])),
+    ("update-with-the-same-handlers", lambda r: r.update(dict(r))),
+    ("ior-with-the-same-handler", lambda r: r.__ior__({"zh": r["zh"]})),
+]
+
+
+@pytest.mark.parametrize("name,call", _NO_OPS, ids=[n[0] for n in _NO_OPS])
+def test_a_call_that_changes_nothing_does_not_invalidate(
+    name: str, call: Callable[[_BoundaryRegistry], None]
+) -> None:
+    """The generation is what drops every cached block, so bumping it without
+    cause is a full recompile of the open document for nothing.
+
+    Re-registering the handler that is already there is the realistic one: a
+    front-end that re-runs its registration on reload (or an import executed
+    twice) invalidated the whole cache while the braille it produces could not
+    possibly differ.
+    """
+    with _registry_restored():
+        pipe = Pipeline(profile="cn_current", resolver="null")
+        before_contents = dict(boundary_registry)
+        before_generation = boundary_registry.generation
+        before_fingerprint = pipe.fingerprint
+
+        call(boundary_registry)
+
+        assert dict(boundary_registry) == before_contents, (
+            f"{name!r} changed the table — it is not the no-op this case "
+            f"claims to exercise"
+        )
+        assert boundary_registry.generation == before_generation, (
+            f"{name!r} advanced the generation without changing anything: "
+            f"every cached block is discarded for a table that still holds "
+            f"the same handlers"
+        )
+        assert pipe.fingerprint == before_fingerprint
+
+
+def test_clearing_an_already_empty_table_is_not_a_mutation() -> None:
+    """``clear()`` twice: the first really empties the table, the second has
+    nothing left to remove."""
+    with _registry_restored():
+        boundary_registry.clear()
+        after_first = boundary_registry.generation
+        boundary_registry.clear()
+        assert boundary_registry.generation == after_first
+
+
+def test_a_different_handler_under_an_existing_key_still_invalidates() -> None:
+    """The other direction, since "unchanged" is decided by identity: a
+    *different* object under a key that already exists is a real change, and
+    the sameness check must not swallow it."""
+    with _registry_restored():
+        boundary_registry["zh"] = _passthrough
+        before = boundary_registry.generation
+
+        def other(nodes: list[object], profile: object) -> list[object]:
+            return list(nodes)
+
+        boundary_registry["zh"] = other
+        assert boundary_registry.generation == before + 1
+
+
 def test_ior_swaps_the_handler_it_is_asked_to_swap() -> None:
     """``|=`` must remain a working way to register — the fix bumps the
     generation, it does not neuter the operator."""
