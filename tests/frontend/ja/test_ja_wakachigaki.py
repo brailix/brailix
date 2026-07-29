@@ -15,7 +15,7 @@ import pytest
 from brailix import Pipeline
 from brailix.core.config import load_profile
 from brailix.core.span import Span
-from brailix.frontend import apply_boundary, boundary_registry
+from brailix.frontend import _apply_boundary, boundary_registry
 from brailix.frontend.ja.analyzer import JapaneseToken, tokens_to_inline
 from brailix.ir.inline import Space, Word
 
@@ -175,7 +175,7 @@ class TestBoundarySeam:
     def test_unregistered_lang_is_identity(self):
         nodes = [Word(surface="ア", reading="ア")]
         prof = load_profile("ja_current")
-        assert apply_boundary(nodes, "ja", prof) is nodes
+        assert _apply_boundary(nodes, "ja", prof) is nodes
 
     def test_zh_boundary_unchanged(self):
         # Generalizing the seam must not change Chinese: 我用CPU keeps a
