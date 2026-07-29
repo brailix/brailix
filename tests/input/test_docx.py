@@ -27,9 +27,11 @@ from brailix.core import inline_math  # noqa: E402
 from brailix.core.errors import ParseError  # noqa: E402
 from brailix.input.docx import (  # noqa: E402
     _preflight_docx_archive,
+    _read_docx_bytes,
     parse_doc,
     parse_docx,
 )
+from brailix.input.limits import DEFAULT_INPUT_LIMITS  # noqa: E402
 from brailix.ir.document import (  # noqa: E402
     Heading,
     List,
@@ -2152,14 +2154,44 @@ class TestArchiveResourceCaps:
     def test_valid_small_archive_passes(self, tmp_path: Path) -> None:
         p = tmp_path / "ok.docx"
         self._write_zip(p, {"word/document.xml": b"<xml/>"})
-        _preflight_docx_archive(p)  # no raise
+        _preflight_docx_archive(p.read_bytes(), p)  # no raise
 
     def test_file_size_cap(self, tmp_path: Path, monkeypatch) -> None:
+        # The whole-archive cap moved to the reader, because it is what
+        # decides whether to load the file at all.
         p = tmp_path / "big.docx"
         self._write_zip(p, {"word/document.xml": b"<xml/>"})
         monkeypatch.setattr(docx_adapter, "_MAX_DOCX_FILE_BYTES", 1)
         with pytest.raises(ParseError, match="over the"):
-            _preflight_docx_archive(p)
+            _read_docx_bytes(p, DEFAULT_INPUT_LIMITS)
+
+    def test_file_size_cap_binds_the_bytes_read_not_the_stat(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The archive cap must hold on what was consumed, not on what the
+        path measured a moment earlier — the same stat-vs-read gap
+        ``read_bounded`` closes for the caller's ceiling."""
+        import pathlib
+
+        p = tmp_path / "grows.docx"
+        self._write_zip(p, {"word/document.xml": b"<xml/>"})
+        monkeypatch.setattr(docx_adapter, "_MAX_DOCX_FILE_BYTES", 4096)
+
+        real_stat = pathlib.Path.stat
+        fired = {"n": 0}
+
+        def growing_stat(self, **kwargs):  # noqa: ANN001, ANN202
+            result = real_stat(self, **kwargs)
+            if self == p and fired["n"] == 0:
+                fired["n"] += 1
+                # The window: the fast reject has looked, the read has not
+                # happened yet.
+                p.write_bytes(b"x" * 8192)
+            return result
+
+        monkeypatch.setattr(pathlib.Path, "stat", growing_stat)
+        with pytest.raises(ParseError, match="over the"):
+            _read_docx_bytes(p, DEFAULT_INPUT_LIMITS)
 
     def test_member_inflate_cap_counts_decompressed_bytes(
         self, tmp_path: Path, monkeypatch
@@ -2171,7 +2203,7 @@ class TestArchiveResourceCaps:
         assert p.stat().st_size < 4096  # really compressed small on disk
         monkeypatch.setattr(docx_adapter, "_MAX_DOCX_MEMBER_BYTES", 64)
         with pytest.raises(ParseError, match="inflates past"):
-            _preflight_docx_archive(p)
+            _preflight_docx_archive(p.read_bytes(), p)
 
     def test_total_inflate_cap(self, tmp_path: Path, monkeypatch) -> None:
         p = tmp_path / "bomb.docx"
@@ -2181,21 +2213,21 @@ class TestArchiveResourceCaps:
         monkeypatch.setattr(docx_adapter, "_MAX_DOCX_MEMBER_BYTES", 4096)
         monkeypatch.setattr(docx_adapter, "_MAX_DOCX_TOTAL_BYTES", 1000)
         with pytest.raises(ParseError, match="total"):
-            _preflight_docx_archive(p)
+            _preflight_docx_archive(p.read_bytes(), p)
 
     def test_member_count_cap(self, tmp_path: Path, monkeypatch) -> None:
         p = tmp_path / "many.docx"
         self._write_zip(p, {f"part{i}.xml": b"x" for i in range(5)})
         monkeypatch.setattr(docx_adapter, "_MAX_DOCX_MEMBERS", 2)
         with pytest.raises(ParseError, match="members"):
-            _preflight_docx_archive(p)
+            _preflight_docx_archive(p.read_bytes(), p)
 
     def test_non_zip_falls_through_quietly(self, tmp_path: Path) -> None:
         # Not a ZIP → the gate returns; Document() downstream raises the
         # canonical "not a valid .docx" error instead (one error surface).
         p = tmp_path / "notzip.docx"
         p.write_bytes(b"this is plainly not a zip archive")
-        _preflight_docx_archive(p)  # no raise
+        _preflight_docx_archive(p.read_bytes(), p)  # no raise
 
     def test_parse_docx_wires_the_preflight(
         self, tmp_path: Path, monkeypatch

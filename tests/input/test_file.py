@@ -168,6 +168,103 @@ class TestXmlSniffing:
         assert isinstance(doc.blocks[0], ScoreBlock)
 
 
+class TestTheSniffReadsTheRootElement:
+    """The routing decision is "what is this document's root element", and it
+    was implemented as "do the two score tag names appear in the first 4096
+    characters" — wrong in both directions.
+
+    A plain XML file that *mentions* ``<score-partwise`` (in a comment, a CDATA
+    section, a DTD) was handed to the music adapter and came back as an empty
+    score with ``MUSIC_*`` warnings. A real score whose prologue — declaration,
+    licence comment, internal DTD subset — ran past 4096 characters was handed
+    to the plain-text parser and read as prose.
+    """
+
+    @staticmethod
+    def _route(tmp_path: Path, name: str, text: str):  # noqa: ANN205
+        path = tmp_path / name
+        path.write_text(text, encoding="utf-8")
+        return parse_file(path, profile="cn_current", language="zh-CN")
+
+    def test_comment_mentioning_a_score_root_is_not_a_score(
+        self, tmp_path: Path
+    ) -> None:
+        doc = self._route(
+            tmp_path,
+            "notes.xml",
+            "<?xml version='1.0'?>\n"
+            "<!-- exported from <score-partwise> by hand -->\n"
+            "<notes><n>x</n></notes>\n",
+        )
+        assert not isinstance(doc.blocks[0], ScoreBlock)
+
+    def test_cdata_mentioning_a_score_root_is_not_a_score(
+        self, tmp_path: Path
+    ) -> None:
+        doc = self._route(
+            tmp_path,
+            "notes.xml",
+            "<doc><sample><![CDATA[<score-partwise version='4.0'>]]>"
+            "</sample></doc>",
+        )
+        assert not isinstance(doc.blocks[0], ScoreBlock)
+
+    def test_doctype_mentioning_a_score_root_is_not_a_score(
+        self, tmp_path: Path
+    ) -> None:
+        doc = self._route(
+            tmp_path,
+            "notes.xml",
+            "<!DOCTYPE notes [\n"
+            "  <!ENTITY sample '<score-partwise/>'>\n"
+            "]>\n"
+            "<notes/>\n",
+        )
+        assert not isinstance(doc.blocks[0], ScoreBlock)
+
+    def test_a_score_behind_a_long_prologue_is_still_a_score(
+        self, tmp_path: Path
+    ) -> None:
+        # The comment goes *after* the declaration, where a real exporter puts
+        # its licence header — so the document stays well-formed and the only
+        # thing that changed is how far in the root element sits.
+        declaration, body = _SCORE_XML.split("\n", 1)
+        prologue = "<!-- " + "licence text. " * 500 + " -->\n"
+        assert len(prologue) > 4096
+        doc = self._route(
+            tmp_path, "score.xml", declaration + "\n" + prologue + body
+        )
+        assert isinstance(doc.blocks[0], ScoreBlock)
+
+    def test_a_score_behind_a_doctype_with_a_quoted_gt_is_still_a_score(
+        self, tmp_path: Path
+    ) -> None:
+        doc = self._route(
+            tmp_path,
+            "score.xml",
+            '<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML '
+            '4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">\n'
+            + _SCORE_XML,
+        )
+        assert isinstance(doc.blocks[0], ScoreBlock)
+
+    def test_root_element_scanner_cases(self) -> None:
+        from brailix.input import _xml_root_element
+
+        assert _xml_root_element("<score-partwise/>") == "score-partwise"
+        assert _xml_root_element("  \n\t<a></a>") == "a"
+        assert _xml_root_element("<?xml version='1.0'?><b/>") == "b"
+        assert _xml_root_element("<!-- <c/> --><d/>") == "d"
+        assert _xml_root_element("<!DOCTYPE e SYSTEM 'x>y.dtd'><e/>") == "e"
+        assert _xml_root_element("<!DOCTYPE f [ <!ENTITY g '>'> ]><f/>") == "f"
+        # A namespace prefix is not part of the name.
+        assert _xml_root_element("<mx:score-timewise/>") == "score-timewise"
+        # Nothing to report rather than a guess.
+        assert _xml_root_element("") == ""
+        assert _xml_root_element("plain text, no markup") == ""
+        assert _xml_root_element("<!-- unterminated comment") == ""
+
+
 class TestEncoding:
     def test_utf8_chinese_content_round_trips(self, tmp_path: Path) -> None:
         # The whole reason we pin UTF-8: Chinese content is the

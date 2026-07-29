@@ -312,6 +312,213 @@ class TestUnlimited:
         assert doc.blocks[0].text == "你好"
 
 
+class TestEveryRouteBindsTheCallersCeilingToTheBytesRead:
+    """The caller's ``max_file_bytes`` must reach the read that actually
+    happens, on every route.
+
+    ``check_file_size`` is a fast reject on *path metadata*; the binding
+    promise is :meth:`InputLimits.read_bounded`, on the descriptor. A route
+    that read through a helper whose ``limits`` parameter was *defaulted*
+    quietly swapped the caller's policy for ``DEFAULT_INPUT_LIMITS`` — the
+    file-byte ceiling was then effectively absent, since the caller only ever
+    tightens it. Two routes did: the generic ``.xml`` sniff and the ``.abc``
+    deferred score. Both are exercised through the replace-after-stat window,
+    which is the only way to tell a real read ceiling from an absent one.
+
+    :meth:`InputLimits.read_bounded_text` is why this can't come back: it is a
+    method, so there is no default to fall back to — a caller without an
+    ``InputLimits`` in hand cannot read at all.
+    """
+
+    @staticmethod
+    def _swap_after_stat(monkeypatch, target: Path, replacement: bytes) -> None:
+        """Rewrite ``target`` the first time its ``stat()`` is taken — the
+        window between ``parse_file``'s gate and the adapter's read."""
+        import pathlib
+
+        real_stat = pathlib.Path.stat
+        fired = {"n": 0}
+
+        def growing_stat(self, **kwargs):  # noqa: ANN001, ANN202
+            result = real_stat(self, **kwargs)
+            if self == target and fired["n"] == 0:
+                fired["n"] += 1
+                target.write_bytes(replacement)
+            return result
+
+        monkeypatch.setattr(pathlib.Path, "stat", growing_stat)
+
+    def test_generic_xml_route(self, tmp_path: Path, monkeypatch) -> None:
+        target = tmp_path / "doc.xml"
+        target.write_bytes(b"<a/>")
+        self._swap_after_stat(monkeypatch, target, b"<a>" + b"x" * 4096 + b"</a>")
+        with pytest.raises(InputTooLargeError) as exc:
+            parse_file(
+                target,
+                profile="cn_current",
+                language="zh-CN",
+                limits=InputLimits(max_file_bytes=64),
+            )
+        assert exc.value.kind == "file_bytes"
+
+    def test_score_xml_route(self, tmp_path: Path, monkeypatch) -> None:
+        target = tmp_path / "score.musicxml"
+        target.write_bytes(b"<score-partwise/>")
+        self._swap_after_stat(monkeypatch, target, b"<score-partwise>" + b"x" * 4096)
+        with pytest.raises(InputTooLargeError) as exc:
+            parse_file(
+                target,
+                profile="cn_current",
+                language="zh-CN",
+                limits=InputLimits(max_file_bytes=64),
+            )
+        assert exc.value.kind == "file_bytes"
+
+    def test_deferred_abc_route(self, tmp_path: Path, monkeypatch) -> None:
+        target = tmp_path / "tune.abc"
+        target.write_bytes(b"X:1\nK:C\n")
+        self._swap_after_stat(monkeypatch, target, b"X:1\nK:C\n" + b"a" * 4096)
+        with pytest.raises(InputTooLargeError) as exc:
+            parse_file(
+                target,
+                profile="cn_current",
+                language="zh-CN",
+                limits=InputLimits(max_file_bytes=64),
+            )
+        assert exc.value.kind == "file_bytes"
+
+    def test_plain_route_still_bound(self, tmp_path: Path, monkeypatch) -> None:
+        # The route that already had it — kept so a refactor of the shared
+        # reader can't lose the one case that was right.
+        target = _write(tmp_path / "doc.txt", "ab")
+        self._swap_after_stat(monkeypatch, target, b"x" * 4096)
+        with pytest.raises(InputTooLargeError):
+            parse_file(
+                target,
+                profile="cn_current",
+                language="zh-CN",
+                limits=InputLimits(max_file_bytes=64),
+            )
+
+
+class TestWordRoutesOwnTheirInput:
+    """A ``.docx`` is checked and then parsed; both must see the same bytes.
+
+    The archive used to be opened twice by path — once by the zip-bomb
+    preflight, once by python-docx — so the object that passed the caps and
+    the object that was parsed could be two different files, and the caller's
+    ``max_file_bytes`` never reached the second open at all.
+    """
+
+    @staticmethod
+    def _docx(path: Path, text: str) -> Path:
+        docx = pytest.importorskip("docx")
+        doc = docx.Document()
+        doc.add_paragraph(text)
+        doc.save(str(path))
+        return path
+
+    def test_callers_ceiling_reaches_the_docx_read(self, tmp_path: Path) -> None:
+        path = self._docx(tmp_path / "doc.docx", "hello")
+        with pytest.raises(InputTooLargeError) as exc:
+            parse_file(
+                path,
+                profile="cn_current",
+                language="zh-CN",
+                limits=InputLimits(max_file_bytes=64),
+            )
+        assert exc.value.kind == "file_bytes"
+
+    def test_parse_consumes_the_preflighted_bytes(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Replace the archive the instant the preflight has passed: the parse
+        must still yield the document that was checked, not the substitute."""
+        import brailix.input.docx as docx_adapter
+
+        path = self._docx(tmp_path / "doc.docx", "原始文档")
+        substitute = self._docx(tmp_path / "other.docx", "掉包文档").read_bytes()
+
+        real_preflight = docx_adapter._preflight_docx_archive
+
+        def swapping_preflight(data: bytes, p: Path) -> None:
+            real_preflight(data, p)
+            path.write_bytes(substitute)  # the window, now closed
+
+        monkeypatch.setattr(
+            docx_adapter, "_preflight_docx_archive", swapping_preflight
+        )
+        doc = parse_file(path, profile="cn_current", language="zh-CN")
+        texts = [b.text for b in doc.blocks if getattr(b, "text", None)]
+        assert "原始文档" in texts
+        assert "掉包文档" not in texts
+
+    def test_doc_conversion_hands_libreoffice_a_bounded_private_copy(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """``soffice`` takes a path, so it must be pointed at the bytes that
+        were read under the caller's ceiling — not at the caller's path, which
+        can resolve to something else by the time the converter opens it."""
+        import brailix.input.docx as docx_adapter
+
+        original = tmp_path / "legacy.doc"
+        original.write_bytes(b"\xd0\xcf\x11\xe0 legacy doc bytes")
+        converted_from: list[Path] = []
+
+        def fake_run(cmd, *, check, capture_output, timeout):  # noqa: ANN001
+            source = Path(cmd[-1])
+            converted_from.append(source)
+            # The converter is handed a private copy, so swapping the caller's
+            # path now must not change what gets converted.
+            original.write_bytes(b"\xd0\xcf\x11\xe0 swapped")
+            out_dir = Path(cmd[cmd.index("--outdir") + 1])
+            TestWordRoutesOwnTheirInput._docx(
+                out_dir / (source.stem + ".docx"), "转换结果"
+            )
+
+            class Result:
+                returncode = 0
+
+            return Result()
+
+        monkeypatch.setattr(
+            docx_adapter, "_resolve_doc_converter", lambda override: "soffice"
+        )
+        monkeypatch.setattr(docx_adapter.subprocess, "run", fake_run)
+
+        doc = parse_file(original, profile="cn_current", language="zh-CN")
+        assert len(converted_from) == 1
+        source = converted_from[0]
+        assert source != original, "LibreOffice was pointed at the caller's path"
+        assert source.name == original.name
+        assert [b.text for b in doc.blocks if getattr(b, "text", None)] == [
+            "转换结果"
+        ]
+
+    def test_doc_conversion_respects_the_callers_ceiling(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import brailix.input.docx as docx_adapter
+
+        original = tmp_path / "legacy.doc"
+        original.write_bytes(b"\xd0\xcf\x11\xe0" + b"x" * 4096)
+        monkeypatch.setattr(
+            docx_adapter, "_resolve_doc_converter", lambda override: "soffice"
+        )
+
+        def never(*args, **kwargs):  # noqa: ANN002, ANN003
+            raise AssertionError("LibreOffice must not see an oversized input")
+
+        monkeypatch.setattr(docx_adapter.subprocess, "run", never)
+        with pytest.raises(InputTooLargeError):
+            parse_file(
+                original,
+                profile="cn_current",
+                language="zh-CN",
+                limits=InputLimits(max_file_bytes=64),
+            )
+
+
 class TestPipelineForwardsLimits:
     def test_pipeline_parse_file_enforces_limits(self, tmp_path: Path) -> None:
         path = _write(tmp_path / "big.txt", "x" * 4096)

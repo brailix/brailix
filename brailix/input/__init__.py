@@ -70,7 +70,6 @@ from brailix.input.music_xml import (
     MUSIC_SUFFIXES as _MUSIC_SUFFIXES_ALL,
 )
 from brailix.input.music_xml import (
-    _read_xml_text,
     parse_deferred_score,
     parse_musicxml,
     parse_score_file,
@@ -109,16 +108,80 @@ _SNIFFED_XML_SUFFIXES = frozenset({".xml"})
 _MUSIC_SUFFIXES = _MUSIC_SUFFIXES_ALL - _SNIFFED_XML_SUFFIXES
 
 
+# MusicXML's two root elements; element names are lowercase per the schema.
+_MUSICXML_ROOTS = frozenset({"score-partwise", "score-timewise"})
+
+
+def _xml_root_element(text: str) -> str:
+    """The name of ``text``'s first start element, or ``""``.
+
+    A deliberately small hand-written prologue scanner rather than a real
+    parser. Everything before the root element is skippable — whitespace, the
+    ``<?xml?>`` declaration and other processing instructions, comments, and a
+    ``<!DOCTYPE …>`` whose internal ``[…]`` subset may itself contain ``>``
+    inside quotes — and once the first ``<name`` is reached there is nothing
+    left to decide. Feeding the document to :mod:`xml.etree` instead would
+    expand entities declared in that internal subset before this function ever
+    returned, which is a parser to point at untrusted input only deliberately;
+    this reads the head and stops.
+
+    A namespace prefix is dropped (``<mx:score-partwise>`` reports
+    ``score-partwise``). MusicXML is not namespaced, so this only makes the
+    answer harder to get wrong.
+    """
+    i, n = 0, len(text)
+    while i < n:
+        while i < n and text[i].isspace():
+            i += 1
+        if i >= n or text[i] != "<":
+            return ""
+        if text.startswith("<!--", i):
+            end = text.find("-->", i + 4)
+            if end < 0:
+                return ""
+            i = end + 3
+        elif text.startswith("<?", i):
+            end = text.find("?>", i + 2)
+            if end < 0:
+                return ""
+            i = end + 2
+        elif text.startswith("<!", i):
+            # DOCTYPE (or any other markup declaration): find its closing
+            # ``>``, skipping over quoted strings — a public identifier can
+            # contain one — and over a whole internal subset if present.
+            i += 2
+            while i < n and text[i] != ">":
+                if text[i] in "\"'":
+                    end = text.find(text[i], i + 1)
+                    i = n if end < 0 else end + 1
+                elif text[i] == "[":
+                    end = text.find("]", i + 1)
+                    i = n if end < 0 else end + 1
+                else:
+                    i += 1
+            i += 1
+        else:
+            start = i + 1
+            j = start
+            while j < n and not (text[j].isspace() or text[j] in "/>"):
+                j += 1
+            name = text[start:j]
+            return name.rsplit(":", 1)[-1]
+    return ""
+
+
 def _looks_like_musicxml(text: str) -> bool:
     """True if ``text`` opens a MusicXML score document.
 
-    MusicXML's root element (after an optional ``<?xml?>`` / DOCTYPE) is
-    ``<score-partwise>`` or ``<score-timewise>``; element names are
-    lowercase per the schema. Only the document head is inspected so a
-    large non-score XML file isn't fully scanned.
+    Decided by the **root element** (:func:`_xml_root_element`), not by
+    whether the two score tag names appear somewhere near the top. The
+    substring test this replaces was wrong in both directions: a plain XML
+    document mentioning ``<score-partwise`` in a comment, a CDATA section or a
+    DTD was routed to the music adapter, while a genuine score whose
+    declaration, comments or internal DTD subset ran past the 4096-character
+    window it looked at was handed to the plain-text parser instead.
     """
-    head = text[:4096]
-    return "<score-partwise" in head or "<score-timewise" in head
+    return _xml_root_element(text) in _MUSICXML_ROOTS
 
 
 @dataclass
@@ -135,7 +198,11 @@ class _FileCtx:
     profile: str
     mathtype_fallback: str
     chem_detection: bool
-    limits: InputLimits = DEFAULT_INPUT_LIMITS
+    # Required, deliberately: a size policy that can be defaulted-in is a
+    # policy that can be lost by omission, which is how two routes ended up
+    # reading under ``DEFAULT_INPUT_LIMITS`` instead of the caller's ceiling.
+    # ``parse_file`` is the only constructor and always passes its own.
+    limits: InputLimits
     _text: str | None = field(default=None, init=False, repr=False)
 
     @property
@@ -144,33 +211,15 @@ class _FileCtx:
         # wholesale decode is already bounded; apply the decoded-character gate
         # once the text exists (the size the frontend then walks per character).
         if self._text is None:
-            decoded = _decode_text(self.path, self.limits)
+            # Reads through the caller's own limits (see
+            # :meth:`InputLimits.read_bounded_text`): the bytes actually
+            # consumed are capped on the handle being read, because the
+            # ``stat()`` gate in :func:`parse_file` describes the path at one
+            # instant and this opens it again afterwards.
+            decoded = self.limits.read_bounded_text(self.path)
             self.limits.check_text_length(decoded)
             self._text = decoded
         return self._text
-
-
-def _decode_text(path: Path, limits: InputLimits = DEFAULT_INPUT_LIMITS) -> str:
-    """Decode a text file, tolerating the UTF-16 BOM Windows Notepad writes.
-
-    Notepad's "save as .txt" historically emits UTF-16 LE with a BOM, and
-    ``.md`` / ``.txt`` files from non-technical users are exactly that —
-    the same UTF-16 reality the ``.xml`` route already handles via
-    :func:`_read_xml_text`. ``utf-8-sig`` alone raises UnicodeDecodeError on
-    those valid files. Sniff the UTF-16 BOM (the codec reads it for
-    endianness); otherwise fall back to ``utf-8-sig`` (which strips a UTF-8
-    BOM so a Markdown heading on line one still matches, else behaves like
-    utf-8). Genuinely non-UTF-8/16 bytes still raise.
-
-    Reads through :meth:`InputLimits.read_bounded`, so the bytes actually
-    consumed are capped on the handle being read — the ``stat()`` gate in
-    :func:`parse_file` describes the path at one instant and this opens it
-    again afterwards.
-    """
-    raw = limits.read_bounded(path)
-    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
-        return raw.decode("utf-16")
-    return raw.decode("utf-8-sig")
 
 
 # Route handlers: each takes a :class:`_FileCtx` and returns a ``DocumentIR``.
@@ -179,12 +228,15 @@ def _decode_text(path: Path, limits: InputLimits = DEFAULT_INPUT_LIMITS) -> str:
 
 
 def _route_docx(ctx: _FileCtx) -> _DocumentIR:
+    # ``limits`` rides along so the caller's byte ceiling binds the archive
+    # the adapter actually reads, not just the ``stat()`` parse_file did.
     return parse_docx(
         ctx.path,
         language=ctx.language,
         profile=ctx.profile,
         mathtype_fallback=ctx.mathtype_fallback,
         chem_detection=ctx.chem_detection,
+        limits=ctx.limits,
     )
 
 
@@ -194,6 +246,7 @@ def _route_doc(ctx: _FileCtx) -> _DocumentIR:
         language=ctx.language,
         profile=ctx.profile,
         chem_detection=ctx.chem_detection,
+        limits=ctx.limits,
     )
 
 
@@ -249,7 +302,13 @@ def _route_xml(ctx: _FileCtx) -> _DocumentIR:
     # exporters emit a BOM), and utf-8-sig raises UnicodeDecodeError on those
     # valid files before the sniff runs — so a UTF-16 score .xml used to crash
     # where the byte-identical .musicxml parsed fine. Both routes now agree.
-    text = _read_xml_text(ctx.path)
+    #
+    # Through ``ctx.limits``, not a defaulted reader: this route used to call
+    # a free function whose ``limits`` parameter defaulted to
+    # ``DEFAULT_INPUT_LIMITS``, so a caller's tightened ``max_file_bytes``
+    # was silently dropped here and an ``.xml`` replaced after the stat gate
+    # was read up to the *default* ceiling instead.
+    text = ctx.limits.read_bounded_text(ctx.path, normalize_newlines=True)
     # This path reads directly (not via ``ctx.text``), so apply the decoded-
     # character gate here too — the file-byte gate already ran in parse_file.
     ctx.limits.check_text_length(text)
