@@ -148,6 +148,7 @@ brailix/
 │   │   ├── protocols.py      # Segmenter / Analyzer / Resolver / Adapter / Backend / Renderer
 │   │   ├── _xml.py           # shared XML helper (safe_fromstring: parsing with entity expansion off)
 │   │   ├── chars.py          # irregular-character sets (one authority, consumed by the backend and by front-ends)
+│   │   ├── paths.py          # a configured *name* is not a path (one validator, shared by every resource loader)
 │   │   ├── inline_math.py    # inline-formula island codec (source tag + original text)
 │   │   ├── defaults.py / dispatch.py
 │   │   ├── config/           # profile loaders

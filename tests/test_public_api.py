@@ -569,9 +569,10 @@ def test_facade_binds_no_unpublished_brailix_name(module: str) -> None:
     others because it *uses* them, and aliasing every one would be noise for a
     module nobody is directed to import from. What matters there is narrower
     and is checked by
-    :func:`test_pipeline_namespace_exposes_no_internal_collaborators`: it must
-    not publish the collaborators it defines *itself*, because those exist
-    nowhere else and so read as its own API.
+    :func:`test_pipeline_namespace_offers_nothing_that_is_not_published_somewhere`:
+    it may re-expose a name some supported path already carries, but not one
+    that is published nowhere, because that name exists at no other address and
+    so reads as its own API.
     """
     import ast
     import importlib.util
@@ -605,7 +606,7 @@ def test_facade_binds_no_unpublished_brailix_name(module: str) -> None:
     )
 
 
-def test_pipeline_namespace_exposes_no_internal_collaborators() -> None:
+def test_pipeline_namespace_offers_nothing_that_is_not_published_somewhere() -> None:
     """``__all__`` governs ``import *`` and the generated reference — it does
     not stop ``from brailix.pipeline import CompilationSession``.
 
@@ -617,28 +618,65 @@ def test_pipeline_namespace_exposes_no_internal_collaborators() -> None:
     was quietly contradicting, along with the frontend driver, ``compile_block``,
     ``compose_document_pages`` and the four fingerprint functions.
 
-    The internals are imported under underscore aliases instead. This checks
-    only names the pipeline package *itself* defines: a re-export like
-    ``Paragraph`` is another package's published type that merely also resolves
-    here, which is untidy but promises nothing new.
+    The bar is **nothing new resolves here**, not "nothing but ``__all__``".
+    ``brailix.pipeline`` is an implementation module rather than a facade: it
+    imports ``Paragraph``, ``Span``, ``DocumentIR`` and two dozen more because
+    it *uses* them, and every one of those is already supported at the address
+    the documentation sends people to. Reaching one of them through this module
+    is untidy; it is not a new promise, and aliasing them all would be noise.
+
+    What counts is a name published *nowhere* — and the previous version of
+    this check could not see those. It asked whether the object's
+    ``__module__`` started with ``brailix.pipeline``, a proxy for "our own
+    internal" that let four names through: ``load_profile`` and
+    ``translate_document``, entry points belonging to other layers, and the two
+    ``BackendContext.options`` keys, which are backend wire protocol. All four
+    sat at ``brailix.pipeline`` next to ``Pipeline`` with nothing to mark them
+    apart. This asks the question directly instead.
+
+    Read from the source, like the facade check: a re-exported *constant* has
+    no ``__module__`` to trace, and those are exactly the ones a runtime check
+    misses — the two option keys are strings.
     """
-    import types
+    import ast
+    import importlib.util
+
+    published = {
+        name
+        for names in (*_FACADE.values(), *_EXTENSION_SURFACE.values())
+        for name in names
+    }
 
     import brailix.pipeline as pipeline
 
-    leaked = sorted(
-        name
-        for name, obj in vars(pipeline).items()
-        if not name.startswith("_")
-        and name not in pipeline.__all__
-        and not isinstance(obj, types.ModuleType)
-        and getattr(obj, "__module__", "").startswith("brailix.pipeline")
-    )
+    spec = importlib.util.find_spec("brailix.pipeline")
+    assert spec is not None and spec.origin is not None
+    tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
+
+    leaked: list[str] = []
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        source = node.module or ""
+        if not source.startswith("brailix"):
+            continue
+        for alias in node.names:
+            bound = alias.asname or alias.name
+            if (
+                bound.startswith("_")
+                or bound in pipeline.__all__
+                or bound in published
+            ):
+                continue
+            leaked.append(f"{bound} (from {source})")
+
     assert not leaked, (
-        f"brailix.pipeline exposes its own internals as importable names: "
+        f"brailix.pipeline binds names no documented surface publishes: "
         f"{leaked} — import them as ``from ._module import X as _X`` so the "
-        f"package namespace carries the API and nothing else, or add the name "
-        f"to __all__ (and _PIPELINE_ALL) as a deliberate promise"
+        f"package namespace offers nothing a third party cannot already get "
+        f"from a supported path, or publish them (in _FACADE / "
+        f"_EXTENSION_SURFACE, or in __all__ and _PIPELINE_ALL) as a deliberate "
+        f"promise"
     )
 
 

@@ -28,7 +28,11 @@ from pathlib import Path
 from typing import Any
 
 from brailix.core.context import FrontendContext
-from brailix.core.errors import IncompatibleDependencyError, ModelNotInstalledError
+from brailix.core.errors import (
+    PROGRAMMING_ERRORS,
+    IncompatibleDependencyError,
+    ModelNotInstalledError,
+)
 from brailix.core.models.asset_registry import (
     ModelAsset,
     is_managed_download,
@@ -204,6 +208,17 @@ def _load() -> HanLPChineseAnalyzer:
         pipeline = hanlp.load(
             hanlp.pretrained.mtl.CLOSE_TOK_POS_NER_SRL_DEP_SDP_CON_ELECTRA_SMALL_ZH
         )
+    except PROGRAMMING_ERRORS:
+        # Before the broad catch below, and for a reason specific to *this*
+        # kind of boundary: what it raises is a candidate-unavailable signal,
+        # which the ``auto`` chain answers by picking a different engine. So a
+        # code defect here — ours, or an upstream API that moved under us —
+        # would not merely be mislabelled "model not installed"; it would leave
+        # the translation succeeding, with jieba or char silently producing
+        # different braille and no stack anywhere pointing at the regression.
+        # The same ladder the math / music / graphics soft-failure boundaries
+        # run (see brailix.core.errors.PROGRAMMING_ERRORS).
+        raise
     except Exception as exc:  # noqa: BLE001 — any load failure ⇒ candidate unavailable
         raise ModelNotInstalledError(
             model_id=_MODEL_ID, install_dir=hanlp_home / _MTL_DIR

@@ -122,3 +122,98 @@ class TestManagedDownload:
     def test_default_arg_enables(self) -> None:
         set_managed_download()
         assert is_managed_download() is True
+
+
+class TestConcurrencyContract:
+    """ARCHITECTURE#arch-boundaries lists this table among the process-level
+    assembly surfaces whose reads and writes are safe against a concurrent
+    compile. It was the only one with no lock behind that promise.
+
+    The promise is not academic: adapters call ``register_asset`` at *module*
+    import, and adapter modules are imported lazily by the adapter registry's
+    ``get`` — on the compiling thread. So a model-manager front-end refreshing
+    its table calls ``all_assets`` from its own thread, concurrently with the
+    first document that selects HanLP. ``all_assets`` was two steps, ``sorted``
+    then an index per key, and the fixture pattern at the top of this file —
+    clear, then restore — is exactly a removal between them.
+
+    These check that the mutators and the snapshot take the lock, by holding
+    it and watching them block, rather than by racing threads and hoping to
+    lose. A racing test that passes proves nothing; this one can only fail
+    when the lock is genuinely absent.
+    """
+
+    # Long enough that a loaded machine isn't mistaken for a bug (the wait is
+    # for a thread that should finish immediately once unblocked).
+    _UNBLOCKED = 10.0
+    # Short, and only ever read as "still blocked". A slow machine makes this
+    # *more* likely to hold, never less — it cannot produce a false failure.
+    _BLOCKED = 0.2
+
+    @staticmethod
+    def _call_in_thread(fn):
+        import threading
+
+        done = threading.Event()
+
+        def run() -> None:
+            fn()
+            done.set()
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        return thread, done
+
+    @pytest.mark.parametrize(
+        "operation",
+        ["register_asset", "all_assets", "set_managed_download"],
+    )
+    def test_the_guarded_operations_wait_for_the_lock(
+        self, operation: str, tmp_path: Path
+    ) -> None:
+        from brailix.core.models import asset_registry as ar
+
+        calls = {
+            "register_asset": lambda: register_asset(_asset("m", tmp_path)),
+            "all_assets": all_assets,
+            "set_managed_download": lambda: set_managed_download(True),
+        }
+        with ar._lock:
+            thread, done = self._call_in_thread(calls[operation])
+            assert not done.wait(self._BLOCKED), (
+                f"{operation} completed while another thread held the lock — "
+                f"it is not taking it"
+            )
+        assert done.wait(self._UNBLOCKED), f"{operation} never completed"
+        thread.join(timeout=self._UNBLOCKED)
+
+    @pytest.mark.parametrize("operation", ["get_asset", "is_managed_download"])
+    def test_the_hot_path_reads_stay_lock_free(self, operation: str) -> None:
+        """The deliberate other half. Both are a single atomic ``dict.get`` /
+        attribute read that adapters run per compile; putting them behind the
+        lock would serialise the hot path to buy nothing. Pinned so that stays
+        a decision."""
+        from brailix.core.models import asset_registry as ar
+
+        calls = {
+            "get_asset": lambda: get_asset("anything"),
+            "is_managed_download": is_managed_download,
+        }
+        with ar._lock:
+            thread, done = self._call_in_thread(calls[operation])
+            assert done.wait(self._UNBLOCKED), (
+                f"{operation} blocked on the lock — it is meant to be a "
+                f"lock-free read"
+            )
+        thread.join(timeout=self._UNBLOCKED)
+
+    def test_all_assets_is_a_snapshot_not_a_view(self, tmp_path: Path) -> None:
+        """What the lock is protecting, stated as the caller-visible property:
+        a list handed out stays what it was, and :class:`ModelAsset` is frozen,
+        so a later registration cannot rewrite a front-end's table underneath
+        it mid-render."""
+        register_asset(_asset("a", tmp_path / "a"))
+        snapshot = all_assets()
+        register_asset(_asset("b", tmp_path / "b"))
+        assert [a.name for a in snapshot] == ["a"]
+        assert [a.name for a in all_assets()] == ["a", "b"]

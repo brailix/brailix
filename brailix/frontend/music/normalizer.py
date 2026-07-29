@@ -14,10 +14,20 @@ special cases to handle:
   cells), since timewise scores are rare in practice;
 * strip pure-whitespace text nodes that confuse element iteration.
 
-The normalizer never raises — malformed input is wrapped into a single
-``<music-error>`` document and returned. The backend turns that into a
-fallback cell sequence with a ``MUSIC_*`` warning and the pipeline
-keeps running.
+The normalizer never raises **for a malformed score** — bad input is wrapped
+into a single ``<music-error>`` document and returned. The backend turns that
+into a fallback cell sequence with a ``MUSIC_*`` warning and the pipeline keeps
+running.
+
+One thing does come back out, and it is not a parse failure: given a
+:class:`~brailix.core.context.MusicContext`, the normalizer reports through
+``ctx.warnings``, and under STRICT mode a collector promotes the first warning
+to :class:`~brailix.core.errors.StrictModeError`.
+:func:`~brailix.frontend.music.parse_music_tree` re-raises that deliberately
+rather than degrading it, because STRICT means "any diagnostic is a failure"
+and a ``<music-error>`` tree is not the failure the caller asked for. So the
+contract is: soft-fail on parse and normalisation errors, but let a
+strict-mode diagnostic through.
 
 **Attribute preservation**: the normalizer rewrites ``elem.tag`` (to
 drop namespaces) but never touches ``elem.attrib`` — provenance / data
@@ -48,7 +58,9 @@ def normalize(
 
     Soft-failure contract: invalid XML is wrapped into a
     ``<music-error>`` document via :func:`music_error_wrap` so the
-    caller always gets a usable tree (rooted at ``<score-partwise>``).
+    caller always gets a usable tree — that recovery document is rooted at
+    ``<score-partwise>``. A tree that parses keeps whatever root it came with,
+    ``<score-timewise>`` included.
     """
     try:
         root = safe_fromstring(musicxml)

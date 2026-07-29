@@ -27,8 +27,17 @@ from brailix.frontend.music.normalizer import normalize
 def parse_music_tree(
     src: str | bytes, ctx: MusicContext
 ) -> ET.Element | None:
-    """Convert one music fragment to a normalised :class:`ET.Element`
-    tree (rooted at ``<score-partwise>``).
+    """Convert one music fragment to a normalised :class:`ET.Element` tree.
+
+    The root is ``<score-partwise>`` for everything the pipeline actually
+    translates, including the ``<music-error>`` recovery document. It is not a
+    guarantee, though, and code that assumes it is will be wrong on real input:
+    a ``<score-timewise>`` score is deliberately passed through *unconverted*
+    (see :mod:`~brailix.frontend.music.normalizer`), and the backend answers
+    that root with one ``MUSIC_UNSUPPORTED_NOTATION`` warning and no cells.
+    Timewise scores are rare enough that transposing them has never been worth
+    the code; reporting them as unsupported is the intended behaviour, and it
+    needs the root to survive normalisation.
 
     Steps: pick the source adapter from ``ctx.source`` → produce a
     MusicXML string → run the normalizer (strip namespace, normalize

@@ -36,6 +36,94 @@ from pathlib import Path, PureWindowsPath
 
 from brailix.core.errors import ConfigurationError
 
+# Names Windows resolves to a *device* rather than a file, with or without an
+# extension: opening ``NUL.json`` opens the null device and reads empty, and
+# ``COM1.json`` opens a serial port. None of them can be a resource, and the
+# check runs on every platform so a profile name that works on Linux doesn't
+# turn into a device read after deployment to Windows.
+_WINDOWS_DEVICE_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{d}" for d in "123456789"}
+    | {f"LPT{d}" for d in "123456789"}
+)
+
+# Characters Windows forbids in a filename outright. ``:`` is the interesting
+# one: ``foo:bar`` passes the single-component test above (it *is* one path
+# component) while naming the alternate data stream ``bar`` of a file ``foo``,
+# so a name like that reads and writes somewhere the caller never asked for.
+# The rest can't appear in a Windows filename at all; refusing them everywhere
+# keeps one name meaning one thing on every platform.
+_FORBIDDEN_CHARS = frozenset('<>:"|?*')
+
+
+def validate_resource_component(name: str, kind: str) -> str:
+    """Return ``name`` if it is usable as one filename component; else raise.
+
+    The single owner of "a name is not a path" for every loader that turns a
+    configured *name* into a file under a directory it chose. Three loaders
+    wrote their own version of this and two of them had different holes, which
+    is the argument for one function rather than three near-identical guards:
+    :func:`resolve_named_resource` (braille and tactile profiles) and
+    :func:`brailix.core.models.paths.get_model_dir` (an adapter's model
+    directory) both call it.
+
+    ``kind`` names the thing being loaded (``"profile"``, ``"model"``) and
+    appears in the error so a front-end can say which setting was rejected.
+    Raises :class:`~brailix.core.errors.ConfigurationError`, which is also a
+    :class:`ValueError` — the type both call sites already documented.
+
+    The rules, and what each is for:
+
+    * **non-empty**, and a **single component when parsed as a Windows path**.
+      That flavour is used on every platform because it is the stricter
+      reading: it treats ``\\`` as a separator as well as ``/``, and it
+      understands drives and UNC shares. ``..\\secret`` is refused on Linux
+      too, and so is ``C:foo`` — which is not a filename at all but the
+      *drive-relative* path "``foo`` under the current directory of drive C",
+      and joining it onto a directory on another drive discards that directory
+      entirely rather than nesting under it.
+    * **no ``<>:"|?*``**, so a name cannot address an NTFS alternate data
+      stream (see :data:`_FORBIDDEN_CHARS`).
+    * **no Windows device name** as the stem (see
+      :data:`_WINDOWS_DEVICE_NAMES`).
+    * **no control characters**, which no resource has and several
+      filesystems mangle.
+    * **no trailing space or dot**: Windows strips both when resolving, so
+      ``cn_current.`` and ``cn_current`` name the same file — one resource
+      reachable under names that don't compare equal, which is a hole in any
+      caller that decides access by comparing the name.
+
+    Containment needs no separate check: a name that is one component, with no
+    drive and no root, joins *under* the directory by construction. A
+    :meth:`~pathlib.Path.resolve`-based check would additionally refuse a
+    symlink out of the directory, which the loaders deliberately allow — an
+    operator who can plant one inside the profile directory already owns the
+    process, and refusing them would break the ordinary deployment that links
+    a profile in from a config-management directory.
+    """
+    if not name or PureWindowsPath(name).name != name:
+        raise ConfigurationError(
+            f"{kind} name must be a single file name, not a path: {name!r}"
+        )
+    bad = _FORBIDDEN_CHARS.intersection(name)
+    if bad:
+        raise ConfigurationError(
+            f"{kind} name must not contain {''.join(sorted(bad))!r}: {name!r}"
+        )
+    if any(ch < " " or ch == "\x7f" for ch in name):
+        raise ConfigurationError(
+            f"{kind} name must not contain control characters: {name!r}"
+        )
+    if name[-1] in " .":
+        raise ConfigurationError(
+            f"{kind} name must not end with a space or a dot: {name!r}"
+        )
+    if name.partition(".")[0].upper() in _WINDOWS_DEVICE_NAMES:
+        raise ConfigurationError(
+            f"{kind} name must not be a reserved device name: {name!r}"
+        )
+    return name
+
 
 def resolve_named_resource(
     directory: Path, name: str, kind: str, suffix: str = ".json"
@@ -44,23 +132,11 @@ def resolve_named_resource(
 
     ``kind`` names the thing being loaded (``"profile"``, ``"tactile
     profile"``) and appears in the error, so a front-end can show which
-    setting was rejected. Raises :class:`~brailix.core.errors.ConfigurationError`
-    for anything that is not a single filename component — the error type both
-    loaders already promise for a configuration value they cannot use.
-
-    Parsed as a **Windows** path deliberately, on every platform: it treats
-    ``\\`` as a separator as well as ``/``, so ``..\\secret`` is refused on
-    Linux too. Refusing a name a given OS would have read as harmless costs
-    nothing (no profile is called ``a/b``), while accepting one it reads as a
-    path is the whole bug.
-
-    Symlinks are still followed. The name is the untrusted part — an operator
-    who can plant a symlink inside the profile directory already owns the
-    process, and refusing them would break the ordinary deployment that links
-    a profile in from a config-management directory.
+    setting was rejected. The name is checked by
+    :func:`validate_resource_component` — see there for the rules and the
+    reasoning; it raises :class:`~brailix.core.errors.ConfigurationError`, the
+    error type both loaders already promise for a configuration value they
+    cannot use.
     """
-    if not name or PureWindowsPath(name).name != name:
-        raise ConfigurationError(
-            f"{kind} name must be a single file name, not a path: {name!r}"
-        )
+    validate_resource_component(name, kind)
     return directory / f"{name}{suffix}"

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from brailix.core.context import FrontendContext
-from brailix.core.errors import MissingExtraError
+from brailix.core.errors import PROGRAMMING_ERRORS, MissingExtraError
 from brailix.frontend.zh.pinyin.adapters._align import resolve_by_char_alignment
 from brailix.ir.inline import ChineseToken
 
@@ -69,6 +69,15 @@ def _load() -> G2pwPinyinResolver:
 
     try:
         predictor = g2pw.G2PWConverter()
+    except PROGRAMMING_ERRORS:
+        # Ahead of the broad catch below: that catch raises a
+        # candidate-unavailable signal, which ``auto`` answers by silently
+        # resolving to pypinyin / null. A code defect (ours, or an upstream API
+        # that moved) would therefore change the readings this document is
+        # translated with while the compile still reported success. Same ladder
+        # as the math / music / graphics soft-failure boundaries
+        # (brailix.core.errors.PROGRAMMING_ERRORS).
+        raise
     except Exception as e:  # noqa: BLE001
         # G2PWConverter downloads its model on first construction; a network /
         # IO failure raises URLError / OSError / BadZipFile / RuntimeError, none

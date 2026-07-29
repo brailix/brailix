@@ -340,3 +340,92 @@ def test_no_code_cites_a_section_number() -> None:
         "Cite the stable anchor instead (ARCHITECTURE#arch-…):\n"
         + "\n".join(offenders)
     )
+
+
+# ---------------------------------------------------------------------------
+# The directory tree in the document describes the repo that exists
+# ---------------------------------------------------------------------------
+#
+# Both copies introduce their tree with a promise — "文件名以仓库实际为准" /
+# "File names below follow what is actually in the repo" — and the Chinese one
+# goes further, listing by name the entries an older draft carried that never
+# existed (``ir/schema.py``, ``frontend/punctuation.py``, ...). That is a
+# promise nothing was keeping: ``core/paths.py`` landed and the tree did not
+# move, so the one place a maintainer looks up "where does path safety live?"
+# answered "nowhere".
+#
+# Two directions, and only one of them can be checked everywhere. That every
+# named file *exists* holds for the whole tree, which is why it is checked over
+# all of it. The converse — that every file is *named* — is true only of the
+# parts the tree enumerates exhaustively; it deliberately summarises adapter
+# folders as ``adapters/  # latex / mathml / omml / ...``. ``core/`` is
+# enumerated, and is where the drift happened, so that is where the reverse
+# check is pinned.
+
+# ``│   ├── name.py    # comment`` → indent, then the entry, then a comment.
+_TREE_ENTRY = re.compile(r"^(?P<indent>(?:[│ ]   )*)(?:├──|└──) (?P<rest>.+)$")
+_TREE_EXHAUSTIVE = ("brailix/core",)
+
+
+def _tree_paths(text: str) -> dict[str, str]:
+    """Every ``*.py`` the document's tree names → the line it was named on.
+
+    Paths are rebuilt from the box-drawing indentation, so a file is checked
+    where the tree says it is rather than merely somewhere in the repo. Two
+    spellings the tree uses need handling: a trailing ``/`` marks a directory,
+    and ``a.py / b.py`` names two siblings on one line.
+    """
+    stack: list[str] = []
+    found: dict[str, str] = {}
+    for line in text.split("\n"):
+        match = _TREE_ENTRY.match(line)
+        if match is None:
+            continue
+        depth = len(match.group("indent")) // 4
+        entry = match.group("rest").split("#")[0].strip()
+        del stack[depth:]
+        if entry.endswith("/"):
+            stack.append(entry.rstrip("/"))
+            continue
+        for name in (n.strip() for n in entry.split(" / ")):
+            if name.endswith(".py"):
+                found["/".join([*stack, name])] = line.strip()
+    return found
+
+
+def test_every_file_the_tree_names_exists() -> None:
+    """A renamed or deleted module must move the tree with it."""
+    missing: list[str] = []
+    for doc, text in _docs():
+        for path, line in _tree_paths(text).items():
+            if not (_ROOT / path).exists():
+                missing.append(f"{doc}: {path}   (from: {line})")
+    assert not missing, (
+        "the architecture tree names files that are not in the repo — it "
+        "promises to follow what is actually there:\n" + "\n".join(missing)
+    )
+
+
+def test_the_exhaustively_listed_directories_are_complete() -> None:
+    """And the other direction, where the tree claims to be complete.
+
+    ``core/`` lists every module it contains, which is what makes it usable as
+    a map. A new one that isn't added here is invisible exactly to the reader
+    who went looking for it.
+    """
+    unlisted: list[str] = []
+    for doc, text in _docs():
+        named = set(_tree_paths(text))
+        for directory in _TREE_EXHAUSTIVE:
+            for py in sorted((_ROOT / directory).glob("*.py")):
+                if py.name == "__init__.py":
+                    continue
+                path = f"{directory}/{py.name}"
+                if path not in named:
+                    unlisted.append(f"{doc}: {path}")
+    assert not unlisted, (
+        "modules missing from a part of the architecture tree that lists its "
+        "directory exhaustively — add the entry, or (if the directory has "
+        "outgrown a full listing) summarise it and drop it from "
+        "_TREE_EXHAUSTIVE:\n" + "\n".join(unlisted)
+    )
