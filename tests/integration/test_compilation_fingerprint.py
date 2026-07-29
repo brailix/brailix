@@ -22,7 +22,7 @@ import pytest
 
 from brailix.core.span import Span
 from brailix.input import parse_markdown
-from brailix.ir.document import Paragraph, Table
+from brailix.ir.document import DocumentIR, Paragraph, Table
 from brailix.ir.inline import LatinWord
 from brailix.pipeline import Pipeline, block_hash
 
@@ -381,7 +381,123 @@ class TestRegistryReRegisterInvalidation:
         # that ran entirely inside one epoch reports nothing.
         assert "COMPILE_EPOCH_CHANGED" not in [w.code for w in settled.warnings]
 
-    def test_swapping_a_boundary_handler_moves_the_fingerprint(self) -> None:
+    def test_a_drifted_block_carries_no_reusable_cache_key(self) -> None:
+        """Reporting the blend was not enough on its own.
+
+        A caller that stores ``result.source_hash -> result`` — the documented
+        use of the field — does not have to read diagnostics to do it. So the
+        drifted compile went into the cache under the *ordinary* key, and the
+        next clean compile of the same block looked that key up and got the
+        blend: one key, two braillings, which is precisely what folding the
+        registry generation into the fingerprint exists to prevent.
+
+        Two things now stop it. ``cacheable`` says don't store this, and the
+        key itself is retired to a one-off value, so a caller that ignores the
+        flag records a dead entry instead of poisoning a live one.
+        """
+        from brailix.frontend.segment import DefaultSegmenter, segmenter_registry
+
+        class _SelfRegistering:
+            name = "probe"
+
+            def __init__(self) -> None:
+                self.fired = False
+
+            def segment(self, block, ctx=None):  # noqa: ANN001, ANN201
+                if not self.fired:
+                    self.fired = True
+                    segmenter_registry.register("probe", DefaultSegmenter)
+                return DefaultSegmenter().segment(block, ctx)
+
+        with segmenter_registry.overriding("probe", _SelfRegistering):
+            pipe = Pipeline(
+                profile="cn_current", resolver="null", segmenter="probe"
+            )
+            drifted = pipe.translate_block(Paragraph(text=TEXT))
+            settled = pipe.translate_block(Paragraph(text=TEXT))
+            settled_again = pipe.translate_block(Paragraph(text=TEXT))
+
+        assert drifted.cacheable is False
+        assert settled.cacheable is True
+        # The clean pair agree, so the key really is stable across compiles...
+        assert settled.source_hash == settled_again.source_hash
+        # ...and the drifted one cannot collide with it, nor with itself.
+        assert drifted.source_hash != settled.source_hash
+        assert drifted.source_hash.startswith("uncacheable-")
+
+    def test_two_drifted_compiles_never_share_a_key(self) -> None:
+        """The retired key must be one-off, not merely "different from the
+        clean one": two blends of the same block are not interchangeable
+        either, and a persisted cache outlives the process that made them."""
+        from brailix.pipeline._incremental import _uncacheable_hash
+
+        digest = "0" * 64
+        assert _uncacheable_hash(digest) != _uncacheable_hash(digest)
+        assert digest in _uncacheable_hash(digest)  # still recognisable
+
+    @pytest.mark.parametrize(
+        "translate",
+        [
+            pytest.param(
+                lambda pipe: pipe.translate_text(TEXT), id="translate_text"
+            ),
+            pytest.param(
+                lambda pipe: pipe.translate_document(
+                    DocumentIR(blocks=[Paragraph(text=TEXT)])
+                ),
+                id="translate_document",
+            ),
+        ],
+    )
+    def test_whole_document_paths_report_drift_too(self, translate) -> None:
+        """The blend is a property of the run, not of the result shape.
+
+        The check lived only in the block-level compile, on the reasoning that
+        only it returns a cache key. But ``translate_text`` and
+        ``translate_document`` resolve adapter names on every node exactly the
+        same way, so a registration landing mid-run leaves those results just
+        as mixed — and they said nothing at all about it.
+        """
+        from brailix.frontend.segment import DefaultSegmenter, segmenter_registry
+
+        class _SelfRegistering:
+            name = "probe"
+
+            def __init__(self) -> None:
+                self.fired = False
+
+            def segment(self, block, ctx=None):  # noqa: ANN001, ANN201
+                if not self.fired:
+                    self.fired = True
+                    segmenter_registry.register("probe", DefaultSegmenter)
+                return DefaultSegmenter().segment(block, ctx)
+
+        with segmenter_registry.overriding("probe", _SelfRegistering):
+            pipe = Pipeline(
+                profile="cn_current", resolver="null", segmenter="probe"
+            )
+            drifted = translate(pipe)
+            settled = translate(pipe)
+
+        assert "COMPILE_EPOCH_CHANGED" in [w.code for w in drifted.warnings]
+        assert "COMPILE_EPOCH_CHANGED" not in [w.code for w in settled.warnings]
+
+    @pytest.mark.parametrize(
+        "install",
+        [
+            pytest.param(
+                lambda registry, handler: registry.__setitem__("zh", handler),
+                id="setitem",
+            ),
+            pytest.param(
+                lambda registry, handler: registry.__ior__({"zh": handler}),
+                id="ior",
+            ),
+        ],
+    )
+    def test_swapping_a_boundary_handler_moves_the_fingerprint(
+        self, install
+    ) -> None:
         """``boundary_registry`` is a documented extension point that changes
         the braille — it inserts the space between a hanzi run and a Latin
         word, the connector before a number — so it belongs in the fingerprint.
@@ -393,6 +509,14 @@ class TestRegistryReRegisterInvalidation:
         ``block.text`` and sees no difference. Measured before the fix,
         ``Paragraph("x轴")`` compiled to ``⠰⠭⠤⠀`` and then to ``⠰⠭⠀`` under one
         ``source_hash``.
+
+        Both spellings, because the first fix only closed the first one:
+        ``registry |= {...}`` is inherited straight from ``dict`` and changed
+        the handler without passing through the counted ``__setitem__``, so
+        the very same "one hash, two braillings" came back through the
+        operator form. ``tests/frontend/test_boundary_registry.py`` covers the
+        whole mutation surface; this pins the two ends of the chain that
+        matter to a cache.
         """
         from brailix.frontend import boundary_registry
 
@@ -402,7 +526,7 @@ class TestRegistryReRegisterInvalidation:
 
         original = boundary_registry.get("zh")
         try:
-            boundary_registry["zh"] = lambda nodes, profile: list(nodes)
+            install(boundary_registry, lambda nodes, profile: list(nodes))
             assert pipe.fingerprint != fp_before
             second = pipe.translate_block(Paragraph(text="x轴"))
         finally:

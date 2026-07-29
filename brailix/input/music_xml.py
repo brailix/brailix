@@ -61,7 +61,7 @@ MUSIC_SUFFIXES = _MUSICXML_TEXT_SUFFIXES | _MXL_SUFFIXES
 # text IR can't carry binary bytes (ARCHITECTURE#arch-layers rule 2 — the same
 # exception MTEF and the ``.mxl`` ZIP take). Suffix → music source name;
 # kept as data so a new binary score format is one more entry plus its
-# registered adapter — no new branch (ARCHITECTURE.md, adapter pattern).
+# registered adapter — no new branch (ARCHITECTURE#arch-adapters).
 _BINARY_SCORE_SOURCES: dict[str, str] = {
     ".mid": "midi",
     ".midi": "midi",
@@ -78,25 +78,6 @@ _DEFERRED_SCORE_SOURCES: dict[str, str] = {
     ".abc": "abc",
 }
 DEFERRED_SCORE_SUFFIXES = frozenset(_DEFERRED_SCORE_SOURCES)
-
-
-def _read_xml_text(p: Path, limits: InputLimits = DEFAULT_INPUT_LIMITS) -> str:
-    """Read a MusicXML / XML text file, honouring a UTF-16 BOM.
-
-    XML may legitimately be encoded UTF-16 — Finale and some Windows exporters
-    write it with a byte-order mark — and a flat ``utf-8-sig`` read raises
-    ``UnicodeDecodeError`` on those valid files. Detect the UTF-16 BOM and
-    decode accordingly; otherwise ``utf-8-sig`` (strips a UTF-8 BOM, still
-    raises on genuinely invalid UTF-8 — the documented contract).
-    """
-    raw = limits.read_bounded(p)
-    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
-        text = raw.decode("utf-16")
-    else:
-        text = raw.decode("utf-8-sig")
-    # Normalise line endings the way a text-mode read (universal newlines)
-    # does, so a CRLF source reads identically to an LF one downstream.
-    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def parse_musicxml(
@@ -137,7 +118,7 @@ def parse_musicxml(
     elif suffix in _MUSICXML_TEXT_SUFFIXES:
         # Honour a UTF-16 BOM (Finale / Windows exporters) and strip a UTF-8
         # BOM; a surviving BOM would break the score sniff / XML parse.
-        text = _read_xml_text(p, limits)
+        text = limits.read_bounded_text(p, normalize_newlines=True)
     else:
         raise ValueError(
             f"unsupported music file extension {suffix!r} "
@@ -273,7 +254,11 @@ def parse_deferred_score(
         )
     # BOM-aware text read (UTF-16 / UTF-8), matching parse_musicxml; ABC is
     # plain text, so it lands in the block verbatim — no adapter, no frontend.
-    text = _read_xml_text(p)
+    # Read through the CALLER's limits: this used to call a reader whose
+    # ``limits`` parameter was defaulted, so an ``.abc`` file replaced after
+    # ``parse_file``'s stat gate was consumed up to the *default* ceiling
+    # rather than the tightened one the caller asked for.
+    text = limits.read_bounded_text(p, normalize_newlines=True)
     limits.check_text_length(text)
     block = ScoreBlock(text=text, source=source)
     return DocumentIR(

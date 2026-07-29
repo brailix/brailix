@@ -97,12 +97,28 @@ class TestMathmlInput:
 
 
 class TestAdapterSelection:
-    def test_plain_source_emits_missing_warning(self):
+    def test_plain_source_soft_fails_instead_of_missing(self):
+        """``"plain"`` is *undeclared*, not unknown.
+
+        It is the default of ``MathContext`` and of ``MathInline`` /
+        ``MathBlock``, so a hand-built formula node with no ``source=`` lands
+        on it — and it used to hit an empty registry slot, reporting
+        ``MATH_ADAPTER_MISSING`` for an adapter name the caller never picked
+        and listing the real dialects as "candidates", which reads as a broken
+        install. It is a registered last-resort adapter now, exactly as music's
+        ``plain`` is: it guesses nothing and returns the standard ``<merror>``
+        tree, so the default value of a public type has defined behaviour.
+        """
         ctx = MathContext(profile="cn_current", source="plain")
         result = parse_math_tree("x", ctx)
-        assert result is None
-        warnings = ctx.warnings.by_code("MATH_ADAPTER_MISSING")
-        assert len(warnings) == 1
+        assert result is not None
+        assert result[0].tag == "merror"
+        assert not ctx.warnings.by_code("MATH_ADAPTER_MISSING")
+
+    def test_the_default_context_is_usable(self):
+        ctx = MathContext(profile="cn_current")
+        assert ctx.source == "plain"
+        assert parse_math_tree("x", ctx) is not None
 
     def test_unknown_source_emits_missing_warning(self):
         ctx = MathContext(profile="cn_current", source="nonsuch")

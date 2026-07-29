@@ -107,7 +107,12 @@ class MathContext:
     """
 
     mode: Literal["inline", "display"] = "inline"
-    source: str = "plain"  # latex / omml / mathml / plain
+    # ``"plain"`` means *undeclared*, not a dialect: it is registered (see
+    # :mod:`brailix.frontend.math.adapters.plain`) and soft-fails to an
+    # ``<merror>`` rather than guessing, so a default-constructed context is
+    # usable and says clearly what is missing. Same convention as
+    # :class:`MusicContext` below.
+    source: str = "plain"  # latex / omml / mathml / plain (= undeclared)
     profile: str = field(kw_only=True)  # required; no built-in default standard
     surrounding_text: tuple[str, str] | None = None  # (before, after)
     warnings: WarningCollector = field(default_factory=WarningCollector)

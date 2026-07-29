@@ -1,6 +1,7 @@
 """Japanese morphological-analysis subsystem.
 
-Three public callables. :func:`analyze` and :func:`tokens_to_inline` feed the
+Three entry points (internal, like every path outside the facades — see
+:mod:`brailix.frontend`). :func:`analyze` and :func:`tokens_to_inline` feed the
 Japanese :class:`~brailix.core.protocols.LanguageFrontend` (``_JaFrontend`` in
 :mod:`brailix.frontend`); :func:`list_analyzers` instead serves the CLI's
 analyzer picker:

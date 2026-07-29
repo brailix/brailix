@@ -575,3 +575,58 @@ def test_importable_surface_publishes_nothing_private(module: str) -> None:
     mod = importlib.import_module(module)
     private = sorted(n for n in getattr(mod, "__all__", ()) if n.startswith("_"))
     assert not private, f"{module}.__all__ publishes private names: {private}"
+
+
+@pytest.mark.parametrize("module", sorted(_FACADE))
+def test_facade_namespace_at_runtime_holds_nothing_unpublished(
+    module: str,
+) -> None:
+    """The same rule as
+    :func:`test_facade_binds_no_unpublished_brailix_name`, checked on the
+    imported module instead of on its source.
+
+    The AST check reads top-level ``from brailix... import X``, which is how
+    every facade is written today — and is the *only* shape it can see. A name
+    can reach a facade namespace four other ways: ``import brailix.core.span as
+    Span`` (an ``ast.Import``, not an ``ImportFrom``), an alias assignment, a
+    function or class defined right there without a leading underscore, and an
+    attribute set at import time by something else. All four read identically
+    to a published name from outside — they import, they tab-complete, and
+    nothing distinguishes them from ``segment`` sitting beside them.
+
+    The two are complementary, not redundant: this one cannot see a re-exported
+    *constant* (a suffix ``frozenset`` has no ``__module__`` to trace back to
+    this package), which is exactly what the AST check catches.
+
+    Submodules are the one thing exempt, because binding them is not a choice:
+    importing ``brailix.ir.braille`` sets ``braille`` on ``brailix.ir`` whether
+    anyone wanted it or not. Only under its *own* name, though — ``import
+    brailix.core.span as Span`` is a decision, and it is reported.
+    """
+    import types
+
+    mod = importlib.import_module(module)
+    published = set(getattr(mod, "__all__", ()))
+    allowed = _NAMESPACE_ALLOWLIST.get(module, set())
+
+    leaked: list[str] = []
+    for name, value in vars(mod).items():
+        if name.startswith("_") or name in published or name in allowed:
+            continue
+        if isinstance(value, types.ModuleType):
+            owner = value.__name__
+            if owner.startswith("brailix") and name != owner.rsplit(".", 1)[-1]:
+                leaked.append(f"{name} (module {owner} under another name)")
+            continue
+        owner = getattr(value, "__module__", None) or getattr(
+            type(value), "__module__", ""
+        )
+        if str(owner).startswith("brailix"):
+            leaked.append(f"{name} (defined in {owner})")
+
+    assert not leaked, (
+        f"{module} resolves brailix names it does not publish: {leaked}\n"
+        f"Bind them under an underscore alias, add them to __all__ (and to "
+        f"_FACADE) as a deliberate promise, or record a documented exception "
+        f"in _NAMESPACE_ALLOWLIST."
+    )

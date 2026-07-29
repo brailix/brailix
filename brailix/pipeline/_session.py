@@ -39,6 +39,26 @@ if TYPE_CHECKING:
     from brailix.pipeline import Pipeline
 
 
+def warn_epoch_changed(warnings: WarningCollector) -> None:
+    """Record ``COMPILE_EPOCH_CHANGED`` on ``warnings``.
+
+    One wording for every entry point. The standalone tactile entry has no
+    :class:`CompilationSession` to hang the check on (a graphic's compile is
+    Pipeline-free), so it snapshots the generation itself and calls this —
+    which keeps the diagnostic a caller sees identical whichever path
+    produced it.
+    """
+    warnings.warn(
+        code="COMPILE_EPOCH_CHANGED",
+        message=(
+            "an adapter was registered or unregistered while this compile "
+            "was running; its braille may mix the old and new "
+            "implementations. Recompile once the registration settles."
+        ),
+        source="pipeline",
+    )
+
+
 @dataclass(slots=True)
 class CompilationSession:
     """The state of one translate run.
@@ -83,6 +103,23 @@ class CompilationSession:
         describes, so the run reports it rather than returning it silently.
         """
         return registries_generation() != self.generation
+
+    def report_epoch_drift(self) -> bool:
+        """Emit ``COMPILE_EPOCH_CHANGED`` if the epoch moved; return whether it
+        did.
+
+        Every ``translate_*`` entry point ends here, so the diagnostic does not
+        depend on which one the caller picked. It used to live only in the
+        block-level compile, on the reasoning that only that path returns a
+        cache key — but the blend is a property of the *run*, not of the result
+        shape: a whole-document translation straddling a registration is just
+        as much a mix of two implementations, and silently returning it told
+        the caller nothing.
+        """
+        if not self.epoch_drifted():
+            return False
+        warn_epoch_changed(self.warnings)
+        return True
 
     @classmethod
     def begin(

@@ -25,10 +25,19 @@ def _register_builtin() -> None:
         mathml,
         mtef,
         omml,
+        plain,
         script_cluster,
     )
 
     math_source_registry.register("mathml", mathml._load)
+    # ``plain`` is the *undeclared* source — the default of MathContext and of
+    # MathInline / MathBlock — so a formula node built without a ``source=``
+    # resolves here. It guesses nothing and soft-fails to <merror>, the same
+    # last-resort tier the music registry gives its own ``plain``. Leaving it
+    # unregistered made the public default a value that could only ever miss
+    # the registry, reporting "unknown adapter 'plain'" for a name the caller
+    # never chose.
+    math_source_registry.register("plain", plain._load)
     math_source_registry.register("latex", latex._load, extra="latex")
     # mhchem ``\ce{...}`` → chemistry MathML. Pure-stdlib (no ``extra``),
     # so it works without the ``latex`` package; the ``latex`` adapter also

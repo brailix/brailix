@@ -130,6 +130,61 @@ def _is_type_checking_test(test: ast.expr, aliases: set[str]) -> bool:
     return False
 
 
+def _dynamic_import_target(node: ast.AST) -> str | None:
+    """The module a dynamic-import call names, if it names one literally.
+
+    ``importlib.import_module("brailix.frontend")`` and
+    ``__import__("brailix.frontend")`` are import statements written as
+    function calls: they build exactly the same edge, and the ``ast.Import`` /
+    ``ast.ImportFrom`` walk above cannot see either. No production module uses
+    them today — this is here so the first one to reach for a layer it may not
+    have is reported rather than discovered later.
+
+    Only a literal argument can be resolved; a computed name is caught by
+    :func:`_dynamic_import_is_opaque` instead, which is the honest split — this
+    guard cannot follow a name it does not know.
+    """
+    if not isinstance(node, ast.Call):
+        return None
+    func = node.func
+    named = (
+        isinstance(func, ast.Name) and func.id in {"__import__", "import_module"}
+    ) or (
+        isinstance(func, ast.Attribute)
+        and func.attr in {"__import__", "import_module"}
+    )
+    if not named or not node.args:
+        return None
+    first = node.args[0]
+    if isinstance(first, ast.Constant) and isinstance(first.value, str):
+        return first.value
+    return None
+
+
+def _dynamic_import_is_opaque(node: ast.AST) -> bool:
+    """True for a dynamic import whose target this guard cannot read.
+
+    A layer that assembles a module name at runtime can reach anywhere, and no
+    static check can say otherwise — so the *shape* is what gets refused,
+    inside the guarded layers, rather than being silently filed as "no edge
+    found". Nothing in the library does this; a use with a real justification
+    belongs in an allowlist here, argued case by case.
+    """
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    named = (
+        isinstance(func, ast.Name) and func.id in {"__import__", "import_module"}
+    ) or (
+        isinstance(func, ast.Attribute)
+        and func.attr in {"__import__", "import_module"}
+    )
+    if not named or not node.args:
+        return False
+    first = node.args[0]
+    return not (isinstance(first, ast.Constant) and isinstance(first.value, str))
+
+
 def _imports_in(
     source: str, package: str, *, runtime_only: bool = False
 ) -> set[str]:
@@ -140,6 +195,10 @@ def _imports_in(
     counts too — invisible to a top-level grep, and the blind spot that has
     made a whole feature vanish from a packaged build before. Docstring
     cross-references don't count (only real import statements are AST nodes).
+
+    Dynamic imports count as well (:func:`_dynamic_import_target`):
+    ``importlib.import_module("brailix.backend")`` is the same edge as the
+    statement, written as a call.
 
     ``runtime_only`` drops everything inside an ``if TYPE_CHECKING:`` block. A
     type-only import creates no runtime edge, which is what lets ``core``
@@ -172,7 +231,22 @@ def _imports_in(
             mods.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             mods.update(_from_targets(node, package))
+        else:
+            target = _dynamic_import_target(node)
+            if target is not None:
+                mods.add(target)
     return mods
+
+
+def _opaque_dynamic_imports(py: Path) -> list[str]:
+    """``file:line`` of every dynamic import in ``py`` with an unreadable
+    target."""
+    tree = ast.parse(py.read_text(encoding="utf-8"))
+    return [
+        f"{py.relative_to(_PKG.parent)}:{node.lineno}"
+        for node in ast.walk(tree)
+        if _dynamic_import_is_opaque(node)
+    ]
 
 
 def _imports(py: Path, *, runtime_only: bool = False) -> set[str]:
@@ -253,6 +327,29 @@ def test_core_layer_dependencies_are_one_directional() -> None:
         "#arch-boundaries — deps must point downstream; "
         "backend's prose-translator exception is DI, not import):\n"
         + "\n".join(offenders)
+    )
+
+
+def test_no_layer_imports_a_module_this_guard_cannot_read() -> None:
+    """A module name assembled at runtime is an edge to anywhere.
+
+    Every check above resolves a *named* target: the statements, their relative
+    spellings, and the literal-argument dynamic calls. A computed one —
+    ``import_module(f"brailix.{layer}.{name}")`` — resolves to nothing a static
+    pass can classify, so filing it as "no edge found" would report a clean
+    tree while the edge exists. The shape is refused inside the guarded layers
+    instead. Nothing in the library needs it today; a use with a real
+    justification gets argued into an allowlist here.
+    """
+    opaque = [
+        site
+        for layer in [*_RULES, "input"]
+        for py in sorted((_PKG / layer).rglob("*.py"))
+        for site in _opaque_dynamic_imports(py)
+    ]
+    assert not opaque, (
+        "dynamic import with a computed target inside a guarded layer — the "
+        "layering check cannot see where it points:\n" + "\n".join(opaque)
     )
 
 
@@ -451,6 +548,53 @@ class TestGuardCatchesEveryImportForm:
         """More dots than packages can't name a brailix module; the resolver
         must return nothing rather than mis-anchor onto a shorter prefix."""
         assert _imports_in("from ..... import frontend", "brailix.backend") == set()
+
+    def test_importlib_import_module(self) -> None:
+        assert _would_flag(
+            "import importlib\n"
+            "def handler(node):\n"
+            "    return importlib.import_module('brailix.frontend').normalize\n"
+        )
+
+    def test_bare_import_module(self) -> None:
+        assert _would_flag(
+            "from importlib import import_module\n"
+            "normalize = import_module('brailix.frontend.normalize')\n"
+        )
+
+    def test_dunder_import(self) -> None:
+        assert _would_flag("__import__('brailix.frontend')")
+
+    def test_a_dynamic_import_of_an_allowed_module_is_not_flagged(self) -> None:
+        assert not _would_flag("__import__('brailix.ir.document')")
+
+
+class TestOpaqueDynamicImportDetection:
+    """A computed module name is refused by shape, since no static pass can
+    say where it points."""
+
+    @staticmethod
+    def _opaque(source: str) -> bool:
+        return any(
+            _dynamic_import_is_opaque(node)
+            for node in ast.walk(ast.parse(source))
+        )
+
+    def test_fstring_target_is_opaque(self) -> None:
+        assert self._opaque("import_module(f'brailix.{layer}.normalize')")
+
+    def test_variable_target_is_opaque(self) -> None:
+        assert self._opaque("importlib.import_module(name)")
+
+    def test_concatenated_target_is_opaque(self) -> None:
+        assert self._opaque("import_module('brailix.' + layer)")
+
+    def test_a_literal_target_is_readable(self) -> None:
+        assert not self._opaque("import_module('brailix.frontend')")
+
+    def test_an_ordinary_call_is_not_a_dynamic_import(self) -> None:
+        assert not self._opaque("normalize(text, ctx)")
+        assert not self._opaque("metadata.version('brailix')")
 
 
 class TestTypeCheckingDetection:

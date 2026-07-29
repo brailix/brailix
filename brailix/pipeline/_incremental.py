@@ -14,6 +14,7 @@ Not public API: callers go through :meth:`Pipeline.translate_block`.
 
 from __future__ import annotations
 
+import uuid
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -128,16 +129,21 @@ def compile_block(
     # landed mid-run leaves this block translated partly by the outgoing
     # implementation and partly by its replacement. No fingerprint describes a
     # blend, so say so rather than hand it back silently.
-    if session.epoch_drifted():
-        session.warnings.warn(
-            code="COMPILE_EPOCH_CHANGED",
-            message=(
-                "an adapter was registered or unregistered while this block "
-                "was compiling; its braille may mix the old and new "
-                "implementations. Recompile once the registration settles."
-            ),
-            source="pipeline",
-        )
+    #
+    # Saying so used to be all it did: the result still carried an ordinary
+    # ``source_hash``, so a caller storing ``hash -> result`` without reading
+    # the warnings filed a possibly-blended compile under the exact key a
+    # clean compile of the same block later looks up. The key is therefore
+    # retired as well as flagged (see :func:`_uncacheable_hash`), which makes
+    # ignoring ``cacheable`` cost a dead entry instead of a wrong hit.
+    #
+    # Deliberately NOT a retry: re-running the block would re-run the caller's
+    # ``ir_transformer`` over it, and nothing promises that pass is
+    # idempotent. Reporting is the honest move; recompiling is the caller's
+    # call, once its registrations have settled.
+    cacheable = not session.report_epoch_drift()
+    if not cacheable:
+        source_hash = _uncacheable_hash(source_hash)
 
     return CompiledBlock(
         block_id=block.id or "",
@@ -146,8 +152,23 @@ def compile_block(
         braille_blocks=braille_blocks,
         warnings=list(session.warnings.warnings),
         tree_subcache=session.tree_out,
+        cacheable=cacheable,
         raster=raster,
     )
+
+
+def _uncacheable_hash(source_hash: str) -> str:
+    """A one-off key for a compile whose epoch moved underneath it.
+
+    Not a digest: a random suffix, so this value cannot equal any other
+    compile's — including the same block recompiled in the same process, or in
+    another one against a shared persisted cache. A key that can never repeat
+    is the safe direction; the entry a caller stores under it is simply never
+    hit again, whereas leaving the ordinary digest in place would let a
+    possibly-blended result answer for a clean one. The original digest is
+    kept as a suffix so the value stays recognisable while debugging.
+    """
+    return f"uncacheable-{uuid.uuid4().hex}-{source_hash}"
 
 
 def rasterize_graphic_block(
