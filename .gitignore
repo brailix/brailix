@@ -25,6 +25,15 @@ htmlcov/
 .hypothesis/
 .tmp/
 
+# Downloaded model weights. ``brailix.core.models.paths`` resolves the dev
+# root to ``<cwd>/models/``, and g2pw writes ``G2PWModel/`` beside it — so
+# running the suite with the heavy engines installed (``--all-extras``, or the
+# scheduled deep-verify job) leaves several hundred MB at the repo root.
+# Anchored with a leading slash: an unanchored ``models/`` would also match the
+# tracked ``brailix/core/models/`` package.
+/models/
+/G2PWModel/
+
 # Editors
 *.swp
 .idea/
