@@ -63,6 +63,26 @@ _SECTION_NUMBER = re.compile(
     r"|§\s*\d[\d.]*(?:(?!" + _OTHER_DOC + r")[\s\S]){0,80}?ARCHITECTURE(?!\.en)(?!#)",
 )
 
+# A *citation* — code pointing at the document to justify what it does — as
+# opposed to naming the file in prose ("``ARCHITECTURE.md`` explains the
+# design"). Replacing section numbers with anchors left the citations that
+# carried no locator at all untouched, and those are the same problem one step
+# further along: "(ARCHITECTURE.md, adapter pattern)" sends a reader to a
+# thousand-line document to find which paragraph is meant, and nothing fails
+# when the paragraph moves. The two spellings that mark a citation are a
+# parenthesis and a "see", which is how every one of them in the tree was
+# written; a bare mention in running prose is left alone deliberately.
+#
+# The trailing lookahead spares an enumeration of *files* — "(ARCHITECTURE.md +
+# docs/extending.md)" lists paths as data, it does not cite one as an
+# authority. Cost: a genuine citation that happens to sit on a line naming
+# another document goes unreported, the same trade the section-number detector
+# makes with ``_OTHER_DOC``.
+_UNANCHORED_CITATION = re.compile(
+    r"(?:\(|\b[Ss]ee\s+)`{0,2}ARCHITECTURE(?!\.en)(?:\.md)?`{0,2}(?!#)"
+    r"(?![^)\n]{0,60}\.md)"
+)
+
 
 def _docs() -> list[tuple[str, str]]:
     return [
@@ -207,6 +227,85 @@ class TestTheSectionNumberDetector:
             "layering lives in ARCHITECTURE#arch-layers; the geometry "
             "is in ``docs/extending.md`` §2"
         )
+
+
+class TestTheUnanchoredCitationDetector:
+    """What counts as a citation, and what is just naming the file."""
+
+    def test_catches_a_parenthesised_citation(self) -> None:
+        assert _UNANCHORED_CITATION.search(
+            "one more entry, no new branch (ARCHITECTURE.md, adapter pattern)"
+        )
+
+    def test_catches_a_see_citation(self) -> None:
+        assert _UNANCHORED_CITATION.search("layering rules: see ARCHITECTURE.md")
+
+    def test_catches_the_backticked_form(self) -> None:
+        assert _UNANCHORED_CITATION.search("(see ``ARCHITECTURE.md``)")
+
+    def test_accepts_an_anchored_citation(self) -> None:
+        assert not _UNANCHORED_CITATION.search(
+            "one direction only (ARCHITECTURE#arch-layers)"
+        )
+        assert not _UNANCHORED_CITATION.search("see ``ARCHITECTURE#arch-adapters``")
+
+    def test_leaves_a_prose_mention_alone(self) -> None:
+        """Naming the document as a whole is not a citation — there is no
+        paragraph to point at, so there is no anchor to demand."""
+        for prose in (
+            "``ARCHITECTURE.md`` explains the design; the guide is the how-to",
+            "the export collapses an unpublished note to ARCHITECTURE.md and "
+            "takes the section number with it",
+        ):
+            assert not _UNANCHORED_CITATION.search(prose), prose
+
+    def test_leaves_a_list_of_document_paths_alone(self) -> None:
+        assert not _UNANCHORED_CITATION.search(
+            "the public mirror carries two (ARCHITECTURE.md + "
+            "docs/extending.md), this repository three"
+        )
+
+    def test_leaves_the_english_copy_alone(self) -> None:
+        # ``ARCHITECTURE.en.md`` is referenced by name from the Chinese copy's
+        # own header, not cited as an authority by code.
+        assert not _UNANCHORED_CITATION.search("(ARCHITECTURE.en.md)")
+
+
+def test_no_code_cites_the_document_without_an_anchor() -> None:
+    """The other half of the same rule the section numbers taught.
+
+    An anchor is a locator that survives both copies being reorganised. A
+    citation with *no* locator survives it too — by pointing at nothing in
+    particular, which is worse: the reader has the whole document to search and
+    no test notices when the paragraph being cited is gone.
+
+    Unlike every other check here, this one is scoped to the repository where
+    the code is **written**. In the public mirror most unanchored citations are
+    not authored at all: the export collapses a reference to an unpublished
+    ``docs/*.md`` design note into ``ARCHITECTURE.md``, because the note itself
+    does not ship — and it cannot know which invariant the note's author meant,
+    so it cannot supply an anchor. Demanding one there would ask the export to
+    invent a locator. Requiring it of the author instead loses nothing: the
+    mirror is regenerated from this tree, so an authored citation is caught
+    before it can reach it.
+    """
+    if len(_docs()) < 2:  # the mirror ships one copy — see above
+        return
+
+    offenders: list[str] = []
+    for py in _python_files():
+        text = py.read_text(encoding="utf-8")
+        for match in _UNANCHORED_CITATION.finditer(text):
+            lineno = text.count("\n", 0, match.start()) + 1
+            offenders.append(
+                f"{py.relative_to(_ROOT).as_posix()}:{lineno}: "
+                f"{' '.join(match.group(0).split())}"
+            )
+    assert not offenders, (
+        "ARCHITECTURE cited without an anchor — name the invariant so the "
+        "citation survives a reorganisation and so a moved anchor fails a "
+        "test (ARCHITECTURE#arch-…):\n" + "\n".join(offenders)
+    )
 
 
 def test_no_code_cites_a_section_number() -> None:

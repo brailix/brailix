@@ -1,6 +1,7 @@
 """Chinese frontend subsystem.
 
-Five public callables.  Four feed the orchestrator
+Five entry points (internal, like every path outside the facades — see
+:mod:`brailix.frontend`).  Four feed the orchestrator
 (:class:`brailix.Pipeline`); :func:`list_analyzers` instead serves the
 CLI and any caller that enumerates the analyzer registry:
 

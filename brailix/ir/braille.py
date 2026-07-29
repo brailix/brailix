@@ -152,8 +152,8 @@ CASES_CLOSE_CELL = BrailleCell(dots=(), role="cases_close")
 
 # --- Span-carrying factories for the control / spacing cells ----------------
 #
-# Every BrailleCell must be back-traceable to a source span (ARCHITECTURE.md:
-# "每个 BrailleIR cell 都有 source_span"). The zero-width sentinels above share
+# Every BrailleCell must be back-traceable to a source span
+# (ARCHITECTURE#arch-traceability). The zero-width sentinels above share
 # one span-less instance, which breaks that contract for the cell a proofreader
 # clicks — a blank between two words, a matrix row break — leaving it with no
 # way back to source. These factories build the SAME role of cell (renderers

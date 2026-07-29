@@ -80,8 +80,10 @@ The compiler is a stack of layers. The Profile and its resource tables sit along
 │  ├─ Normalizer     tag numbers / dates / units / ...  │
 │  ├─ ZhAnalyzer     Chinese segmentation + POS         │
 │  ├─ PinyinResolver pinyin + polyphone disambiguation  │
+│  ├─ JaAnalyzer     Japanese morphology + readings     │
 │  ├─ MathParser     source → MathML tree (= IR)        │
-│  └─ LatinAnalyzer  English / acronyms / foreign runs  │
+│  ├─ MusicParser    source → MusicXML tree (= IR)      │
+│  └─ GraphicsParser source → SVG tree (= IR)           │
 ├─────────────────────────────────────────────────────┤
 │  IR Layer          DocumentIR / InlineIR /            │
 │                    MathML / BrailleIR                 │
@@ -143,6 +145,9 @@ brailix/
 │   │   ├── span.py           # Span utilities, source-position tracking for IR nodes
 │   │   ├── registry.py       # generic name→loader registry (lazy load + MissingExtraError)
 │   │   ├── protocols.py      # Segmenter / Analyzer / Resolver / Adapter / Backend / Renderer
+│   │   ├── _xml.py           # shared XML helper (safe_fromstring: parsing with entity expansion off)
+│   │   ├── chars.py          # irregular-character sets (one authority, consumed by the backend and by front-ends)
+│   │   ├── inline_math.py    # inline-formula island codec (source tag + original text)
 │   │   ├── defaults.py / dispatch.py
 │   │   ├── config/           # profile loaders
 │   │   │   ├── profile.py    # BrailleProfile
@@ -156,7 +161,6 @@ brailix/
 │   ├── frontend/             # text → structured IR
 │   │   ├── segment.py        # block segmentation + inline-region detection
 │   │   ├── normalize.py      # tag numbers / dates / units / percent signs
-│   │   ├── _xml.py
 │   │   ├── zh/               # Chinese-specific (language folder)
 │   │   │   ├── __init__.py        # umbrella: re-exports the analyzer's public entry points
 │   │   │   ├── analyzer/          # segmentation subsystem
@@ -169,7 +173,7 @@ brailix/
 │   │   ├── math/            # source → MathML tree (= IR)
 │   │   │   ├── normalizer.py     # MathML normalization (emits ET.Element, i.e. the IR)
 │   │   │   ├── registry.py        # math_source_registry
-│   │   │   └── adapters/         # latex / mathml / omml / mtef / eq_field / chem
+│   │   │   └── adapters/         # latex / mathml / omml / mtef / eq_field / chem / script_cluster / plain
 │   │   ├── music/          # source → MusicXML tree (= IR)
 │   │   │   ├── normalizer.py / registry.py  # music_source_registry
 │   │   │   └── adapters/         # musicxml / mxl / midi / abc / plain
@@ -202,7 +206,7 @@ brailix/
 │   │   ├── music_layout.py / _page_digits.py
 │   │   └── bmp.py / png.py / pdf.py / tactile_preview.py  # tactile renderers (consume TactileRaster; same renderer_registry, self-described via ``consumes``)
 │   ├── profiles/
-│   │   ├── cn_current.json   # Current Chinese Braille (default)
+│   │   ├── cn_current.json   # Current Chinese Braille (no built-in default: the caller names one)
 │   │   ├── cn_ncb.json       # National Common Braille
 │   │   └── ja_current.json   # Japanese kana braille
 │   └── resources/            # braille tables: shared ones at the top, region/scheme-specific under <region>/<scheme>/
@@ -383,17 +387,18 @@ Each subsystem keeps a name→implementation registry, and **an adapter is impor
 
 ```python
 # frontend/zh/analyzer/registry.py
-_REGISTRY: dict[str, Callable[[], ChineseAnalyzer]] = {}
-
-def register(name: str, loader: Callable[[], ChineseAnalyzer]) -> None: ...
-def get(name: str) -> ChineseAnalyzer: ...   # lazy load
+analyzer_registry: Registry[ChineseAnalyzer] = Registry(
+    "zh.analyzer", protocol=ChineseAnalyzer
+)
 
 # frontend/zh/analyzer/adapters/hanlp.py
 def _load() -> ChineseAnalyzer:
     import hanlp  # imported only when actually used
     ...
-register("hanlp", _load)
+analyzer_registry.register("hanlp", _load, extra="hanlp")
 ```
+
+The generic `Registry` class in `core/registry.py` provides the machinery: `get(name)` runs the loader on first resolution and caches the instance under the name, validates the implementation against `protocol`, and raises `MissingExtraError` (naming the `pip install brailix[...]` extra) when an optional dependency is absent — under a lock, so concurrent threads resolve a name once. It also keeps a `generation` counter, advanced by every `register` / `unregister` / `clear_cache`: `Pipeline.fingerprint` folds in the generation of every compile-relevant registry, so swapping an implementation at runtime moves the fingerprint of every live Pipeline — and with it every `CompiledBlock.source_hash` — so cached output from the replaced implementation can no longer be served under the same key.
 
 The profile names the implementation by string; the registry resolves it:
 
@@ -416,9 +421,9 @@ Every adapter rides on an optional extra:
 ```toml
 [project.optional-dependencies]
 zh     = ["jieba", "pypinyin"]                 # light, offline Chinese (good default)
-hanlp  = ["hanlp"]                             # transformer tokenizer (downloads a model)
+hanlp  = ["hanlp", "transformers<4.55"]        # transformer tokenizer (downloads a model)
 thulac = ["thulac"]
-g2pw   = ["g2pw"]                              # deep polyphone model (downloads a model)
+g2pw   = ["g2pw", "torch"]                     # deep polyphone model (downloads a model)
 g2pm   = ["g2pM", "numpy"]
 latex  = ["latex2mathml"]                      # LaTeX → MathML
 docx   = ["python-docx", "lxml", "olefile"]   # Word .docx / .docm (incl. OMML / MathType)
@@ -435,6 +440,8 @@ pip install brailix[zh]                 # light, offline Chinese
 pip install brailix[zh,latex]           # + LaTeX math
 pip install brailix[hanlp,g2pw]         # accurate Chinese engines (download models)
 ```
+
+Two of those extras pin a dependency their own package failed to declare, which is worth spelling out because it looks arbitrary otherwise. HanLP 2.1.3 puts no upper bound on `transformers`, but transformers 5.0 removed an interface it still calls, so `transformers<4.55` rides along with it; g2pw 0.1.1 imports `torch.utils.data` at import time while declaring only onnxruntime / tqdm / transformers, so `torch` rides along with that. `pyproject.toml` is the authoritative list and records the conditions for dropping each.
 
 If an adapter's package is missing at runtime, the registry raises a clear **`MissingExtraError`** that names the extra to install. (The MathML and MusicXML readers use the stdlib `xml.etree`, so the math and music subsystems themselves need no extra — only the source adapters that wrap a third-party converter do.)
 
@@ -562,22 +569,18 @@ class BrailleBackend:
 
 ### 9.2 BackendContext
 
-Controls global side effects (whether the number sign is still in force, whether we are in math mode, the current block type, and so on):
+It carries only the profile name, the run mode, the current block type, the shared warning collector, and an options bag. Context-dependent **braille state** — the number-sign latch, math nesting depth and the rest — deliberately does *not* live here; each subsystem's own state machine holds it (`MathBrailleContext.need_number_sign`, `MusicBrailleContext`). A single shared bag of those flags was never read by the dispatcher and only invited writes that were silently ignored, so it was removed. The inline-text translator is injected through `options` (the controlled exception in §14).
+
+`profile` is **required**: the library has no built-in default braille standard, so the caller (normally `Pipeline`) always passes the chosen one, and the profile's own `language` decides the language — there is no `zh-CN` fallback. `MathContext` / `MusicContext` make `profile` a required keyword-only argument for the same reason, field order being the only difference.
 
 ```python
-@dataclass
+@dataclass(slots=True)
 class BackendContext:
-    profile: BrailleProfile
-    block_type: str           # paragraph / heading / table_cell ...
-    inline_mode: str          # text / math / latin / code
-    prev_node: IRNode | None
-    cur_node:  IRNode | None
-    nxt_node:  IRNode | None
-    need_number_sign: bool = False
-    need_capital_sign: bool = False
-    math_depth: int = 0
-    line_width: int | None = None
-    page_width: int | None = None
+    profile: str                       # required: no built-in default standard
+    mode: RunMode | str = RunMode.NORMAL
+    block_type: str = "paragraph"      # paragraph / heading / table_cell ...
+    warnings: WarningCollector = field(default_factory=WarningCollector)
+    options: dict[str, Any] = field(default_factory=dict)
 ```
 
 ### 9.3 Profile
