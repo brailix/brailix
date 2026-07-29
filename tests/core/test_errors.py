@@ -171,6 +171,30 @@ class TestTheAnchorIsReallyFrozen:
             write(w.anchor)
         assert w.anchor == {"part_id": "P1", "measure_number": "5"}
 
+    def test_reinitialising_the_anchor_is_refused(self):
+        """The hole every other override left open.
+
+        ``__init__`` is a public method of the object, and ``dict.__init__``
+        fills an *existing* mapping in C without going through
+        ``__setitem__`` — so ``warning.anchor.__init__({...})`` rewrote a
+        recorded diagnostic while every guarded spelling above raised. It is
+        not a base-class call like ``dict.__setitem__(anchor, ...)``; it is
+        the object's own constructor, offered by the object.
+        """
+        w, _ = self._anchored()
+        with pytest.raises(TypeError, match="read-only"):
+            w.anchor.__init__({"part_id": "P9"})
+        assert w.anchor == {"part_id": "P1", "measure_number": "5"}
+
+    def test_construction_itself_still_works(self):
+        """The other half: sealing must not refuse the *first* fill, which is
+        how the mapping is built at all."""
+        from brailix.core.errors import _FrozenAnchor
+
+        assert _FrozenAnchor({"a": "1"}) == {"a": "1"}
+        assert _FrozenAnchor() == {}
+        assert _FrozenAnchor(a="1") == {"a": "1"}
+
     def test_it_still_reads_as_an_ordinary_dict(self):
         w, _ = self._anchored()
         assert w.anchor == {"part_id": "P1", "measure_number": "5"}
@@ -216,12 +240,13 @@ class TestTheAnchorIsReallyFrozen:
 
 # ``dict``'s own callables that only read. ``copy`` / ``__or__`` / ``__ror__``
 # return a plain ``dict`` and leave the receiver alone; ``fromkeys`` builds a
-# new instance. ``__init__`` is the deliberate exception: it is how the mapping
-# is filled in the first place, so it cannot be refused — calling a constructor
-# again on a live object is not a spelling anything in the tree uses.
+# new instance. ``__init__`` is NOT on this list — it fills the mapping in C
+# without passing through ``__setitem__``, which made it a write like any
+# other, and it is overridden (and therefore not inherited) so that a second
+# call is refused.
 _READ_ONLY_DICT_API = frozenset({
     "__class_getitem__", "__contains__", "__eq__", "__ge__", "__getattribute__",
-    "__getitem__", "__gt__", "__init__", "__iter__", "__le__", "__len__",
+    "__getitem__", "__gt__", "__iter__", "__le__", "__len__",
     "__lt__", "__ne__", "__new__", "__or__", "__repr__", "__reversed__",
     "__ror__", "__sizeof__", "copy", "fromkeys", "get", "items", "keys",
     "values",

@@ -292,18 +292,34 @@ class _FrozenAnchor(dict):  # type: ignore[type-arg]
     learned by missing exactly one of them. ``__reduce__`` belongs to that
     list: the pickle / deepcopy protocol rebuilds a ``dict`` subclass by
     *setting its items*, so without it the copying this class exists to keep
-    possible would be refused by its own guard. Construction is unaffected for
-    the same C-level reason — ``dict.__init__`` fills the mapping without
-    going through ``__setitem__``.
+    possible would be refused by its own guard.
+
+    ``__init__`` belongs to it as well, and was the one left off. It is how the
+    mapping is filled, so it cannot simply refuse — but it is also an ordinary
+    public method of the object, and ``dict.__init__`` fills an *existing*
+    mapping in C without passing through ``__setitem__``. So
+    ``warning.anchor.__init__({"measure": "99"})`` rewrote a recorded
+    diagnostic through the one door left open, no base-class trickery needed.
+    Sealing after the first call closes it: construction goes through, a second
+    call is refused like any other write. (``dict.__setitem__(anchor, k, v)``
+    still reaches past every override, as it does past any Python-level guard
+    on a C type; that is an explicit base-class call, not something the object
+    itself offers.)
     """
 
-    __slots__ = ()
+    __slots__ = ("_sealed",)
 
     _MESSAGE = (
         "Warning.anchor is read-only — a Warning is a frozen record. Build "
         "the mapping before you construct the Warning, or take a writable "
         "copy with dict(anchor)."
     )
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        if getattr(self, "_sealed", False):
+            raise TypeError(self._MESSAGE)
+        super().__init__(*args, **kwargs)
+        self._sealed = True
 
     def __setitem__(self, key: str, value: str) -> NoReturn:
         raise TypeError(self._MESSAGE)
