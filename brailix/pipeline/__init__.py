@@ -734,7 +734,7 @@ class Pipeline:
     ) -> TactilePageResult:
         """Lay a braille document with embedded figures onto tactile pages.
 
-        The mixed-layout output (``ARCHITECTURE.md`` G3): each
+        The mixed-layout output (``ARCHITECTURE.md``): each
         block is compiled through the **same** incremental pipeline every other
         path uses (:meth:`translate_block`) — a text block yields braille
         cells, a :class:`~brailix.ir.document.GraphicBlock` yields a

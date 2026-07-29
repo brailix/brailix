@@ -154,7 +154,7 @@ class GraphicResult:
 class TactilePageResult:
     """Output of one :meth:`Pipeline.translate_document_to_pages` call — a
     braille document with embedded figures laid onto tactile page rasters
-    (``ARCHITECTURE.md`` G3).
+    (``ARCHITECTURE.md``).
 
     Holds one :class:`~brailix.ir.tactile.TactileRaster` per page: braille text
     stamped as real dots plus the document's figures scaled into the flow
@@ -329,7 +329,7 @@ class CompiledBlock:
     compiled_at: datetime = field(
         default_factory=lambda: datetime.now(UTC)
     )
-    # Tactile-graphics inline embedding (ARCHITECTURE.md G1):
+    # Tactile-graphics inline embedding (ARCHITECTURE.md):
     # a :class:`~brailix.ir.document.GraphicBlock` rasterises to a
     # :class:`TactileRaster` through the SAME incremental pipeline that
     # compiles text blocks (no separate ``translate_graphic`` call), and it

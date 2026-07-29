@@ -1,7 +1,7 @@
 """Render a :class:`~brailix.ir.tactile.TactileRaster` as a one-page PDF.
 
 The print-ready **sighted-reference** sibling of the ``.png`` / ``.bmp``
-master (``ARCHITECTURE.md`` / T6 "可选 PDF"): the same
+master (``ARCHITECTURE.md`` "可选 PDF"): the same
 raise grid with the same raised→dark polarity, embedded as a single
 full-page grayscale image so a sighted collaborator can print or drop it
 into a document at its true millimetre size. The encoder is pure standard

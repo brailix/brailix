@@ -27,6 +27,11 @@ Two checks:
 
 Path-probed, like ``test_extension_docs.py``: this guard ships to the public
 mirror, where only the English copy exists and is named ``ARCHITECTURE.md``.
+
+Two files are exempt from the scan (:data:`_QUOTES_THE_FORMS_AS_DATA`) because
+they quote the forbidden spellings as test fixtures rather than citing the
+document — this one, and the export guard that pins how a design-note
+reference is rewritten for the mirror.
 """
 
 from __future__ import annotations
@@ -92,7 +97,16 @@ def _docs() -> list[tuple[str, str]]:
     ]
 
 
-_SELF = Path(__file__).resolve()
+# Files that must spell the forbidden forms out because they *test* them, so
+# every example in them would otherwise be reported as a violation of the rule
+# it documents. This file is one; the other is the export guard, whose fixtures
+# are before/after pairs of exactly these citations — it pins that a reference
+# to an unpublished design note is collapsed together with its locator, which
+# cannot be written down without writing the locator down. Both quote the forms
+# as data; neither cites the document.
+_QUOTES_THE_FORMS_AS_DATA = frozenset(
+    {Path(__file__).resolve().name, "test_export_public.py"}
+)
 
 
 def _python_files() -> list[Path]:
@@ -101,10 +115,7 @@ def _python_files() -> list[Path]:
         for d in _CODE_DIRS
         for py in sorted((_ROOT / d).rglob("*.py"))
         if "__pycache__" not in py.parts
-        # This file has to spell out the forbidden forms to explain and to test
-        # them — every example below would otherwise be reported as a
-        # violation of the rule it documents.
-        and py != _SELF
+        and py.name not in _QUOTES_THE_FORMS_AS_DATA
     ]
 
 

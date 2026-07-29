@@ -355,7 +355,7 @@ class GraphicBlock(Block):
     place in the block flow, and its inline child — which has no cells to give
     — is never handed to the braille node dispatcher. The dots ride on the
     raster instead, attached to the compiled block beside those empty cells
-    (``ARCHITECTURE.md`` G1)."""
+    (``ARCHITECTURE.md``)."""
 
     type: ClassVar[str] = "graphic"
     source: str = "svg"  # svg / primitives / figure / image
