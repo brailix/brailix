@@ -296,7 +296,14 @@ class CompiledBlock:
       cache keyed on it can't serve one configuration's braille for
       another. A front-end that also wants override-aware caching (a
       proofreading front-end) composes this hash with its own override
-      salt.
+      salt. See ``cacheable`` for the one case where this is *not* a
+      reusable key.
+    * ``cacheable`` — whether ``source_hash`` may be stored. ``False``
+      only when an adapter registration landed *while* this block was
+      compiling: the frontend resolves adapter names on every use, so the
+      cells can be a blend of the outgoing and incoming implementations,
+      and no fingerprint describes a blend. Recompile once the
+      registration settles.
     * ``compiled_at`` — when this entry was produced; helpful for
       debugging stale caches.
 
@@ -311,6 +318,14 @@ class CompiledBlock:
     braille_blocks: list[BrailleBlock]
     warnings: list[Warning] = field(default_factory=list)
     tree_subcache: TreeSubcache = field(default_factory=dict)
+    # False when the registration surface moved mid-compile (the run also
+    # carries a ``COMPILE_EPOCH_CHANGED`` warning). A warning alone was not
+    # enough: a caller that stores ``result.source_hash -> result`` without
+    # reading diagnostics would file a possibly-blended compile under the key
+    # a clean compile of the same block will later look up. Belt and braces —
+    # the ``source_hash`` of such a result is *also* made one-off, so ignoring
+    # this flag costs a dead cache entry rather than a wrong hit.
+    cacheable: bool = True
     compiled_at: datetime = field(
         default_factory=lambda: datetime.now(UTC)
     )

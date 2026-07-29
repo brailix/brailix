@@ -15,25 +15,31 @@ stored as OMML / EQ arrives as a deferred source-tagged island
 at input) is stated in ARCHITECTURE#arch-layers; the dependency is one-way (input
 imports this; this never imports input).
 
-## One public callable per subsystem
+## One entry point per subsystem
 
 Each subsystem under ``frontend/`` exposes **a single high-level
 entry point** plus a registry of internal adapter implementations.
-Users call the entry point with a :class:`FrontendContext`; which
-concrete adapter runs is decided by ``ctx.options[...]`` (or by an
-``"auto"`` default that probes what's installed).
+The entry point takes a :class:`FrontendContext`; which concrete adapter runs
+is decided by ``ctx.options[...]`` (or by an ``"auto"`` default that probes
+what's installed).
 
 The table lists each **subsystem's own** entry point, at the module that
-defines it — not the contents of this facade. The two are deliberately
-different sets: this module re-exports the entries a *document translation*
-runs through, while music, graphics and Japanese are reached at their own
-paths by whoever drives that vertical (the Pipeline, or a caller compiling a
-score / figure directly). Import each from the module named in the left
-column; widening ``__all__`` to make the two lists match would publish four
-more compatibility promises for the sake of symmetry.
+defines it — not the contents of this facade.
+
+These are **orchestration entry points, not published API**. What this facade
+re-exports (its ``__all__``, below) is the supported surface; a subsystem
+entry point deeper than that is internal, exactly as the top-level
+:mod:`brailix` docstring says of every path outside the facades and the
+extension surface — reachable, unsupported, free to move between releases.
+The compiler is who calls them: :class:`~brailix.Pipeline` drives the
+document ones, and the music / graphics / Japanese verticals are driven from
+their own orchestration. They are listed here so the shape of the layer is
+legible, not to invite a third party to import them; widening ``__all__`` to
+match the table would publish four more compatibility promises for the sake
+of symmetry.
 
 ======================  ==============================================
-Module                  Its public callable
+Module                  Its subsystem entry point
 ----------------------  ----------------------------------------------
 ``frontend.segment``    :func:`segment` (selected by ``segmenter``)
 ``frontend.normalize``  :func:`normalize` (selected by ``normalizer``)
@@ -45,9 +51,10 @@ Module                  Its public callable
 ``frontend.graphics``   :func:`parse_graphic_tree` (source via :class:`GraphicsContext`)
 ======================  ==============================================
 
-Re-exported *here*, as this facade's ``__all__``: :func:`segment`,
-:func:`normalize`, ``tokenize_zh``, ``annotate_pinyin``,
-:func:`parse_math_tree`, plus the two language-keyed registries below.
+Published *here*, as this facade's ``__all__`` — the names that do carry a
+compatibility promise: :func:`segment`, :func:`normalize`, ``tokenize_zh``,
+``annotate_pinyin``, :func:`parse_math_tree`, plus the two language-keyed
+registries below.
 
 Custom adapters register themselves with the corresponding registry
 (``analyzer_registry`` in :mod:`frontend.zh.analyzer.registry`,
@@ -193,6 +200,16 @@ class _BoundaryRegistry(dict):
     ``Registry``'s name-based lazy-loading buys nothing here — while changing
     the public shape would break the documented ``boundary_registry[lang] = …``
     idiom for no gain.
+
+    The cost of that choice is that ``dict``'s mutators are C-level and do
+    **not** route through one another: overriding ``__setitem__`` does not
+    make ``update`` or ``|=`` go through it. So every one of them is
+    overridden below — and ``|=`` was the one that wasn't, which left a
+    documented way to swap a handler (``boundary_registry |= {"zh": h}``)
+    without moving the generation, the fingerprint, or any ``source_hash``.
+    ``tests/frontend/test_boundary_registry.py`` covers each mutator
+    individually and fails on any inherited ``dict`` method that is not on its
+    reviewed read-only list, so a mutator can no longer be missed by omission.
     """
 
     __slots__ = ("_generation",)
@@ -231,6 +248,15 @@ class _BoundaryRegistry(dict):
     def update(self, *args: object, **kwargs: object) -> None:
         super().update(*args, **kwargs)
         self._generation += 1
+
+    def __ior__(self, other: object) -> _BoundaryRegistry:  # type: ignore[misc]
+        # ``registry |= {...}`` is a mutation like any other; inherited from
+        # ``dict`` it updates the contents in C without passing through
+        # ``update`` or ``__setitem__``, so the generation — and with it the
+        # Pipeline fingerprint and every ``source_hash`` derived from it —
+        # stayed put while the braille changed.
+        self.update(other)
+        return self
 
     def setdefault(
         self, key: str, default: BoundaryHandler | None = None

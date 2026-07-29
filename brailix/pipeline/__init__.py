@@ -147,6 +147,7 @@ from brailix.pipeline._results import (
 )
 from brailix.pipeline._session import CompilationSession as _CompilationSession
 from brailix.pipeline._session import _InlineTextTranslator
+from brailix.pipeline._session import warn_epoch_changed as _warn_epoch_changed
 from brailix.pipeline.frontend_driver import FrontendDriver as _FrontendDriver
 
 if TYPE_CHECKING:
@@ -524,6 +525,10 @@ class Pipeline:
         )
         doc = DocumentIR(metadata=self._ir_metadata(), blocks=[paragraph])
         braille_doc = translate_document(doc, session.backend_ctx, self._profile)
+        # Same integrity check the block-level compile runs: a registration
+        # that landed mid-run leaves this result a blend of two adapter
+        # generations, whichever entry point produced it.
+        session.report_epoch_drift()
         return TranslationResult(
             text=text,
             ir=doc,
@@ -703,6 +708,7 @@ class Pipeline:
         for block in doc.blocks:
             self._frontend.populate_block(block, session.frontend_ctx)
         braille_doc = translate_document(doc, session.backend_ctx, self._profile)
+        session.report_epoch_drift()
         # The surface for a multi-block document is the concatenation
         # of every block's text — useful for proofread output but not
         # always semantically meaningful (no separator between blocks).
@@ -1155,6 +1161,13 @@ def translate_graphic(
     from brailix.backend.tactile import rasterize
     from brailix.backend.tactile.profile import load_tactile_profile
 
+    # The same epoch-integrity check the Pipeline entry points run, done by
+    # hand because a graphic's compile is Pipeline-free and so has no
+    # CompilationSession to hang it on. It matters most for a figure with
+    # ``<text>`` labels: each label is a full nested text compile, so a
+    # registration landing part-way through leaves some labels translated by
+    # the outgoing implementation and the rest by its replacement.
+    generation = _registries_generation()
     warns = (
         warnings
         if warnings is not None
@@ -1192,4 +1205,6 @@ def translate_graphic(
     raster = rasterize(
         tree, prof, warns, translator, record_provenance=record_provenance
     )
+    if _registries_generation() != generation:
+        _warn_epoch_changed(warns)
     return GraphicResult(raster=raster, svg_tree=tree, warnings=warns)
