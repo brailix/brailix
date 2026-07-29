@@ -1,8 +1,18 @@
 """Inline IR: typed tokens that live inside a block.
 
-Every inline token carries the original surface text and a
-:class:`Span` back into the source document, so the renderer can
-produce per-cell provenance for proofreading.
+Every inline token carries the original surface text and a :class:`Span`,
+which is what lets the renderer produce per-cell provenance for proofreading.
+
+That span is **leaf-local** — offsets into the owning leaf block's own
+``text``, starting at 0 in every block, not coordinates in the source document
+(ARCHITECTURE#arch-spans; :mod:`brailix.ir.document` spells the two-level
+scheme out in full, table rows included). ``Block.span`` is what locates a block in its source; where
+that block upholds the exact-slice contract, ``block.span.start + leaf_local``
+is the exact source position. The distinction is not wording: a consumer that
+treats these offsets as document ones — an editor scrolling to a warning, a
+click-to-source jump — navigates to the wrong place in every block but the
+first, and formats like ``.docx`` have no document-wide character coordinate
+for it to be right about in the first place.
 
 Hierarchy:
 
@@ -508,13 +518,46 @@ def _reject_unhandled_nested_payload(key: str, value: Any) -> None:
         )
 
 
+def _typed_inline_child(
+    field_name: str, payload: Any, expected: type[InlineNode]
+) -> InlineNode:
+    """Deserialize ``payload`` and verify it is an instance of ``expected``.
+
+    The inline counterpart of
+    :func:`brailix.ir.document._typed_child`, and it exists for the same
+    reason. ``Quantity.number`` and ``Percent.number`` are declared
+    ``Number | None``, but the deserializer dispatches on the field *name* and
+    rebuilt whatever the payload said it was — so ``{"type": "quantity",
+    "number": {"type": "word", ...}}`` round-tripped into a ``Quantity``
+    holding a ``Word``. That IR type-checks at the dataclass level and breaks
+    every consumer that reads ``quantity.number`` expecting a number: the
+    backend writes the wrong cells for it, or none. The block side had this
+    check for ``TableRow.cells`` / ``Table.rows`` / ``List.items`` while the
+    inline side did not — two implementations of one idea, drifted apart.
+
+    A payload that is already an :class:`InlineNode` passes through, so a
+    caller assembling a tree by hand can hand over a built node rather than
+    its dict form.
+    """
+    child = from_dict(payload) if isinstance(payload, dict) else payload
+    if not isinstance(child, expected):
+        raise TypeError(
+            f"inline field {field_name!r} expects {expected.__name__}; got "
+            f"{type(child).__name__} (node type "
+            f"{payload.get('type') if isinstance(payload, dict) else type(payload).__name__!r})"
+        )
+    return child
+
+
 def _deserialize_value(key: str, value: Any) -> Any:
     if key == "span":
         return None if value is None else Span.from_tuple(value)
     if key == "parts" and isinstance(value, list):
-        return [from_dict(v) for v in value]
-    if key == "number" and isinstance(value, dict):
-        return from_dict(value)
+        # ``Date.parts`` is declared ``list[InlineNode]``, so any node type is
+        # legal there — what the check adds is that each entry IS a node.
+        return [_typed_inline_child(key, v, InlineNode) for v in value]
+    if key == "number":
+        return None if value is None else _typed_inline_child(key, value, Number)
     if key in ("math", "score", "svg"):
         return _deserialize_xml_tree(key, value)
     _reject_unhandled_nested_payload(key, value)
