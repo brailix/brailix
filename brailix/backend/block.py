@@ -96,9 +96,9 @@ def expand_block(
         return _expand_table(block, ctx, profile)
     if isinstance(block, GraphicBlock):
         # A tactile figure carries no braille cells — it rasterises to a
-        # TactileRaster (attached to the CompiledBlock by
-        # Pipeline.translate_block, ARCHITECTURE.md).  Emit an
-        # empty "graphic" block so the figure holds its place in the block
+        # TactileRaster, attached to the CompiledBlock by
+        # Pipeline.translate_block.
+        # Emit an empty "graphic" block so the figure holds its place in the
         # flow WITHOUT translating its GraphicInline child, which has no
         # braille cells and would otherwise warn UNHANDLED_NODE_TYPE.
         return [
@@ -111,7 +111,8 @@ def expand_block(
         # text still translates as prose (the simple path below), but the
         # picture itself is absent from the braille — flag it so the user can
         # decide, image by image, whether to convert it into a graphic-image
-        # fence. The warnings panel is the
+        # fence.
+        # The warnings panel is the
         # reader's running list of not-yet-converted images; ignoring one is
         # the ordinary "ignore warning" action. Fall through (no return) to
         # translate the alt text.

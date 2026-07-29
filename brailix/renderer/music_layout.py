@@ -169,9 +169,9 @@ def wrap_measures(
 # third cell.  We model that as a hanging indent — first line flush at
 # cell 1, run-over lines at cell 3 (two leading blank cells).
 #
-# Not yet modelled (need backend support / editorial heuristics, tracked
-# in ARCHITECTURE.md): splitting a part into phrase-based *segments*
-# and printing each segment's opening measure number at the margin.
+# Not yet modelled: splitting a part into phrase-based *segments* and
+# printing each segment's opening measure number at the margin. That needs
+# backend support and editorial heuristics.
 _SINGLE_LINE_FIRST_INDENT = 0
 _SINGLE_LINE_RUNOVER_INDENT = 2
 
@@ -226,8 +226,7 @@ class BarOverBarScheme:
     "the first music elements of all of the parts in each measure are
     aligned vertically").  Parallels are separated by a blank line.
 
-    First increment — deliberately omits (tracked in
-    ``ARCHITECTURE.md``): the per-part hand-sign / name prefix
+    First increment — deliberately omits the per-part hand-sign / name prefix
     (needs Table 25 + ``<staff>`` splitting), dividing a measure between
     parallels, run-over lines, and in-accord handling inside a parallel.
     """

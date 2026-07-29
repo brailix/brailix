@@ -61,8 +61,8 @@ def provenance_cells(
     Maps the element ``gid``'s recorded pixels (``raster.provenance``, the
     element→pixel trace from ``record_provenance``) into the same braille-cell
     grid :func:`raster_to_braille` produced at ``width_cells``, so the editor
-    can highlight "where this element is" in the dot preview (the cross-pane
-    highlight, ``ARCHITECTURE.md``). Empty when
+    can highlight "where this element is" in the dot preview — the cross-pane
+    highlight. Empty when
     provenance wasn't recorded, the gid is unknown, or it drew nothing.
 
     ``width_cells`` must match the preview's — the editor renders and

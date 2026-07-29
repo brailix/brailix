@@ -25,7 +25,7 @@ JSON layout convention (since 2026-05-25): char/word entries are
 ``_id`` slugs, *not* dicts keyed by Chinese chars.  Editing, grep,
 and diff stay keyboard-friendly.  Loader translates to
 ``dict[surface, ...]`` for the backend.  Same rationale as the
-math-symbol entity-name convention in ``ARCHITECTURE.md``:
+math-symbol entity-name convention:
 ASCII keys = ergonomic tooling.
 """
 

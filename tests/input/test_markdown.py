@@ -422,8 +422,8 @@ class TestSafeBlockInsertionOffset:
 
 
 class TestImagePlaceholder:
-    """``![alt](target)`` on its own line → :class:`ImageAlt` (the
-    not-yet-converted-image placeholder, ARCHITECTURE.md).
+    """``![alt](target)`` on its own line → :class:`ImageAlt`, the
+    not-yet-converted-image placeholder.
     A figure is always a fence; this is a *placeholder*, not graphics syntax."""
 
     def test_line_becomes_image_alt(self):

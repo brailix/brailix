@@ -17,7 +17,7 @@ Three modes, chosen with the ``data-bk-mode`` attribute:
   (dark ink swells).
 * ``grayscale`` — the full ``0..255`` height range, dark ink mapped to a
   high raise. The information-richest master for a height-modulating
-  embosser (ViewPlus Tiger), per ``ARCHITECTURE.md``.
+  embosser (ViewPlus Tiger).
 * ``edge`` — edge detection, so a photo's outlines become raised lines
   rather than an unreadable filled mass. Best for photographs.
 
