@@ -92,9 +92,27 @@ def _from_targets(node: ast.ImportFrom, package: str) -> list[str]:
     file's own package, and each further dot walks one package up. Spelling
     the relative forms out absolutely is what lets a single :func:`_matches`
     check cover both spellings of the same layer edge.
+
+    An absolute import contributes its alias names too, not just
+    ``node.module``: ``from brailix import frontend`` records the *layer* in
+    the alias list and only ``brailix`` in ``node.module``, so a check reading
+    ``node.module`` alone saw an import of the root package and matched no
+    forbidden layer — the same shape as the relative ``from .. import
+    frontend`` handled below, which was resolved while its absolute twin
+    walked past. Only for ``brailix``-rooted modules, so an ordinary ``from
+    typing import TYPE_CHECKING`` still contributes one name; and it cannot
+    over-report, since ``brailix.<pkg>.<alias>`` can only match a forbidden
+    layer when ``brailix.<pkg>`` already did.
     """
     if node.level == 0:
-        return [node.module] if node.module else []
+        if not node.module:
+            return []
+        if node.module.split(".")[0] == "brailix":
+            return [
+                node.module,
+                *(f"{node.module}.{a.name}" for a in node.names),
+            ]
+        return [node.module]
     parts = package.split(".") if package else []
     if node.level - 1 > len(parts):
         return []  # walks off the package root; not a brailix edge
@@ -395,6 +413,36 @@ def test_no_layer_imports_a_module_this_guard_cannot_read() -> None:
     )
 
 
+def test_no_guarded_layer_imports_the_root_package() -> None:
+    """A layer imports the layer it needs, never ``brailix`` itself.
+
+    ``import brailix`` matches no forbidden package — it names the root — and
+    what it reaches is decided later, by attribute access: ``brailix.frontend``
+    on the next line is a layer edge no import statement records, so no static
+    check can see it. Banning the *import* is what makes the attribute
+    unreachable.
+
+    It is also the widest edge available, not the narrowest. The root package
+    re-exports :class:`~brailix.Pipeline`, so importing it runs the
+    orchestrator's imports, which run every layer's — a backend that reached
+    for one helper would depend on the whole library, and on the orchestrator
+    that is supposed to depend on *it*. ``brailix.pipeline`` is exempt for that
+    same reason (it may import anything, and reads ``__version__`` from the
+    root); ``brailix/cli.py`` is a front-end, not a layer, and is not scanned.
+    """
+    offenders = [
+        f"{py.relative_to(_PKG.parent)} imports the root package"
+        for layer in [*_RULES, "input"]
+        for py in sorted((_PKG / layer).rglob("*.py"))
+        if "brailix" in _imports(py)
+    ]
+    assert not offenders, (
+        "a guarded layer imports ``brailix`` itself — import the exact layer "
+        "(``brailix.core`` / ``brailix.ir``) instead, so the edge is written "
+        "down where this guard can read it:\n" + "\n".join(offenders)
+    )
+
+
 def test_core_does_not_import_ir_at_runtime() -> None:
     """``brailix.core`` may *annotate* against IR types but must not depend on
     them: ``brailix.ir`` imports core primitives, so a runtime edge back would
@@ -593,6 +641,44 @@ class TestGuardCatchesEveryImportForm:
         # ``from .. import frontend`` names the module in the alias list, not
         # in ``node.module`` — the form a level-only resolver drops.
         assert _would_flag("from .. import frontend")
+
+    def test_absolute_bare_submodule(self) -> None:
+        """The absolute twin of the case above, and the one that was missed:
+        ``node.module`` is ``brailix``, which matches no forbidden layer, so
+        the edge was recorded as an import of the root package."""
+        assert _would_flag("from brailix import frontend")
+
+    def test_absolute_bare_submodule_among_others(self) -> None:
+        assert _would_flag("from brailix import ir, frontend")
+
+    def test_absolute_bare_submodule_renamed(self) -> None:
+        """``as`` binds a different name; the edge is the same one."""
+        assert _would_flag("from brailix import frontend as f")
+
+    def test_importing_an_allowed_layer_by_that_form_is_not_flagged(self) -> None:
+        """The other half — expanding alias names must not start reporting the
+        edges a layer is allowed to have."""
+        assert not _would_flag("from brailix import ir")
+        assert not _would_flag("from brailix.core import Span")
+        assert not _would_flag("from brailix.ir.document import Paragraph")
+
+    def test_the_root_package_import_is_recorded(self) -> None:
+        """``import brailix`` + ``brailix.frontend.normalize(...)`` names no
+        layer in any import statement — the attribute is where the edge is.
+        The layer sweep cannot see it, which is why the root package is banned
+        outright (``test_no_guarded_layer_imports_the_root_package``); this
+        pins that the scanner at least records the import it bans."""
+        assert "brailix" in _imports_in(
+            "import brailix\ndef f():\n    return brailix.frontend.normalize\n",
+            "brailix.backend",
+        )
+        assert "brailix" in _imports_in(
+            "from brailix import frontend", "brailix.backend"
+        )
+        # An exact-layer import is not the root package.
+        assert "brailix" not in _imports_in(
+            "import brailix.core.span", "brailix.backend"
+        )
 
     def test_lazy_relative_import_inside_a_function(self) -> None:
         assert _would_flag(
