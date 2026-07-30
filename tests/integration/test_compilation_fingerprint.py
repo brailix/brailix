@@ -10,6 +10,11 @@ Two silent-wrong-output holes closed by :mod:`brailix.pipeline._fingerprint`:
   and matched ``block.text`` — a :class:`DocumentIR` populated by pipeline A
   kept A's semantic IR when translated through a differently-configured
   pipeline B, so B's translation silently used A's tokenization / readings.
+* ``translate_text`` returned IR wearing neither ``text`` nor a stamp, which
+  is the hand-built shape the stale-heal deliberately leaves alone — so the
+  hole above stayed open for anything that started from ``translate_text``
+  rather than ``parse_text``, which is the shorter of the two entry points and
+  the one an example reaches for.
 """
 
 from __future__ import annotations
@@ -167,6 +172,35 @@ class TestPopulatedDocConfigInvalidation:
         children_b = doc.blocks[0].children
         with_dict.translate_document(doc)
         assert doc.blocks[0].children is children_b
+
+    def test_translate_text_ir_is_invalidated_by_different_pipeline(
+        self, base: Pipeline, with_dict: Pipeline
+    ) -> None:
+        # ``translate_text`` used to assemble its own Paragraph carrying only
+        # ``children`` — no ``text``, no stamp — which is exactly the shape the
+        # population contract calls hand-built and reuses verbatim. So this
+        # result, handed to any other pipeline, kept A's tokenization and
+        # readings and produced braille B never compiled. It stamps now, like
+        # every other populate path.
+        result_a = base.translate_text(TEXT)
+        blk = result_a.ir.blocks[0]
+        assert blk.text == TEXT
+        assert blk.frontend_fingerprint == base.fingerprint
+
+        out_b = with_dict.translate_document(result_a.ir).render("unicode")
+        assert out_b == with_dict.translate_text(TEXT).render("unicode")
+        assert out_b != result_a.render("unicode")
+
+    def test_translate_text_ir_is_reused_by_equal_pipeline(
+        self, base: Pipeline
+    ) -> None:
+        # The other half of the contract: stamping must not cost the documented
+        # "re-translation skips the frontend cost" reuse when the configuration
+        # is the same one.
+        result = base.translate_text(TEXT)
+        children = result.ir.blocks[0].children
+        Pipeline(profile="cn_current").translate_document(result.ir)
+        assert result.ir.blocks[0].children is children
 
     def test_equal_configuration_still_reuses_children(
         self, base: Pipeline
