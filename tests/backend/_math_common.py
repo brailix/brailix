@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from brailix.backend.math import emit_tree, translate
+from brailix.backend.math import _emit_tree, translate
 from brailix.core.context import BackendContext
 from brailix.core.errors import RunMode, WarningCollector
 from brailix.frontend.math.normalizer import normalize
@@ -46,10 +46,10 @@ def emit(
 
 
 def emit_via_tree(tree: ET.Element, profile) -> tuple[list[BrailleCell], WarningCollector]:
-    """Same as :func:`emit` but exercises :func:`emit_tree` directly."""
+    """Same as :func:`emit` but exercises :func:`_emit_tree` directly."""
     wc = WarningCollector(mode=RunMode.NORMAL)
     ctx = BackendContext(profile="cn_current", warnings=wc)
-    cells = emit_tree(tree, ctx, profile)
+    cells = _emit_tree(tree, ctx, profile)
     return cells, wc
 
 

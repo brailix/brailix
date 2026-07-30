@@ -26,12 +26,20 @@ The package is split into focused modules so each one stays scannable:
 * :mod:`.utils`     — small pure helpers (shape checks, unpackers, role
   tables, ``_emit_structure``, ``_unknown_cell``, etc.)
 
-Only the three names below — :class:`MathBrailleContext`,
-:func:`translate`, :func:`emit_tree` — are stable public API of this
-package.  Everything else lives in the sub-modules and is package-
-internal; callers that need a helper should import it from its
-specific sub-module (e.g. ``from brailix.backend.math.utils import
-_is_atomic``) so the package interface stays scoped.
+This package's own entry points are :class:`MathBrailleContext` and
+:func:`translate` — what :mod:`brailix.backend.dispatch` calls to render a
+:class:`MathInline`. Everything else lives in the sub-modules; callers that
+need a helper import it from the sub-module that defines it (e.g. ``from
+brailix.backend.math.utils import _is_atomic``) so the package interface stays
+scoped.
+
+Scoped, not *published*: the whole package is internal, like every path outside
+the facades and the extension surface (see the top-level :mod:`brailix`
+docstring). This docstring used to call those names "stable public API", which
+said the opposite of the policy one level up and left the question of whether
+they carry a compatibility promise answerable two ways — and one of the three,
+a convenience wrapper for tests, is now :func:`_emit_tree` for the same reason:
+a plain name reads as an offer.
 """
 
 from __future__ import annotations
@@ -126,13 +134,16 @@ def translate(
     return cells
 
 
-def emit_tree(
+def _emit_tree(
     elem: ET.Element, ctx: BackendContext, profile: BrailleProfile
 ) -> list[BrailleCell]:
     """Convenience for tests: emit a single MathML subtree directly.
 
     Equivalent to wrapping the element in a fresh :class:`MathInline`
-    and calling :func:`translate`.
+    and calling :func:`translate`. Underscore-named because it is exactly
+    that — a test convenience with no caller in the compiler — and a plain
+    name sitting beside :func:`translate` offered it as if it were part of the
+    package's interface.
     """
     if tree_depth_exceeds(elem, _MAX_TREE_DEPTH):
         return _too_deep_fallback(None, None, ctx)
@@ -146,5 +157,4 @@ def emit_tree(
 __all__ = (
     "MathBrailleContext",
     "translate",
-    "emit_tree",
 )

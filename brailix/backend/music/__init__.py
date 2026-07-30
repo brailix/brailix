@@ -18,11 +18,16 @@ Soft-failure contract: an unrecognised *element* is a no-op plus a
 *character* or a malformed note produces an unknown cell plus a
 warning. The pipeline never crashes.
 
-Public surface is intentionally tiny:
+The package's own interface is intentionally tiny:
 
 * :class:`MusicBrailleContext` — per-fragment mutable state
 * :func:`translate` — one :class:`MusicInline` → cells
-* :func:`emit_tree` — convenience wrapper for tests
+
+Both are internal, like every path outside the facades and the extension
+surface (see the top-level :mod:`brailix` docstring): scoped so the
+sub-modules stay private to the package, not offered as a compatibility
+promise. ``_emit_tree`` beside them is a convenience wrapper for tests, and
+underscore-named so it doesn't read as one either.
 """
 
 from __future__ import annotations
@@ -79,13 +84,14 @@ def translate(
     return cells
 
 
-def emit_tree(
+def _emit_tree(
     elem: ET.Element, ctx: BackendContext, profile: BrailleProfile
 ) -> list[BrailleCell]:
     """Convenience for tests: emit a single MusicXML subtree directly.
 
     Equivalent to wrapping the element in a fresh :class:`MusicInline`
-    and calling :func:`translate`.
+    and calling :func:`translate`. Underscore-named because that is all it is:
+    a test convenience with no caller in the compiler.
     """
     mctx = MusicBrailleContext(
         profile=profile,
@@ -118,5 +124,4 @@ def _resolve_octave_rule(
 __all__ = (
     "MusicBrailleContext",
     "translate",
-    "emit_tree",
 )

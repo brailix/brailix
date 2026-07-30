@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import emit_tree
+from brailix.backend.music import _emit_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 
@@ -68,7 +68,7 @@ def test_chord_root_resets_across_measures(profile, ctx):
         + "</measure>"
         "</part>"
     )
-    emit_tree(part, ctx, profile)
+    _emit_tree(part, ctx, profile)
     msgs = [w.message for w in ctx.warnings if w.code == "MUSIC_UNSUPPORTED_NOTATION"]
     assert any("without a prior root" in m for m in msgs)
 
@@ -86,7 +86,7 @@ class TestChordIntervals:
             _note("E", 4, chord=True),
             _note("G", 4, chord=True),
         )
-        cells = emit_tree(m, ctx, profile)
+        cells = _emit_tree(m, ctx, profile)
         roles = _roles(cells)
         # Root: octave + note
         # Chord notes: each emits an interval cell only.
@@ -110,7 +110,7 @@ class TestChordIntervals:
             _note("A", 4, chord=True),
             _note("B", 4, chord=True),
         )
-        cells = emit_tree(m, ctx, profile)
+        cells = _emit_tree(m, ctx, profile)
         intervals = [c for c in cells if c.role == "music_interval"]
         expected = [
             (3, 4),       # 2nd "/"
@@ -128,7 +128,7 @@ class TestChordIntervals:
             _note("C", 4),
             _note("C", 5, chord=True),
         )
-        cells = emit_tree(m, ctx, profile)
+        cells = _emit_tree(m, ctx, profile)
         intervals = [c for c in cells if c.role == "music_interval"]
         # octave entity = "-" = (3,6)
         assert _dots(intervals) == [(3, 6)]
@@ -146,7 +146,7 @@ class TestCompoundIntervals:
             _note("C", 4),
             _note("D", 5, chord=True),
         )
-        cells = emit_tree(m, ctx, profile)
+        cells = _emit_tree(m, ctx, profile)
         intervals = [c for c in cells if c.role == "music_interval"]
         # octave + second
         assert _dots(intervals) == [(3, 6), (3, 4)]
@@ -157,7 +157,7 @@ class TestCompoundIntervals:
             _note("C", 4),
             _note("C", 6, chord=True),
         )
-        cells = emit_tree(m, ctx, profile)
+        cells = _emit_tree(m, ctx, profile)
         intervals = [c for c in cells if c.role == "music_interval"]
         assert _dots(intervals) == [(3, 6), (3, 6)]
 
@@ -176,7 +176,7 @@ class TestEdgeCases:
             "<pitch><step>E</step><octave>4</octave></pitch>"
             "<duration>4</duration><type>quarter</type></note>"
         )
-        emit_tree(m, ctx, profile)
+        _emit_tree(m, ctx, profile)
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
 
@@ -187,7 +187,7 @@ class TestEdgeCases:
             _note("C", 4),
             _note("C", 4, chord=True),
         )
-        cells = emit_tree(m, ctx, profile)
+        cells = _emit_tree(m, ctx, profile)
         intervals = [c for c in cells if c.role == "music_interval"]
         # 2nd "/" = (3,4)
         assert _dots(intervals) == [(3, 4)]
@@ -206,7 +206,7 @@ class TestEdgeCases:
             _note("F", 4, chord=True),
             _note("A", 4, chord=True),
         )
-        cells = emit_tree(m, ctx, profile)
+        cells = _emit_tree(m, ctx, profile)
         intervals = [c for c in cells if c.role == "music_interval"]
         # 3rd, 5th, 3rd, 5th
         assert _dots(intervals) == [
@@ -237,7 +237,7 @@ class TestChordNotationsStillSuppressed:
             '<notations><tied type="start"/></notations>'
             "</note>",
         )
-        cells = emit_tree(m, ctx, profile)
+        cells = _emit_tree(m, ctx, profile)
         # Only one tie pair (root's), chord note's tied is silently
         # ignored — S6 returns before reaching _emit_notations_post_note.
         assert _roles(cells).count("music_tie") == 2
@@ -281,21 +281,21 @@ class TestChordDirectionByClef:
         )
 
     def test_treble_writes_top_note(self, profile, ctx):
-        cells = emit_tree(self._chord_with_clef("G", 2), ctx, profile)
+        cells = _emit_tree(self._chord_with_clef("G", 2), ctx, profile)
         assert _written_note_step(cells) == "G"  # uppermost written
         assert _roles(cells).count("music_interval") == 2
 
     def test_bass_writes_bottom_note(self, profile, ctx):
-        cells = emit_tree(self._chord_with_clef("F", 4), ctx, profile)
+        cells = _emit_tree(self._chord_with_clef("F", 4), ctx, profile)
         assert _written_note_step(cells) == "C"  # lowermost written
         assert _roles(cells).count("music_interval") == 2
 
     def test_alto_c_clef_writes_top(self, profile, ctx):
-        cells = emit_tree(self._chord_with_clef("C", 3), ctx, profile)
+        cells = _emit_tree(self._chord_with_clef("C", 3), ctx, profile)
         assert _written_note_step(cells) == "G"
 
     def test_tenor_c_clef_writes_bottom(self, profile, ctx):
-        cells = emit_tree(self._chord_with_clef("C", 4), ctx, profile)
+        cells = _emit_tree(self._chord_with_clef("C", 4), ctx, profile)
         assert _written_note_step(cells) == "C"
 
     def test_clef_changes_written_note_not_interval_sizes(self, profile, ctx):
@@ -304,8 +304,8 @@ class TestChordDirectionByClef:
         # SIZES (cell dots) — not just the count — and that they're identical
         # across clefs, so a size mistranslation that still emits two
         # intervals can't pass.
-        treble = emit_tree(self._chord_with_clef("G", 2), ctx, profile)
-        bass = emit_tree(self._chord_with_clef("F", 4), ctx, profile)
+        treble = _emit_tree(self._chord_with_clef("G", 2), ctx, profile)
+        bass = _emit_tree(self._chord_with_clef("F", 4), ctx, profile)
         t_sizes = {c.dots for c in treble if c.role == "music_interval"}
         b_sizes = {c.dots for c in bass if c.role == "music_interval"}
         assert len(t_sizes) == 2  # two distinct sizes (3rd, 5th)
@@ -318,15 +318,15 @@ class TestChordDirectionByClef:
             _note("E", 4, chord=True),
             _note("G", 4, chord=True),
         )
-        cells = emit_tree(m, ctx, profile)
+        cells = _emit_tree(m, ctx, profile)
         assert _written_note_step(cells) == "C"
 
     def test_interval_cells_identical_both_directions(self, profile, ctx):
         # The two interval cells (3rd, 5th) are byte-identical whether the
         # chord is read up (bass) or down (treble) — direction is conveyed
         # by the written note, not the interval cell.
-        treble = emit_tree(self._chord_with_clef("G", 2), ctx, profile)
-        bass = emit_tree(self._chord_with_clef("F", 4), ctx, profile)
+        treble = _emit_tree(self._chord_with_clef("G", 2), ctx, profile)
+        bass = _emit_tree(self._chord_with_clef("F", 4), ctx, profile)
         t_iv = [c.dots for c in treble if c.role == "music_interval"]
         b_iv = [c.dots for c in bass if c.role == "music_interval"]
         assert t_iv == b_iv and len(t_iv) == 2

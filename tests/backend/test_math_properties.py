@@ -29,7 +29,7 @@ pytest.importorskip("hypothesis")
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from brailix.backend.math import emit_tree
+from brailix.backend.math import _emit_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 from brailix.core.errors import (
@@ -98,7 +98,7 @@ def normalized_math_trees(draw: st.DrawFn) -> ET.Element:
 def _run(tree: ET.Element, mode: RunMode) -> tuple[list[BrailleCell], list]:
     warnings = WarningCollector(mode=mode)
     ctx = BackendContext(profile="cn_current", mode=mode, warnings=warnings)
-    cells = emit_tree(tree, ctx, _PROFILE)
+    cells = _emit_tree(tree, ctx, _PROFILE)
     return cells, list(warnings)
 
 
@@ -161,7 +161,7 @@ class TestStateIsolation:
         shared = BackendContext(
             profile="cn_current", mode=RunMode.NORMAL, warnings=warnings
         )
-        emit_tree(first, shared, _PROFILE)
-        chained = emit_tree(second, shared, _PROFILE)
+        _emit_tree(first, shared, _PROFILE)
+        chained = _emit_tree(second, shared, _PROFILE)
         fresh, _ = _run(second, RunMode.NORMAL)
         assert chained == fresh

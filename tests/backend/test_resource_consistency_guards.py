@@ -17,8 +17,8 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.math import emit_tree as math_emit_tree
-from brailix.backend.music import emit_tree as music_emit_tree
+from brailix.backend.math import _emit_tree as math_emit_tree
+from brailix.backend.music import _emit_tree as music_emit_tree
 from brailix.core.config import load_profile
 from brailix.core.config.profile import BrailleProfile
 from brailix.core.context import BackendContext

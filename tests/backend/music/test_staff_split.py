@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import emit_tree
+from brailix.backend.music import _emit_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 
@@ -47,7 +47,7 @@ def _quarter_note_dots(profile, step: str, octave: int):
         "<duration>1</duration><type>quarter</type></note>"
         "</measure></part></score-partwise>"
     )
-    cells = emit_tree(m, BackendContext(profile="cn_current", block_type="score"), profile)
+    cells = _emit_tree(m, BackendContext(profile="cn_current", block_type="score"), profile)
     return next(c.dots for c in cells if c.role == "music_note")
 
 
@@ -76,7 +76,7 @@ class TestClefResetsAtStaffBoundary:
             "<duration>1</duration><type>quarter</type><staff>2</staff></note>"
             "</measure></part></score-partwise>"
         )
-        cells = emit_tree(score, ctx, profile)
+        cells = _emit_tree(score, ctx, profile)
         roles = _roles(cells)
         # Staff 1 and staff 2 streams are separated by a part-sep.
         sep_idx = roles.index("music_part_sep")
@@ -117,7 +117,7 @@ class TestClefResetsAtPartBoundary:
             "<duration>1</duration><type>quarter</type></note>"
             "</measure></part></score-partwise>"
         )
-        cells = emit_tree(score, ctx, profile)
+        cells = _emit_tree(score, ctx, profile)
         roles = _roles(cells)
         # Single-staff parts → exactly one part-sep, between P1 and P2.
         sep_idx = roles.index("music_part_sep")
@@ -150,5 +150,5 @@ class TestChordMemberNotationWarning:
             "<duration>1</duration><type>quarter</type></note>"
             "</measure></part></score-partwise>"
         )
-        emit_tree(score, ctx, profile)
+        _emit_tree(score, ctx, profile)
         assert "MUSIC_UNSUPPORTED_NOTATION" in [w.code for w in ctx.warnings]

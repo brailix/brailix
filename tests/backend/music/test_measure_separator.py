@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import emit_tree
+from brailix.backend.music import _emit_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 
@@ -49,7 +49,7 @@ def _seps(cells):
 
 
 def test_blank_cell_between_consecutive_measures(profile, ctx):
-    cells = emit_tree(_score(_NOTE, _NOTE, _NOTE), ctx, profile)
+    cells = _emit_tree(_score(_NOTE, _NOTE, _NOTE), ctx, profile)
     seps = _seps(cells)
     # 3 measures → 2 separators (none before the first).
     assert len(seps) == 2
@@ -57,7 +57,7 @@ def test_blank_cell_between_consecutive_measures(profile, ctx):
 
 
 def test_no_separator_before_first_measure(profile, ctx):
-    cells = emit_tree(_score(_NOTE), ctx, profile)
+    cells = _emit_tree(_score(_NOTE), ctx, profile)
     assert _seps(cells) == []
 
 
@@ -65,7 +65,7 @@ def test_separator_none_disables(profile, ctx, monkeypatch):
     # BrailleProfile uses slots — mutate the live features dict (feature()
     # honours live changes) rather than setattr-ing the bound method.
     monkeypatch.setitem(profile.features["music"], "measure_separator", "none")
-    cells = emit_tree(_score(_NOTE, _NOTE), ctx, profile)
+    cells = _emit_tree(_score(_NOTE, _NOTE), ctx, profile)
     assert _seps(cells) == []
 
 
@@ -73,6 +73,6 @@ def test_separator_coexists_with_explicit_barline(profile, ctx):
     """A final/repeat <barline> still emits its own cells; the measure
     separator is independent of it."""
     m1 = _NOTE + "<barline><bar-style>light-heavy</bar-style></barline>"
-    cells = emit_tree(_score(m1, _NOTE), ctx, profile)
+    cells = _emit_tree(_score(m1, _NOTE), ctx, profile)
     assert len(_seps(cells)) == 1  # between the two measures
     assert [c for c in cells if c.role == "music_bar_line"]  # bar still present
