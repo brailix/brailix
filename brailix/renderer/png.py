@@ -9,8 +9,9 @@ BMP. The encoder is pure standard library (``zlib`` for the IDAT stream,
 ``struct`` + ``zlib.crc32`` for the chunks) — no third-party dependency.
 
 8-bit grayscale (PNG colour type 0), rows top-to-bottom. A ``pHYs`` chunk
-records pixels-per-metre from the raster's DPI so the image reproduces at
-its true millimetre size, matching the BMP renderer.
+records pixels-per-metre from the raster's physical page size so the image
+reproduces at its true millimetre size — the same size the BMP header and
+the PDF ``MediaBox`` state (:mod:`brailix.renderer._raster_encoding`).
 """
 
 from __future__ import annotations
@@ -50,8 +51,8 @@ def raster_to_png(raster: TactileRaster) -> bytes:
     # IHDR: width, height, bit depth 8, colour type 0 (grayscale), default
     # compression / filter / interlace.
     ihdr = struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0)
-    ppu = pixels_per_metre(raster.dpi)
-    phys = struct.pack(">IIB", ppu, ppu, 1)  # unit 1 = metre
+    ppu_x, ppu_y = pixels_per_metre(raster)
+    phys = struct.pack(">IIB", ppu_x, ppu_y, 1)  # unit 1 = metre
 
     return (
         _PNG_SIGNATURE

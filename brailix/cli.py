@@ -10,11 +10,15 @@ than a hand-kept list.
 
 Examples::
 
-    brailix "我在重庆。"                  # Unicode braille to stdout
-    brailix -f lesson.md -w 32           # wrap a Markdown file at 32 cells
-    brailix "123" --to brf -o out.brf    # NABCC bytes for an embosser
-    echo "# 标题" | brailix --in-format markdown
-    brailix --list-profiles
+    brailix "我在重庆。" -p cn_current                 # Unicode braille to stdout
+    brailix -f lesson.md -w 32 -p cn_current          # wrap Markdown at 32 cells
+    brailix "123" --to brf -o out.brf -p cn_current   # NABCC for an embosser
+    echo "# 标题" | brailix --in-format markdown -p cn_current
+    brailix --list-profiles                           # discovery needs no profile
+
+``-p/--profile`` is required for a translation: more than one braille
+standard ships, and the CLI never picks one for you (``--list-profiles``
+prints the names). The discovery flags run without it.
 
 The translation surface mirrors the library: input is dispatched the same
 way :meth:`brailix.Pipeline.translate_file` dispatches it (by suffix for
@@ -57,8 +61,15 @@ if TYPE_CHECKING:
 # :meth:`brailix.Pipeline.parse_text`'s contract; the input layer keeps no
 # registry for them because the choice is static (a file's suffix, or this
 # flag) — see ``brailix/input/__init__.py``. Files passed with ``--file``
-# are dispatched by suffix instead and ignore this flag.
+# are dispatched by suffix instead, so combining the two is refused rather
+# than silently ignored (see :func:`_validate`).
 IN_FORMATS = ("plain", "markdown", "musicxml")
+
+# What TEXT / stdin is read as when ``--in-format`` is omitted. The flag's
+# argparse default is ``None`` instead, so "not given" stays distinguishable
+# from "given" — that is what lets ``--in-format`` with ``--file`` be an
+# error while a plain ``--file`` run is not.
+DEFAULT_IN_FORMAT = "plain"
 
 # Default page width (in cells) for the layout pass when ``--width`` is
 # omitted but a layout pass is requested. Matches
@@ -115,14 +126,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--file",
         metavar="PATH",
         help="read input from a file, dispatched by suffix "
-        "(.md / .docx / .musicxml / ...); needs the matching extra",
+        "(.md / .docx / .musicxml / ...); needs the matching extra. "
+        "not combinable with TEXT",
     )
     src.add_argument(
         "--in-format",
         dest="in_format",
         choices=IN_FORMATS,
-        default="plain",
-        help="format for TEXT / stdin (default: plain; ignored for --file)",
+        default=None,
+        help=f"format for TEXT / stdin (default: {DEFAULT_IN_FORMAT}; "
+        "not for --file, which dispatches by suffix)",
     )
 
     out = parser.add_argument_group("output")
@@ -226,11 +239,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 _EPILOG = """\
 examples:
-  brailix "我在重庆。"                 translate a string to Unicode braille
-  brailix -f lesson.md -w 32          wrap a Markdown file at 32 cells
-  brailix "123" --to brf -o out.brf   write NABCC bytes for an embosser
-  echo "# 标题" | brailix --in-format markdown
-  brailix --list-analyzers
+  brailix "我在重庆。" -p cn_current            translate a string to Unicode braille
+  brailix -f lesson.md -w 32 -p cn_current     wrap a Markdown file at 32 cells
+  brailix "123" --to brf -o out.brf -p cn_current   write NABCC for an embosser
+  echo "# 标题" | brailix --in-format markdown -p cn_current
+  brailix --list-analyzers                     discovery needs no profile
+
+-p/--profile is required to translate: more than one braille standard ships
+and the choice is always the caller's (--list-profiles prints the names).
+
+The text comes from exactly one place: TEXT, or --file, or piped stdin when
+neither is given. TEXT together with --file is a usage error rather than a
+silent winner.
 
 A profile, engine, or resolver name shown by the --list-* flags is always
 valid even before its optional dependency is installed; selecting one whose
@@ -293,11 +313,30 @@ def _validate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None
     ``--profile`` is required (there is no built-in default braille
     standard); it is checked here rather than via argparse ``required=True``
     so the ``--list-*`` discovery flags still run without it.
+
+    The input source is checked here too. ``TEXT`` and ``--file`` are both
+    accepted by the parser and both name an input, so passing both used to
+    resolve by an implicit precedence nobody had written down — ``--file``
+    won, while the guide said the positional argument did, and the text the
+    user typed was silently not the thing translated. There is no reading of
+    that command that is obviously right, so it is refused. Likewise
+    ``--in-format`` with ``--file``: a file is dispatched by its suffix, so
+    the flag cannot do what it says on the tin and quietly did nothing.
     """
     if args.profile is None:
         parser.error(
             "the following arguments are required: -p/--profile "
             "(see --list-profiles for available names)"
+        )
+    if args.text is not None and args.file is not None:
+        parser.error(
+            "TEXT and --file are mutually exclusive: pass the text to "
+            "translate or a file to read it from, not both"
+        )
+    if args.in_format is not None and args.file is not None:
+        parser.error(
+            "--in-format applies to TEXT / stdin; --file is dispatched by "
+            "the file's suffix (pipe the file in to force a format)"
         )
     if args.analyzer != DEFAULT_ZH_ANALYZER:
         valid = set(list_zh_analyzers()) | set(list_ja_analyzers())
@@ -426,11 +465,18 @@ def _read_stdin() -> str | None:
 def _translate(
     pipe: Pipeline, args: argparse.Namespace, source_text: str | None
 ) -> TranslationResult:
-    """Run the pipeline on the selected input source."""
+    """Run the pipeline on the selected input source.
+
+    Exactly one source is possible by the time this runs: ``_validate``
+    rejected TEXT together with ``--file``, and ``main`` only falls back to
+    stdin when neither was given.
+    """
     if args.file is not None:
         return pipe.translate_file(args.file)
     assert source_text is not None  # guaranteed by the caller
-    doc = pipe.parse_text(source_text, format=args.in_format)
+    doc = pipe.parse_text(
+        source_text, format=args.in_format or DEFAULT_IN_FORMAT
+    )
     return pipe.translate_document(doc)
 
 

@@ -17,14 +17,18 @@ import re
 import xml.etree.ElementTree as ET
 
 # Code points illegal in XML 1.0 even after entity-escaping: the C0
-# controls except tab / newline / carriage-return, plus the lone
-# surrogates. ``escape`` / ``quoteattr`` only handle ``& < > " '``,
-# so a vendor-malformed source string echoed back into a soft-failure
-# ``<merror>`` / ``<music-error>`` document would otherwise make the
-# downstream ``ET.fromstring`` re-parse raise — breaking the
-# "normalizer never raises" contract. See :func:`strip_xml_invalid_chars`.
+# controls except tab / newline / carriage-return, the lone surrogates, and
+# U+FFFE / U+FFFF — everything the ``Char`` production leaves out
+# (``#x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] |
+# [#x10000-#x10FFFF]``; the noncharacters above U+FFFF and the U+FDD0 block
+# are discouraged but legal, and expat accepts them). ``escape`` /
+# ``quoteattr`` only handle ``& < > " '``, so a vendor-malformed source
+# string echoed back into a soft-failure ``<merror>`` / ``<music-error>``
+# document would otherwise make the downstream ``ET.fromstring`` re-parse
+# raise — breaking the "normalizer never raises" contract, which is exactly
+# what a stray U+FFFE did. See :func:`strip_xml_invalid_chars`.
 _XML_INVALID_CHARS = re.compile(
-    "[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff]"
+    "[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]"
 )
 
 

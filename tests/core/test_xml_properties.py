@@ -114,18 +114,24 @@ class TestStripWhitespaceText:
 
 
 def _is_xml_invalid(ch: str) -> bool:
-    # XML 1.0: C0 controls except tab / LF / CR, plus the lone surrogates.
+    # The complement of XML 1.0's Char production: C0 controls except tab /
+    # LF / CR, the lone surrogates, and U+FFFE / U+FFFF (the production's
+    # last valid BMP code point is U+FFFD). The noncharacters at the top of
+    # the higher planes, and the U+FDD0 block, are discouraged but legal.
     cp = ord(ch)
     return (cp <= 0x08 or cp in (0x0B, 0x0C) or 0x0E <= cp <= 0x1F
-            or 0xD800 <= cp <= 0xDFFF)
+            or 0xD800 <= cp <= 0xDFFF or cp in (0xFFFE, 0xFFFF))
 
 
 # Strings assembled from raw code points so lone surrogates and C0
-# controls actually appear (st.text() excludes surrogates by default).
+# controls actually appear (st.text() excludes surrogates by default) —
+# and so do the two BMP noncharacters at the other end of the range, which
+# st.text() *does* generate and which the model above used to call legal.
 _raw_strings = st.lists(
     st.one_of(
         st.integers(0, 0x20),
         st.integers(0xD7FF, 0xE001),
+        st.integers(0xFFFC, 0xFFFF),
         st.sampled_from([ord("a"), ord("我"), ord("<"), ord("&"), 0x0C, 0x00]),
     ),
     max_size=12,

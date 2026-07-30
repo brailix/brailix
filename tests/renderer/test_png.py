@@ -14,8 +14,17 @@ _SIG = b"\x89PNG\r\n\x1a\n"
 
 
 def _raster(w: int, h: int, dpi: float = 100.0) -> TactileRaster:
+    """A raster whose page really is its pixel grid at ``dpi`` — ``pHYs`` is
+    computed from the physical size, so a fixture that declared 4 px to be a
+    10 mm page would be pinning a density its own raster contradicts. A
+    zero-pixel axis still gets a positive page (the IR requires one); it is
+    ``raster_to_png`` that must reject the zero area."""
     return TactileRaster.blank(
-        w, h, dpi=dpi, page_width_mm=10.0, page_height_mm=10.0
+        w,
+        h,
+        dpi=dpi,
+        page_width_mm=max(w, 1) * 25.4 / dpi,
+        page_height_mm=max(h, 1) * 25.4 / dpi,
     )
 
 

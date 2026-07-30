@@ -15,8 +15,10 @@ emboss as dots / swell up / drive Tiger dot height — so one master image
 feeds them all.
 
 Physical scale: the BMP header records pixels-per-metre from the raster's
-``dpi``, so embossing software reproduces the drawing at its true
-millimetre size. The encoder is pure standard library (``struct``); only
+physical page size, so embossing software reproduces the drawing at its
+true millimetre size — the same size the PNG's ``pHYs`` chunk and the PDF's
+``MediaBox`` state (:mod:`brailix.renderer._raster_encoding`). The encoder
+is pure standard library (``struct``); only
 *reading* external bitmaps (in the tactile backend, behind the ``graphics``
 extra) needs a third-party library.
 
@@ -28,8 +30,12 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass
 
-from brailix.ir.tactile import TactileRaster
+from brailix.ir.tactile import SUPPORTED_BIT_DEPTHS, TactileRaster
 from brailix.renderer._raster_encoding import INVERT_LEVELS, pixels_per_metre
+
+# Raise levels run 0..255 (:data:`brailix.ir.tactile.MAX_LEVEL`), so a 1-bit
+# cut has to fall inside that range to cut anything.
+_MIN_THRESHOLD, _MAX_THRESHOLD = 0, 255
 
 
 def raster_to_bmp(
@@ -40,13 +46,30 @@ def raster_to_bmp(
     ``bit_depth=8`` (default) produces a grayscale master; ``bit_depth=1``
     thresholds each cell (raised when its level ``>= threshold``) into a
     black/white bitmap. Any other value raises :class:`ValueError`.
+
+    ``threshold`` must be an integer raise level (``0..255``). Outside that
+    range every cell falls on the same side of the cut, so the encoder
+    happily writes an all-white or all-black page — a blank embossing run
+    that looks like a rendering bug rather than a bad argument.
     """
     raster.require_renderable()
+    if isinstance(threshold, bool) or not isinstance(threshold, int):
+        raise ValueError(
+            f"threshold must be an integer raise level, got {threshold!r}"
+        )
+    if not _MIN_THRESHOLD <= threshold <= _MAX_THRESHOLD:
+        raise ValueError(
+            f"threshold must be in {_MIN_THRESHOLD}..{_MAX_THRESHOLD}, "
+            f"got {threshold}"
+        )
     if bit_depth == 8:
         return _bmp_8bit(raster)
     if bit_depth == 1:
         return _bmp_1bit(raster, threshold)
-    raise ValueError(f"unsupported bit_depth {bit_depth}; use 8 or 1")
+    raise ValueError(
+        f"unsupported bit_depth {bit_depth}; use "
+        + " or ".join(str(d) for d in sorted(SUPPORTED_BIT_DEPTHS, reverse=True))
+    )
 
 
 def _file_header(file_size: int, pixel_offset: int) -> bytes:
@@ -55,9 +78,15 @@ def _file_header(file_size: int, pixel_offset: int) -> bytes:
 
 
 def _info_header(
-    width: int, height: int, bit_count: int, image_size: int, ppm: int, colors: int
+    width: int,
+    height: int,
+    bit_count: int,
+    image_size: int,
+    ppm: tuple[int, int],
+    colors: int,
 ) -> bytes:
     # BITMAPINFOHEADER (40 bytes). Positive height = bottom-up rows.
+    ppm_x, ppm_y = ppm
     return struct.pack(
         "<IiiHHIIiiII",
         40,          # biSize
@@ -67,8 +96,8 @@ def _info_header(
         bit_count,   # biBitCount
         0,           # biCompression = BI_RGB
         image_size,  # biSizeImage
-        ppm,         # biXPelsPerMeter
-        ppm,         # biYPelsPerMeter
+        ppm_x,       # biXPelsPerMeter
+        ppm_y,       # biYPelsPerMeter
         colors,      # biClrUsed
         0,           # biClrImportant
     )
@@ -85,7 +114,7 @@ def _bmp_8bit(raster: TactileRaster) -> bytes:
     pixel_offset = 14 + 40 + len(palette)
     out = bytearray()
     out += _file_header(pixel_offset + pixel_size, pixel_offset)
-    out += _info_header(w, h, 8, pixel_size, pixels_per_metre(raster.dpi), 256)
+    out += _info_header(w, h, 8, pixel_size, pixels_per_metre(raster), 256)
     out += palette
     data = raster.data
     for y in range(h - 1, -1, -1):  # bottom-up
@@ -104,7 +133,7 @@ def _bmp_1bit(raster: TactileRaster, threshold: int) -> bytes:
     pixel_offset = 14 + 40 + len(palette)
     out = bytearray()
     out += _file_header(pixel_offset + pixel_size, pixel_offset)
-    out += _info_header(w, h, 1, pixel_size, pixels_per_metre(raster.dpi), 2)
+    out += _info_header(w, h, 1, pixel_size, pixels_per_metre(raster), 2)
     out += palette
     data = raster.data
     for y in range(h - 1, -1, -1):  # bottom-up

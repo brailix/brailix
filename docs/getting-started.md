@@ -48,12 +48,14 @@ Because every braille cell records the source span it came from, `proofread_json
 Installing brailix also gives you a `brailix` command, so the first translation works from a terminal without writing any Python:
 
 ```bash
-brailix "我在2026年5月17日去了重庆。"      # Unicode braille
-brailix --file lesson.md --width 32        # wrap a Markdown file at 32 cells
-brailix "123" --to brf --output out.brf    # NABCC bytes for an embosser
+brailix "我在2026年5月17日去了重庆。" -p cn_current      # Unicode braille
+brailix --file lesson.md --width 32 -p cn_current       # wrap a Markdown file at 32 cells
+brailix "123" --to brf --output out.brf -p cn_current   # NABCC bytes for an embosser
 ```
 
-Input can be a positional string, a `--file` (dispatched by suffix), or piped standard input; output can be any renderer, optionally wrapped and paginated. The full reference is in the [command-line guide](cli.md).
+`-p` / `--profile` picks the braille standard, exactly as the `Pipeline` constructor does, and the command line requires it for the same reason: the choice belongs to you, not to a default. `brailix --list-profiles` prints the names.
+
+Input can be a positional string, a `--file` (dispatched by suffix), or piped standard input — one of the three, not two at once; output can be any renderer, optionally wrapped and paginated. The full reference is in the [command-line guide](cli.md).
 
 ## Translating documents and files
 
@@ -63,9 +65,14 @@ For Markdown, Word, or MusicXML sources, parse them into a document first or let
 # A file, dispatched by suffix (.md, .docx, .musicxml, ...).
 result = pipe.translate_file("lesson.md")
 
-# Or build the DocumentIR yourself and translate it.
+# Or build the DocumentIR yourself and translate it. The parser tags each
+# block with the language and profile it was read for, so both are required.
 from brailix.input import parse_markdown
-doc = parse_markdown("# 标题\n\n正文 $x^2$。")
+doc = parse_markdown(
+    "# 标题\n\n正文 $x^2$。",
+    language="zh-CN",
+    profile="cn_current",
+)
 result = pipe.translate_document(doc)
 ```
 
@@ -104,7 +111,7 @@ The analyzer is selected by name like the Chinese one (`analyzer="janome"` / `"f
 
 ## Profiles and run modes
 
-A **profile** is a braille standard plus its resource tables. Three ship today: `cn_current` (Current Chinese Braille), `cn_ncb` (National Common Braille), and `ja_current` (Japanese kana braille). Select one with the `profile` argument, which `Pipeline` requires — the choice of braille standard is always the caller's, and there is no built-in default. (The command line does default to `cn_current`; see the [CLI guide](cli.md).)
+A **profile** is a braille standard plus its resource tables. Three ship today: `cn_current` (Current Chinese Braille), `cn_ncb` (National Common Braille), and `ja_current` (Japanese kana braille). Select one with the `profile` argument, which `Pipeline` requires — the choice of braille standard is always the caller's, and there is no built-in default. The command line says the same thing with `--profile`, equally required; see the [CLI guide](cli.md).
 
 The **run mode** controls how strictly the pipeline reacts to input it cannot fully handle:
 

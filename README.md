@@ -25,11 +25,15 @@ Installing brailix puts a `brailix` command on your `PATH` (also available as
 `python -m brailix`):
 
 ```bash
-brailix "我在重庆。"                  # Unicode braille to stdout
-brailix --file lesson.md --width 32  # wrap a Markdown file at 32 cells
-brailix "123" --to brf -o out.brf    # NABCC bytes for an embosser
-brailix --list-profiles
+brailix "我在重庆。" -p cn_current                  # Unicode braille to stdout
+brailix --file lesson.md --width 32 -p cn_current  # wrap a Markdown file at 32 cells
+brailix "123" --to brf -o out.brf -p cn_current    # NABCC bytes for an embosser
+brailix --list-profiles                            # the names -p accepts
 ```
+
+`-p` / `--profile` names the braille standard to translate into. It is
+required — more than one standard ships and the choice is always yours — except
+for the `--list-*` flags, which just print what the build supports.
 
 See the [command-line guide](docs/cli.md) for the full reference.
 

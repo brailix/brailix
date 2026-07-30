@@ -110,6 +110,21 @@ _UNIT_MM: dict[str, float] = {
 _MM_PER_INCH = 25.4
 
 
+def _finite_positive(value: float, fallback: float) -> float:
+    """``value`` when it is a usable length / density, else ``fallback``.
+
+    Non-finite is the case a ``<= 0`` guard misses: ``float("nan")`` compares
+    false against everything and ``float("1e999")`` is genuinely greater than
+    zero, yet both are what an SVG ``width="nan"`` or an overflowing length
+    parses to. They used to travel all the way into the raster's physical
+    metadata and out the other side as a PDF ``MediaBox`` reading ``nan`` —
+    and now that :class:`~brailix.ir.tactile.TactileRaster` refuses them at
+    construction, they would take :func:`rasterize`'s "never raises on bad
+    geometry" contract down with it.
+    """
+    return value if math.isfinite(value) and value > 0 else fallback
+
+
 def _round_finite(v: float) -> int:
     """``round(v)`` that yields 0 for a non-finite ``v`` instead of raising.
 
@@ -707,15 +722,14 @@ def _resolve_geometry(
             logw, logh = profile.page_width_mm, profile.page_height_mm
     phys_w_mm = w_mm if w_mm is not None else logw
     phys_h_mm = h_mm if h_mm is not None else logh
-    # Defensive guards so a degenerate value can never divide by zero.
-    if logw <= 0:
-        logw = phys_w_mm if phys_w_mm > 0 else 1.0
-    if logh <= 0:
-        logh = phys_h_mm if phys_h_mm > 0 else 1.0
-    if phys_w_mm <= 0:
-        phys_w_mm = logw
-    if phys_h_mm <= 0:
-        phys_h_mm = logh
+    # Defensive guards so a degenerate value can never divide by zero — or
+    # reach the raster as a NaN / infinite page size (see
+    # :func:`_finite_positive`). Each axis falls back to the other
+    # measurement, and to 1 mm when neither is usable.
+    logw = _finite_positive(logw, _finite_positive(phys_w_mm, 1.0))
+    logh = _finite_positive(logh, _finite_positive(phys_h_mm, 1.0))
+    phys_w_mm = _finite_positive(phys_w_mm, logw)
+    phys_h_mm = _finite_positive(phys_h_mm, logh)
     return minx, miny, logw, logh, phys_w_mm, phys_h_mm
 
 
@@ -859,11 +873,17 @@ def rasterize(
         px_w, px_h, warnings, max_pixels=_MAX_RASTER_PIXELS
     )
 
-    # Effective DPI after any clamp, so the raster's physical metadata
-    # (and the BMP pixels-per-metre the renderer stamps) stay accurate.
-    eff_dpi = (
-        px_w * _MM_PER_INCH / phys_w_mm + px_h * _MM_PER_INCH / phys_h_mm
-    ) / 2.0
+    # Effective DPI after any clamp, so the raster's nominal resolution stays
+    # close to the grid it describes. It is metadata only — what the encoders
+    # stamp comes from the millimetre page size below — which is why the mean
+    # of the two axes is a good enough answer when they round apart. A page
+    # measured in fractions of a nanometre would divide this into infinity;
+    # fall back to the profile's own DPI rather than hand the raster a value
+    # it will refuse.
+    eff_dpi = _finite_positive(
+        (px_w * _MM_PER_INCH / phys_w_mm + px_h * _MM_PER_INCH / phys_h_mm) / 2.0,
+        profile.dpi,
+    )
     raster = TactileRaster.blank(
         px_w,
         px_h,
