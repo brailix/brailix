@@ -174,7 +174,83 @@ def _is_type_checking_test(test: ast.expr, aliases: set[str]) -> bool:
     return False
 
 
-def _dynamic_import_target(node: ast.AST) -> str | None:
+_IMPORTER_NAMES = frozenset({"__import__", "import_module"})
+# Names that run source text nobody can resolve statically. Banned outright in
+# the guarded layers rather than parsed: ``exec("import brailix.backend.x")``
+# is an import edge written as a string, and a guard that tried to read the
+# string would be a second, worse parser.
+_DYNAMIC_EXEC_NAMES = frozenset({"exec", "eval"})
+
+
+def _importer_aliases(tree: ast.Module) -> frozenset[str]:
+    """Local names that *are* ``import_module`` / ``__import__``.
+
+    ``loader = importlib.import_module`` and ``from importlib import
+    import_module as loader`` both make ``loader("brailix.backend")`` the same
+    import edge, with the callable reached through a name of the file's own
+    choosing. The call-shape test below matches on the name being called, so
+    without this the alias walked past both — a rename was all it took to leave
+    the guard reporting a clean tree.
+    """
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if (node.module or "").split(".")[0] == "importlib":
+                aliases.update(
+                    alias.asname or alias.name
+                    for alias in node.names
+                    if alias.name in _IMPORTER_NAMES
+                )
+            continue
+        if not isinstance(node, ast.Assign):
+            continue
+        value = node.value
+        # ``x = importlib.import_module`` / ``x = import_module`` — the
+        # function object itself, not a call to it.
+        if not (
+            (isinstance(value, ast.Name) and value.id in _IMPORTER_NAMES)
+            or (isinstance(value, ast.Attribute) and value.attr in _IMPORTER_NAMES)
+        ):
+            continue
+        aliases.update(t.id for t in node.targets if isinstance(t, ast.Name))
+    return frozenset(aliases)
+
+
+def _fetched_attr(call: ast.Call) -> str | None:
+    """The attribute name a ``getattr(obj, "name")`` call fetches, if literal."""
+    if (
+        isinstance(call.func, ast.Name)
+        and call.func.id == "getattr"
+        and len(call.args) >= 2
+    ):
+        arg = call.args[1]
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+            return arg.value
+    return None
+
+
+def _is_importer_call(node: ast.AST, aliases: frozenset[str]) -> bool:
+    """True if ``node`` calls something that imports a module by name.
+
+    Four spellings reach the same function: the plain name, an attribute
+    (``importlib.import_module``), a local alias of either
+    (:func:`_importer_aliases`), and a ``getattr`` fetch —
+    ``getattr(importlib, "import_module")("brailix.backend.x")``, whose callee
+    is itself a call.
+    """
+    if not isinstance(node, ast.Call) or not node.args:
+        return False
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id in _IMPORTER_NAMES or func.id in aliases
+    if isinstance(func, ast.Attribute):
+        return func.attr in _IMPORTER_NAMES
+    if isinstance(func, ast.Call):
+        return _fetched_attr(func) in _IMPORTER_NAMES
+    return False
+
+
+def _dynamic_import_target(node: ast.AST, aliases: frozenset[str]) -> str | None:
     """The module a dynamic-import call names, if it names one literally.
 
     ``importlib.import_module("brailix.frontend")`` and
@@ -188,24 +264,16 @@ def _dynamic_import_target(node: ast.AST) -> str | None:
     :func:`_dynamic_import_is_opaque` instead, which is the honest split — this
     guard cannot follow a name it does not know.
     """
-    if not isinstance(node, ast.Call):
+    if not _is_importer_call(node, aliases):
         return None
-    func = node.func
-    named = (
-        isinstance(func, ast.Name) and func.id in {"__import__", "import_module"}
-    ) or (
-        isinstance(func, ast.Attribute)
-        and func.attr in {"__import__", "import_module"}
-    )
-    if not named or not node.args:
-        return None
+    assert isinstance(node, ast.Call)  # narrowed by _is_importer_call
     first = node.args[0]
     if isinstance(first, ast.Constant) and isinstance(first.value, str):
         return first.value
     return None
 
 
-def _dynamic_import_is_opaque(node: ast.AST) -> bool:
+def _dynamic_import_is_opaque(node: ast.AST, aliases: frozenset[str]) -> bool:
     """True for a dynamic import whose target this guard cannot read.
 
     A layer that assembles a module name at runtime can reach anywhere, and no
@@ -214,19 +282,29 @@ def _dynamic_import_is_opaque(node: ast.AST) -> bool:
     found". Nothing in the library does this; a use with a real justification
     belongs in an allowlist here, argued case by case.
     """
-    if not isinstance(node, ast.Call):
+    if not _is_importer_call(node, aliases):
         return False
-    func = node.func
-    named = (
-        isinstance(func, ast.Name) and func.id in {"__import__", "import_module"}
-    ) or (
-        isinstance(func, ast.Attribute)
-        and func.attr in {"__import__", "import_module"}
-    )
-    if not named or not node.args:
-        return False
+    assert isinstance(node, ast.Call)  # narrowed by _is_importer_call
     first = node.args[0]
     return not (isinstance(first, ast.Constant) and isinstance(first.value, str))
+
+
+def _dynamic_code_execution(tree: ast.Module) -> list[int]:
+    """Line numbers of ``exec`` / ``eval`` calls — imports this cannot read.
+
+    The dynamic-import checks resolve a module *name*; source text passed to
+    ``exec`` can carry any import statement at all, and reading it would mean
+    parsing a string this guard has no reason to trust. So the call is refused
+    in the guarded layers instead: the alternative is a guard that reports a
+    clean tree beside ``exec("import brailix.backend.x")``.
+    """
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in _DYNAMIC_EXEC_NAMES
+    ]
 
 
 def _imports_in(
@@ -251,12 +329,18 @@ def _imports_in(
     still excluded; anything else is a real edge and counts.
     """
     tree = ast.parse(source)
+    # Two alias sets, and they must not share a name: the importer aliases
+    # decide which *calls* are import edges, the typing aliases which ``if``
+    # opens a type-only block. One variable for both left ``runtime_only``
+    # scanning with the typing set — so an aliased ``import_module`` was an
+    # edge on the default scan and invisible on the one that guards core → ir.
+    importer_aliases = _importer_aliases(tree)
     skip: set[int] = set()
     if runtime_only:
-        aliases = _typing_aliases(tree)
+        typing_aliases = _typing_aliases(tree)
         for node in ast.walk(tree):
             if isinstance(node, ast.If) and _is_type_checking_test(
-                node.test, aliases
+                node.test, typing_aliases
             ):
                 # ``node.body`` ONLY — not ``ast.walk(node)``. Walking the whole
                 # ``If`` also swallows ``orelse``, which is the ``else`` branch
@@ -276,7 +360,7 @@ def _imports_in(
         elif isinstance(node, ast.ImportFrom):
             mods.update(_from_targets(node, package))
         else:
-            target = _dynamic_import_target(node)
+            target = _dynamic_import_target(node, importer_aliases)
             if target is not None:
                 mods.add(target)
     return mods
@@ -284,13 +368,16 @@ def _imports_in(
 
 def _opaque_dynamic_imports(py: Path) -> list[str]:
     """``file:line`` of every dynamic import in ``py`` with an unreadable
-    target."""
+    target, and of every ``exec`` / ``eval`` — a target this cannot read at
+    all."""
     tree = ast.parse(py.read_text(encoding="utf-8"))
+    aliases = _importer_aliases(tree)
+    rel = py.relative_to(_PKG.parent)
     return [
-        f"{py.relative_to(_PKG.parent)}:{node.lineno}"
+        f"{rel}:{node.lineno}"
         for node in ast.walk(tree)
-        if _dynamic_import_is_opaque(node)
-    ]
+        if _dynamic_import_is_opaque(node, aliases)
+    ] + [f"{rel}:{line} (exec/eval)" for line in _dynamic_code_execution(tree)]
 
 
 def _imports(py: Path, *, runtime_only: bool = False) -> set[str]:
@@ -410,11 +497,13 @@ def test_no_layer_imports_a_module_this_guard_cannot_read() -> None:
     """A module name assembled at runtime is an edge to anywhere.
 
     Every check above resolves a *named* target: the statements, their relative
-    spellings, and the literal-argument dynamic calls. A computed one —
+    spellings, and the literal-argument dynamic calls — including the ones
+    reached through an alias or a ``getattr`` fetch. A computed one —
     ``import_module(f"brailix.{layer}.{name}")`` — resolves to nothing a static
     pass can classify, so filing it as "no edge found" would report a clean
     tree while the edge exists. The shape is refused inside the guarded layers
-    instead. Nothing in the library needs it today; a use with a real
+    instead, and so is ``exec`` / ``eval``, which can carry an import statement
+    as text. Nothing in the library needs any of it today; a use with a real
     justification gets argued into an allowlist here.
     """
     opaque = [
@@ -790,6 +879,34 @@ class TestGuardCatchesEveryImportForm:
     def test_a_dynamic_import_of_an_allowed_module_is_not_flagged(self) -> None:
         assert not _would_flag("__import__('brailix.ir.document')")
 
+    def test_import_module_bound_to_a_local_name(self) -> None:
+        # ``loader`` is the importer itself, so the call is the same edge — the
+        # call-name test saw only a call to something called ``loader``.
+        assert _would_flag(
+            "import importlib\n"
+            "loader = importlib.import_module\n"
+            "normalize = loader('brailix.frontend.normalize')\n"
+        )
+
+    def test_import_module_renamed_at_import(self) -> None:
+        assert _would_flag(
+            "from importlib import import_module as _load\n"
+            "normalize = _load('brailix.frontend.normalize')\n"
+        )
+
+    def test_import_module_fetched_with_getattr(self) -> None:
+        assert _would_flag(
+            "import importlib\n"
+            "getattr(importlib, 'import_module')('brailix.frontend.normalize')\n"
+        )
+
+    def test_an_unrelated_local_callable_is_not_an_importer(self) -> None:
+        """The alias walk must bind the importer, not every name assigned a
+        function — otherwise ordinary code starts reading as dynamic imports."""
+        assert not _would_flag(
+            "loader = dict\nloader('brailix.frontend')\n"
+        )
+
 
 class TestOpaqueDynamicImportDetection:
     """A computed module name is refused by shape, since no static pass can
@@ -797,10 +914,34 @@ class TestOpaqueDynamicImportDetection:
 
     @staticmethod
     def _opaque(source: str) -> bool:
+        tree = ast.parse(source)
+        aliases = _importer_aliases(tree)
         return any(
-            _dynamic_import_is_opaque(node)
-            for node in ast.walk(ast.parse(source))
+            _dynamic_import_is_opaque(node, aliases) for node in ast.walk(tree)
         )
+
+    @staticmethod
+    def _exec_lines(source: str) -> list[int]:
+        return _dynamic_code_execution(ast.parse(source))
+
+    def test_a_computed_target_through_an_alias_is_opaque(self) -> None:
+        assert self._opaque(
+            "import importlib\n"
+            "loader = importlib.import_module\n"
+            "mod = loader(f'brailix.{layer}')\n"
+        )
+
+    def test_a_computed_target_through_getattr_is_opaque(self) -> None:
+        assert self._opaque(
+            "getattr(importlib, 'import_module')('brailix.' + layer)"
+        )
+
+    def test_exec_and_eval_are_refused_by_shape(self) -> None:
+        """An import can travel as source text, and reading that text would
+        mean this guard parsing a string — so the call itself is the finding."""
+        assert self._exec_lines("exec('import brailix.backend.x')") == [1]
+        assert self._exec_lines("eval(compile(src, '<s>', 'exec'))") == [1]
+        assert self._exec_lines("normalize(text, ctx)") == []
 
     def test_fstring_target_is_opaque(self) -> None:
         assert self._opaque("import_module(f'brailix.{layer}.normalize')")
@@ -905,3 +1046,21 @@ class TestTypeCheckingDetection:
             test="TYPE_CHECKING"
         )
         assert "brailix.ir.document" in _imports_in(source, "brailix.core")
+
+    def test_this_scan_still_reads_an_aliased_dynamic_import(self) -> None:
+        """Two alias sets meet here, and they are not the same set.
+
+        ``runtime_only`` needs the typing aliases *and* the importer ones, and
+        keeping both in one variable let the second overwrite the first: an
+        aliased ``import_module`` counted as an edge on the default scan and
+        vanished on this one — the scan that keeps core off ir at runtime, and
+        the only one where a missed edge closes a cycle.
+        """
+        source = (
+            "import importlib\n"
+            "loader = importlib.import_module\n"
+            "loader('brailix.ir.document')\n"
+        )
+        assert "brailix.ir.document" in _imports_in(
+            source, "brailix.core", runtime_only=True
+        )
