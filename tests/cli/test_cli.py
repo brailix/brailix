@@ -195,6 +195,31 @@ def test_positional_text_wins_over_stdin(monkeypatch, capsys):
     assert capsys.readouterr().out == expected + "\n"
 
 
+def test_file_wins_over_stdin(monkeypatch, tmp_path, capsys):
+    # The remaining precedence, and the one that is unambiguous: stdin is the
+    # fallback for "no source given", so an explicit --file is the source.
+    monkeypatch.setattr("sys.stdin", _FakeBufferStdin(b"456"))
+    src = tmp_path / "in.txt"
+    src.write_text("123", encoding="utf-8")
+    rc = main(["-f", str(src), "-p", "cn_current"])
+    assert rc == 0
+    expected = Pipeline(profile="cn_current").translate_file(str(src)).render(
+        "unicode"
+    )
+    assert capsys.readouterr().out == expected + "\n"
+
+
+def test_omitting_in_format_reads_text_as_plain(capsys):
+    # --in-format now defaults to None at the parser (so "not given" can be
+    # told from "given"); the format it resolves to must still be plain.
+    rc = main(["# 123", "-p", "cn_current"])
+    assert rc == 0
+    explicit = capsys.readouterr().out
+    rc = main(["# 123", "--in-format", "plain", "-p", "cn_current"])
+    assert rc == 0
+    assert capsys.readouterr().out == explicit
+
+
 # --------------------------------------------------------------------------
 # Chinese path (dependency-free via char + null)
 # --------------------------------------------------------------------------
@@ -329,6 +354,33 @@ def test_missing_profile_is_usage_error():
     with pytest.raises(SystemExit) as excinfo:
         main(["123"])
     assert excinfo.value.code == 2
+
+
+def test_text_and_file_together_is_usage_error(tmp_path, capsys):
+    # Both name an input, and which one wins was never a decision anyone
+    # wrote down: the implementation translated the file, the CLI guide
+    # promised the positional string, and the text the user typed was
+    # silently not what came out. Neither reading is obviously right, so the
+    # command is refused instead of resolved.
+    src = tmp_path / "lesson.md"
+    src.write_text("# Title\n", encoding="utf-8")
+    with pytest.raises(SystemExit) as excinfo:
+        main(["123", "-f", str(src), "-p", "cn_current"])
+    assert excinfo.value.code == 2
+    assert "mutually exclusive" in capsys.readouterr().err
+
+
+def test_in_format_with_file_is_usage_error(tmp_path, capsys):
+    # A --file is dispatched by its suffix, so --in-format cannot do what it
+    # says; it used to be accepted and ignored, which is how the CLI guide
+    # came to print an example that promised to read a .txt as MusicXML and
+    # translated it as prose.
+    src = tmp_path / "score-fragment.txt"
+    src.write_text("123", encoding="utf-8")
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--in-format", "musicxml", "-f", str(src), "-p", "cn_current"])
+    assert excinfo.value.code == 2
+    assert "--in-format" in capsys.readouterr().err
 
 
 def test_no_input_is_usage_error(monkeypatch, capsys):
