@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -124,6 +125,28 @@ class TestNonFiniteGeometry:
         root = _svg(inner, **attrs)
         r = rasterize(root, _profile(), WarningCollector())  # must not raise
         assert r.width >= 1 and r.height >= 1
+
+    @pytest.mark.parametrize(
+        "attrs",
+        [
+            {"viewBox": "0 0 100 100", "width": "nan", "height": "50mm"},
+            {"viewBox": "0 0 100 100", "width": "50mm", "height": "nan"},
+            {"viewBox": "0 0 100 100", "width": "1e999mm", "height": "50mm"},
+            {"viewBox": "nan nan nan nan"},
+            {"width": "nan", "height": "nan"},
+        ],
+    )
+    def test_the_page_it_reports_is_a_real_page(self, attrs):
+        """A non-finite *size* is not only a drawing problem: it lands in the
+        raster's physical metadata, and from there in a PDF ``MediaBox`` as
+        the literal ``nan`` (a file no reader opens) or a BMP header that
+        raises inside ``round()``. The fallback chain has to produce a page
+        some real number of millimetres across."""
+        r = rasterize(_svg("<rect x='1' y='1' width='9' height='9'/>", **attrs),
+                      _profile(), WarningCollector())
+        assert math.isfinite(r.dpi) and r.dpi > 0
+        assert math.isfinite(r.page_width_mm) and r.page_width_mm > 0
+        assert math.isfinite(r.page_height_mm) and r.page_height_mm > 0
 
 
 class TestSoftFailures:

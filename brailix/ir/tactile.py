@@ -26,18 +26,78 @@ Coordinate / value model
   (e.g. raised → black pixel for swell paper and dot embossers); the
   raster stays device-independent.
 
-The raster carries its own ``dpi`` and physical ``page_width_mm`` /
-``page_height_mm`` so a renderer can stamp correct physical-size metadata
-(BMP pixels-per-metre) without consulting the profile — the renderer is a
+The raster carries its own physical ``page_width_mm`` / ``page_height_mm``
+(plus the ``dpi`` it was produced at) so a renderer can stamp correct
+physical-size metadata without consulting the profile — the renderer is a
 dumb encoder, mirroring how :class:`~brailix.ir.braille.BrailleCell`
 already carries everything the unicode / BRF renderers need.
+
+Physical size
+-------------
+
+**The millimetre pair is the single source of truth for how big the page
+is.** ``width``/``height`` say how many pixels cover it, so the density
+follows: ``width / page_width_mm`` pixels per millimetre, per axis. Every
+encoder derives what it stamps from those two facts
+(:mod:`brailix.renderer._raster_encoding`), which is what makes the ``.bmp``,
+``.png`` and ``.pdf`` of one raster the same physical page.
+
+``dpi`` is *nominal*: the resolution the raster was rasterized at, kept as
+metadata (and as the number a caller reads back to ask "how fine is this?").
+It is a single scalar, so it cannot describe a grid whose two axes ended up
+at slightly different densities — pixel counts round, and the raster cap can
+scale a page down — which is exactly why it is not what an encoder consults.
+It used to be: the BMP and PNG headers were written from ``dpi`` while the
+PDF ``MediaBox`` was written from the millimetres, so the two disagreed
+whenever they were not exactly in step, and the same drawing embossed at one
+size and printed at another.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
+from typing import Any
 
 MAX_LEVEL = 255
+
+# Bit depths a tactile raster can be encoded at: an 8-bit grayscale master
+# (grayscale = dot height) or a 1-bit bilevel degradation. Shared with the
+# encoders so "which depths exist" is stated once
+# (:func:`brailix.renderer.bmp.raster_to_bmp` validates its own argument
+# against it).
+SUPPORTED_BIT_DEPTHS = frozenset({1, 8})
+
+
+def _positive_finite(value: Any, field_name: str) -> float:
+    """``value`` as a ``float``, or ``ValueError`` if it is not finite and > 0.
+
+    ``NaN`` / ``±inf`` are the reason this is not a bare ``<= 0`` test: both
+    are ordinary floats that pass every comparison a guard like that makes,
+    and both fail much later and much further away — ``round(nan)`` raises
+    inside the BMP encoder, ``inf`` millimetres reach a PDF ``MediaBox`` as
+    the literal text ``inf``, which no reader accepts. The converted number is
+    returned so the caller can store it: a value that merely *converts* (a
+    ``"100"`` from a hand-built raster) would otherwise live on in a field
+    declared ``float`` and raise ``TypeError`` in the first arithmetic.
+
+    :class:`~brailix.backend.tactile.profile.TactileProfile` makes the same
+    check on its own metrics, but that one is a *configuration* error (a JSON
+    file's fault) and raises ``ConfigurationError``; a raster is built in code,
+    so a bad value here is a caller's bug and stays a ``ValueError`` like the
+    dimension checks next to it.
+    """
+    if isinstance(value, bool):  # an int subclass: True would mean 1 dpi
+        raise ValueError(f"{field_name} must be a number, got {value!r}")
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field_name} must be a number, got {value!r}") from None
+    if not math.isfinite(num):
+        raise ValueError(f"{field_name} must be finite, got {num}")
+    if num <= 0:
+        raise ValueError(f"{field_name} must be > 0, got {num}")
+    return num
 
 
 @dataclass(slots=True)
@@ -49,7 +109,12 @@ class TactileRaster:
     ``width * height`` (each byte a raise level ``0..255``). It defaults
     to an all-flat grid of the right size when omitted, so callers can
     write ``TactileRaster(w, h, dpi=..., page_width_mm=..., ...)`` and
-    then paint into it.
+    then paint into it. A read-only bytes-like of the right length is
+    accepted and copied — see :meth:`__post_init__`.
+
+    The page is ``page_width_mm × page_height_mm`` (both > 0); see the
+    module docstring for why that pair, and not ``dpi``, is what an encoder
+    reads.
     """
 
     width: int
@@ -73,10 +138,30 @@ class TactileRaster:
     _owner: str | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
+        """Check every field a downstream encoder trusts, at construction.
+
+        A raster is a *boundary* object — the backend hands it to renderers,
+        an editor builds one to preview, a caller may build one by hand — and
+        each field below is read without a second look somewhere downstream.
+        A page size of ``0`` or ``NaN`` reaches a PDF ``MediaBox``; a
+        non-finite ``dpi`` raises inside the BMP header; a ``bytes`` ``data``
+        of the right length passes for a grid until the first
+        :meth:`set_raise` fails on it. Every one of those surfaces far from
+        the line that built the raster, and some only when a reader opens the
+        file — so they are refused here instead.
+        """
         if self.width < 0 or self.height < 0:
             raise ValueError(
                 f"raster dimensions must be non-negative, got "
                 f"{self.width}x{self.height}"
+            )
+        self.dpi = _positive_finite(self.dpi, "dpi")
+        self.page_width_mm = _positive_finite(self.page_width_mm, "page_width_mm")
+        self.page_height_mm = _positive_finite(self.page_height_mm, "page_height_mm")
+        if self.bit_depth not in SUPPORTED_BIT_DEPTHS:
+            raise ValueError(
+                f"bit_depth must be one of {sorted(SUPPORTED_BIT_DEPTHS)}, "
+                f"got {self.bit_depth!r}"
             )
         expected = self.width * self.height
         if not self.data:
@@ -86,6 +171,11 @@ class TactileRaster:
                 f"data length {len(self.data)} does not match "
                 f"{self.width}x{self.height} = {expected}"
             )
+        elif not isinstance(self.data, bytearray):
+            # Right length, wrong mutability: a bytes / memoryview passes the
+            # length check and every read, then makes set_raise raise on its
+            # first write. Copy into the writable grid the type promises.
+            self.data = bytearray(self.data)
 
     @classmethod
     def blank(
@@ -113,8 +203,9 @@ class TactileRaster:
         """Raise ``ValueError`` if this raster can't be encoded to an image.
 
         Construction deliberately allows a zero-width / zero-height raster
-        (``__post_init__`` only rejects negatives — a 0-sized blank grid is a
-        valid IR value the ``max(1, round(...))`` callers rely on). But a
+        (``__post_init__`` rejects negative sizes, not empty ones — a 0-sized
+        blank grid is a valid IR value the ``max(1, round(...))`` callers rely
+        on, and the *physical* fields it checks stay positive either way). But a
         zero-area raster has no valid image encoding: a PNG IHDR, a PDF
         MediaBox and a BMP header all require positive dimensions. Renderers
         call this up front so the failure is an explicit ``ValueError`` (like

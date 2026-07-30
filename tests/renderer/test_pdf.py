@@ -10,8 +10,14 @@ from brailix.renderer.pdf import PdfRenderer, raster_to_pdf, rasters_to_pdf
 
 
 def _raster(w: int = 8, h: int = 6, *, page_mm: float = 10.0) -> TactileRaster:
+    # dpi follows the grid rather than being asserted independently of it: the
+    # page is page_mm across and w pixels wide, so that *is* the resolution.
     r = TactileRaster.blank(
-        w, h, dpi=100.0, page_width_mm=page_mm, page_height_mm=page_mm
+        w,
+        h,
+        dpi=max(w, 1) * 25.4 / page_mm,
+        page_width_mm=page_mm,
+        page_height_mm=page_mm,
     )
     for i in range(min(w, h)):  # a raised diagonal so the image isn't all flat
         r.set_raise(i, i, 255)

@@ -19,8 +19,22 @@ from brailix.renderer.bmp import BmpRenderer, raster_to_bmp
 
 
 def _raster(w: int, h: int, dpi: float = 100.0) -> TactileRaster:
+    """A raster whose page really is its pixel grid at ``dpi``.
+
+    The physical size, not ``dpi``, is what the header's density is computed
+    from — so a fixture declaring 4 px to be a 10 mm page (as this one used
+    to) would be asserting the encoder stamps a density its own raster
+    contradicts.
+
+    A zero-*pixel* axis still gets a positive page size: the IR requires one
+    either way, and it is ``raster_to_bmp`` that must reject the zero area.
+    """
     return TactileRaster.blank(
-        w, h, dpi=dpi, page_width_mm=10.0, page_height_mm=10.0
+        w,
+        h,
+        dpi=dpi,
+        page_width_mm=max(w, 1) * 25.4 / dpi,
+        page_height_mm=max(h, 1) * 25.4 / dpi,
     )
 
 
@@ -129,6 +143,21 @@ class TestOneBit:
         assert bit(0, 0) == 0  # raised → black → bit 0
         assert bit(1, 0) == 1  # flat → white → bit 1
         assert bit(2, 0) == 1  # untouched → flat
+
+    @pytest.mark.parametrize("threshold", [256, 999, -1, 3.5, True, "128"])
+    def test_threshold_outside_the_level_range_is_rejected(self, threshold):
+        # Raise levels are integers 0..255. A threshold outside that puts
+        # every cell on the same side of the cut, and the encoder used to
+        # write the resulting all-white (or all-black) page without comment —
+        # a blank embossing run that reads as a rendering bug.
+        r = _raster(4, 1)
+        r.set_raise(0, 0, 255)
+        with pytest.raises(ValueError, match="threshold"):
+            raster_to_bmp(r, bit_depth=1, threshold=threshold)
+
+    @pytest.mark.parametrize("threshold", [0, 1, 128, 255])
+    def test_threshold_inside_the_level_range_is_accepted(self, threshold):
+        assert raster_to_bmp(_raster(4, 1), bit_depth=1, threshold=threshold)
 
 
 class TestRenderer:

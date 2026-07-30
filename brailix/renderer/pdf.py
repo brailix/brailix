@@ -10,8 +10,10 @@ objects) — no third-party dependency, like the BMP / PNG renderers.
 
 The page ``MediaBox`` is sized in PostScript points (1 pt = 1/72 inch) from
 the raster's physical millimetre dimensions, and the image is drawn to fill
-it, so the PDF prints the graphic at the right physical size — matching the
-``pHYs`` / pixels-per-metre the PNG / BMP renderers stamp.
+it, so the PDF prints the graphic at the right physical size — the same one
+the PNG / BMP renderers stamp as pixels-per-metre, since they derive their
+density from those same millimetres
+(:mod:`brailix.renderer._raster_encoding`).
 """
 
 from __future__ import annotations
