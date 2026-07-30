@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
+import pytest
+
 from brailix.frontend.math.normalizer import normalize
 
 
@@ -259,4 +261,16 @@ class TestSoftFailures:
         # echoed into the <merror> wrapper; un-stripped it would make the
         # re-parse raise instead of soft-failing.
         root = normalize("<math>\x0c<mi>x")  # form-feed + missing close
+        assert root.find(".//merror") is not None
+
+    @pytest.mark.parametrize("codepoint", [0xFFFE, 0xFFFF])
+    def test_bmp_noncharacter_yields_merror(self, codepoint: int):
+        # Same shape, other end of the BMP: U+FFFE / U+FFFF are outside XML
+        # 1.0's Char production, so expat rejects them — in the *source* and
+        # again in the <merror> that echoes it. They were not on the strip
+        # list, so a formula carrying one made normalize() raise ParseError
+        # and take the never-raises contract with it. Found by this module's
+        # property test on a fresh Hypothesis seed; pinned here as an example
+        # so it does not depend on one being drawn again.
+        root = normalize(chr(codepoint))
         assert root.find(".//merror") is not None

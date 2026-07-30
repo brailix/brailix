@@ -107,6 +107,24 @@ class TestStripXmlInvalidChars:
     def test_keeps_ordinary_text(self) -> None:
         assert strip_xml_invalid_chars("我在重庆 x^2 ⠿") == "我在重庆 x^2 ⠿"
 
+    def test_drops_the_two_bmp_noncharacters(self) -> None:
+        # U+FFFE / U+FFFF are outside XML 1.0's Char production (which ends
+        # the BMP at U+FFFD) and expat rejects them as an invalid token. They
+        # were not being stripped, so a formula containing one made the
+        # *soft-failure* document itself fail to parse and the "normalizer
+        # never raises" contract break — found by the normalizer's own
+        # property test, not by this one, because the model here shared the
+        # omission.
+        text = "a" + chr(0xFFFE) + "b" + chr(0xFFFF) + "c"
+        assert strip_xml_invalid_chars(text) == "abc"
+
+    def test_keeps_the_noncharacters_xml_actually_allows(self) -> None:
+        # Discouraged but legal, and expat parses them: dropping these would
+        # silently mangle text rather than protect anything.
+        text = "a" + chr(0xFFFD) + "b" + chr(0xFDD0) + "c" + chr(0x1FFFE) + "d"
+        assert strip_xml_invalid_chars(text) == text
+        assert ET.fromstring(f"<r>{text}</r>").text == text
+
     def test_result_is_xml_parseable_after_escaping(self) -> None:
         # The whole point: a sanitized + escaped string embeds cleanly.
         from xml.sax.saxutils import escape
