@@ -95,13 +95,13 @@ These flags print what the installed build supports and exit:
 
 ```bash
 brailix --list-profiles      # cn_current, cn_ncb, ja_current
-brailix --list-analyzers     # Chinese and Japanese engines, grouped
-brailix --list-resolvers     # pinyin resolvers
+brailix --list-analyzers     # segmentation engines, grouped by language
+brailix --list-resolvers     # reading engines, grouped by language
 brailix --list-renderers     # output renderers
 brailix --version
 ```
 
-The lists come straight from the core registries, so they always match what `--profile`, `--analyzer`, `--resolver`, and `--to` will accept.
+The lists come straight from the core registries, so they always match what `--profile`, `--analyzer`, `--resolver`, and `--to` will accept. The engine listings are grouped by language and the groups come from the registry too — an engine name means a different thing per language (`auto` picks among the Chinese analyzers for Chinese and the Japanese ones for Japanese), and a language added by registration shows up on its own.
 
 ## Exit codes
 

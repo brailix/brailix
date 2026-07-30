@@ -3,10 +3,19 @@
 ``brailix`` (or ``python -m brailix``) compiles text, Markdown, Word, and
 MusicXML sources into braille from a terminal. It is a thin wrapper over
 :class:`brailix.Pipeline` and the renderer registry — every pluggable
-choice (profile, segmentation engine, pinyin resolver, output renderer)
+choice (profile, segmentation engine, reading resolver, output renderer)
 is enumerated from the core registries, so ``--list-*`` and the accepted
 values always reflect what the installed build actually provides rather
 than a hand-kept list.
+
+That includes the *languages*: the engine listings walk
+``language_frontend_registry`` and ask each language what it offers
+(:func:`brailix.frontend.list_language_adapters`), so a third language that
+registers a segmenter, a frontend and a backend is discoverable here without
+an edit. This module used to import ``frontend.zh`` / ``frontend.ja``
+directly and print two hard-coded headings, which made "adding a language is
+registration" true everywhere except at the surface a user actually looks
+through to find one.
 
 Examples::
 
@@ -42,9 +51,11 @@ from brailix.core.defaults import (
     DEFAULT_ZH_ANALYZER,
 )
 from brailix.core.errors import BrailixError
-from brailix.frontend.ja.analyzer import list_analyzers as list_ja_analyzers
-from brailix.frontend.zh.analyzer import list_analyzers as list_zh_analyzers
-from brailix.frontend.zh.pinyin import list_resolvers
+from brailix.frontend import (
+    language_display_name,
+    language_frontend_registry,
+    list_language_adapters,
+)
 from brailix.renderer import (
     LayoutOptions,
     LayoutRenderer,
@@ -263,6 +274,52 @@ package is missing reports which `pip install brailix[...]` extra to add.
 # ---------------------------------------------------------------------------
 
 
+def _registered_languages() -> list[str]:
+    """Every language with a registered frontend, in listing order.
+
+    Ordered by the name a reader sees, with the subtag as tiebreak — the
+    listings below print the label, so sorting by the key behind it would look
+    arbitrary on the page.
+    """
+    return sorted(
+        language_frontend_registry.names(),
+        key=lambda lang: (language_display_name(lang), lang),
+    )
+
+
+def _adapter_names(family: str) -> set[str]:
+    """Every adapter name any registered language offers in ``family``.
+
+    What ``--analyzer`` / ``--resolver`` are validated against. A union over
+    the languages rather than over two imported modules: registering a third
+    language's engine makes it selectable here without a change to this file.
+    """
+    return {
+        name
+        for lang in _registered_languages()
+        for name in list_language_adapters(lang, family)
+    }
+
+
+def _print_by_language(family: str) -> None:
+    """Print one adapter family, grouped by the language that offers it.
+
+    Grouped because these are language-scoped choices and a flat list is
+    ambiguous — ``auto`` means a different engine per language. The groups and
+    their labels come from the registry (see
+    :func:`brailix.frontend.list_language_adapters`), so a newly registered
+    language appears here on its own, and one that offers nothing in this
+    family is skipped rather than printed as an empty heading.
+    """
+    for lang in _registered_languages():
+        names = list_language_adapters(lang, family)
+        if not names:
+            continue
+        print(f"{language_display_name(lang)}:")
+        for name in names:
+            print(f"  {name}")
+
+
 def _handle_discovery(args: argparse.Namespace) -> int | None:
     """Run a ``--list-*`` / ``--version`` action if requested.
 
@@ -277,18 +334,10 @@ def _handle_discovery(args: argparse.Namespace) -> int | None:
             print(name)
         return 0
     if args.list_analyzers:
-        # Analyzers are language-scoped, so group them by language rather
-        # than flattening into one ambiguous list.
-        print("Chinese:")
-        for name in list_zh_analyzers():
-            print(f"  {name}")
-        print("Japanese:")
-        for name in list_ja_analyzers():
-            print(f"  {name}")
+        _print_by_language("analyzer")
         return 0
     if args.list_resolvers:
-        for name in list_resolvers():
-            print(name)
+        _print_by_language("resolver")
         return 0
     if args.list_renderers:
         for name in braille_renderer_names():
@@ -339,14 +388,14 @@ def _validate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None
             "the file's suffix (pipe the file in to force a format)"
         )
     if args.analyzer != DEFAULT_ZH_ANALYZER:
-        valid = set(list_zh_analyzers()) | set(list_ja_analyzers())
+        valid = _adapter_names("analyzer")
         if args.analyzer not in valid:
             parser.error(
                 f"unknown analyzer {args.analyzer!r}; "
                 f"choose from: {', '.join(sorted(valid))}"
             )
     if args.resolver != DEFAULT_PINYIN_RESOLVER:
-        valid = set(list_resolvers())
+        valid = _adapter_names("resolver")
         if args.resolver not in valid:
             parser.error(
                 f"unknown resolver {args.resolver!r}; "
@@ -442,11 +491,23 @@ def _reconfigure_utf8_streams() -> None:
 
 
 def _read_stdin() -> str | None:
-    """Read piped stdin as UTF-8 text, or ``None`` when stdin is a terminal.
+    """Read piped stdin as UTF-8 text, or ``None`` when there is nothing to read.
 
     Reads the raw byte buffer and decodes UTF-8 explicitly (rather than
     trusting the locale) so piped Chinese / braille survives a non-UTF-8
     console codepage on Windows.
+
+    ``None`` covers both "stdin is a terminal" and "stdin cannot be read at
+    all", which is the same answer to the only question the caller asks: is
+    there piped input here? A **closed** stream raises ``ValueError`` — from
+    ``isatty()``, which was already tolerated, and then again from the read,
+    which was not. ``main``'s user-error handler catches ``BrailixError`` /
+    ``OSError`` / ``UnicodeDecodeError``, so that second one escaped as a
+    traceback and broke the CLI's no-traceback contract in exactly the
+    environments that produce it: a service host, a detached process, an
+    application spawning brailix as a subprocess with its std handles
+    closed. Answering "no input" instead lands on the usage error that
+    already tells the user what to do.
     """
     stdin = sys.stdin
     if stdin is None:
@@ -457,9 +518,16 @@ def _read_stdin() -> str | None:
     except (ValueError, OSError):
         pass  # unusual / closed stream — attempt the read anyway
     buffer = getattr(stdin, "buffer", None)
-    if buffer is not None:
-        return buffer.read().decode("utf-8")
-    return stdin.read()
+    try:
+        raw = buffer.read() if buffer is not None else stdin.read()
+    except UnicodeDecodeError:
+        # A text-mode stream that fails to decode is a real input error with
+        # its own clean exit-1 message; it must not be reported as "no input"
+        # by the wider ``ValueError`` below (UnicodeDecodeError IS one).
+        raise
+    except ValueError:
+        return None
+    return raw.decode("utf-8") if isinstance(raw, bytes) else raw
 
 
 def _translate(

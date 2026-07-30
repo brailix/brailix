@@ -14,14 +14,11 @@ you to implement that protocol.** That is what these checks pin. They cannot
 tell you the surrounding sentence is right; they can guarantee no required
 method goes unmentioned.
 
-Both repositories are covered by one file. This is a whole-package guard that
-ships to the public mirror, where the layout differs — the Chinese
-``ARCHITECTURE.md`` is the private canonical copy and never exports, and the
-mirror's ``ARCHITECTURE.md`` is what ``ARCHITECTURE.en.md`` becomes, while the
-guide lives under ``scripts/public_overlay/docs/`` here and ``docs/`` there. So
-the candidates are probed for existence, with a floor on how many must have
-been found: a path list that silently stopped matching would make every check
-below vacuous.
+The documents are *found*, not assumed: a checkout may carry the architecture
+overview in more than one language, and may keep the extension guide at the top
+level or stage it a couple of directories down. Each is globbed, with a floor on
+how many must turn up — a pattern that silently stopped matching would make
+every check below vacuous while still passing.
 """
 
 from __future__ import annotations
@@ -34,26 +31,26 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parents[1]
 
-# (repo-relative path, human label). Probed for existence — see the module
-# docstring for why the two repositories disagree on these paths.
-_DOC_CANDIDATES = (
-    "ARCHITECTURE.md",
-    "ARCHITECTURE.en.md",
+# The documents that tell an extender what to implement, as globs — see the
+# module docstring for why they are found rather than listed.
+_DOC_GLOBS = (
+    "ARCHITECTURE*.md",
     "docs/extending.md",
-    "scripts/public_overlay/docs/extending.md",
+    "*/*/docs/extending.md",
 )
 
-# Below this, the path list has gone stale rather than the docs having shrunk:
-# the public mirror carries two (ARCHITECTURE.md + docs/extending.md), this
-# repository three.
+# An architecture overview plus the extension guide is the minimum any checkout
+# carries. Below this the globs have gone stale rather than the docs having
+# shrunk.
 _MIN_DOCS = 2
 
 
 def _extension_docs() -> list[tuple[str, str]]:
     return [
-        (rel, (_ROOT / rel).read_text(encoding="utf-8"))
-        for rel in _DOC_CANDIDATES
-        if (_ROOT / rel).is_file()
+        (path.relative_to(_ROOT).as_posix(), path.read_text(encoding="utf-8"))
+        for glob in _DOC_GLOBS
+        for path in sorted(_ROOT.glob(glob))
+        if path.is_file()
     ]
 
 
@@ -73,9 +70,8 @@ def _required_methods(protocol: type) -> set[str]:
 def test_the_document_set_was_actually_found() -> None:
     found = [rel for rel, _ in _extension_docs()]
     assert len(found) >= _MIN_DOCS, (
-        f"only found {found} — _DOC_CANDIDATES has gone stale (a doc was "
-        f"renamed or moved), which would make every check below pass on "
-        f"nothing"
+        f"only found {found} — _DOC_GLOBS has gone stale (a doc was renamed "
+        f"or moved), which would make every check below pass on nothing"
     )
 
 
@@ -238,19 +234,17 @@ _MODULE_MENTION = re.compile(r"`(brailix(?:\.[a-z_][a-z0-9_]*)+)`")
 # library is built, and holding it to "supported paths only" would be holding
 # it to the wrong contract. The guide is different: it tells a third party what
 # to type.
-_GUIDE_CANDIDATES = (
-    "docs/extending.md",
-    "scripts/public_overlay/docs/extending.md",
-)
+_GUIDE_GLOBS = ("docs/extending.md", "*/*/docs/extending.md")
 
 
 def _guides() -> list[tuple[str, str]]:
     found = [
-        (rel, (_ROOT / rel).read_text(encoding="utf-8"))
-        for rel in _GUIDE_CANDIDATES
-        if (_ROOT / rel).is_file()
+        (path.relative_to(_ROOT).as_posix(), path.read_text(encoding="utf-8"))
+        for glob in _GUIDE_GLOBS
+        for path in sorted(_ROOT.glob(glob))
+        if path.is_file()
     ]
-    assert found, f"no extension guide found among {_GUIDE_CANDIDATES}"
+    assert found, f"no extension guide found among {_GUIDE_GLOBS}"
     return found
 
 

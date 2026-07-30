@@ -512,6 +512,47 @@ def test_input_does_not_import_downstream_layers() -> None:
     )
 
 
+def test_the_cli_knows_no_individual_language() -> None:
+    """The CLI composes the library, but it must not know which languages exist.
+
+    Not a layer rule — ``cli.py`` is an application entry point and is allowed
+    to name the pipeline, the registries and the renderers. This is the
+    *extensibility* rule from ARCHITECTURE#arch-language-slots: adding a
+    language is registration, so nothing that a user discovers a language
+    through may be written per language. It was: the CLI imported
+    ``frontend.zh.analyzer``, ``frontend.ja.analyzer`` and
+    ``frontend.zh.pinyin`` and printed two hard-coded headings, so a third
+    language could register its segmenter, frontend and backend and still be
+    absent from ``--list-analyzers`` and refused by ``--analyzer``.
+
+    The languages come from ``language_frontend_registry`` and each language's
+    own declaration now (:func:`brailix.frontend.list_language_adapters`), and
+    this keeps it that way.
+    """
+    # The only import in this file: every other check reads source text, and
+    # deliberately so. Which languages exist is the one fact that cannot be
+    # read off the tree — ``frontend/`` also holds math, music and graphics,
+    # and telling those from a language would mean writing the list down here,
+    # which is the very thing being forbidden.
+    from brailix.frontend import language_frontend_registry
+
+    cli = _PKG / "cli.py"
+    offenders = sorted(
+        mod
+        for mod in _imports(cli)
+        if any(
+            _matches(mod, f"brailix.frontend.{lang}")
+            for lang in language_frontend_registry.names()
+        )
+    )
+    assert not offenders, (
+        "brailix/cli.py imports a specific language's frontend: "
+        f"{offenders} — ask the registry what languages exist and each "
+        "language what it offers (brailix.frontend.list_language_adapters / "
+        "language_display_name) so a third language needs no edit here"
+    )
+
+
 def test_lexical_constants_are_not_duplicated_across_layers() -> None:
     """A fact about the input belongs in one place, not one copy per layer.
 

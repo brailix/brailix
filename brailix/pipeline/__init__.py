@@ -530,19 +530,29 @@ class Pipeline:
         The input is wrapped as a single :class:`Paragraph` block. For
         multi-block documents (headings + lists + tables...) build a
         :class:`DocumentIR` yourself or parse Markdown via
-        :func:`brailix.input.markdown.parse_markdown` and call
+        :func:`brailix.input.parse_markdown` and call
         :meth:`translate_document`.
 
         To mutate the IR between frontend and backend (e.g. a proofreading front-end
         applying user overrides), use :meth:`translate_block` and pass
         an ``ir_transformer`` — Pipeline keeps no override / workflow
         concept, that lives in the front-end layer.
+
+        The returned ``ir`` is populated through the same lifecycle
+        :meth:`translate_document` uses, so it carries the same provenance:
+        raw ``text``, plus the :attr:`fingerprint` stamp that says which
+        configuration built its children. Handing it to another pipeline
+        re-runs the frontend when that pipeline would compile it differently.
+        It used to be assembled here instead — a bare ``Paragraph`` holding
+        only ``children`` — which is indistinguishable from hand-built IR, the
+        one shape the population contract reuses verbatim. A second pipeline
+        with its own resolver / user dictionary / profile content therefore
+        emitted braille built from THIS pipeline's tokenization and readings,
+        with no warning and no way for the caller to see it had happened.
         """
         session = _CompilationSession.begin(self)
-        children = self._frontend.run_frontend(text, session.frontend_ctx)
-        paragraph = Paragraph(
-            children=children, span=Span(0, len(text)) if text else None
-        )
+        paragraph = Paragraph(text=text)
+        self._frontend.populate_block(paragraph, session.frontend_ctx)
         doc = DocumentIR(metadata=self._ir_metadata(), blocks=[paragraph])
         braille_doc = _translate_document(doc, session.backend_ctx, self._profile)
         # Same integrity check the block-level compile runs: a registration
@@ -825,7 +835,7 @@ class Pipeline:
 
         ``format`` selects the adapter: ``"plain"`` (one paragraph) or
         ``"markdown"`` (the Markdown subset described under
-        :func:`brailix.input.markdown.parse_markdown` — headings, lists,
+        :func:`brailix.input.parse_markdown` — headings, lists,
         quotes, code blocks, ``$$...$$`` math, tables). The Pipeline's
         ``profile`` and ``language`` are baked into the resulting IR
         metadata so a follow-up :meth:`translate_document` matches what

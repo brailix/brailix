@@ -217,6 +217,4 @@ __all__ = (
     "NcbExceptions",
     "NcbToneOmission",
     "NcbWordOverrides",
-    "_CharOverride",
-    "_Shorthand",
 )

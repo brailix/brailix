@@ -48,6 +48,7 @@ from typing import Any, ClassVar
 
 from brailix.core._xml import safe_fromstring, strip_namespace
 from brailix.core.span import Span
+from brailix.ir import _serde
 
 # ---------------------------------------------------------------------------
 # Base
@@ -75,7 +76,7 @@ class InlineNode:
             if f.name in ("surface", "span"):
                 continue
             value = getattr(self, f.name)
-            if _is_omittable(value, f.default):
+            if _serde.is_omittable(value, f.default):
                 continue
             d[f.name] = _serialize_value(value)
         return d
@@ -413,31 +414,15 @@ def _strip_xml_namespace(elem: ET.Element) -> ET.Element:
     Clark notation and the backend — which dispatches on bare local names —
     fails to match, yielding blank cells + spurious warnings. Stripping at
     the IR boundary keeps the *string* round-trip (``ET.tostring`` →
-    ``ET.fromstring``) lossless. (A pre-parsed ``ET.Element`` handed straight
-    to ``from_dict`` is passed through un-stripped — that path stays correct
-    because the frontend normalizers already emit bare-tag trees, not because
-    of this guard.) Delegates to the shared
+    ``ET.fromstring``) lossless, and a pre-parsed ``ET.Element`` gets the
+    same treatment: what the deserializer stores is a bare-tag tree, whichever
+    of the two legal shapes the same XML arrived in. Delegates to the shared
     :func:`brailix.core._xml.strip_namespace` (a core helper, so the IR
     layer takes no frontend dependency); this thin wrapper just returns
     ``elem`` so the deserializer can strip-and-return in one expression.
     """
     strip_namespace(elem)
     return elem
-
-
-def _is_omittable(value: Any, default: Any) -> bool:
-    """True if ``value`` should be omitted from a ``to_dict`` payload: it is
-    ``None``, equal to its field ``default``, or an empty sequence.
-
-    (``default_factory`` list/tuple fields report ``default`` == MISSING, so the
-    equality check alone misses an empty list — the explicit empty-sequence test
-    covers them.) Shared by the inline and block ``to_dict`` field loops.
-    """
-    return (
-        value is None
-        or value == default
-        or (isinstance(value, (list, tuple)) and not value)
-    )
 
 
 def _serialize_value(value: Any) -> Any:
@@ -467,11 +452,26 @@ _XML_TREE_FIELDS: dict[str, tuple[str, str]] = {
 def _deserialize_xml_tree(key: str, value: Any) -> ET.Element | None:
     """Deserialize a MathML / MusicXML tree field (``math`` / ``score``).
 
-    Accepts ``None`` (kept), a serialized XML string (re-parsed and namespace-
-    stripped at the IR boundary), or a pre-parsed :class:`ET.Element` (passed
-    through unchanged). A wrong type — or a string that isn't well-formed XML
-    (``ET.ParseError`` is re-raised as :class:`ValueError`) — fails loudly at
-    the IR boundary as a :class:`ValueError` instead of silently storing junk.
+    Accepts ``None`` (kept), a serialized XML string (re-parsed with the safe
+    parser), or a pre-parsed :class:`ET.Element`. Either way the stored tree
+    is namespace-stripped: the backend dispatches on bare local names, so a
+    ``{http://www.w3.org/1998/Math/MathML}mi`` matches nothing and degrades to
+    a blank cell plus a misleading "unsupported element" warning. That used to
+    depend on which of the two legal shapes the caller passed — the string was
+    stripped and the Element was not, so the *same* namespaced XML compiled to
+    braille one way and to nothing the other.
+
+    The Element is normalized in place and returned, not copied. This branch
+    exists to skip a serialize / re-parse round trip for a caller that already
+    holds the tree, and deep-copying a full score's tree would hand most of
+    that cost back; the node aliases the caller's Element either way, so a
+    copy would not be buying isolation it does not already lack. Stripping is
+    idempotent, so an already-bare tree — what every in-tree frontend
+    produces — is walked once and left alone.
+
+    A wrong type — or a string that isn't well-formed XML (``ET.ParseError``
+    is re-raised as :class:`ValueError`) — fails loudly at the IR boundary as
+    a :class:`ValueError` instead of silently storing junk.
     """
     if value is None:
         return None
@@ -483,39 +483,11 @@ def _deserialize_xml_tree(key: str, value: Any) -> ET.Element | None:
             raise ValueError(f"{field_label} is not well-formed {fmt}: {e}") from e
         return _strip_xml_namespace(parsed)
     if isinstance(value, ET.Element):
-        return value
+        return _strip_xml_namespace(value)
     raise ValueError(
         f"{field_label} must be None, a {fmt} string, or an ET.Element; "
         f"got {type(value).__name__}"
     )
-
-
-def _reject_unhandled_nested_payload(key: str, value: Any) -> None:
-    """Guard the deserializer fall-through against an IR payload nobody rebuilt.
-
-    Serialization is type-driven — :func:`_serialize_value` recurses into any
-    :class:`InlineNode` automatically. Deserialization dispatches on field
-    *name*, so a newly added IR-node-valued field serializes correctly yet
-    would fall through here and be stored as a raw ``dict`` (or list of
-    ``dict``): a silent round-trip corruption no per-type test catches.
-
-    A serialized IR node is always a ``dict`` and a list of them a list of
-    ``dict``; every scalar / span / XML-tree field deserializes from something
-    else (a span is a 2-int list, ``math`` / ``score`` a string). So a
-    fall-through ``dict`` or list-of-``dict`` means exactly "an IR-payload
-    field nobody registered" — raise so the omission surfaces at its source
-    instead of corrupting the tree. Mirrors the loud-drop guard on the
-    ``to_dict`` side (:func:`brailix.ir.document._is_ir_payload`).
-    """
-    if isinstance(value, dict) or (
-        isinstance(value, list) and any(isinstance(v, dict) for v in value)
-    ):
-        raise ValueError(
-            f"field {key!r} carries a nested IR payload but has no "
-            f"deserialization branch; register it in the deserializer — "
-            f"serialization is type-driven while deserialization dispatches "
-            f"on field name, so the two must be kept in sync"
-        )
 
 
 def _typed_inline_child(
@@ -523,30 +495,21 @@ def _typed_inline_child(
 ) -> InlineNode:
     """Deserialize ``payload`` and verify it is an instance of ``expected``.
 
-    The inline counterpart of
-    :func:`brailix.ir.document._typed_child`, and it exists for the same
-    reason. ``Quantity.number`` and ``Percent.number`` are declared
-    ``Number | None``, but the deserializer dispatches on the field *name* and
-    rebuilt whatever the payload said it was — so ``{"type": "quantity",
-    "number": {"type": "word", ...}}`` round-tripped into a ``Quantity``
-    holding a ``Word``. That IR type-checks at the dataclass level and breaks
-    every consumer that reads ``quantity.number`` expecting a number: the
-    backend writes the wrong cells for it, or none. The block side had this
-    check for ``TableRow.cells`` / ``Table.rows`` / ``List.items`` while the
-    inline side did not — two implementations of one idea, drifted apart.
+    ``Quantity.number`` and ``Percent.number`` are declared ``Number | None``,
+    but the deserializer dispatches on the field *name* and rebuilt whatever
+    the payload said it was — so ``{"type": "quantity", "number": {"type":
+    "word", ...}}`` round-tripped into a ``Quantity`` holding a ``Word``.
 
-    A payload that is already an :class:`InlineNode` passes through, so a
-    caller assembling a tree by hand can hand over a built node rather than
-    its dict form.
+    The check itself is :func:`brailix.ir._serde.typed_child`, shared with the
+    block side; this binds it to the inline node family and its wording.
     """
-    child = from_dict(payload) if isinstance(payload, dict) else payload
-    if not isinstance(child, expected):
-        raise TypeError(
-            f"inline field {field_name!r} expects {expected.__name__}; got "
-            f"{type(child).__name__} (node type "
-            f"{payload.get('type') if isinstance(payload, dict) else type(payload).__name__!r})"
-        )
-    return child
+    return _serde.typed_child(
+        payload,
+        expected=expected,
+        factory=from_dict,
+        label=f"inline field {field_name!r}",
+        kind="node",
+    )
 
 
 def _deserialize_value(key: str, value: Any) -> Any:
@@ -560,5 +523,5 @@ def _deserialize_value(key: str, value: Any) -> Any:
         return None if value is None else _typed_inline_child(key, value, Number)
     if key in ("math", "score", "svg"):
         return _deserialize_xml_tree(key, value)
-    _reject_unhandled_nested_payload(key, value)
+    _serde.reject_unhandled_nested_payload(key, value)
     return value

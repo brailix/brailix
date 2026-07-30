@@ -392,11 +392,13 @@ def populate_graphic_block(
     tactile-graphics subsystem: the
     block holds only ``source``; the parsed SVG tree lives on the child carrier.
     Parsing goes through the injected ``driver._parse_graphic_tree`` — the
-    graphics frontend's single public entry, same shape as math / music — which
-    never raises: a missing adapter or adapter failure degrades to an SVG
-    bearing a ``data-bk-error`` marker, so the tactile backend can surface
-    ``GRAPHICS_SOFT_FAIL`` — ``block.children`` always ends up populated and the
-    pipeline keeps running. Shares the ``("graphic", …)`` tree sub-cache domain
+    graphics frontend's single public entry, same shape as math / music — whose
+    contract is "always a tree": a missing adapter or adapter failure degrades
+    to an SVG bearing a ``data-bk-error`` marker, so the tactile backend can
+    surface ``GRAPHICS_SOFT_FAIL`` — ``block.children`` always ends up populated
+    and the pipeline keeps running. (A soft-*failure* promise, not a
+    never-raises one: strict mode and a programming error still propagate, the
+    same two exemptions math and music make.) Shares the ``("graphic", …)`` tree sub-cache domain
     alongside math / music.
     """
     text, span, _had_span = _ensure_block_span(block)

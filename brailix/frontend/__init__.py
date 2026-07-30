@@ -81,6 +81,7 @@ from brailix.core.registry import Registry as _Registry
 from brailix.frontend.ja import analyze as _ja_analyze
 from brailix.frontend.ja import ja_boundary as _ja_boundary
 from brailix.frontend.ja import tokens_to_inline as _ja_tokens_to_inline
+from brailix.frontend.ja.analyzer import list_analyzers as _ja_list_analyzers
 from brailix.frontend.math import parse_math_tree
 from brailix.frontend.normalize import normalize
 from brailix.frontend.segment import segment
@@ -96,7 +97,9 @@ from brailix.frontend.zh import (
 from brailix.frontend.zh import (
     tokens_to_inline as _zh_to_inline,
 )
+from brailix.frontend.zh.analyzer import list_analyzers as _zh_list_analyzers
 from brailix.frontend.zh.pinyin import annotate as annotate_pinyin
+from brailix.frontend.zh.pinyin import list_resolvers as _zh_list_resolvers
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -124,6 +127,14 @@ class _ZhFrontend(_LanguageFrontend):
     # ideograph runs from the default segmenter). The Pipeline routes
     # those here via this declaration rather than a hard-coded literal.
     prose_types = frozenset({"hanzi_text"})
+    display_name = "Chinese"
+    # What a caller can choose between for this language, per family. Reading
+    # is a Chinese concern here: pinyin is resolved after tokenization, by an
+    # engine of its own.
+    adapters = {
+        "analyzer": _zh_list_analyzers,
+        "resolver": _zh_list_resolvers,
+    }
 
     def process(
         self, surface: str, base: int, ctx: FrontendContext
@@ -150,6 +161,11 @@ class _JaFrontend(_LanguageFrontend):
     """
 
     prose_types = frozenset({"ja_text"})
+    display_name = "Japanese"
+    # No ``resolver`` family: a Japanese reading comes out of the analyzer
+    # itself (katakana pronunciation forms on the tokens), so there is nothing
+    # to choose between after it.
+    adapters = {"analyzer": _ja_list_analyzers}
 
     def process(
         self, surface: str, base: int, ctx: FrontendContext
@@ -342,6 +358,51 @@ def _apply_boundary(
     return handler(nodes, profile) if handler else nodes
 
 
+def list_language_adapters(language: str, family: str = "analyzer") -> list[str]:
+    """The registered adapter names a language offers in one ``family``.
+
+    ``family`` is the kind of pluggable part: ``"analyzer"`` (the word
+    segmentation / morphological engine behind ``Pipeline(analyzer=...)``) or
+    ``"resolver"`` (the reading engine behind ``Pipeline(resolver=...)``, which
+    Chinese uses for pinyin). A language that offers nothing in a family — a
+    Japanese reading comes from its analyzer, so ``ja`` has no resolver — and a
+    language with no registered frontend at all both return ``[]``.
+
+    This is how a front-end fills an engine picker. Reading
+    :func:`brailix.frontend.zh.analyzer.list_analyzers` and its Japanese twin
+    instead works only for the languages the caller already knows the names of:
+    the CLI listed exactly two, hard-coded, and a third language could register
+    a segmenter, a frontend and a backend and still be invisible to it. Here
+    the language declares what it offers and the caller stays language-blind
+    (see ARCHITECTURE#arch-language-slots).
+
+    Names are sorted and independent of installed extras — a registry records a
+    lazy loader, so a name appears before its wheel does (selecting it is what
+    raises :class:`~brailix.core.errors.MissingExtraError`).
+    """
+    if not language_frontend_registry.has(language):
+        return []
+    families = getattr(language_frontend_registry.get(language), "adapters", {})
+    lister = families.get(family)
+    return list(lister()) if lister is not None else []
+
+
+def language_display_name(language: str) -> str:
+    """A human-readable English name for ``language``, or the subtag itself.
+
+    Declared by the language's own frontend (``display_name``), so a listing
+    can group by language without any table on the reading side — which is the
+    whole point: the label ships with the language, like its adapters do. An
+    implementation that declares none is named by its subtag rather than by a
+    guess.
+    """
+    if not language_frontend_registry.has(language):
+        return language
+    return getattr(
+        language_frontend_registry.get(language), "display_name", language
+    )
+
+
 __all__ = (
     "segment",
     "normalize",
@@ -349,5 +410,7 @@ __all__ = (
     "annotate_pinyin",
     "parse_math_tree",
     "language_frontend_registry",
+    "language_display_name",
+    "list_language_adapters",
     "boundary_registry",
 )

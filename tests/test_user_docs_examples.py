@@ -34,11 +34,11 @@ library's own tests already cover what the calls do. The claim being pinned
 is narrower and is exactly the one that broke — the command is a command the
 CLI accepts, and the call is a call the function accepts.
 
-Both repositories are covered by one file, so the paths are probed rather
-than assumed (the monorepo keeps the published docs under
-``scripts/public_overlay/``; the mirror has them at the top level), with a
-floor on how many must be found and on how much was extracted from them — a
-pattern that silently stopped matching would make every check below vacuous.
+The pages are *found*, not assumed: a checkout may keep the published set at
+the top level or stage it a couple of directories down, and this guard has to
+mean the same thing either way. Hence a glob per page plus a floor on how many
+must turn up and on how much was extracted from them — a pattern that silently
+stopped matching would make every check below vacuous while still passing.
 """
 
 from __future__ import annotations
@@ -56,23 +56,23 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parents[1]
 
-# Documents a user is told to copy from. Probed for existence: each pair is
-# (mirror path, monorepo path) for the same published page.
-_DOC_CANDIDATES = (
+# Documents a user is told to copy from, as globs: the same page is picked up
+# whether it sits at the top level or is staged under a directory or two.
+_DOC_GLOBS = (
     "README.md",
-    "scripts/public_overlay/README.md",
+    "*/*/README.md",
     "docs/index.md",
-    "scripts/public_overlay/docs/index.md",
+    "*/*/docs/index.md",
     "docs/getting-started.md",
-    "scripts/public_overlay/docs/getting-started.md",
+    "*/*/docs/getting-started.md",
     "docs/cli.md",
-    "scripts/public_overlay/docs/cli.md",
+    "*/*/docs/cli.md",
     "docs/extending.md",
-    "scripts/public_overlay/docs/extending.md",
+    "*/*/docs/extending.md",
 )
 
-# The mirror carries README + four docs/ pages; this repository the same set
-# under the overlay. Below this the path list has gone stale.
+# A README plus four guide pages is the published set. Below this the globs
+# have gone stale rather than the documentation having shrunk.
 _MIN_DOCS = 4
 
 # Fences whose contents are shell commands, and the ones that are Python.
@@ -95,9 +95,10 @@ _COMMAND_PREFIXES = (("brailix",), ("python", "-m", "brailix"))
 def _docs() -> list[tuple[str, str]]:
     """Every published page that exists here, as ``(label, text)``."""
     return [
-        (rel, (_ROOT / rel).read_text(encoding="utf-8"))
-        for rel in _DOC_CANDIDATES
-        if (_ROOT / rel).is_file()
+        (path.relative_to(_ROOT).as_posix(), path.read_text(encoding="utf-8"))
+        for glob in _DOC_GLOBS
+        for path in sorted(_ROOT.glob(glob))
+        if path.is_file()
     ]
 
 
@@ -227,8 +228,8 @@ def test_the_command_scan_actually_found_commands() -> None:
 def test_the_document_set_was_actually_found() -> None:
     found = [rel for rel, _ in _docs()]
     assert len(found) >= _MIN_DOCS, (
-        f"only found {found} — _DOC_CANDIDATES has gone stale (a page was "
-        f"renamed or moved), which would make the checks above pass on nothing"
+        f"only found {found} — _DOC_GLOBS has gone stale (a page was renamed "
+        f"or moved), which would make the checks above pass on nothing"
     )
 
 

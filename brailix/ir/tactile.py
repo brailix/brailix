@@ -100,6 +100,42 @@ def _positive_finite(value: Any, field_name: str) -> float:
     return num
 
 
+def _pixel_count(value: Any, field_name: str) -> int:
+    """``value`` as a non-negative ``int``, or ``ValueError`` if it is neither.
+
+    The pixel pair is not checked the way the physical pair is. Millimetres and
+    DPI are *measurements*, so anything that converts to a finite positive float
+    is a legitimate way to spell one; ``width`` / ``height`` are **counts of
+    array elements**, so only an ``int`` is a value at all — and each wrong type
+    fails somewhere else, late and in a language that names neither the field
+    nor the raster:
+
+    * ``True`` is an ``int`` subclass, so a bare ``< 0`` test waves it through
+      as a **one-pixel** axis and the caller gets a 1×N raster instead of an
+      error (:class:`~brailix.input.InputLimits` rejects bools first for the
+      same reason);
+    * ``1.5`` passes the same test and dies two lines on in
+      ``bytearray(width * height)`` with "cannot convert 'float' object to
+      bytearray";
+    * ``"4"`` doesn't even reach that far — the comparison itself raises
+      ``TypeError: '<' not supported between instances of 'str' and 'int'``.
+
+    Zero stays legal: a zero-area raster is a valid IR value (see
+    :meth:`TactileRaster.require_renderable`, which is where encoding refuses
+    it). Only negatives are rejected.
+    """
+    # ``bool`` first: it *is* an ``int`` subclass, so the isinstance check
+    # below would let True / False straight through.
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(
+            f"raster {field_name} must be an int, got "
+            f"{type(value).__name__} ({value!r})"
+        )
+    if value < 0:
+        raise ValueError(f"raster {field_name} must be >= 0, got {value!r}")
+    return value
+
+
 @dataclass(slots=True)
 class TactileRaster:
     """A 2-D grid of raise levels plus the physical metadata a renderer
@@ -144,17 +180,15 @@ class TactileRaster:
         an editor builds one to preview, a caller may build one by hand — and
         each field below is read without a second look somewhere downstream.
         A page size of ``0`` or ``NaN`` reaches a PDF ``MediaBox``; a
-        non-finite ``dpi`` raises inside the BMP header; a ``bytes`` ``data``
-        of the right length passes for a grid until the first
-        :meth:`set_raise` fails on it. Every one of those surfaces far from
-        the line that built the raster, and some only when a reader opens the
-        file — so they are refused here instead.
+        non-finite ``dpi`` raises inside the BMP header; a ``True`` width is a
+        one-pixel axis nobody asked for; a ``bytes`` ``data`` of the right
+        length passes for a grid until the first :meth:`set_raise` fails on it.
+        Every one of those surfaces far from the line that built the raster,
+        and some only when a reader opens the file — so they are refused here
+        instead.
         """
-        if self.width < 0 or self.height < 0:
-            raise ValueError(
-                f"raster dimensions must be non-negative, got "
-                f"{self.width}x{self.height}"
-            )
+        self.width = _pixel_count(self.width, "width")
+        self.height = _pixel_count(self.height, "height")
         self.dpi = _positive_finite(self.dpi, "dpi")
         self.page_width_mm = _positive_finite(self.page_width_mm, "page_width_mm")
         self.page_height_mm = _positive_finite(self.page_height_mm, "page_height_mm")

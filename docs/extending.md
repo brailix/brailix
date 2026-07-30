@@ -95,7 +95,7 @@ class DotPlotAdapter:
 graphic_source_registry.register("dotplot", lambda: DotPlotAdapter(), extra="dotplot")
 ```
 
-Unlike math and music, the graphics entry point never raises: a missing adapter or a failed conversion degrades to an SVG carrying a `data-bk-error` marker, which the backend surfaces as a `GRAPHICS_SOFT_FAIL` warning and a blank figure. Your adapter should follow the same rule and return an error-marked SVG rather than raise — though a `StrictModeError` you report through `ctx.warnings`, and any genuine programming error, both propagate by design.
+Unlike math and music, the graphics entry point soft-fails the two failures an adapter is expected to have: a missing adapter and a failed conversion both degrade to an SVG carrying a `data-bk-error` marker, which the backend surfaces as a `GRAPHICS_SOFT_FAIL` warning and a blank figure, so a document with an unreadable figure still compiles. Two things still propagate, by design: a `StrictModeError` — strict mode means the first diagnostic stops the run, whichever subsystem reported it — and a genuine programming error, which is a bug to fix rather than a figure to blank out. Your adapter should follow the same rule and return an error-marked SVG rather than raise.
 
 Once registered, the name is selectable two ways: as the source format of a standalone compile, `translate_graphic(src, source_format="dotplot")`, and as the suffix of an embedded figure's fence in a document, ```` ```graphic-dotplot ````.
 
@@ -133,7 +133,18 @@ A different braille standard is **data, not code**: a profile JSON plus its reso
 Supporting a new language (Japanese, Korean, and so on) is additive — the orchestrator stays language-agnostic, and you register at a few seams plus add resources. In brief:
 
 1. **Segmenter** (`Segmenter` protocol) — recognize the writing system and cut prose into typed segments; register in `frontend.segment.segmenter_registry` under the language subtag.
-2. **Frontend** (`LanguageFrontend` protocol) — turn a prose run into inline IR (segment, annotate the reading, build nodes); declare the `prose_types` it consumes; register in `frontend.language_frontend_registry`.
+2. **Frontend** (`LanguageFrontend` protocol) — turn a prose run into inline IR (segment, annotate the reading, build nodes); declare the `prose_types` it consumes; register in `frontend.language_frontend_registry`. Two optional declarations make the language visible where a user picks one: `display_name` (the English name a listing shows) and `adapters`, a `{family: () -> list[str]}` mapping naming what can be chosen for this language in each family — `"analyzer"` for the segmentation or morphological engine, `"resolver"` for a reading engine where the language has one. `brailix --list-analyzers` and any engine picker read them through `frontend.list_language_adapters`, so a language that declares them appears there with no change to the front-end:
+
+    ```python
+    class KoFrontend:
+        prose_types = frozenset({"hangul_text"})
+        display_name = "Korean"
+        # Any zero-argument callable returning the registered names.
+        adapters = {"analyzer": ko_analyzer_registry.names}
+
+        def process(self, surface, base, ctx): ...
+    ```
+
 3. **Backend** (`LanguageBackend` protocol) — translate prose nodes into cells by the language's braille rules; register in `backend.dispatch.language_backend_registry`. Three methods, all required: `translate_word` (`Word`), `translate_hanzi_char` (`HanziChar`) and `translate_date_marker` (`HanziMarker`). The registry runs a runtime protocol check the first time it resolves your adapter, so one missing method means rejection at `get()` rather than at registration. `translate_date_marker` owns both the marker's reading and whether a joiner cell follows a number — a language with no special date rules still writes an explicit implementation, since there is no inherited default:
 
     ```python

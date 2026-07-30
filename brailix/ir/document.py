@@ -13,11 +13,8 @@ from dataclasses import dataclass, field, fields
 from typing import Any, ClassVar
 
 from brailix.core.span import Span
-from brailix.ir.inline import (
-    InlineNode,
-    _is_omittable,
-    _reject_unhandled_nested_payload,
-)
+from brailix.ir import _serde
+from brailix.ir.inline import InlineNode
 from brailix.ir.inline import from_dict as inline_from_dict
 
 # ---------------------------------------------------------------------------
@@ -104,7 +101,7 @@ class Block:
             # / TableRow.cells) are serialised by the owning subclass override,
             # so a forgotten override drops the field loudly-testably rather
             # than producing a payload that only explodes at json.dumps time.
-            if _is_omittable(value, f.default) or _is_ir_payload(value):
+            if _serde.is_omittable(value, f.default) or _is_ir_payload(value):
                 continue
             d[f.name] = value
         if self.text is not None:
@@ -472,7 +469,7 @@ def _deserialize_block_value(cls: type[Block], key: str, value: Any) -> Any:
         return [_typed_child(cls, key, v, TableCell) for v in value]
     if key == "rows" and isinstance(value, list):
         return [_typed_child(cls, key, v, TableRow) for v in value]
-    _reject_unhandled_nested_payload(key, value)
+    _serde.reject_unhandled_nested_payload(key, value)
     return value
 
 
@@ -489,13 +486,14 @@ def _typed_child(
     Paragraph in a TableRow's ``cells`` list, and the resulting Block
     tree would type-check at the dataclass level but break every
     downstream consumer that introspects ``cells[i]``.
+
+    The check itself is :func:`brailix.ir._serde.typed_child`, shared with the
+    inline side; this binds it to the block family and its wording.
     """
-    child = block_from_dict(payload) if isinstance(payload, dict) else payload
-    if not isinstance(child, expected):
-        actual = type(child).__name__
-        raise TypeError(
-            f"{parent_cls.__name__}.{field_name} expects {expected.__name__} "
-            f"entries; got {actual} (block type "
-            f"{payload.get('type') if isinstance(payload, dict) else type(payload).__name__!r})"
-        )
-    return child
+    return _serde.typed_child(
+        payload,
+        expected=expected,
+        factory=block_from_dict,
+        label=f"{parent_cls.__name__}.{field_name}",
+        kind="block",
+    )
