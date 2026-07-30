@@ -33,6 +33,7 @@ an integrator are different audiences whose surfaces should move independently.
 
 from __future__ import annotations
 
+import ast
 import importlib
 from pathlib import Path
 
@@ -393,6 +394,45 @@ def test_extension_surface_resolves(module: str) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "module", sorted(set(_EXTENSION_SURFACE) - set(_FACADE))
+)
+def test_extension_module_publishes_no_more_than_it_promises(module: str) -> None:
+    """The other direction, which presence-only could not give: a module on
+    this manifest must not ``__all__`` more than the manifest names.
+
+    The end-user facades are checked for exact set equality; these were checked
+    only for "the promised name still exists", and the asymmetry showed:
+    ``brailix.core.config`` is promised for :class:`BrailleProfile` alone, both
+    here and in the top-level extension policy, while its ``__all__`` published
+    six names — a loader, a validator, a package-root ``Path``. Nothing was
+    lying to the guard; the guard simply never asked.
+
+    Equality rather than a subset check, so a name cannot be promised here and
+    then quietly dropped from ``__all__`` either. A module with no ``__all__``
+    is the normal shape for a registry module (there is no facade to publish
+    from) and passes: what it offers is pinned by the presence check above.
+
+    Modules that are *also* end-user facades (``brailix.frontend``,
+    ``brailix.renderer`` — they carry a registry as well as their own surface)
+    are excluded: their ``__all__`` is pinned exactly by ``_FACADE``, and the
+    extension entry repeats a subset of it so this list answers "where do I
+    register?" on its own.
+    """
+    mod = importlib.import_module(module)
+    published = getattr(mod, "__all__", None)
+    if published is None:
+        return
+    assert set(published) == set(_EXTENSION_SURFACE[module]), (
+        f"{module}.__all__ is {sorted(published)} but the extension manifest "
+        f"promises {sorted(_EXTENSION_SURFACE[module])}. ``__all__`` is the "
+        f"promise: publish it here (and in the top-level policy docstring and "
+        f"the extension guide) as a deliberate widening, or take it out of "
+        f"``__all__`` — an explicit ``from <mod> import <name>`` never "
+        f"consulted ``__all__`` and keeps working for in-repo callers."
+    )
+
+
 # The extension-surface entries that promise *types* rather than a place to
 # register: the contracts themselves, and the one core type those contracts
 # name. Everything else in the manifest is a registry, and is checked to still
@@ -555,6 +595,32 @@ def test_pipeline_all_is_pinned() -> None:
 _NAMESPACE_ALLOWLIST: dict[str, set[str]] = {}
 
 
+def _unpublished_bindings(source: str, published: set[str]) -> list[str]:
+    """Brailix names ``source`` binds at module level without publishing them.
+
+    Both spellings of a re-export count. An absolute one is recognised by its
+    module path; a **relative** one — ``from ._internal import Foo`` — is
+    recognised by being relative at all, since inside ``brailix`` that can only
+    name a brailix module, whatever it resolves to. Underscore-aliased names are
+    not bindings a reader can mistake for API, so they pass.
+    """
+    bound_names: list[str] = []
+    for node in ast.parse(source).body:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        origin = node.module or ""
+        if node.level:
+            origin = "." * node.level + origin
+        elif not origin.startswith("brailix"):
+            continue
+        for alias in node.names:
+            bound = alias.asname or alias.name
+            if bound.startswith("_") or bound in published:
+                continue
+            bound_names.append(f"{bound} (from {origin})")
+    return bound_names
+
+
 @pytest.mark.parametrize("module", sorted(_FACADE))
 def test_facade_binds_no_unpublished_brailix_name(module: str) -> None:
     """A **facade** must not bind a ``brailix`` name it does not publish.
@@ -573,6 +639,15 @@ def test_facade_binds_no_unpublished_brailix_name(module: str) -> None:
     *constant* (a suffix ``frozenset``) has no ``__module__`` to trace back,
     and those are exactly the ones a runtime check misses.
 
+    A **relative** re-export counts the same. ``from ._internal import Foo``
+    binds ``Foo`` at the facade exactly as the absolute spelling does, but the
+    check asked whether ``node.module`` started with ``brailix`` — and a
+    relative one never does, so the whole family was filed as somebody else's
+    name and skipped. Combined with the blind spot above, a relatively
+    re-exported *constant* was invisible to both halves of the rule. Inside
+    ``brailix``, a relative import always names a brailix module, whatever it
+    resolves to, so no resolution is needed to answer the question this asks.
+
     **Not applied to ``brailix.pipeline``**, which is an implementation module
     rather than a facade — it imports ``Span``, ``DocumentIR`` and two dozen
     others because it *uses* them, and aliasing every one would be noise for a
@@ -583,29 +658,16 @@ def test_facade_binds_no_unpublished_brailix_name(module: str) -> None:
     that is published nowhere, because that name exists at no other address and
     so reads as its own API.
     """
-    import ast
     import importlib.util
 
     spec = importlib.util.find_spec(module)
     assert spec is not None and spec.origin is not None
-    tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
+    source_text = Path(spec.origin).read_text(encoding="utf-8")
 
     mod = importlib.import_module(module)
     published = set(getattr(mod, "__all__", ()))
     allowed = _NAMESPACE_ALLOWLIST.get(module, set())
-
-    leaked: list[str] = []
-    for node in tree.body:
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        source = node.module or ""
-        if not source.startswith("brailix"):
-            continue
-        for alias in node.names:
-            bound = alias.asname or alias.name
-            if bound.startswith("_") or bound in published or bound in allowed:
-                continue
-            leaked.append(f"{bound} (from {source})")
+    leaked = _unpublished_bindings(source_text, published | allowed)
 
     assert not leaked, (
         f"{module} binds brailix names it does not publish: {leaked}\n"
@@ -643,11 +705,11 @@ def test_pipeline_namespace_offers_nothing_that_is_not_published_somewhere() -> 
     sat at ``brailix.pipeline`` next to ``Pipeline`` with nothing to mark them
     apart. This asks the question directly instead.
 
-    Read from the source, like the facade check: a re-exported *constant* has
-    no ``__module__`` to trace, and those are exactly the ones a runtime check
-    misses — the two option keys are strings.
+    Read from the source, like the facade check — and through the same
+    :func:`_unpublished_bindings`, so the relative spelling counts here too:
+    a re-exported *constant* has no ``__module__`` to trace, and those are
+    exactly the ones a runtime check misses — the two option keys are strings.
     """
-    import ast
     import importlib.util
 
     published = {
@@ -660,24 +722,10 @@ def test_pipeline_namespace_offers_nothing_that_is_not_published_somewhere() -> 
 
     spec = importlib.util.find_spec("brailix.pipeline")
     assert spec is not None and spec.origin is not None
-    tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
-
-    leaked: list[str] = []
-    for node in tree.body:
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        source = node.module or ""
-        if not source.startswith("brailix"):
-            continue
-        for alias in node.names:
-            bound = alias.asname or alias.name
-            if (
-                bound.startswith("_")
-                or bound in pipeline.__all__
-                or bound in published
-            ):
-                continue
-            leaked.append(f"{bound} (from {source})")
+    leaked = _unpublished_bindings(
+        Path(spec.origin).read_text(encoding="utf-8"),
+        published | set(pipeline.__all__),
+    )
 
     assert not leaked, (
         f"brailix.pipeline binds names no documented surface publishes: "
@@ -744,6 +792,165 @@ def test_no_module_publishes_a_private_name() -> None:
     assert not offenders, (
         "__all__ publishes private names:\n  " + "\n  ".join(offenders)
     )
+
+
+def _all_definition_defects(source: str) -> list[str]:
+    """Ways of writing ``__all__`` that the static guards cannot read.
+
+    The scans above read the names straight out of the syntax tree, which is
+    what lets them cover a module sitting behind an uninstalled extra. That
+    holds only while ``__all__`` *is* a literal: a computed list, a
+    concatenation, a later ``+=`` or ``.append`` all leave the scan looking at
+    an empty element list and reporting nothing — a guard that passes because
+    it went blind, which reads the same as a clean tree in the report.
+
+    A literal is also the right shape on its own terms. ``__all__`` is the
+    compatibility promise; one assembled at import time cannot be checked by
+    reading it, and can differ between two installs of the same version.
+    """
+    tree = ast.parse(source)
+
+    def _is_name_list(value: ast.expr | None) -> bool:
+        return isinstance(value, (ast.List, ast.Tuple)) and all(
+            isinstance(el, ast.Constant) and isinstance(el.value, str)
+            for el in value.elts
+        )
+
+    defects: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            if any(
+                isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
+            ) and not _is_name_list(node.value):
+                defects.append(
+                    f"line {node.lineno}: __all__ is not a literal list/tuple "
+                    f"of name strings"
+                )
+        elif isinstance(node, ast.AnnAssign):
+            if (
+                isinstance(node.target, ast.Name)
+                and node.target.id == "__all__"
+                and not _is_name_list(node.value)
+            ):
+                defects.append(
+                    f"line {node.lineno}: __all__ is not a literal list/tuple "
+                    f"of name strings"
+                )
+        elif isinstance(node, ast.AugAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == "__all__":
+                defects.append(f"line {node.lineno}: __all__ is extended in place")
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if (
+                isinstance(func, ast.Attribute)
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "__all__"
+            ):
+                defects.append(
+                    f"line {node.lineno}: __all__.{func.attr}(...) changes the "
+                    f"promise after the fact"
+                )
+    return defects
+
+
+def test_every_all_in_the_package_is_a_literal() -> None:
+    """``__all__`` is written out, once, as a list of names — never computed.
+
+    Every module in the package, for the same reason the private-name scan
+    covers every module: the rule is about what a module publishes, and the
+    guards that enforce it read the source rather than the imported object.
+    """
+    import importlib.util
+
+    spec = importlib.util.find_spec("brailix")
+    assert spec is not None and spec.origin is not None
+    package_root = Path(spec.origin).resolve().parent
+    offenders: list[str] = []
+    for path in sorted(package_root.rglob("*.py")):
+        for defect in _all_definition_defects(path.read_text(encoding="utf-8")):
+            rel = path.relative_to(package_root.parent).as_posix()
+            offenders.append(f"{rel}: {defect}")
+
+    assert not offenders, (
+        "__all__ written in a form the static API guards cannot read:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+class TestTheFacadeBindingDetector:
+    """Each way a facade can bind a name, asserted caught — the check runs on
+    real files, so a clean tree and a blind scan produce the same green."""
+
+    def test_an_absolute_reexport_is_reported(self) -> None:
+        assert _unpublished_bindings(
+            "from brailix.core.span import Span", published=set()
+        )
+
+    def test_a_relative_reexport_is_reported(self) -> None:
+        # The form that walked past: ``node.module`` is ``_internal``, which
+        # starts with no package name at all.
+        assert _unpublished_bindings("from ._internal import Span", published=set())
+
+    def test_a_deeper_relative_reexport_is_reported(self) -> None:
+        assert _unpublished_bindings("from ..core.span import Span", published=set())
+
+    def test_a_published_name_is_accepted(self) -> None:
+        assert (
+            _unpublished_bindings(
+                "from brailix.core.span import Span", published={"Span"}
+            )
+            == []
+        )
+
+    def test_an_underscore_alias_is_accepted(self) -> None:
+        assert (
+            _unpublished_bindings(
+                "from ._internal import Span as _Span", published=set()
+            )
+            == []
+        )
+
+    def test_a_third_party_import_is_left_alone(self) -> None:
+        assert _unpublished_bindings("from pathlib import Path", published=set()) == []
+
+
+class TestTheLiteralAllDetector:
+    """What the detector must catch, and what it must leave alone — otherwise
+    the check above passes on a clean tree and on a blind scan alike."""
+
+    def test_a_literal_tuple_is_accepted(self) -> None:
+        assert _all_definition_defects('__all__ = ("Pipeline", "block_hash")') == []
+
+    def test_a_literal_list_is_accepted(self) -> None:
+        assert _all_definition_defects('__all__ = ["Pipeline"]') == []
+
+    def test_an_annotated_literal_is_accepted(self) -> None:
+        assert (
+            _all_definition_defects('__all__: tuple[str, ...] = ("Pipeline",)') == []
+        )
+
+    def test_a_computed_list_is_reported(self) -> None:
+        assert _all_definition_defects("__all__ = sorted(_NAMES)")
+
+    def test_a_concatenation_is_reported(self) -> None:
+        assert _all_definition_defects('__all__ = ["Pipeline"] + _EXTRA')
+
+    def test_a_comprehension_is_reported(self) -> None:
+        assert _all_definition_defects("__all__ = [n for n in _NAMES]")
+
+    def test_an_in_place_extension_is_reported(self) -> None:
+        assert _all_definition_defects('__all__ = ["Pipeline"]\n__all__ += _EXTRA\n')
+
+    def test_an_append_is_reported(self) -> None:
+        assert _all_definition_defects(
+            '__all__ = ["Pipeline"]\n__all__.append("Sneaky")\n'
+        )
+
+    def test_an_extend_is_reported(self) -> None:
+        assert _all_definition_defects('__all__ = ["Pipeline"]\n__all__.extend(x)\n')
+
+    def test_an_unrelated_name_is_left_alone(self) -> None:
+        assert _all_definition_defects("_NAMES = sorted(x)\n_NAMES.append('y')\n") == []
 
 
 @pytest.mark.parametrize("module", sorted(_FACADE))

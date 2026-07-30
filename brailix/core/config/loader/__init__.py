@@ -76,9 +76,10 @@ def load_profile(
 
     ``root`` overrides the package root (useful for tests).
 
-    ``extra_search_paths`` lets the caller (any front-end) inject user-
-    folder profile directories ahead of the builtin ones: a packaged
-    front-end can wire its portable ``<exe_dir>/profiles/`` here so a
+    ``extra_search_paths`` lets the caller inject user-folder profile
+    directories ahead of the builtin ones: a packaged front-end can wire its
+    portable ``<exe_dir>/profiles/`` here (through the published
+    :attr:`~brailix.Pipeline.extra_profile_paths`, which passes it down) so a
     user-dropped profile can override a same-named builtin without
     touching the package.  Tables (``resources/...``) referenced from a
     user-folder profile still resolve against ``root`` — only the top-
