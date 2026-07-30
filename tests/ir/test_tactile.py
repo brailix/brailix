@@ -140,6 +140,24 @@ class TestPhysicalFieldsAreChecked:
         with pytest.raises(ValueError, match=field):
             self._build(**{field: "wide"})
 
+    @pytest.mark.parametrize("field", ["width", "height"])
+    @pytest.mark.parametrize("value", [True, False, 1.5, 2.0, "4", None])
+    def test_dimensions_reject_bool_float_and_string(self, field, value):
+        # The pixel pair is a count of array elements, so — unlike the
+        # millimetres, where anything that converts to a finite positive float
+        # is a legitimate spelling — only an int is a value at all. The old
+        # ``< 0`` test let ``True`` through as a one-pixel axis, blew up on
+        # 1.5 two lines later inside ``bytearray(width * height)``, and on
+        # "4" in the comparison itself with a TypeError naming neither the
+        # field nor the raster.
+        with pytest.raises(ValueError, match=field):
+            self._build(**{field: value})
+
+    @pytest.mark.parametrize("field", ["width", "height"])
+    def test_dimensions_reject_negative_with_a_named_message(self, field):
+        with pytest.raises(ValueError, match=field):
+            self._build(**{field: -1})
+
     @pytest.mark.parametrize("bit_depth", [0, 4, 16, -1, "8"])
     def test_unsupported_bit_depth_is_rejected(self, bit_depth):
         with pytest.raises(ValueError, match="bit_depth"):
