@@ -329,12 +329,107 @@ def test_language_listings_follow_the_registry(capsys, monkeypatch):
 
 
 def test_an_unregistered_analyzer_name_is_still_refused(capsys):
-    # The other half: validation is the same union, so it can't quietly start
-    # accepting anything just because it stopped naming the languages.
+    # The other half: a name no language offers is refused, so dropping the
+    # hard-coded language list didn't turn validation into "anything goes".
     with pytest.raises(SystemExit) as excinfo:
         main(["123", "-p", "cn_current", "--analyzer", "no_such_engine"])
     assert excinfo.value.code == 2
     assert "unknown analyzer" in capsys.readouterr().err
+
+
+def test_a_language_that_cannot_load_does_not_break_the_listing(capsys):
+    """Discovery is what a user reaches for *because* they don't know what is
+    installed; it must not be what fails.
+
+    A third-party language may ship behind an optional package of its own, and
+    asking it what engines it offers resolves its frontend. That failure is
+    isolated per language: the built-ins still list on stdout, the broken one is
+    named on stderr with its pip hint, and the exit code stays 0. It used to
+    abort the whole listing — and with a traceback, since discovery runs before
+    ``main``'s error boundary.
+    """
+    from brailix.frontend import language_frontend_registry
+
+    def _needs_a_wheel():
+        raise ImportError("No module named 'klingonlib'", name="klingonlib")
+
+    with language_frontend_registry.overriding(
+        "tlh", _needs_a_wheel, extra="klingon"
+    ):
+        rc = main(["--list-analyzers"])
+        captured = capsys.readouterr()
+    assert rc == 0
+    assert "Chinese:" in captured.out and "char" in captured.out
+    assert "'tlh'" in captured.err and "klingon" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_another_languages_analyzer_is_a_usage_error(capsys):
+    """``kana`` is a Japanese analyzer, so a Chinese profile must refuse it.
+
+    The union over every registered language accepted it here and let the run
+    fail later in the Chinese registry: a usage error the parser could name,
+    reported instead as exit 1 after startup.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        main(["123", "-p", "cn_current", "--analyzer", "kana"])
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "unknown analyzer" in err and "cn_current" in err
+    assert "char" in err  # the message lists what Chinese does offer
+
+
+def test_a_chinese_analyzer_is_a_usage_error_for_a_japanese_profile(capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        main(["ABC", "-p", "ja_current", "--analyzer", "char"])
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "unknown analyzer" in err and "ja_current" in err
+    assert "kana" in err
+
+
+def test_a_reading_engine_for_a_language_without_one_is_a_usage_error(capsys):
+    """Japanese has no ``resolver`` family — a reading comes out of its
+    analyzer. The option used to be accepted and then read by nobody: a legal
+    flag with no effect on the output."""
+    with pytest.raises(SystemExit) as excinfo:
+        main(["ABC", "-p", "ja_current", "--resolver", "null"])
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "--resolver" in err and "Japanese" in err
+
+
+def test_a_language_only_offers_its_own_engines_for_validation(capsys):
+    """A newly registered language's engine is selectable under *its* profile
+    and nowhere else — the same seam the listing rides, applied to validation."""
+    from brailix.core.protocols import LanguageFrontend
+    from brailix.frontend import language_frontend_registry
+
+    class _KlingonFrontend(LanguageFrontend):
+        prose_types = frozenset({"tlh_text"})
+        display_name = "Klingon"
+        adapters = {"analyzer": lambda: ["pIqaD"]}
+
+        def process(self, surface, base, ctx):  # pragma: no cover - not run
+            return []
+
+    with language_frontend_registry.overriding("tlh", _KlingonFrontend):
+        with pytest.raises(SystemExit) as excinfo:
+            main(["123", "-p", "cn_current", "--analyzer", "pIqaD"])
+        assert excinfo.value.code == 2
+        assert "unknown analyzer" in capsys.readouterr().err
+
+
+def test_a_default_run_needs_no_profile_load_for_validation(monkeypatch):
+    """The language lookup only happens when the user actually named an engine,
+    so a plain run does not load the profile a second time."""
+    from brailix import cli
+
+    def _fail(name, *args, **kwargs):
+        raise AssertionError("validation loaded the profile")
+
+    monkeypatch.setattr(cli, "load_profile", _fail)
+    assert main(["123", "-p", "cn_current", "-q"]) == 0
 
 
 # --------------------------------------------------------------------------

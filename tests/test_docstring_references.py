@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import importlib
 import re
+import tomllib
 from pathlib import Path
 
 _PKG = Path(__file__).resolve().parents[1] / "brailix"
@@ -103,4 +104,72 @@ def test_role_targets_resolve() -> None:
         "docstring cross-references pointing at nothing (renamed? moved? "
         "deleted?) — the published reference is generated from these:\n"
         + "\n".join(dangling)
+    )
+
+
+# ---------------------------------------------------------------------------
+# The other kind of reference: an extra a docstring tells you to install
+# ---------------------------------------------------------------------------
+
+# ``pip install brailix[docx]``. The name has to start alphanumeric (PEP 685),
+# which is also what keeps the placeholders out: the docstrings that describe
+# the *shape* of the advice write ``brailix[<extra>]``, ``brailix[{extra}]``
+# and ``brailix[...]``, and none of those can open with an alphanumeric.
+_EXTRA = re.compile(r"brailix\[([A-Za-z0-9][A-Za-z0-9,._-]*)\]")
+
+
+def _cited_extras() -> list[tuple[Path, int, str]]:
+    """``(file, line, extra name)`` for every extra a docstring names.
+
+    A comma-separated citation (``brailix[hanlp,g2pw]``) yields one entry per
+    name, since either half can be the one that stopped existing.
+    """
+    out: list[tuple[Path, int, str]] = []
+    for py in sorted(_PKG.rglob("*.py")):
+        text = py.read_text(encoding="utf-8")
+        for m in _EXTRA.finditer(text):
+            line = text.count("\n", 0, m.start()) + 1
+            out.extend(
+                (py.relative_to(_PKG.parent), line, name)
+                for name in m.group(1).split(",")
+            )
+    return out
+
+
+def _declared_extras() -> set[str]:
+    """The extras ``pyproject.toml`` actually declares."""
+    payload = tomllib.loads(
+        (_PKG.parent / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    return set(payload.get("project", {}).get("optional-dependencies", {}))
+
+
+def test_there_are_extras_to_check() -> None:
+    # Same reason as the floor above: a regex that stopped matching (a rename
+    # of the distribution, say) would make the check below vacuous.
+    assert len(_cited_extras()) > 5
+
+
+def test_every_extra_a_docstring_names_is_declared() -> None:
+    """``pip install brailix[x]`` in a docstring has to name a real extra.
+
+    This is a cross-reference like any other above — it just resolves against
+    ``pyproject.toml`` instead of the import graph, and it is the one a reader
+    acts on *before* they can run anything, so a stale name costs them the
+    install rather than a broken link. The failure mode is quiet in both
+    directions: an extra renamed in packaging leaves the prose pointing at
+    nothing, and prose written from memory can invent a name that was never
+    declared. ``pip`` says nothing about an unknown extra beyond a warning,
+    then installs the bare package — so the reader finds out when the parser
+    they installed for is still missing.
+    """
+    declared = _declared_extras()
+    unknown = [
+        f"{path}:{line} -> brailix[{name}]"
+        for path, line, name in _cited_extras()
+        if name not in declared
+    ]
+    assert not unknown, (
+        "docstrings naming an extra that pyproject.toml does not declare "
+        f"(declared: {', '.join(sorted(declared))}):\n" + "\n".join(unknown)
     )

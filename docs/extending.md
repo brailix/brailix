@@ -145,6 +145,8 @@ Supporting a new language (Japanese, Korean, and so on) is additive — the orch
         def process(self, surface, base, ctx): ...
     ```
 
+    Reading either declaration resolves the frontend, so if your language ships behind an optional package of its own, listing it needs that package installed. Nothing breaks without it: `brailix --list-analyzers` reports your language on standard error with the extra to install, prints the rest of the listing, and still exits 0. Keep the registration itself light (register a loader, not an eager import) and the engines behind their own registry, and the weight is paid only when a document is actually translated.
+
 3. **Backend** (`LanguageBackend` protocol) — translate prose nodes into cells by the language's braille rules; register in `backend.dispatch.language_backend_registry`. Three methods, all required: `translate_word` (`Word`), `translate_hanzi_char` (`HanziChar`) and `translate_date_marker` (`HanziMarker`). The registry runs a runtime protocol check the first time it resolves your adapter, so one missing method means rejection at `get()` rather than at registration. `translate_date_marker` owns both the marker's reading and whether a joiner cell follows a number — a language with no special date rules still writes an explicit implementation, since there is no inherited default:
 
     ```python

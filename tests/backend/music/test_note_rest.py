@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import emit_tree
+from brailix.backend.music import _emit_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 
@@ -35,7 +35,7 @@ def _roles(cells):
 
 
 # ---------------------------------------------------------------------------
-# Single note in isolation — emit_tree wraps the element in a fresh
+# Single note in isolation — _emit_tree wraps the element in a fresh
 # MusicBrailleContext (prev_pitch=None), so the first call always
 # emits an octave prefix.
 # ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@ class TestSingleNote:
             "<note><pitch><step>C</step><octave>4</octave></pitch>"
             "<duration>1</duration><type>quarter</type></note>"
         )
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         # First cell = octave prefix (fourth_octave = ", a.k.a. dot 5)
         # Second cell = quarter C = "?" = (1,4,5,6)
         assert _dots(cells) == [(5,), (1, 4, 5, 6)]
@@ -59,7 +59,7 @@ class TestSingleNote:
             "<note><pitch><step>D</step><octave>5</octave></pitch>"
             "<duration>16</duration><type>whole</type></note>"
         )
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         # Fifth octave prefix = "." = (4,6)
         # Whole D = "Z" = (1,3,5,6)
         assert _dots(cells) == [(4, 6), (1, 3, 5, 6)]
@@ -69,7 +69,7 @@ class TestSingleNote:
             "<note><pitch><step>G</step><octave>3</octave></pitch>"
             "<duration>1</duration><type>eighth</type></note>"
         )
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         # Third octave prefix = "_" = (4,5,6); eighth G = "H" = (1,2,5)
         assert _dots(cells) == [(4, 5, 6), (1, 2, 5)]
 
@@ -80,7 +80,7 @@ class TestSingleNote:
             "<note><pitch><step>F</step><octave>4</octave></pitch>"
             "<duration>1</duration></note>"
         )
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         # Quarter F = "]" = (1,2,4,5,6)
         assert _dots(cells)[-1] == (1, 2, 4, 5, 6)
 
@@ -92,7 +92,7 @@ class TestSingleNote:
             "<note><pitch><step>C</step><octave>4</octave></pitch>"
             "<duration>32</duration><type>breve</type></note>"
         )
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         # [octave fourth = (5,), whole C = (1,3,4,5,6), breve suffix = (1,3)]
         assert _dots(cells) == [(5,), (1, 3, 4, 5, 6), (1, 3)]
         assert _roles(cells) == ["music_octave", "music_note", "music_note"]
@@ -106,7 +106,7 @@ class TestSingleRest:
         rest = ET.fromstring(
             "<note><rest/><duration>1</duration><type>quarter</type></note>"
         )
-        cells = emit_tree(rest, ctx, profile)
+        cells = _emit_tree(rest, ctx, profile)
         # Quarter rest = "v" = (1,2,3,6)
         assert _dots(cells) == [(1, 2, 3, 6)]
         assert _roles(cells) == ["music_rest"]
@@ -115,7 +115,7 @@ class TestSingleRest:
         rest = ET.fromstring(
             "<note><rest/><duration>16</duration><type>whole</type></note>"
         )
-        cells = emit_tree(rest, ctx, profile)
+        cells = _emit_tree(rest, ctx, profile)
         # Whole rest = "m" = (1,3,4)
         assert _dots(cells) == [(1, 3, 4)]
 
@@ -123,7 +123,7 @@ class TestSingleRest:
         rest = ET.fromstring(
             "<note><rest/><duration>1</duration><type>eighth</type></note>"
         )
-        cells = emit_tree(rest, ctx, profile)
+        cells = _emit_tree(rest, ctx, profile)
         # 8th rest = "x" = (1,3,4,6)
         assert _dots(cells) == [(1, 3, 4, 6)]
 
@@ -135,7 +135,7 @@ class TestSingleRest:
         rest = ET.fromstring(
             '<note><rest measure="yes"/><duration>24</duration></note>'
         )
-        cells = emit_tree(rest, ctx, profile)
+        cells = _emit_tree(rest, ctx, profile)
         # Whole rest = "m" = (1,3,4), same as an explicit whole rest.
         assert _dots(cells) == [(1, 3, 4)]
         assert _roles(cells) == ["music_rest"]
@@ -144,7 +144,7 @@ class TestSingleRest:
         # Control: only measure="yes" forces whole — an ordinary rest with
         # no <type> keeps the quarter default.
         rest = ET.fromstring("<note><rest/><duration>1</duration></note>")
-        cells = emit_tree(rest, ctx, profile)
+        cells = _emit_tree(rest, ctx, profile)
         assert _dots(cells) == [(1, 2, 3, 6)]  # quarter rest
 
     def test_breve_rest(self, profile, ctx):
@@ -155,7 +155,7 @@ class TestSingleRest:
         rest = ET.fromstring(
             "<note><rest/><duration>32</duration><type>breve</type></note>"
         )
-        cells = emit_tree(rest, ctx, profile)
+        cells = _emit_tree(rest, ctx, profile)
         # Whole-rest cell (1,3,4) + breve suffix (1,3), NOT quarter (1,2,3,6).
         assert _dots(cells) == [(1, 3, 4), (1, 3)]
         assert _roles(cells) == ["music_rest", "music_rest"]
@@ -164,7 +164,7 @@ class TestSingleRest:
 class TestMalformedNote:
     def test_note_missing_pitch_and_rest_warns(self, profile, ctx):
         note = ET.fromstring("<note><duration>1</duration></note>")
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         assert len(cells) == 1
         assert cells[0].dots == ()  # unknown cell
         codes = [w.code for w in ctx.warnings.warnings]
@@ -175,7 +175,7 @@ class TestMalformedNote:
             "<note><pitch><octave>4</octave></pitch>"
             "<duration>1</duration><type>quarter</type></note>"
         )
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
         # Unknown element → only no-braille marker cells (empty dots); the
@@ -189,7 +189,7 @@ class TestMalformedNote:
             "<note><pitch><step>C</step><octave>middle</octave></pitch>"
             "<duration>1</duration><type>quarter</type></note>"
         )
-        emit_tree(note, ctx, profile)
+        _emit_tree(note, ctx, profile)
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
 
@@ -202,7 +202,7 @@ class TestMalformedNote:
             "<note><pitch><step>C</step><octave>4</octave></pitch>"
             "<duration>1</duration><type>fortnight</type></note>"
         )
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_DURATION_AMBIGUOUS" in codes
         # Still emits the fallback quarter C so the score renders.
@@ -221,7 +221,7 @@ class TestMusicError:
             '<score-partwise><music-error data-reason="bad input">x</music-error>'
             '</score-partwise>'
         )
-        cells = emit_tree(err, ctx, profile)
+        cells = _emit_tree(err, ctx, profile)
         assert len(cells) == 1
         assert cells[0].dots == ()
         assert cells[0].role == "music_error"
@@ -237,7 +237,7 @@ class TestMusicError:
 class TestUnsupported:
     def test_unknown_element_warns(self, profile, ctx):
         weird = ET.fromstring("<somefuturetag/>")
-        cells = emit_tree(weird, ctx, profile)
+        cells = _emit_tree(weird, ctx, profile)
         assert cells == []
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes

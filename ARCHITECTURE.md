@@ -1,5 +1,6 @@
-<!-- brailix architecture overview (English). The canonical version is in Chinese
-     and kept in sync by hand; this public overview may differ in structure. -->
+<!-- brailix architecture overview (English). The overview is maintained in more
+     than one language and kept in sync by hand; each copy is organised on its
+     own terms, so the structure may differ between them. -->
 
 # brailix Architecture
 
@@ -19,15 +20,16 @@ Design goals:
 Requirements: Python `>=3.13` (the code uses `match` and modern type syntax).
 
 **How the code cites this document.** Section *numbers* are not stable
-references: the Chinese canonical copy and this English one are organised
-independently — "§12" is 不变的边界 there and "Adding a language" here — so a
-comment citing a number would be right in at most one of them. Code therefore
-cites a **stable anchor** instead, written `ARCHITECTURE#arch-boundaries`, which
-is both a working link and a string you can search for. Each anchor is declared
-as an `<a id="...">` above the section it names, in *both* copies, and
-`tests/test_architecture_anchors.py` fails if code cites one that either copy
-does not declare. Renumbering or reordering a section is free; moving an
-invariant means moving its anchor with it.
+references: the overview is maintained in more than one language, each copy
+organised on its own terms, so one number names different sections in different
+copies and a comment citing it would be right in at most one of them. Code
+therefore cites a **stable anchor** instead, written
+`ARCHITECTURE#arch-boundaries`, which is both a working link and a string you can
+search for. Each anchor is declared as an `<a id="...">` above the section it
+names, in every copy, and `tests/test_architecture_anchors.py` fails if code
+cites an anchor that any copy in the checkout leaves undeclared. Renumbering or
+reordering a section is free; moving an invariant means moving its anchor with
+it.
 
 ---
 
@@ -468,7 +470,7 @@ Adding any external tool means writing one adapter file: a new tokenizer goes un
 
 To be precise about where that promise holds: for a new tool behind an **existing protocol** — the cases listed above — no core code changes; the adapter file registers itself and a profile (or an explicit option) selects it. Two kinds of extension *do* grow the core, by design: a **new IR node type** must join the backend dispatch table (and its serialization and tests), and a **new domain vertical** — a fifth mediator alongside text, math, music, and graphics — touches orchestration the same way. Adding a whole new *language* sits in between: it is registration-only (no orchestrator branches), but it does mean registering several implementations plus a profile — §12 walks through exactly what it takes.
 
-Put plainly: **the adapter layer is the open extension surface (Registry + Protocol, plug-and-play), while the set of IR node and block types is a repo-internal closed world.** Adding an `InlineNode` or `Block` is a coordinated change across several points (dataclass + registry + serialization + backend dispatch + schema + tests) — a deliberate closed set, not a plugin seam. The normal move is to fold a new domain into one of the existing mediators (text, math, music, or graphics) and carry it on the nodes already there.
+Put plainly: **the adapter layer is the open extension surface (Registry + Protocol, plug-and-play), while the set of IR node and block types is a repo-internal closed world.** Adding an `InlineNode` or `Block` is a coordinated change across several points (dataclass + registry + serialization + backend dispatch + schema + tests) — a deliberate closed set, not a plugin seam. Serialization is the one of those that is declarative: a block field holding nested blocks is named in the class's own `structural_fields` (field name → the block class its entries must be), and that single declaration is what writes the field out *and* what rebuilds it on the way back, with both directions checking every entry against it — so a tree that serializes is a tree that reloads. A nested field nobody declared makes `to_dict` raise rather than skip it, which is what it used to do — saving succeeded, the JSON was valid, and the field was gone after a reload. The normal move is to fold a new domain into one of the existing mediators (text, math, music, or graphics) and carry it on the nodes already there.
 
 ---
 

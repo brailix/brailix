@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Literal
 
 from brailix import Pipeline, __version__
 from brailix.core import RunMode
-from brailix.core.config import iter_builtin_profiles
+from brailix.core.config import iter_builtin_profiles, load_profile
 from brailix.core.defaults import (
     DEFAULT_PINYIN_RESOLVER,
     DEFAULT_RENDERER,
@@ -198,7 +198,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--analyzer",
         default=DEFAULT_ZH_ANALYZER,
         metavar="NAME",
-        help="word-segmentation engine "
+        help="word-segmentation engine for the profile's language "
         f"(default: {DEFAULT_ZH_ANALYZER}; see --list-analyzers)",
     )
     tr.add_argument(
@@ -206,7 +206,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--resolver",
         default=DEFAULT_PINYIN_RESOLVER,
         metavar="NAME",
-        help=f"pinyin resolver (default: {DEFAULT_PINYIN_RESOLVER}; see --list-resolvers)",
+        help="reading engine for the profile's language, where it has one "
+        f"(Chinese pinyin today; default: {DEFAULT_PINYIN_RESOLVER}; "
+        "see --list-resolvers)",
     )
     tr.add_argument(
         "-m",
@@ -231,11 +233,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     disc.add_argument(
         "--list-analyzers", dest="list_analyzers", action="store_true",
-        help="list word-segmentation engines",
+        help="list word-segmentation engines, by language",
     )
     disc.add_argument(
         "--list-resolvers", dest="list_resolvers", action="store_true",
-        help="list pinyin resolvers",
+        help="list reading engines, by language",
     )
     disc.add_argument(
         "--list-renderers", dest="list_renderers", action="store_true",
@@ -266,6 +268,12 @@ silent winner.
 A profile, engine, or resolver name shown by the --list-* flags is always
 valid even before its optional dependency is installed; selecting one whose
 package is missing reports which `pip install brailix[...]` extra to add.
+
+An engine belongs to one language: --list-analyzers / --list-resolvers group
+the names by language, and --analyzer / --resolver accept the ones the
+profile's own language offers. Picking another language's engine — or a
+reading engine for a language that has none — is a usage error, not a run
+that quietly ignores the flag.
 """
 
 
@@ -287,20 +295,6 @@ def _registered_languages() -> list[str]:
     )
 
 
-def _adapter_names(family: str) -> set[str]:
-    """Every adapter name any registered language offers in ``family``.
-
-    What ``--analyzer`` / ``--resolver`` are validated against. A union over
-    the languages rather than over two imported modules: registering a third
-    language's engine makes it selectable here without a change to this file.
-    """
-    return {
-        name
-        for lang in _registered_languages()
-        for name in list_language_adapters(lang, family)
-    }
-
-
 def _print_by_language(family: str) -> None:
     """Print one adapter family, grouped by the language that offers it.
 
@@ -310,9 +304,27 @@ def _print_by_language(family: str) -> None:
     :func:`brailix.frontend.list_language_adapters`), so a newly registered
     language appears here on its own, and one that offers nothing in this
     family is skipped rather than printed as an empty heading.
+
+    Asking a language what it offers *resolves that language's frontend*, and a
+    third-party language may ship behind an optional package of its own. That
+    failure is isolated per language: the ones that answered are still listed,
+    the one that could not is reported on stderr with its ``pip install`` hint,
+    and the command still exits 0. Discovery is the surface a user reaches for
+    precisely *because* they don't know what is installed yet — it must not be
+    the surface that fails, and least of all with a traceback (it runs before
+    ``main``'s error boundary). The names stay on stdout alone, so piping the
+    listing still yields names and nothing else.
     """
     for lang in _registered_languages():
-        names = list_language_adapters(lang, family)
+        try:
+            names = list_language_adapters(lang, family)
+        except BrailixError as exc:
+            print(
+                f"brailix: language {lang!r} is registered but unavailable: "
+                f"{_format_error(exc)}",
+                file=sys.stderr,
+            )
+            continue
         if not names:
             continue
         print(f"{language_display_name(lang)}:")
@@ -351,13 +363,85 @@ def _handle_discovery(args: argparse.Namespace) -> int | None:
 # ---------------------------------------------------------------------------
 
 
+def _profile_language(name: str) -> str | None:
+    """The primary language subtag of profile ``name``, or ``None`` when the
+    profile cannot be read.
+
+    Unreadable covers every reason — no such name, a malformed file, a path
+    that is not a name — and all of them are reported by the real load inside
+    :func:`main`'s error boundary, as one clean exit-1 message. Reporting them
+    from here as well would turn "which engines may I pick?" into the place a
+    bad profile name is first announced, in a second wording, at a different
+    exit code.
+    """
+    try:
+        return load_profile(name).language.split("-")[0]
+    except (BrailixError, OSError, ValueError):
+        return None
+
+
+def _validate_language_adapters(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> None:
+    """Check ``--analyzer`` / ``--resolver`` against the *profile's* language.
+
+    An analyzer name is language-scoped: ``thulac`` is a Chinese segmenter and
+    ``janome`` a Japanese one, and the runtime routes the choice to the frontend
+    of the active profile's language — the ``"{lang}_analyzer"`` option key that
+    :class:`~brailix.pipeline.frontend_driver.FrontendDriver` builds from it.
+    Validating against the *union* over every registered language accepted
+    ``-p cn_current --analyzer janome`` here and then failed in the Chinese
+    registry — turning a usage error the parser could have named into a
+    run-time one, with exit 1 instead of 2.
+
+    The same scoping answers a case a union cannot express at all: a language
+    with no ``resolver`` family (a Japanese reading comes out of its analyzer)
+    would take ``--resolver g2pw`` as valid, and the option would then be
+    carried into the run and read by nobody — a legal-looking flag with no
+    effect on the output.
+
+    Only reached when the user actually set one of the two, so a plain run
+    neither loads the profile twice nor resolves a language frontend it has no
+    use for.
+    """
+    lang = _profile_language(args.profile)
+    if lang is None:
+        return
+    for flag, value, default, family in (
+        ("--analyzer", args.analyzer, DEFAULT_ZH_ANALYZER, "analyzer"),
+        ("--resolver", args.resolver, DEFAULT_PINYIN_RESOLVER, "resolver"),
+    ):
+        if value == default:
+            continue
+        try:
+            valid = list_language_adapters(lang, family)
+        except BrailixError:
+            # This language ships behind an optional package of its own and it
+            # is not installed, so what it offers is unknowable here. The run
+            # says so itself, with the pip hint; refusing the name on top of
+            # that would blame the engine for a missing language.
+            continue
+        label = language_display_name(lang)
+        if not valid:
+            parser.error(
+                f"{flag} does not apply to profile {args.profile!r}: "
+                f"{label} has no {family} to choose from "
+                f"(see --list-{family}s)"
+            )
+        if value not in valid:
+            parser.error(
+                f"unknown {family} {value!r} for profile {args.profile!r} "
+                f"({label}); choose from: {', '.join(valid)}"
+            )
+
+
 def _validate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     """Reject combinations argparse can't express, with clean exit-2 errors.
 
-    ``--analyzer`` / ``--resolver`` are validated against their live
-    registries (the no-hardcode source of truth) — but only when the user
-    set a non-default value, so a plain run never imports a registry it
-    doesn't need.
+    ``--analyzer`` / ``--resolver`` are validated against the live registry of
+    the *profile's own language* (the no-hardcode source of truth) — but only
+    when the user set a non-default value, so a plain run never resolves a
+    frontend it doesn't need. See :func:`_validate_language_adapters`.
 
     ``--profile`` is required (there is no built-in default braille
     standard); it is checked here rather than via argparse ``required=True``
@@ -387,20 +471,11 @@ def _validate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None
             "--in-format applies to TEXT / stdin; --file is dispatched by "
             "the file's suffix (pipe the file in to force a format)"
         )
-    if args.analyzer != DEFAULT_ZH_ANALYZER:
-        valid = _adapter_names("analyzer")
-        if args.analyzer not in valid:
-            parser.error(
-                f"unknown analyzer {args.analyzer!r}; "
-                f"choose from: {', '.join(sorted(valid))}"
-            )
-    if args.resolver != DEFAULT_PINYIN_RESOLVER:
-        valid = _adapter_names("resolver")
-        if args.resolver not in valid:
-            parser.error(
-                f"unknown resolver {args.resolver!r}; "
-                f"choose from: {', '.join(sorted(valid))}"
-            )
+    if (
+        args.analyzer != DEFAULT_ZH_ANALYZER
+        or args.resolver != DEFAULT_PINYIN_RESOLVER
+    ):
+        _validate_language_adapters(args, parser)
     if args.to == "cells" and (args.width or args.page_height or args.page_numbers):
         parser.error(
             "--to cells emits structural cell data and cannot be combined "

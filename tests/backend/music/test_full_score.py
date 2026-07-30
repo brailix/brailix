@@ -1,7 +1,7 @@
 """End-to-end music test: a COMPLETE multi-measure score driven through
 the frontend normalizer + backend translator.
 
-Every other test in this package feeds ``emit_tree`` a synthetic
+Every other test in this package feeds ``_emit_tree`` a synthetic
 single-element fragment, so none of them exercise a real ``<score-
 partwise>`` flowing through ``normalize`` (namespace strip, voice
 numbering, note-type inference) into ``translate`` (octave inference

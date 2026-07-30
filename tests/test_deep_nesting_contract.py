@@ -22,7 +22,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.math import emit_tree, translate
+from brailix.backend.math import _emit_tree, translate
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 from brailix.frontend.math.normalizer import normalize
@@ -79,7 +79,7 @@ class TestDeepNestingNeverCrashes:
 
     def test_backend_emit_tree_soft_fails(self, profile) -> None:
         ctx = BackendContext(profile="cn_current")
-        cells = emit_tree(_deep_tree(), ctx, profile)  # must not raise
+        cells = _emit_tree(_deep_tree(), ctx, profile)  # must not raise
         assert cells
         assert any(w.code == "MATH_ERROR" for w in ctx.warnings.warnings)
 
@@ -88,6 +88,6 @@ class TestDeepNestingNeverCrashes:
         # a normal fraction must still translate to real cells, no MATH_ERROR.
         ctx = BackendContext(profile="cn_current")
         tree = normalize("<math><mfrac><mn>1</mn><mn>2</mn></mfrac></math>")
-        cells = emit_tree(tree, ctx, profile)
+        cells = _emit_tree(tree, ctx, profile)
         assert cells
         assert not any(w.code == "MATH_ERROR" for w in ctx.warnings.warnings)

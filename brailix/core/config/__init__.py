@@ -37,9 +37,23 @@ The package is split into four modules so each one stays readable:
 * :mod:`.loader`   — :func:`load_profile` + every table parser
 * :mod:`.validator` — :func:`validate_profile` + per-table schema checks
 
-All names below are re-exported from this ``__init__`` to keep the
-historical ``from brailix.core.config import ...`` import paths
-working unchanged.
+The names below are re-exported from this ``__init__`` so the historical
+``from brailix.core.config import ...`` paths keep working; the loaders and
+validators among them are **internal**, exactly like every other path outside
+the facades and the extension surface (see the top-level :mod:`brailix`
+docstring). ``__all__`` carries :class:`BrailleProfile` alone, because that is
+the one name this package is promised to keep: every ``LanguageBackend`` method
+takes a profile, so an adapter author has to be able to write the annotation,
+and the extension manifest in the test suite pins exactly that — no more.
+
+``__all__`` said otherwise for a while, listing ``load_profile``,
+``validate_profile``, ``load_builtin_numbers_table`` and ``PACKAGE_ROOT``
+beside it. Nothing generated a reference page for them and no manifest
+promised them, so the same helper was "supported" here and "free to move"
+one level up, and ``from brailix.core.config import *`` handed a caller four
+names the project had not agreed to keep. A front-end that wants a profile
+*by name* passes the name to :class:`~brailix.Pipeline` (with
+``extra_profile_paths`` for its own profile drops), which is published.
 """
 
 from brailix.core.config._helpers import (
@@ -105,11 +119,4 @@ from brailix.core.config.validator import (
     validate_profile,
 )
 
-__all__ = (
-    "BrailleProfile",
-    "PACKAGE_ROOT",
-    "iter_builtin_profiles",
-    "load_builtin_numbers_table",
-    "load_profile",
-    "validate_profile",
-)
+__all__ = ("BrailleProfile",)

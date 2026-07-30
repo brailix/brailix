@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import MusicBrailleContext, emit_tree
+from brailix.backend.music import MusicBrailleContext, _emit_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 
@@ -44,7 +44,7 @@ def test_in_walk_warning_carries_part_and_measure(profile, ctx):
         "<type>bogus</type></note></measure>"
         "</part></score-partwise>"
     )
-    emit_tree(score, ctx, profile)
+    _emit_tree(score, ctx, profile)
     hits = [w for w in ctx.warnings if w.code == "MUSIC_DURATION_AMBIGUOUS"]
     assert hits, "expected the bogus <type> to warn"
     assert hits[0].anchor == {"part_id": "P1", "measure_number": "2"}

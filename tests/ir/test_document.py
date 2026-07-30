@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import ClassVar
 
@@ -6,6 +7,7 @@ import pytest
 
 from brailix.core.span import Span
 from brailix.ir.document import (
+    _BLOCK_REGISTRY,
     Block,
     CodeBlock,
     DocumentIR,
@@ -24,6 +26,21 @@ from brailix.ir.document import (
     block_from_dict,
 )
 from brailix.ir.inline import Punct, Word
+
+
+@contextmanager
+def _registered_block(cls):
+    """Make a test-local ``Block`` subclass rebuildable by its type tag.
+
+    ``block_from_dict`` dispatches through the registry, so a type declared
+    inside a test has to be in it for the round trip; removed again on exit so
+    it never leaks into another test's view of the registry.
+    """
+    _BLOCK_REGISTRY[cls.type] = cls
+    try:
+        yield
+    finally:
+        _BLOCK_REGISTRY.pop(cls.type, None)
 
 
 class TestConstruction:
@@ -199,26 +216,96 @@ class TestTypedChildValidation:
 
 
 class TestBaseToDictSelfConsistency:
-    """The generic ``Block.to_dict`` loop must never emit a raw IR object: a
-    subclass that adds a structural field but forgets to override ``to_dict``
-    drops that field instead of producing a payload that explodes at
-    ``json.dumps``. The shipped containers (List/Table/TableRow) override
-    ``to_dict`` and so still emit their structural children."""
+    """``Block.to_dict`` emits JSON-native values and *declared* nested blocks —
+    and refuses anything else nested.
 
-    def test_unoverridden_subclass_drops_raw_ir_field(self):
+    A subclass that adds a nested-block field and declares nothing used to have
+    that field silently skipped: saving succeeded, the JSON was valid, and the
+    field was gone after a reload. The deserializer was already loud about the
+    mirror case (a nested payload with no branch raises), so the pair could only
+    fail in the direction that loses data. Now the omission surfaces where the
+    tree is built."""
+
+    def test_undeclared_nested_field_raises_instead_of_being_dropped(self):
         @dataclass(slots=True)
         class _Weird(Block):
             type: ClassVar[str] = "weird"
             kids: list = field(default_factory=list)
 
-        d = _Weird(kids=[ListItem(text="x")]).to_dict()
-        assert "kids" not in d  # skipped, not emitted as a raw ListItem
-        json.dumps(d)  # and the payload stays JSON-native
+        with pytest.raises(TypeError, match="structural_fields"):
+            _Weird(kids=[ListItem(text="x")]).to_dict()
 
-    def test_overridden_container_still_emits_and_is_json_native(self):
+    def test_an_empty_undeclared_field_is_still_fine(self):
+        # Nothing nested is present, so nothing can be lost: an empty list is
+        # omitted as a default like any other, and the guard doesn't fire on a
+        # field that merely *could* hold blocks.
+        @dataclass(slots=True)
+        class _Weird(Block):
+            type: ClassVar[str] = "weird"
+            kids: list = field(default_factory=list)
+
+        assert "kids" not in _Weird().to_dict()
+
+    def test_declaring_the_field_makes_it_round_trip(self):
+        # The declaration drives both directions, so a new container type needs
+        # no serializer of its own — and the entries come back typed.
+        @dataclass(slots=True)
+        class _Basket(Block):
+            type: ClassVar[str] = "basket"
+            structural_fields: ClassVar[dict] = {"kids": ListItem}
+            kids: list[ListItem] = field(default_factory=list)
+
+        d = _Basket(kids=[ListItem(text="x")]).to_dict()
+        assert [k["text"] for k in d["kids"]] == ["x"]
+        json.dumps(d)
+        with _registered_block(_Basket):
+            back = block_from_dict(d)
+        assert isinstance(back, _Basket)
+        assert [type(k) for k in back.kids] == [ListItem]
+        assert back.kids[0].text == "x"
+
+    def test_a_declared_field_holding_a_foreign_block_is_refused(self):
+        # The declaration is enforced on the way back (``_typed_child``), so
+        # enforcing it here too is what keeps the two directions agreeing: a
+        # Paragraph among the ListItems used to serialise fine and then fail
+        # to load, which puts the diagnostic on whoever opens the file rather
+        # than on whoever built the tree.
+        with pytest.raises(TypeError, match="expects ListItem"):
+            List(items=[Paragraph(text="x")]).to_dict()
+
+    def test_a_declared_field_holding_one_block_is_refused(self):
+        # The declaration promises a list the deserializer can type-check entry
+        # by entry; a bare block would serialise to something it cannot rebuild.
+        @dataclass(slots=True)
+        class _Odd(Block):
+            type: ClassVar[str] = "odd"
+            structural_fields: ClassVar[dict] = {"kid": ListItem}
+            kid: object = None
+
+        with pytest.raises(TypeError, match="not a list of blocks"):
+            _Odd(kid=ListItem(text="x")).to_dict()
+
+    def test_declared_container_emits_and_is_json_native(self):
         d = List(items=[ListItem(text="a")]).to_dict()
         assert [it["text"] for it in d["items"]] == ["a"]
         json.dumps(d)
+
+    def test_every_registered_block_type_round_trips_its_nested_fields(self):
+        """Registry-driven, so a new block type is covered by existing here.
+
+        Each declared nested field is filled with one child of the declared
+        class and the block is round-tripped; the field has to survive with its
+        entries' types intact.
+        """
+        for name, cls in _BLOCK_REGISTRY.items():
+            for field_name, child_cls in cls.structural_fields.items():
+                block = cls(**{field_name: [child_cls(text="x")]})
+                back = block_from_dict(block.to_dict())
+                rebuilt = getattr(back, field_name)
+                assert [type(c) for c in rebuilt] == [child_cls], (
+                    f"{name}.{field_name} did not round-trip"
+                )
+                assert rebuilt[0].text == "x"
 
 
 class TestDocumentIR:

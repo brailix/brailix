@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import emit_tree
+from brailix.backend.music import _emit_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 
@@ -46,7 +46,7 @@ class TestBarStyle:
             '<barline location="right"><bar-style>light-heavy</bar-style>'
             '</barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # final_double_bar = "<k" = (1,2,6) (1,3)
         assert _dots(cells) == [(1, 2, 6), (1, 3)]
         assert _roles(cells) == ["music_bar_line", "music_bar_line"]
@@ -55,7 +55,7 @@ class TestBarStyle:
         bar = ET.fromstring(
             '<barline><bar-style>light-light</bar-style></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # sectional_double_bar = "<k'" = (1,2,6) (1,3) (3,)
         assert _dots(cells) == [(1, 2, 6), (1, 3), (3,)]
 
@@ -63,7 +63,7 @@ class TestBarStyle:
         bar = ET.fromstring(
             '<barline><bar-style>dotted</bar-style></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # print_dotted_bar_line = "k" = (1,3)
         assert _dots(cells) == [(1, 3)]
 
@@ -71,7 +71,7 @@ class TestBarStyle:
         bar = ET.fromstring(
             '<barline><bar-style>tick</bar-style></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # bar_line_unusual = "l" = (1,2,3)
         assert _dots(cells) == [(1, 2, 3)]
 
@@ -79,14 +79,14 @@ class TestBarStyle:
         bar = ET.fromstring(
             '<barline><bar-style>short</bar-style></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         assert _dots(cells) == [(1, 2, 3)]
 
     def test_none_emits_nothing(self, profile, ctx):
         bar = ET.fromstring(
             '<barline><bar-style>none</bar-style></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         assert cells == []
 
     def test_regular_default_skip(self, profile, ctx):
@@ -94,13 +94,13 @@ class TestBarStyle:
         bar = ET.fromstring(
             '<barline><bar-style>regular</bar-style></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         assert cells == []
 
     def test_no_bar_style_default_skip(self, profile, ctx):
         # No <bar-style> child → treated as regular → skip.
         bar = ET.fromstring('<barline/>')
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         assert cells == []
 
     def test_bar_line_print_dotted_mode(self, profile, ctx, monkeypatch):
@@ -112,7 +112,7 @@ class TestBarStyle:
         bar = ET.fromstring(
             '<barline><bar-style>regular</bar-style></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # Dotted print bar
         assert _dots(cells) == [(1, 3)]
 
@@ -125,7 +125,7 @@ class TestBarStyle:
         bar = ET.fromstring(
             '<barline><bar-style>regular</bar-style></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # One blank cell
         assert _dots(cells) == [()]
         assert _roles(cells) == ["music_bar_line"]
@@ -139,7 +139,7 @@ class TestBarStyle:
         bar = ET.fromstring(
             '<barline><bar-style>regular</bar-style></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         assert cells == []
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
@@ -157,7 +157,7 @@ class TestBarStyle:
         bar = ET.fromstring(
             '<barline><bar-style>light-heavy</bar-style></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         assert _dots(cells) == [(1, 2, 6), (1, 3)]
 
 
@@ -171,7 +171,7 @@ class TestRepeat:
         bar = ET.fromstring(
             '<barline><repeat direction="forward"/></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # double_bar_dots_after = "<7" = (1,2,6) (2,3,5,6)
         assert _dots(cells) == [(1, 2, 6), (2, 3, 5, 6)]
         assert all(c.role == "music_repeat" for c in cells)
@@ -180,13 +180,13 @@ class TestRepeat:
         bar = ET.fromstring(
             '<barline><repeat direction="backward"/></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # double_bar_dots_before = "<2" = (1,2,6) (2,3)
         assert _dots(cells) == [(1, 2, 6), (2, 3)]
 
     def test_default_direction_is_backward(self, profile, ctx):
         bar = ET.fromstring('<barline><repeat/></barline>')
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # Default = backward
         assert _dots(cells) == [(1, 2, 6), (2, 3)]
 
@@ -194,7 +194,7 @@ class TestRepeat:
         bar = ET.fromstring(
             '<barline><repeat direction="sideways"/></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         assert cells == []
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
@@ -208,7 +208,7 @@ class TestRepeat:
             '<repeat direction="backward"/>'
             '</barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # Order: repeat first, then bar-style.
         # backward repeat + final_double_bar
         assert _dots(cells) == [
@@ -227,7 +227,7 @@ class TestRepeat:
         bar = ET.fromstring(
             '<barline><repeat direction="backward"/></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # Cells still produced (fallback to marker form)
         assert _dots(cells) == [(1, 2, 6), (2, 3)]
         codes = [w.code for w in ctx.warnings.warnings]
@@ -244,7 +244,7 @@ class TestVolta:
         bar = ET.fromstring(
             '<barline><ending number="1" type="start"/></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # prima_volta = "#1" = (3,4,5,6) (2,)
         assert _dots(cells) == [(3, 4, 5, 6), (2,)]
         assert all(c.role == "music_volta" for c in cells)
@@ -253,7 +253,7 @@ class TestVolta:
         bar = ET.fromstring(
             '<barline><ending number="2" type="start"/></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # seconda_volta = "#2" = (3,4,5,6) (2,3)
         assert _dots(cells) == [(3, 4, 5, 6), (2, 3)]
 
@@ -261,21 +261,21 @@ class TestVolta:
         bar = ET.fromstring(
             '<barline><ending number="1" type="stop"/></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         assert cells == []
 
     def test_discontinue_emits_nothing(self, profile, ctx):
         bar = ET.fromstring(
             '<barline><ending number="2" type="discontinue"/></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         assert cells == []
 
     def test_third_ending_warns(self, profile, ctx):
         bar = ET.fromstring(
             '<barline><ending number="3" type="start"/></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         assert cells == []
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
@@ -284,7 +284,7 @@ class TestVolta:
         bar = ET.fromstring(
             '<barline><ending number="1,2" type="start"/></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         assert cells == []
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
@@ -300,7 +300,7 @@ class TestVolta:
         bar = ET.fromstring(
             '<barline><ending number="1" type="start"/></barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # Fallback: numeric form
         assert _dots(cells) == [(3, 4, 5, 6), (2,)]
         codes = [w.code for w in ctx.warnings.warnings]
@@ -325,7 +325,7 @@ class TestCombined:
             '<ending number="1" type="stop"/>'
             '</barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # Order: repeat → (volta stop = nothing) → bar style
         # backward repeat (2 cells) + final_double_bar (2 cells)
         assert _dots(cells) == [
@@ -341,7 +341,7 @@ class TestCombined:
             '<ending number="1" type="start"/>'
             '</barline>'
         )
-        cells = emit_tree(bar, ctx, profile)
+        cells = _emit_tree(bar, ctx, profile)
         # Order: repeat first, then volta. No bar-style child.
         assert _dots(cells) == [
             (1, 2, 6), (2, 3, 5, 6),     # <7 (forward repeat)

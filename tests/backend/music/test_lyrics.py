@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import MusicBrailleContext, emit_tree
+from brailix.backend.music import MusicBrailleContext, _emit_tree
 from brailix.backend.music.dispatch import _emit_element
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
@@ -59,7 +59,7 @@ class TestLyricMarker:
         note = _note_with_lyrics(
             '<lyric number="1"><syllabic>single</syllabic><text>la</text></lyric>'
         )
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         markers = [c for c in cells if c.role == "music_lyric_marker"]
         assert len(markers) == 1
         # word_sign = ">" = (3,4,5)
@@ -71,7 +71,7 @@ class TestLyricMarker:
         note = _note_with_lyrics(
             '<lyric><syllabic>single</syllabic><text>hi</text></lyric>'
         )
-        roles = _roles(emit_tree(note, ctx, profile))
+        roles = _roles(_emit_tree(note, ctx, profile))
         # [octave, note, marker]
         assert roles == ["music_octave", "music_note", "music_lyric_marker"]
 
@@ -80,7 +80,7 @@ class TestLyricMarker:
             '<lyric number="1"><syllabic>single</syllabic><text>春</text></lyric>'
             '<lyric number="2"><syllabic>single</syllabic><text>夏</text></lyric>'
         )
-        markers = [c for c in emit_tree(note, ctx, profile)
+        markers = [c for c in _emit_tree(note, ctx, profile)
                    if c.role == "music_lyric_marker"]
         assert len(markers) == 2
         # Verse number recorded
@@ -97,21 +97,21 @@ class TestLyricMarker:
         note = _note_with_lyrics(
             f'<lyric><syllabic>{syllabic}</syllabic><text>ah</text></lyric>'
         )
-        markers = [c for c in emit_tree(note, ctx, profile)
+        markers = [c for c in _emit_tree(note, ctx, profile)
                    if c.role == "music_lyric_marker"]
         assert markers[0].source_text == f"lyric[1/{syllabic}]:ah"
 
     def test_missing_syllabic_defaults_to_single(self, profile, ctx):
         # <syllabic> is optional; absent => default "single".
         note = _note_with_lyrics('<lyric><text>oh</text></lyric>')
-        markers = [c for c in emit_tree(note, ctx, profile)
+        markers = [c for c in _emit_tree(note, ctx, profile)
                    if c.role == "music_lyric_marker"]
         assert markers[0].source_text == "lyric[1/single]:oh"
 
     def test_default_verse_number_is_one(self, profile, ctx):
         # <lyric> without ``number`` attribute => verse 1.
         note = _note_with_lyrics('<lyric><text>x</text></lyric>')
-        markers = [c for c in emit_tree(note, ctx, profile)
+        markers = [c for c in _emit_tree(note, ctx, profile)
                    if c.role == "music_lyric_marker"]
         assert markers[0].source_text == "lyric[1/single]:x"
 
@@ -124,12 +124,12 @@ class TestLyricMarker:
 class TestSkipCases:
     def test_no_lyric_no_marker(self, profile, ctx):
         note = _note_with_lyrics("")
-        roles = _roles(emit_tree(note, ctx, profile))
+        roles = _roles(_emit_tree(note, ctx, profile))
         assert "music_lyric_marker" not in roles
 
     def test_empty_text_skipped_silently(self, profile, ctx):
         note = _note_with_lyrics('<lyric><text></text></lyric>')
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         assert "music_lyric_marker" not in _roles(cells)
         # No warning for empty text — exporters frequently emit
         # placeholder <lyric><text/></lyric> for un-set syllables.
@@ -138,13 +138,13 @@ class TestSkipCases:
     def test_missing_text_element_skipped(self, profile, ctx):
         # <lyric> without <text> — skip silently.
         note = _note_with_lyrics('<lyric><syllabic>single</syllabic></lyric>')
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         assert "music_lyric_marker" not in _roles(cells)
         assert ctx.warnings.warnings == []
 
     def test_whitespace_only_text_skipped(self, profile, ctx):
         note = _note_with_lyrics('<lyric><text>   </text></lyric>')
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         assert "music_lyric_marker" not in _roles(cells)
 
 
@@ -163,7 +163,7 @@ class TestFeatureGates:
             False,
         )
         note = _note_with_lyrics('<lyric><text>la</text></lyric>')
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         assert "music_lyric_marker" not in _roles(cells)
 
     @pytest.mark.parametrize(
@@ -179,7 +179,7 @@ class TestFeatureGates:
             form,
         )
         note = _note_with_lyrics('<lyric><text>la</text></lyric>')
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         # Falls back to marker — still emits.
         assert "music_lyric_marker" in _roles(cells)
         codes = [w.code for w in ctx.warnings.warnings]
@@ -203,7 +203,7 @@ class TestLyricsInline:
             options={"inline_text_translator": lambda _t: [fake]},
         )
         note = _note_with_lyrics('<lyric><text>春</text></lyric>')
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         lyric_cells = [c for c in cells if c.role == "music_lyric"]
         assert len(lyric_cells) == 1
         # translator's cell, retagged music_lyric, dots preserved
@@ -256,7 +256,7 @@ class TestLyricsInline:
             '<lyric number="1"><text>春</text></lyric>'
             '<lyric number="2"><text>夏</text></lyric>'
         )
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         assert len([c for c in cells if c.role == "music_lyric"]) == 2
 
     def test_inline_without_translator_falls_back_to_marker(
@@ -267,7 +267,7 @@ class TestLyricsInline:
         )
         # ctx fixture wires no inline_text_translator.
         note = _note_with_lyrics('<lyric><text>la</text></lyric>')
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         assert "music_lyric_marker" in _roles(cells)
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
@@ -290,7 +290,7 @@ class TestRestHasNoLyric:
             "<lyric><text>oops</text></lyric>"
             "</note>"
         )
-        cells = emit_tree(note, ctx, profile)
+        cells = _emit_tree(note, ctx, profile)
         assert "music_lyric_marker" not in _roles(cells)
 
 
@@ -312,7 +312,7 @@ class TestCombined:
             '<lyric><text>la</text></lyric>'
             "</note>"
         )
-        roles = _roles(emit_tree(note, ctx, profile))
+        roles = _roles(_emit_tree(note, ctx, profile))
         # [octave, note, dot, tie(2), fingering, lyric]
         assert roles == [
             "music_octave", "music_note", "music_dot",
