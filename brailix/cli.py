@@ -442,11 +442,23 @@ def _reconfigure_utf8_streams() -> None:
 
 
 def _read_stdin() -> str | None:
-    """Read piped stdin as UTF-8 text, or ``None`` when stdin is a terminal.
+    """Read piped stdin as UTF-8 text, or ``None`` when there is nothing to read.
 
     Reads the raw byte buffer and decodes UTF-8 explicitly (rather than
     trusting the locale) so piped Chinese / braille survives a non-UTF-8
     console codepage on Windows.
+
+    ``None`` covers both "stdin is a terminal" and "stdin cannot be read at
+    all", which is the same answer to the only question the caller asks: is
+    there piped input here? A **closed** stream raises ``ValueError`` — from
+    ``isatty()``, which was already tolerated, and then again from the read,
+    which was not. ``main``'s user-error handler catches ``BrailixError`` /
+    ``OSError`` / ``UnicodeDecodeError``, so that second one escaped as a
+    traceback and broke the CLI's no-traceback contract in exactly the
+    environments that produce it: a service host, a detached process, an
+    application spawning brailix as a subprocess with its std handles
+    closed. Answering "no input" instead lands on the usage error that
+    already tells the user what to do.
     """
     stdin = sys.stdin
     if stdin is None:
@@ -457,9 +469,16 @@ def _read_stdin() -> str | None:
     except (ValueError, OSError):
         pass  # unusual / closed stream — attempt the read anyway
     buffer = getattr(stdin, "buffer", None)
-    if buffer is not None:
-        return buffer.read().decode("utf-8")
-    return stdin.read()
+    try:
+        raw = buffer.read() if buffer is not None else stdin.read()
+    except UnicodeDecodeError:
+        # A text-mode stream that fails to decode is a real input error with
+        # its own clean exit-1 message; it must not be reported as "no input"
+        # by the wider ``ValueError`` below (UnicodeDecodeError IS one).
+        raise
+    except ValueError:
+        return None
+    return raw.decode("utf-8") if isinstance(raw, bytes) else raw
 
 
 def _translate(

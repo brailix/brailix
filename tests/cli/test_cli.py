@@ -391,6 +391,22 @@ def test_no_input_is_usage_error(monkeypatch, capsys):
     assert "no input" in capsys.readouterr().err
 
 
+def test_closed_stdin_is_a_clean_usage_error(monkeypatch, capsys):
+    # A closed stdin raises ValueError from isatty() — already tolerated —
+    # and again from the read, which was not: main() catches BrailixError /
+    # OSError / UnicodeDecodeError, so "I/O operation on closed file" escaped
+    # as a traceback. Nothing could be read, so the answer is the same one a
+    # terminal gets: no input, exit 2, with the usage line that says what to
+    # pass instead.
+    closed = io.StringIO("123")
+    closed.close()
+    monkeypatch.setattr("sys.stdin", closed)
+    with pytest.raises(SystemExit) as excinfo:
+        main(["-p", "cn_current"])
+    assert excinfo.value.code == 2
+    assert "no input" in capsys.readouterr().err
+
+
 def test_invalid_utf8_stdin_exits_1(monkeypatch, capsys):
     # Invalid UTF-8 on the pipe (e.g. a GBK file piped on a Windows
     # console) must surface as a clean exit-1 error, not an uncaught
