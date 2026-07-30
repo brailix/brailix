@@ -248,6 +248,23 @@ class TestTheSniffReadsTheRootElement:
         )
         assert isinstance(doc.blocks[0], ScoreBlock)
 
+    def test_a_score_behind_a_subset_holding_a_quoted_bracket_is_a_score(
+        self, tmp_path: Path
+    ) -> None:
+        # The internal subset was skipped by looking for the first ``]``, so a
+        # ``]`` inside a declaration's quoted value ended the subset early;
+        # the scan was then still inside the DOCTYPE, took the ``>`` from that
+        # same quoted value for the end of the declaration, and never reached
+        # the root element. A legal score read as prose, with no error.
+        doc = self._route(
+            tmp_path,
+            "score.xml",
+            "<!DOCTYPE score-partwise [\n"
+            '  <!ATTLIST score-partwise foo CDATA "a]b>c">\n'
+            "]>\n" + _SCORE_XML,
+        )
+        assert isinstance(doc.blocks[0], ScoreBlock)
+
     def test_root_element_scanner_cases(self) -> None:
         from brailix.input import _xml_root_element
 
@@ -263,6 +280,47 @@ class TestTheSniffReadsTheRootElement:
         assert _xml_root_element("") == ""
         assert _xml_root_element("plain text, no markup") == ""
         assert _xml_root_element("<!-- unterminated comment") == ""
+
+    @pytest.mark.parametrize(
+        "prologue",
+        [
+            # A ``]`` in a quoted value closes nothing.
+            '<!DOCTYPE h [ <!ATTLIST h a CDATA "x]y"> ]>',
+            "<!DOCTYPE h [ <!ENTITY e ']]]'> ]>",
+            # Nor does one in a comment or a processing instruction, and
+            # neither does the ``>`` next to it.
+            "<!DOCTYPE h [ <!-- ] > --> ]>",
+            "<!DOCTYPE h [ <?tool ]> ?> ]>",
+            # A conditional section brings its own nesting.
+            "<!DOCTYPE h [ <![IGNORE[ <!ELEMENT x EMPTY> ]]> ]>",
+            # Quoted ``>`` outside the subset still has to be skipped too.
+            "<!DOCTYPE h PUBLIC \"-//x//DTD y>z//EN\" 'h>.dtd' [ <!ENTITY e 'v'> ]>",
+        ],
+    )
+    def test_the_internal_subset_is_markup_not_a_search_for_a_bracket(
+        self, prologue: str
+    ) -> None:
+        from brailix.input import _xml_root_element
+
+        assert _xml_root_element(f"{prologue}\n<h/>") == "h"
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "<!DOCTYPE h [",  # subset never closed
+            "<!DOCTYPE h [ <!ENTITY e 'unterminated ]>",  # quote never closed
+            "<!DOCTYPE h [ <!-- unterminated ]>",  # comment never closed
+            "<!DOCTYPE h",  # declaration never closed
+        ],
+    )
+    def test_a_malformed_prologue_reports_nothing_rather_than_guessing(
+        self, text: str
+    ) -> None:
+        # Not a score, not a crash: these route to plain text, which is what
+        # a document nobody can parse should get.
+        from brailix.input import _xml_root_element
+
+        assert _xml_root_element(text) == ""
 
 
 class TestEncoding:

@@ -113,18 +113,63 @@ _MUSIC_SUFFIXES = _MUSIC_SUFFIXES_ALL - _SNIFFED_XML_SUFFIXES
 _MUSICXML_ROOTS = frozenset({"score-partwise", "score-timewise"})
 
 
+def _skip_quoted(text: str, i: int) -> int:
+    """Index just past the string literal opening at ``text[i]`` (a quote),
+    or the end of the text when it is never closed."""
+    end = text.find(text[i], i + 1)
+    return len(text) if end < 0 else end + 1
+
+
+def _skip_internal_subset(text: str, i: int) -> int:
+    """Index just past the ``]`` closing the internal DTD subset that opens at
+    ``text[i] == "["``.
+
+    Not ``text.find("]")``: a subset is markup, and a ``]`` inside one of its
+    declarations closes nothing. It can sit in an attribute default
+    (``<!ATTLIST part id CDATA "a]b">``), in an entity value, or in a comment
+    — and taking the first one for the end of the subset then leaves the scan
+    inside the DOCTYPE, where the next quoted ``>`` reads as the end of the
+    declaration and the root element is never seen. So quotes, comments and
+    processing instructions are skipped whole, and bracket depth is counted
+    (a ``<![INCLUDE[ … ]]>`` conditional section nests one level).
+    """
+    n = len(text)
+    depth = 0
+    while i < n:
+        ch = text[i]
+        if ch in "\"'":
+            i = _skip_quoted(text, i)
+        elif text.startswith("<!--", i):
+            end = text.find("-->", i + 4)
+            i = n if end < 0 else end + 3
+        elif text.startswith("<?", i):
+            end = text.find("?>", i + 2)
+            i = n if end < 0 else end + 2
+        elif ch == "[":
+            depth += 1
+            i += 1
+        elif ch == "]":
+            depth -= 1
+            i += 1
+            if depth == 0:
+                return i
+        else:
+            i += 1
+    return n
+
+
 def _xml_root_element(text: str) -> str:
     """The name of ``text``'s first start element, or ``""``.
 
     A deliberately small hand-written prologue scanner rather than a real
     parser. Everything before the root element is skippable — whitespace, the
     ``<?xml?>`` declaration and other processing instructions, comments, and a
-    ``<!DOCTYPE …>`` whose internal ``[…]`` subset may itself contain ``>``
-    inside quotes — and once the first ``<name`` is reached there is nothing
-    left to decide. Feeding the document to :mod:`xml.etree` instead would
-    expand entities declared in that internal subset before this function ever
-    returned, which is a parser to point at untrusted input only deliberately;
-    this reads the head and stops.
+    ``<!DOCTYPE …>`` whose internal ``[…]`` subset may itself contain ``>`` or
+    ``]`` inside quotes and comments (:func:`_skip_internal_subset`) — and once
+    the first ``<name`` is reached there is nothing left to decide. Feeding the
+    document to :mod:`xml.etree` instead would expand entities declared in that
+    internal subset before this function ever returned, which is a parser to
+    point at untrusted input only deliberately; this reads the head and stops.
 
     A namespace prefix is dropped (``<mx:score-partwise>`` reports
     ``score-partwise``). MusicXML is not namespaced, so this only makes the
@@ -153,11 +198,9 @@ def _xml_root_element(text: str) -> str:
             i += 2
             while i < n and text[i] != ">":
                 if text[i] in "\"'":
-                    end = text.find(text[i], i + 1)
-                    i = n if end < 0 else end + 1
+                    i = _skip_quoted(text, i)
                 elif text[i] == "[":
-                    end = text.find("]", i + 1)
-                    i = n if end < 0 else end + 1
+                    i = _skip_internal_subset(text, i)
                 else:
                     i += 1
             i += 1
