@@ -44,7 +44,9 @@ from brailix.backend.music.handlers.direction import (
 from brailix.backend.music.handlers.fallback import (
     _DISPATCH_PARTIAL as _fallback,
 )
-from brailix.backend.music.handlers.fallback import _emit_unsupported
+from brailix.backend.music.handlers.fallback import (
+    _emit_unsupported as _emit_unsupported,  # re-export: dispatch.py reads it here
+)
 from brailix.backend.music.handlers.harmony import (
     _DISPATCH_PARTIAL as _harmony,
 )
@@ -59,4 +61,5 @@ for _partial in (
 ):
     _DISPATCH.update(_partial)
 
-__all__ = ("_DISPATCH", "_emit_unsupported")
+# No ``__all__`` — see the math handlers package: private names, read as
+# module attributes by ``dispatch.py``, promised to nobody.

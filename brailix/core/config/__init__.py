@@ -56,11 +56,6 @@ from brailix.core.config._helpers import (
 )
 from brailix.core.config.loader import (
     PACKAGE_ROOT,
-    _coerce_dots_field,
-    _extract_cells,
-    _flag_dict_bool,
-    _flag_dict_str,
-    _is_spec_object,
     _list_available_profiles,
     _load_cells_pool,
     _load_letters_table,
@@ -69,6 +64,24 @@ from brailix.core.config.loader import (
     _load_punct_spacing,
     _load_punct_table,
     _load_table,
+    _resolve_single,
+    _resolve_table,
+    iter_builtin_profiles,
+    load_builtin_numbers_table,
+    load_profile,
+)
+
+# The spec / ref / flag resolvers, from the module that defines them. They
+# were re-bound one level up first, back when ``loader`` re-exported every
+# private helper it could see; ``loader`` now carries what it composes, so
+# the historical ``from brailix.core.config import _spec_to_cells`` paths
+# below name their real source.
+from brailix.core.config.loader._refs import (
+    _coerce_dots_field,
+    _extract_cells,
+    _flag_dict_bool,
+    _flag_dict_str,
+    _is_spec_object,
     _normalise_one_ref,
     _normalise_symbols_payload,
     _normalise_symbols_spec,
@@ -76,15 +89,10 @@ from brailix.core.config.loader import (
     _resolve_digits,
     _resolve_dots_table,
     _resolve_nested_structures,
-    _resolve_single,
-    _resolve_table,
     _section,
     _spec_to_cells,
     _symbol_spacing_dict,
     _table_ref,
-    iter_builtin_profiles,
-    load_builtin_numbers_table,
-    load_profile,
 )
 from brailix.core.config.profile import BrailleProfile
 from brailix.core.config.validator import (

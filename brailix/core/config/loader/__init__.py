@@ -17,9 +17,11 @@ Subpackage map:
 * :mod:`.zh`      — NCB-specific exceptions (tone omission / char /
   word overrides)
 
-All private helpers are re-exported here so callers that historically
-did ``from brailix.core.config.loader import _load_zh_exceptions`` (or
-any other underscore-prefixed helper) keep working unchanged.
+What this module imports from those, it imports because
+:func:`load_profile` composes it. It used to pull in every private helper
+they define, used or not, so that a name kept resolving at this path after
+the split; each of those is reachable at the module that defines it, which
+is where the callers that wanted them now look.
 """
 
 from __future__ import annotations
@@ -30,25 +32,11 @@ from typing import Any
 
 from brailix.core.config._helpers import _is_metadata_key, _read_json
 from brailix.core.config.loader._refs import (
-    _coerce_dots_field,
-    _extract_cells,
-    _flag_dict_bool,
-    _flag_dict_str,
-    _is_spec_object,
     _load_cells_pool,
     _load_table,
-    _normalise_one_ref,
-    _normalise_symbols_payload,
-    _normalise_symbols_spec,
-    _read_section,
-    _resolve_digits,
-    _resolve_dots_table,
-    _resolve_nested_structures,
     _resolve_single,
     _resolve_table,
     _section,
-    _spec_to_cells,
-    _symbol_spacing_dict,
     _table_ref,
 )
 from brailix.core.config.loader.letters import _load_letters_table
@@ -56,20 +44,12 @@ from brailix.core.config.loader.math import _load_math_table
 from brailix.core.config.loader.music import (
     _load_music_specs,
     _load_music_tables,
-    _load_one_music_file,
-    _music_body,
-    _resolve_music_cells,
 )
 from brailix.core.config.loader.numbers import _load_numbers_table
 from brailix.core.config.loader.punct import _load_punct_spacing, _load_punct_table
 from brailix.core.config.loader.zh import (
-    _build_shorthand,
     _load_compounds,
     _load_zh_exceptions,
-    _load_zh_exceptions_char_overrides,
-    _load_zh_exceptions_tone_omission,
-    _load_zh_exceptions_word_overrides,
-    _resolve_cell_ref_list,
 )
 from brailix.core.config.profile import BrailleProfile
 from brailix.core.config.validator import (
@@ -386,54 +366,18 @@ def _list_available_profiles(
     return sorted(names)
 
 
+# What this module publishes — and nothing else. The per-topic helpers it
+# composes stay importable from here (they are bound above, and an explicit
+# ``from ... import _load_math_table`` never consulted ``__all__`` anyway), but
+# they are not listed: ``__all__`` is the compatibility promise the top-level
+# package makes, and a list that also carried forty private names said
+# "supported" and "internal, free to move" about the same helper at once. The
+# API guard had to be told to skip this package to keep that contradiction
+# working; now it doesn't.
 __all__ = (
-    # Public API
     "BrailleProfile",
     "PACKAGE_ROOT",
     "iter_builtin_profiles",
     "load_builtin_numbers_table",
     "load_profile",
-    # Private helpers re-exported for backward compat (tests + the
-    # ``brailix.core.config`` package facade depend on these import
-    # paths).  Listed in alphabetical order for readability.
-    "_build_shorthand",
-    "_coerce_dots_field",
-    "_extract_cells",
-    "_flag_dict_bool",
-    "_flag_dict_str",
-    "_is_spec_object",
-    "_list_available_profiles",
-    "_load_cells_pool",
-    "_load_lang_table",
-    "_load_lang_tables",
-    "_load_letters_table",
-    "_load_math_table",
-    "_load_music_tables",
-    "_load_numbers_table",
-    "_load_one_music_file",
-    "_load_phonetic_table",
-    "_load_punct_spacing",
-    "_load_punct_table",
-    "_load_table",
-    "_load_zh_exceptions",
-    "_load_zh_exceptions_char_overrides",
-    "_load_zh_exceptions_tone_omission",
-    "_load_zh_exceptions_word_overrides",
-    "_music_body",
-    "_normalise_one_ref",
-    "_normalise_symbols_payload",
-    "_normalise_symbols_spec",
-    "_read_section",
-    "_resolve_cell_ref_list",
-    "_resolve_digits",
-    "_resolve_dots_table",
-    "_resolve_music_cells",
-    "_resolve_nested_structures",
-    "_resolve_profile_path",
-    "_resolve_single",
-    "_resolve_table",
-    "_section",
-    "_spec_to_cells",
-    "_symbol_spacing_dict",
-    "_table_ref",
 )

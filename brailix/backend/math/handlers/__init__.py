@@ -34,7 +34,9 @@ from brailix.backend.math.handlers.containers import (
 from brailix.backend.math.handlers.fallback import (
     _DISPATCH_PARTIAL as _fallback,
 )
-from brailix.backend.math.handlers.fallback import _emit_unsupported
+from brailix.backend.math.handlers.fallback import (
+    _emit_unsupported as _emit_unsupported,  # re-export: dispatch.py reads it here
+)
 from brailix.backend.math.handlers.fractions import (
     _DISPATCH_PARTIAL as _fractions,
 )
@@ -58,4 +60,7 @@ for _partial in (
 ):
     _DISPATCH.update(_partial)
 
-__all__ = ("_DISPATCH", "_emit_unsupported")
+# No ``__all__``: both names this package offers are private, and listing a
+# private name there would claim a compatibility promise the top-level
+# policy explicitly does not make for them. ``dispatch.py`` reads them as
+# module attributes, which never consulted ``__all__``.

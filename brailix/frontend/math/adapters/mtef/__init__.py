@@ -121,4 +121,4 @@ def _load() -> MtefMathSourceAdapter:
     return MtefMathSourceAdapter()
 
 
-__all__ = ("MtefMathSourceAdapter", "_load")
+__all__ = ("MtefMathSourceAdapter",)

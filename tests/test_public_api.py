@@ -680,8 +680,7 @@ def test_pipeline_namespace_offers_nothing_that_is_not_published_somewhere() -> 
     )
 
 
-@pytest.mark.parametrize("module", [*sorted(_FACADE), "brailix.pipeline"])
-def test_importable_surface_publishes_nothing_private(module: str) -> None:
+def test_no_module_publishes_a_private_name() -> None:
     """``__all__`` says "supported"; a leading underscore says "private".
 
     A module that lists both tells a third party two contradictory things,
@@ -689,17 +688,53 @@ def test_importable_surface_publishes_nothing_private(module: str) -> None:
     the private helper becomes a compatibility burden. In-repo callers import
     such helpers from the module that defines them
     (``brailix.pipeline._helpers`` and friends), which needs no ``__all__``
-    entry at all.
+    entry at all — an explicit ``from x import _y`` never consulted ``__all__``
+    in the first place.
 
-    Scoped to the modules callers are pointed at. Internal split-packages
-    (``brailix.core.config.loader`` and friends) deliberately re-export their
-    private helpers through ``__all__`` so a name survives the split for
-    in-repo callers; that is a re-export convention, not a promise, and this
-    guard would misread it.
+    Every module in the package, not only the ones callers are pointed at. The
+    check used to run on the facades alone, because an internal split-package
+    listed forty private helpers in its ``__all__`` "for backward compat" —
+    which is the contradiction itself, stated as a justification: the top-level
+    policy says ``__all__`` IS the promise, and that list said "supported" and
+    "internal, free to move" about the same helper. Exempting the module made
+    the guard agree with whichever module was loudest.
+
+    Read statically rather than by importing: a module under an uninstalled
+    extra must be covered too, and importing every module to ask what it
+    publishes would make coverage depend on which extras happen to be present.
     """
-    mod = importlib.import_module(module)
-    private = sorted(n for n in getattr(mod, "__all__", ()) if n.startswith("_"))
-    assert not private, f"{module}.__all__ publishes private names: {private}"
+    import ast
+    import importlib.util
+
+    spec = importlib.util.find_spec("brailix")
+    assert spec is not None and spec.origin is not None
+    offenders: list[str] = []
+    package_root = Path(spec.origin).resolve().parent
+    for path in sorted(package_root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in tree.body:  # module level only
+            targets = (
+                node.targets if isinstance(node, ast.Assign)
+                else [node.target] if isinstance(node, ast.AnnAssign)
+                else []
+            )
+            if not any(
+                isinstance(t, ast.Name) and t.id == "__all__" for t in targets
+            ):
+                continue
+            names = [
+                el.value
+                for el in getattr(node.value, "elts", [])
+                if isinstance(el, ast.Constant) and isinstance(el.value, str)
+            ]
+            private = sorted(n for n in names if n.startswith("_"))
+            if private:
+                rel = path.relative_to(package_root.parent).as_posix()
+                offenders.append(f"{rel}: {private}")
+
+    assert not offenders, (
+        "__all__ publishes private names:\n  " + "\n  ".join(offenders)
+    )
 
 
 @pytest.mark.parametrize("module", sorted(_FACADE))

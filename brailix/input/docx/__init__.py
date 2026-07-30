@@ -100,7 +100,6 @@ from brailix.ir.document import Block, DocumentIR
 __all__ = (
     "parse_docx",
     "parse_doc",
-    "_build_ole_blob_map",
 )
 
 

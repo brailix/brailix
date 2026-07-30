@@ -36,6 +36,8 @@ The **golden** suite is the end-to-end safety net. When a rule change moves gold
 
 The public import surface is pinned by `tests/test_public_api.py`, and the check is exact set equality: a re-export that disappears fails the test, and so does a name that appears in `__all__` without being added to the manifest. Both directions are deliberate — publishing a name is a promise of support, so it should take an explicit edit rather than happening by accident.
 
+The same suite holds one rule across the whole package rather than only its facades: no module's `__all__` may list an underscore-prefixed name. A split package that wants a helper to stay importable at the old path simply keeps binding it (an explicit `from x import _y` never consulted `__all__`); what it must not do is advertise it there, because that says "supported" about the same helper the policy above calls internal and free to move.
+
 The documentation is checked the same way, by `tests/test_user_docs_examples.py`: every `brailix …` command line printed in the README, these guides, or the CLI's own `--help` goes through the real argument parser and its validation, and every call in a Python example is bound against the real signature. So an example that no longer runs — a required option someone forgot, a keyword argument that became mandatory — fails in the suite rather than under a reader who copied it. If you add an example, write it as something that would actually work.
 
 ## The API reference
