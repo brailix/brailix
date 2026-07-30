@@ -22,6 +22,13 @@ from brailix.ir.inline import from_dict as inline_from_dict
 # ---------------------------------------------------------------------------
 
 
+# ``Block.type`` — the block's tag — shadows the builtin inside every block
+# class body, so a ``type[Block]`` annotation written in there would name the
+# tag (a ``str``) instead. Aliased out here, at module scope, where ``type`` is
+# still the builtin.
+type _BlockClass = type[Block]
+
+
 @dataclass(slots=True)
 class Block:
     """Abstract base for every block type.
@@ -62,6 +69,22 @@ class Block:
     """
 
     type: ClassVar[str] = "block"
+    # Fields holding nested *blocks*, declared as ``{field name: the Block
+    # subclass its entries must be}`` — ``List.items`` → :class:`ListItem`,
+    # ``Table.rows`` → :class:`TableRow`. One declaration drives both
+    # directions, and type-checks the entries in both: :meth:`to_dict` emits
+    # the field, :func:`_deserialize_block_value` rebuilds it, and each side
+    # refuses an entry that is not the declared class — so a tree that
+    # serializes is a tree that reloads.
+    #
+    # It exists because the two directions used to be written separately, and
+    # only one of them failed when a subclass forgot: the deserializer rejected
+    # an unregistered nested payload loudly, while the serializer *skipped* the
+    # field — so a new block type with a structural field saved successfully,
+    # produced valid JSON, and came back from a reload without the field. Now
+    # the base loop refuses to serialize nested IR nobody declared, so the
+    # omission surfaces where the tree is built rather than after a round trip.
+    structural_fields: ClassVar[dict[str, _BlockClass]] = {}
     id: str | None = None
     children: list[InlineNode] = field(default_factory=list)
     text: str | None = None  # used before Frontend has built children
@@ -96,13 +119,27 @@ class Block:
             if f.name in ("id", "children", "text", "span", "frontend_fingerprint"):
                 continue
             value = getattr(self, f.name)
-            # Omit defaults / empties (shared with inline to_dict); and never
-            # emit a raw IR object — structural fields (List.items / Table.rows
-            # / TableRow.cells) are serialised by the owning subclass override,
-            # so a forgotten override drops the field loudly-testably rather
-            # than producing a payload that only explodes at json.dumps time.
-            if _serde.is_omittable(value, f.default) or _is_ir_payload(value):
+            # Omit defaults / empties (shared with inline to_dict).
+            if _serde.is_omittable(value, f.default):
                 continue
+            # A raw IR object is never emitted by this loop: it is not
+            # JSON-native, and the nested-block fields have their own pass
+            # below (in declaration order, after ``span``, which is also where
+            # the subclass overrides that preceded it put them). Undeclared
+            # nested IR is refused rather than skipped — see
+            # :attr:`structural_fields`.
+            if _is_ir_payload(value):
+                if f.name in self.structural_fields:
+                    continue
+                raise TypeError(
+                    f"{type(self).__name__}.{f.name} holds nested IR that no "
+                    f"serializer emits. Declare it in ``structural_fields`` "
+                    f"({{'{f.name}': <the Block subclass its entries are>}}) so "
+                    f"to_dict writes it and block_from_dict rebuilds it. "
+                    f"Skipping it wrote a valid payload that came back from a "
+                    f"reload without the field; an inline child belongs in "
+                    f"``children``."
+                )
             d[f.name] = value
         if self.text is not None:
             d["text"] = self.text
@@ -119,6 +156,35 @@ class Block:
             d["children"] = [c.to_dict() for c in self.children]
         if self.span is not None:
             d["span"] = list(self.span.to_tuple())
+        for name, expected in self.structural_fields.items():
+            value = getattr(self, name)
+            if not value:
+                continue
+            if isinstance(value, (Block, InlineNode)) or not isinstance(
+                value, (list, tuple)
+            ):
+                raise TypeError(
+                    f"{type(self).__name__}.{name} is declared in "
+                    f"``structural_fields`` but holds "
+                    f"{type(value).__name__}, not a list of blocks"
+                )
+            entries = []
+            for child in value:
+                # The same check ``_typed_child`` makes on the way back, made
+                # here too — otherwise the declaration is enforced in one
+                # direction only, and a Paragraph in ``items`` writes a payload
+                # that reloading rejects. Refusing it here means the tree that
+                # serializes is a tree that reloads.
+                if not isinstance(child, expected):
+                    raise TypeError(
+                        f"{type(self).__name__}.{name} expects "
+                        f"{expected.__name__}; got {type(child).__name__}. "
+                        f"block_from_dict enforces the same declaration when "
+                        f"rebuilding, so this would write a payload that "
+                        f"cannot be read back."
+                    )
+                entries.append(child.to_dict())
+            d[name] = entries
         return d
 
     def structure_key(self) -> str:
@@ -177,14 +243,13 @@ def _is_ir_payload(value: Any) -> bool:
     """True if ``value`` is an IR node (:class:`Block` / :class:`InlineNode`)
     or a sequence containing one.
 
-    These are the fields the generic :meth:`Block.to_dict` loop must not emit
-    raw: the structural containers (``List.items`` / ``Table.rows`` /
-    ``TableRow.cells``) are serialised by each subclass's ``to_dict`` override,
-    and inline ``children`` go through a dedicated path. Skipping IR payloads
-    keeps the base loop limited to JSON-native scalars, so a subclass that adds
-    a structural field but forgets to override ``to_dict`` drops it (caught by a
-    round-trip test) rather than emitting an object that only blows up later at
-    ``json.dumps``.
+    These are the fields the generic :meth:`Block.to_dict` scalar loop must not
+    emit raw: the nested-block containers (``List.items`` / ``Table.rows`` /
+    ``TableRow.cells``) are emitted by the ``structural_fields`` pass, and
+    inline ``children`` go through a dedicated path. Keeping the scalar loop to
+    JSON-native values is what makes "a payload that serialises is a payload
+    that reloads" true rather than aspirational — anything nested has to be
+    declared, and undeclared nested IR raises there instead of vanishing.
     """
     if isinstance(value, (Block, InlineNode)):
         return True
@@ -220,16 +285,12 @@ class List(Block):
     but typed as :class:`ListItem` by convention."""
 
     type: ClassVar[str] = "list"
+    # ``ordered`` (a plain bool) rides the base scalar loop; ``items`` is
+    # nested IR, so it is declared — which is what emits it *and* what rebuilds
+    # it as ListItem entries.
+    structural_fields: ClassVar[dict[str, _BlockClass]] = {"items": ListItem}
     ordered: bool = False
     items: list[ListItem] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        # ``ordered`` (a plain bool) is already emitted by the base loop; only
-        # ``items`` (an IR payload the base loop skips) needs an override.
-        d = Block.to_dict(self)
-        if self.items:
-            d["items"] = [it.to_dict() for it in self.items]
-        return d
 
 
 @dataclass(slots=True)
@@ -249,25 +310,15 @@ class TableCell(Block):
 @dataclass(slots=True)
 class TableRow(Block):
     type: ClassVar[str] = "table_row"
+    structural_fields: ClassVar[dict[str, _BlockClass]] = {"cells": TableCell}
     cells: list[TableCell] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        d = Block.to_dict(self)
-        if self.cells:
-            d["cells"] = [c.to_dict() for c in self.cells]
-        return d
 
 
 @dataclass(slots=True)
 class Table(Block):
     type: ClassVar[str] = "table"
+    structural_fields: ClassVar[dict[str, _BlockClass]] = {"rows": TableRow}
     rows: list[TableRow] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        d = Block.to_dict(self)
-        if self.rows:
-            d["rows"] = [r.to_dict() for r in self.rows]
-        return d
 
 
 @dataclass(slots=True)
@@ -451,24 +502,25 @@ def block_from_dict(payload: dict[str, Any]) -> Block:
 def _deserialize_block_value(cls: type[Block], key: str, value: Any) -> Any:
     """Reconstruct a block-side value from its serialized form.
 
-    The structural fields (``items``/``cells``/``rows``) carry typed
-    sub-blocks (List wants ListItem, TableRow wants TableCell, Table
-    wants TableRow). We validate the type tag of each child so a
-    round-trip can't silently smuggle e.g. a Paragraph into a
-    ``TableRow.cells`` list. Mismatches raise :class:`TypeError` with
-    the parent field and the offending entry's type tag so the
-    serializer / authoring tool can be fixed at the source.
+    A nested-block field carries typed sub-blocks, and which type is the
+    owning class's own declaration (:attr:`Block.structural_fields`: List wants
+    ListItem, TableRow wants TableCell, Table wants TableRow). We validate the
+    type tag of each child so a round-trip can't silently smuggle e.g. a
+    Paragraph into a ``TableRow.cells`` list. Mismatches raise
+    :class:`TypeError` with the parent field and the offending entry's type tag
+    so the serializer / authoring tool can be fixed at the source.
+
+    Read from the declaration rather than from a list of field names here: the
+    two directions then cannot disagree about which fields are nested, which is
+    how a field could be emitted by one side and unknown to the other.
     """
     if key == "span":
         return None if value is None else Span.from_tuple(value)
     if key == "children" and isinstance(value, list):
         return [inline_from_dict(v) for v in value]
-    if key == "items" and isinstance(value, list):
-        return [_typed_child(cls, key, v, ListItem) for v in value]
-    if key == "cells" and isinstance(value, list):
-        return [_typed_child(cls, key, v, TableCell) for v in value]
-    if key == "rows" and isinstance(value, list):
-        return [_typed_child(cls, key, v, TableRow) for v in value]
+    expected = cls.structural_fields.get(key)
+    if expected is not None and isinstance(value, list):
+        return [_typed_child(cls, key, v, expected) for v in value]
     _serde.reject_unhandled_nested_payload(key, value)
     return value
 
