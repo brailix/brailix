@@ -146,6 +146,21 @@ class LanguageFrontend(Protocol):
     the segment type stays script-accurate while routing stays
     language-driven. The matching segmenter (selected by the same
     language subtag) is what emits those types.
+
+    Two **optional** declarations let a front-end offer this language's
+    pluggable parts without knowing the language exists. Both are read with a
+    fallback, so an implementation that omits them stays valid (they are
+    deliberately not required members: this Protocol is runtime-checked, and
+    adding one would reject every implementation written before it) —
+
+    * ``adapters``: ``{family: () -> list[str]}``, the registered adapter names
+      this language offers per family (``"analyzer"``, ``"resolver"``). Read
+      through :func:`brailix.frontend.list_language_adapters`; a language that
+      declares none simply has nothing to pick from.
+    * ``display_name``: the English name to show in a listing
+      (``"Chinese"``). Read through
+      :func:`brailix.frontend.language_display_name`, which falls back to the
+      subtag.
     """
 
     prose_types: Collection[str]

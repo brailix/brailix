@@ -179,6 +179,15 @@ _FACADE: dict[str, list[str]] = {
         "annotate_pinyin",
         "parse_math_tree",
         "language_frontend_registry",
+        # Discovery for a front-end that must offer a language's pluggable
+        # parts without knowing which languages exist: the registry says which
+        # are registered, these two say what each one offers and what to call
+        # it. Published because every front-end needs them — the CLI's
+        # ``--list-analyzers``, an editor's engine picker — and the alternative
+        # is what the CLI did, importing ``frontend.zh`` / ``frontend.ja`` by
+        # name and going stale the moment a third language registers.
+        "language_display_name",
+        "list_language_adapters",
         # The language-keyed boundary pass is an extension point (a new
         # language registers its handler here, and the architecture doc points
         # extenders at it); the function that *runs* the registered handler is

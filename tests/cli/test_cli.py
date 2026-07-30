@@ -4,8 +4,8 @@ Every test drives :func:`brailix.cli.main` in-process and is **dependency
 free**: inputs are digits / ASCII (which never reach the Chinese or
 Japanese frontends) or use the ``char`` analyzer + ``null`` resolver, both
 of which are built in and need no optional package. So the suite passes on
-a bare install (the public mirror's extra-agnostic CI) and never loads a
-tokenizer model — which would also pollute captured stdout.
+a bare install — CI runs it without any extra — and never loads a tokenizer
+model, which would also pollute captured stdout.
 
 The oracle for each translation is the library producing the *same* output
 the CLI builds (the exact ``Pipeline`` + renderer), so the tests assert the
@@ -282,9 +282,13 @@ def test_list_renderers(capsys):
 
 
 def test_list_resolvers(capsys):
+    # Grouped like the analyzers, and for the same reason: a reading engine is
+    # a language's own. Only Chinese offers one today (a Japanese reading comes
+    # out of its analyzer), so there is exactly one group.
     rc = main(["--list-resolvers"])
     assert rc == 0
-    assert capsys.readouterr().out.split() == list_resolvers()
+    out = capsys.readouterr().out
+    assert out.split() == ["Chinese:", *list_resolvers()]
 
 
 def test_list_analyzers_groups_languages(capsys):
@@ -294,6 +298,43 @@ def test_list_analyzers_groups_languages(capsys):
     assert "Chinese:" in out and "Japanese:" in out
     assert "char" in out  # a Chinese analyzer
     assert "kana" in out  # a Japanese analyzer
+
+
+def test_language_listings_follow_the_registry(capsys, monkeypatch):
+    """A language nobody wrote into the CLI still shows up in it.
+
+    The whole point of the seam: registering a frontend is what makes a
+    language selectable, so the listing has to come from the registry rather
+    than from two imports and two headings — which is what it used to be, and
+    what would have left a third language invisible with everything else
+    about it correctly registered.
+    """
+    from brailix.core.protocols import LanguageFrontend
+    from brailix.frontend import language_frontend_registry
+
+    class _KlingonFrontend(LanguageFrontend):
+        prose_types = frozenset({"tlh_text"})
+        display_name = "Klingon"
+        adapters = {"analyzer": lambda: ["pIqaD"]}
+
+        def process(self, surface, base, ctx):  # pragma: no cover - not run
+            return []
+
+    with language_frontend_registry.overriding("tlh", _KlingonFrontend):
+        rc = main(["--list-analyzers"])
+        out = capsys.readouterr().out
+    assert rc == 0
+    assert "Klingon:" in out
+    assert "pIqaD" in out
+
+
+def test_an_unregistered_analyzer_name_is_still_refused(capsys):
+    # The other half: validation is the same union, so it can't quietly start
+    # accepting anything just because it stopped naming the languages.
+    with pytest.raises(SystemExit) as excinfo:
+        main(["123", "-p", "cn_current", "--analyzer", "no_such_engine"])
+    assert excinfo.value.code == 2
+    assert "unknown analyzer" in capsys.readouterr().err
 
 
 # --------------------------------------------------------------------------
