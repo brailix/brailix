@@ -38,6 +38,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 _ROOT = Path(__file__).resolve().parents[1]
 
 _ARCH_DOC_GLOB = "ARCHITECTURE*.md"
@@ -171,19 +173,37 @@ def test_every_cited_anchor_is_declared_in_every_document() -> None:
     )
 
 
-def test_both_documents_declare_the_same_anchor_set() -> None:
-    """Beyond what code happens to cite: the two copies must stay a translation
-    of one another at the anchor level, or the next citation added against one
-    copy silently dangles in the other."""
+def test_every_document_declares_the_same_anchor_set() -> None:
+    """Beyond what code happens to cite: the copies present must stay a
+    translation of one another at the anchor level, or the next citation added
+    against one copy silently dangles in the other.
+
+    Every copy against the first, not the first two against each other: a
+    comparison that stops at ``docs[1]`` leaves a third copy unchecked, which is
+    the same hole one level along.
+
+    A checkout carrying a single copy has nothing to compare, and that is a
+    legitimate shape — which copies ship varies. It **skips** rather than
+    returning green, because a passing test named for a comparison that never
+    ran is how "the copies agree" comes to read as verified: the report should
+    say the check did not apply.
+    """
     docs = _docs()
-    if len(docs) < 2:  # a checkout carrying one copy — nothing to compare
-        return
-    (name_a, text_a), (name_b, text_b) = docs[0], docs[1]
-    a, b = set(_DECLARED.findall(text_a)), set(_DECLARED.findall(text_b))
-    assert a == b, (
-        f"anchor sets differ — only in {name_a}: {sorted(a - b)}; "
-        f"only in {name_b}: {sorted(b - a)}"
-    )
+    assert docs, f"no architecture document matched {_ARCH_DOC_GLOB!r}"
+    if len(docs) < 2:
+        pytest.skip(
+            f"one architecture document present ({docs[0][0]}) — no second "
+            f"anchor set to compare it against"
+        )
+    (base_name, base_text), *others = docs
+    base = set(_DECLARED.findall(base_text))
+    differ = [
+        f"only in {base_name}: {sorted(base - other)}; "
+        f"only in {name}: {sorted(other - base)}"
+        for name, text in others
+        if (other := set(_DECLARED.findall(text))) != base
+    ]
+    assert not differ, "anchor sets differ — " + "; ".join(differ)
 
 
 class TestTheSectionNumberDetector:
