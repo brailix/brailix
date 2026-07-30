@@ -546,6 +546,34 @@ class TestResolvedProfileIdentity:
         assert doc.metadata["profile"] == "cn_current"
         assert doc.metadata["profile_requested"] == "my_alias"
 
+    def test_parse_methods_return_unpopulated_ir(self, tmp_path):
+        """``parse_text`` / ``parse_file`` stop before the frontend.
+
+        The documented contract, and the reason both exist: an incremental
+        caller wants the structure *before* the frontend has run, to compile it
+        block by block. The architecture document claimed the opposite for a
+        while — "a DocumentIR with children already populated" — which reads as
+        "the frontend has run", and a caller who believed it would take a
+        proofreading tree from here and find every block empty.
+        """
+        pipe = Pipeline(profile="cn_current")
+        for doc in (
+            pipe.parse_text("我在重庆。"),
+            pipe.parse_text("# 标题\n\n正文\n", format="markdown"),
+        ):
+            assert doc.blocks
+            assert all(not b.children for b in doc.blocks)
+            assert any(b.text for b in doc.blocks)
+
+        path = tmp_path / "sample.txt"
+        path.write_text("我在重庆。", encoding="utf-8")
+        doc = pipe.parse_file(path)
+        assert doc.blocks and all(not b.children for b in doc.blocks)
+
+        # ...and translating it is what fills them in.
+        pipe.translate_document(doc)
+        assert all(b.children for b in doc.blocks)
+
     def test_translate_document_replaces_stale_requested(self, alias_dir):
         # A doc first stamped by an alias pipeline, re-translated by the
         # plain one: profile_requested must not survive as a stale lie.
