@@ -1,16 +1,15 @@
 """Code cites the architecture document by stable anchor, not by section number.
 
-Section numbers were never a working reference. The canonical ``ARCHITECTURE.md``
-is Chinese and the public mirror ships the independently-organised English
-rewrite as its ``ARCHITECTURE.md``, and the two number their sections
-differently — "§12" is 不变的边界 in one and "Adding a language" in the other.
-So every ``ARCHITECTURE §N`` in the tree was right in at most one copy, and
-wrong in the copy a third party actually reads. It got worse than that:
-``§7.6`` was cited from twelve places (and from the Chinese document itself)
-while no section by that number existed in either copy.
+Section numbers were never a working reference. The overview is maintained in
+more than one language, each organised on its own terms and numbering its
+sections differently — the section that is "§12" in one is a different section
+under that number in another. So every ``ARCHITECTURE §N`` in the tree was
+right in at most one copy, and wrong in the copy a given reader opens. It got
+worse than that: ``§7.6`` was cited from twelve places while no section by that
+number existed in any copy.
 
 The fix is one name per invariant, declared as an ``<a id="...">`` above the
-section it names in **both** copies, and cited from code as
+section it names in **every** copy, and cited from code as
 ``ARCHITECTURE#arch-boundaries`` — a working link, and a string that can be
 searched. Renumbering or reordering sections is then free; only moving an
 invariant means moving its anchor.
@@ -21,17 +20,17 @@ Two checks:
   present — so adding a citation without an anchor, or dropping an anchor a
   citation depends on, fails here rather than in a reader's browser;
 * no ``ARCHITECTURE §N`` citation comes back. Bare ``§N`` is untouched and out
-  of scope: most of them cite BANA's braille-music rules, RFC 8032, or a plan
-  document under ``docs/``, and those numbers are stable in a way these were
-  not.
+  of scope: most of them cite BANA's braille-music rules, RFC 8032, or a design
+  note, and those numbers are stable in a way these were not.
 
-Path-probed, like ``test_extension_docs.py``: this guard ships to the public
-mirror, where only the English copy exists and is named ``ARCHITECTURE.md``.
+The documents are globbed rather than listed: which copies a checkout carries
+varies, and every one of them present is held to the same anchor set.
 
-Two files are exempt from the scan (:data:`_QUOTES_THE_FORMS_AS_DATA`) because
-they quote the forbidden spellings as test fixtures rather than citing the
-document — this one, and the export guard that pins how a design-note
-reference is rewritten for the mirror.
+A file that has to spell the forbidden citation forms out — because it *tests*
+the detector, so its examples would each be reported as a violation of the rule
+they document — declares itself exempt with the marker in
+:data:`_QUOTES_THE_FORMS_AS_DATA`. A marker rather than a list of filenames:
+the exemption then travels with the file that needs it.
 """
 
 from __future__ import annotations
@@ -41,7 +40,7 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
 
-_ARCH_DOCS = ("ARCHITECTURE.md", "ARCHITECTURE.en.md")
+_ARCH_DOC_GLOB = "ARCHITECTURE*.md"
 _CODE_DIRS = ("brailix", "tests")
 
 # ``<a id="arch-layers"></a>`` — the anchor declaration in a document.
@@ -57,15 +56,22 @@ _CITED = re.compile(r"ARCHITECTURE#(arch-[a-z0-9-]+)|(?<![\w#])#(arch-[a-z0-9-]+
 # The window between the two halves is bounded and must not contain another
 # document's name. That is what keeps the legitimate citations out of it:
 # the design notes under ``docs/`` are cited by section number *deliberately*
-# — they are single documents whose numbering is stable, unlike the two
+# — they are single documents whose numbering is stable, unlike the
 # independently-organised architecture copies — and several of them sit a line
 # or two away from an ARCHITECTURE mention.
+#
+# ``_LANGUAGE_SUFFIXED`` spares the *filename* of one particular copy
+# (``ARCHITECTURE.xx.md``): naming a file is not citing the invariant, and a
+# copy's own name is how one copy points at another.
 _OTHER_DOC = r"[\w/-]+\.md|[\w-]+-plan\b|BANA|RFC"
+_LANGUAGE_SUFFIXED = r"(?!\.[a-z]{2}\.)"
 _SECTION_NUMBER = re.compile(
     # ARCHITECTURE ... §N
-    r"ARCHITECTURE(?!\.en)(?:\.md)?(?!#)(?:(?!" + _OTHER_DOC + r")[\s\S]){0,80}?§\s*\d"
+    r"ARCHITECTURE" + _LANGUAGE_SUFFIXED
+    + r"(?:\.md)?(?!#)(?:(?!" + _OTHER_DOC + r")[\s\S]){0,80}?§\s*\d"
     # §N ... ARCHITECTURE
-    r"|§\s*\d[\d.]*(?:(?!" + _OTHER_DOC + r")[\s\S]){0,80}?ARCHITECTURE(?!\.en)(?!#)",
+    r"|§\s*\d[\d.]*(?:(?!" + _OTHER_DOC + r")[\s\S]){0,80}?ARCHITECTURE"
+    + _LANGUAGE_SUFFIXED + r"(?!#)",
 )
 
 # A *citation* — code pointing at the document to justify what it does — as
@@ -84,29 +90,28 @@ _SECTION_NUMBER = re.compile(
 # another document goes unreported, the same trade the section-number detector
 # makes with ``_OTHER_DOC``.
 _UNANCHORED_CITATION = re.compile(
-    r"(?:\(|\b[Ss]ee\s+)`{0,2}ARCHITECTURE(?!\.en)(?:\.md)?`{0,2}(?!#)"
+    r"(?:\(|\b[Ss]ee\s+)`{0,2}ARCHITECTURE" + _LANGUAGE_SUFFIXED
+    + r"(?:\.md)?`{0,2}(?!#)"
     r"(?![^)\n]{0,60}\.md)"
 )
 
 
 def _docs() -> list[tuple[str, str]]:
     return [
-        (name, (_ROOT / name).read_text(encoding="utf-8"))
-        for name in _ARCH_DOCS
-        if (_ROOT / name).is_file()
+        (path.relative_to(_ROOT).as_posix(), path.read_text(encoding="utf-8"))
+        for path in sorted(_ROOT.glob(_ARCH_DOC_GLOB))
+        if path.is_file()
     ]
 
 
-# Files that must spell the forbidden forms out because they *test* them, so
-# every example in them would otherwise be reported as a violation of the rule
-# it documents. This file is one; the other is the export guard, whose fixtures
-# are before/after pairs of exactly these citations — it pins that a reference
-# to an unpublished design note is collapsed together with its locator, which
-# cannot be written down without writing the locator down. Both quote the forms
-# as data; neither cites the document.
-_QUOTES_THE_FORMS_AS_DATA = frozenset(
-    {Path(__file__).resolve().name, "test_export_public.py"}
-)
+# The self-declared exemption for a file whose *fixtures* are the forbidden
+# citation forms: a detector cannot be tested without writing down what it
+# detects, and every example would otherwise be reported as a violation of the
+# rule it demonstrates. Written as a marker the exempt file carries rather than
+# a list of filenames kept here, so the exemption travels with the file — a
+# list has to be edited from a distance by whoever adds or renames such a test,
+# and is silently wrong until someone notices the guard went quiet.
+_QUOTES_THE_FORMS_AS_DATA = "architecture-citation-forms: quoted as data"
 
 
 def _python_files() -> list[Path]:
@@ -115,7 +120,7 @@ def _python_files() -> list[Path]:
         for d in _CODE_DIRS
         for py in sorted((_ROOT / d).rglob("*.py"))
         if "__pycache__" not in py.parts
-        and py.name not in _QUOTES_THE_FORMS_AS_DATA
+        and _QUOTES_THE_FORMS_AS_DATA not in py.read_text(encoding="utf-8")
     ]
 
 
@@ -136,7 +141,7 @@ def _citations() -> dict[str, list[str]]:
 
 def test_the_architecture_documents_were_found() -> None:
     # A rename would make every check below vacuous.
-    assert _docs(), f"no architecture document found among {_ARCH_DOCS}"
+    assert _docs(), f"no architecture document matched {_ARCH_DOC_GLOB!r}"
 
 
 def test_there_are_citations_to_check() -> None:
@@ -171,7 +176,7 @@ def test_both_documents_declare_the_same_anchor_set() -> None:
     of one another at the anchor level, or the next citation added against one
     copy silently dangles in the other."""
     docs = _docs()
-    if len(docs) < 2:  # the public mirror ships one copy — nothing to compare
+    if len(docs) < 2:  # a checkout carrying one copy — nothing to compare
         return
     (name_a, text_a), (name_b, text_b) = docs[0], docs[1]
     a, b = set(_DECLARED.findall(text_a)), set(_DECLARED.findall(text_b))
@@ -214,11 +219,11 @@ class TestTheSectionNumberDetector:
     def test_leaves_other_documents_citations_alone(self) -> None:
         """Section numbers that belong to some *other* document are fine.
 
-        The examples deliberately avoid naming an unpublished ``docs/*-plan.md``
-        note. The export rewrites those references to ``ARCHITECTURE.md`` for
-        the mirror — including ones written inside a test — so using one here
-        would make this file mean something different on each side.
-        ``docs/extending.md`` ships, and BANA / RFC are untouched either way.
+        The examples deliberately cite a *published* document. A design note
+        that some checkouts do not carry would make the fixture mean one thing
+        here and another there, and a fixture is supposed to mean one thing.
+        ``docs/extending.md`` is published everywhere, and BANA / RFC are
+        untouched either way.
         """
         for legitimate in (
             "the adapter contract in ``docs/extending.md``\n    §2 explains it",
@@ -272,34 +277,29 @@ class TestTheUnanchoredCitationDetector:
 
     def test_leaves_a_list_of_document_paths_alone(self) -> None:
         assert not _UNANCHORED_CITATION.search(
-            "the public mirror carries two (ARCHITECTURE.md + "
-            "docs/extending.md), this repository three"
+            "the published set is two documents (ARCHITECTURE.md + "
+            "docs/extending.md)"
         )
 
-    def test_leaves_the_english_copy_alone(self) -> None:
-        # ``ARCHITECTURE.en.md`` is referenced by name from the Chinese copy's
-        # own header, not cited as an authority by code.
-        assert not _UNANCHORED_CITATION.search("(ARCHITECTURE.en.md)")
+    def test_leaves_another_copys_filename_alone(self) -> None:
+        # One copy naming another by filename points at a translation; there is
+        # no paragraph being meant, so there is no anchor to demand.
+        assert not _UNANCHORED_CITATION.search("(ARCHITECTURE.fr.md)")
+        assert not _UNANCHORED_CITATION.search("see ARCHITECTURE.ja.md")
 
 
 def test_no_code_cites_the_document_without_an_anchor() -> None:
     """The other half of the same rule the section numbers taught.
 
-    An anchor is a locator that survives both copies being reorganised. A
+    An anchor is a locator that survives every copy being reorganised. A
     citation with *no* locator survives it too — by pointing at nothing in
     particular, which is worse: the reader has the whole document to search and
     no test notices when the paragraph being cited is gone.
 
-    This runs in the public mirror as well, which it could not while the export
-    *created* unanchored citations: a reference to an unpublished ``docs/*.md``
-    design note used to be rewritten to ``ARCHITECTURE.md``, manufacturing 73
-    citations no author made, of paragraphs mostly not in that document. So the
-    check was skipped wherever only one architecture copy existed — and a skip
-    keyed on "this is the mirror" also skipped every citation written *by a
-    contributor to the mirror*, whose pull request its CI runs this suite
-    against. The export deletes such a reference now, parentheses and all
-    (``scripts/export_public.py``), leaving nothing for this to report and
-    nothing to excuse it from reporting.
+    Unconditional, in every checkout. It was once skipped where only one
+    architecture copy was present, and a skip written that way also skips every
+    citation a contributor to *that* checkout writes — the ones whose pull
+    request this suite is meant to be checking.
     """
     offenders: list[str] = []
     for py in _python_files():

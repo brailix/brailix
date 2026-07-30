@@ -39,7 +39,8 @@ import re
 from pathlib import Path
 
 # The documented public surface — keep in step with the manifest in
-# ``tests/test_public_api.py`` (a test in the monorepo asserts they match).
+# ``tests/test_public_api.py``, which is what pins the promise; a page
+# generated from a different list would document a surface nobody promised.
 FACADE_MODULES = (
     "brailix",
     "brailix.core",
