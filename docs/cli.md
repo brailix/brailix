@@ -68,16 +68,18 @@ brailix --file lesson.md --to brf --width 40 --page-height 25 --output lesson.br
 
 ## Translation options
 
-The braille profile and the Chinese engines are selected by name, exactly as in the [`Pipeline`](https://brailix.github.io/brailix/#Pipeline) constructor:
+The braille profile and the language engines are selected by name, exactly as in the [`Pipeline`](https://brailix.github.io/brailix/#Pipeline) constructor:
 
 | Option | Meaning | Default |
 |---|---|---|
 | `--profile NAME` | braille standard plus its tables | none — required |
-| `--analyzer NAME` | word-segmentation engine | `auto` |
-| `--resolver NAME` | pinyin resolver | `auto` |
+| `--analyzer NAME` | word-segmentation engine for the profile's language | `auto` |
+| `--resolver NAME` | reading engine for the profile's language, where it has one | `auto` |
 | `--mode MODE` | diagnostic strictness: `strict` / `normal` / `lenient` | `normal` |
 
 `auto` picks the best engine you have installed and falls back to a dependency-free path, so a bare install translates without any extra. Install heavier engines for accuracy (`brailix[hanlp,g2pw]`); a name is valid as soon as it is listed by the discovery flags below, even before its package is present (selecting one whose package is missing reports which extra to install). For Japanese, choose the `ja_current` profile; the analyzer name then selects a Japanese engine (`janome` / `fugashi` / `sudachi`, or `kana` for the pure-kana path).
+
+An engine belongs to one language, so `--analyzer` and `--resolver` accept the names the profile's own language offers — `--list-analyzers` shows which those are. A Japanese engine under a Chinese profile is a usage error rather than a run that fails halfway, and so is `--resolver` under a profile whose language has no separate reading engine (a Japanese reading comes out of its analyzer), where the option would otherwise have been accepted and then had no effect on the output.
 
 ```bash
 brailix "重庆" --analyzer hanlp --resolver g2pw -p cn_current
@@ -102,6 +104,8 @@ brailix --version
 ```
 
 The lists come straight from the core registries, so they always match what `--profile`, `--analyzer`, `--resolver`, and `--to` will accept. The engine listings are grouped by language and the groups come from the registry too — an engine name means a different thing per language (`auto` picks among the Chinese analyzers for Chinese and the Japanese ones for Japanese), and a language added by registration shows up on its own.
+
+Discovery is also where you look *before* installing anything, so it never fails as a whole: if a language ships behind an optional package that is missing, that one language is reported on standard error with the extra to install, the rest of the listing still prints on standard output, and the exit code stays `0`.
 
 ## Exit codes
 

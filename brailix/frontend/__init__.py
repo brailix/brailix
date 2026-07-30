@@ -76,6 +76,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from brailix.core.errors import MissingExtraError as _MissingExtraError
 from brailix.core.protocols import LanguageFrontend as _LanguageFrontend
 from brailix.core.registry import Registry as _Registry
 from brailix.frontend.ja import analyze as _ja_analyze
@@ -376,9 +377,20 @@ def list_language_adapters(language: str, family: str = "analyzer") -> list[str]
     the language declares what it offers and the caller stays language-blind
     (see ARCHITECTURE#arch-language-slots).
 
-    Names are sorted and independent of installed extras — a registry records a
-    lazy loader, so a name appears before its wheel does (selecting it is what
-    raises :class:`~brailix.core.errors.MissingExtraError`).
+    Within a language the names are sorted and independent of installed extras:
+    each family is its own registry of lazy loaders, so an engine's name is
+    listed before its wheel is present and selecting it is what raises
+    :class:`~brailix.core.errors.MissingExtraError`.
+
+    The language's *own* frontend is a different matter — asking it what it
+    offers resolves it, which runs its loader. The built-in languages are
+    dependency-free at that level (their engines are what carry the weight), but
+    a language that ships behind an optional package of its own raises
+    ``MissingExtraError`` from here, naming the extra to install. That is
+    deliberately not swallowed: an empty list would say "this language offers
+    nothing to choose from", which is a different and false answer. A caller
+    listing every language (``brailix --list-analyzers``, an engine picker)
+    should isolate the failure per language so the rest still list.
     """
     if not language_frontend_registry.has(language):
         return []
@@ -395,12 +407,20 @@ def language_display_name(language: str) -> str:
     whole point: the label ships with the language, like its adapters do. An
     implementation that declares none is named by its subtag rather than by a
     guess.
+
+    Never raises. Reading the declaration resolves the frontend, and one that
+    ships behind an uninstalled extra is named by its subtag too — a label is
+    what a caller needs precisely when it is about to *report* that language as
+    unavailable, and a listing that sorts by this must not be the thing that
+    fails (see :func:`list_language_adapters`, which does report the failure).
     """
     if not language_frontend_registry.has(language):
         return language
-    return getattr(
-        language_frontend_registry.get(language), "display_name", language
-    )
+    try:
+        frontend = language_frontend_registry.get(language)
+    except _MissingExtraError:
+        return language
+    return getattr(frontend, "display_name", language)
 
 
 __all__ = (
