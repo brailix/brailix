@@ -413,10 +413,9 @@ def _strip_xml_namespace(elem: ET.Element) -> ET.Element:
     Clark notation and the backend — which dispatches on bare local names —
     fails to match, yielding blank cells + spurious warnings. Stripping at
     the IR boundary keeps the *string* round-trip (``ET.tostring`` →
-    ``ET.fromstring``) lossless. (A pre-parsed ``ET.Element`` handed straight
-    to ``from_dict`` is passed through un-stripped — that path stays correct
-    because the frontend normalizers already emit bare-tag trees, not because
-    of this guard.) Delegates to the shared
+    ``ET.fromstring``) lossless, and a pre-parsed ``ET.Element`` gets the
+    same treatment: what the deserializer stores is a bare-tag tree, whichever
+    of the two legal shapes the same XML arrived in. Delegates to the shared
     :func:`brailix.core._xml.strip_namespace` (a core helper, so the IR
     layer takes no frontend dependency); this thin wrapper just returns
     ``elem`` so the deserializer can strip-and-return in one expression.
@@ -467,11 +466,26 @@ _XML_TREE_FIELDS: dict[str, tuple[str, str]] = {
 def _deserialize_xml_tree(key: str, value: Any) -> ET.Element | None:
     """Deserialize a MathML / MusicXML tree field (``math`` / ``score``).
 
-    Accepts ``None`` (kept), a serialized XML string (re-parsed and namespace-
-    stripped at the IR boundary), or a pre-parsed :class:`ET.Element` (passed
-    through unchanged). A wrong type — or a string that isn't well-formed XML
-    (``ET.ParseError`` is re-raised as :class:`ValueError`) — fails loudly at
-    the IR boundary as a :class:`ValueError` instead of silently storing junk.
+    Accepts ``None`` (kept), a serialized XML string (re-parsed with the safe
+    parser), or a pre-parsed :class:`ET.Element`. Either way the stored tree
+    is namespace-stripped: the backend dispatches on bare local names, so a
+    ``{http://www.w3.org/1998/Math/MathML}mi`` matches nothing and degrades to
+    a blank cell plus a misleading "unsupported element" warning. That used to
+    depend on which of the two legal shapes the caller passed — the string was
+    stripped and the Element was not, so the *same* namespaced XML compiled to
+    braille one way and to nothing the other.
+
+    The Element is normalized in place and returned, not copied. This branch
+    exists to skip a serialize / re-parse round trip for a caller that already
+    holds the tree, and deep-copying a full score's tree would hand most of
+    that cost back; the node aliases the caller's Element either way, so a
+    copy would not be buying isolation it does not already lack. Stripping is
+    idempotent, so an already-bare tree — what every in-tree frontend
+    produces — is walked once and left alone.
+
+    A wrong type — or a string that isn't well-formed XML (``ET.ParseError``
+    is re-raised as :class:`ValueError`) — fails loudly at the IR boundary as
+    a :class:`ValueError` instead of silently storing junk.
     """
     if value is None:
         return None
@@ -483,7 +497,7 @@ def _deserialize_xml_tree(key: str, value: Any) -> ET.Element | None:
             raise ValueError(f"{field_label} is not well-formed {fmt}: {e}") from e
         return _strip_xml_namespace(parsed)
     if isinstance(value, ET.Element):
-        return value
+        return _strip_xml_namespace(value)
     raise ValueError(
         f"{field_label} must be None, a {fmt} string, or an ET.Element; "
         f"got {type(value).__name__}"

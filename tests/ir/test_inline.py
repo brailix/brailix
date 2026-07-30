@@ -234,8 +234,8 @@ class TestSerializationMathInline:
 
     def test_from_dict_accepts_et_element_math_value(self):
         # If an upstream IR builder hands ``from_dict`` a pre-parsed
-        # ET.Element directly, the deserializer should pass it through
-        # unchanged (no re-serialization round-trip).
+        # ET.Element directly, the deserializer takes it as-is — no
+        # re-serialization round-trip, and no copy.
         tree = ET.fromstring("<math><mi>x</mi></math>")
         restored = from_dict({
             "type": "math_inline",
@@ -245,6 +245,44 @@ class TestSerializationMathInline:
         assert isinstance(restored, MathInline)
         # Must be the *same* element object — pass-through, not a copy.
         assert restored.math is tree
+        assert restored.math[0].tag == "mi"  # already bare: untouched
+
+    def test_namespaced_preparsed_math_element_is_normalized(self):
+        # The two legal shapes of one payload — a serialized string and a
+        # pre-parsed Element — must deserialize to the same IR. The string
+        # branch stripped Clark notation and the Element branch did not, so
+        # this XML compiled to ⠰⠭ through one and to a blank cell plus a
+        # spurious MATH_UNSUPPORTED_ELEMENT through the other.
+        src = "<math xmlns='http://www.w3.org/1998/Math/MathML'><mi>x</mi></math>"
+        payload = {"type": "math_inline", "surface": "x", "source": "mathml"}
+        from_string = from_dict({**payload, "math": src})
+        from_element = from_dict({**payload, "math": ET.fromstring(src)})
+
+        assert from_string.math.tag == from_element.math.tag == "math"
+        assert from_string.math[0].tag == from_element.math[0].tag == "mi"
+
+    def test_namespaced_preparsed_music_and_svg_elements_are_normalized(self):
+        # Same rule, same implementation, for the other two tree fields:
+        # the deserializer must not normalize whichever field someone
+        # happened to write a test for.
+        from brailix.ir.inline import GraphicInline
+
+        score = ET.fromstring(
+            "<score-partwise xmlns='http://www.musicxml.org/ns'>"
+            "<part id='P1'/></score-partwise>"
+        )
+        svg = ET.fromstring(
+            "<svg xmlns='http://www.w3.org/2000/svg'><line x1='0'/></svg>"
+        )
+        music = from_dict({"type": "music_inline", "surface": "", "score": score})
+        graphic = from_dict({"type": "graphic_inline", "surface": "", "svg": svg})
+
+        assert isinstance(music, MusicInline)
+        assert music.score.tag == "score-partwise"
+        assert music.score[0].tag == "part"
+        assert isinstance(graphic, GraphicInline)
+        assert graphic.svg.tag == "svg"
+        assert graphic.svg[0].tag == "line"
 
     def test_round_trip_strips_xmlns_attribute_tree(self):
         # Regression: a producer (e.g. normalize._try_atomic's math_op
