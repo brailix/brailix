@@ -19,14 +19,23 @@ braille IR, and the diagnostics — every braille cell knows the source
 characters it came from, which is what makes proofreading tools, click-to-
 source navigation, and incremental recompilation possible.
 
-Beyond plain prose, the same pipeline handles mathematics (LaTeX, MathML,
-Word's OMML and MathType), music scores (MusicXML, ``.mxl``, MIDI, ABC),
-chemistry, tactile graphics, and Word / Markdown documents — each behind an
-optional extra, so a bare install stays small. Every pluggable part —
-tokenizer, pinyin engine, math and music source formats, renderers, whole
-languages — is selected by name through a registry, and adding one is
-registration rather than a change to this package. ``ARCHITECTURE.md``
-explains the design; the *Extending brailix* guide is the how-to.
+Beyond plain prose, the same pipeline handles mathematics, music scores,
+chemistry, tactile graphics, and whole documents. Much of that is in the bare
+install, which is stdlib-only: Markdown, MathML, ``\\ce{...}`` chemistry,
+MusicXML and ``.mxl`` scores, and tactile figures from SVG or geometry
+primitives. What needs an optional extra is a source format whose parser is a
+third-party package: LaTeX (``brailix[latex]``), Word ``.docx`` and the OMML
+or MathType formulae inside it (``brailix[docx]``), MIDI (``brailix[midi]``)
+and ABC (``brailix[abc]``) scores, a raster image or a complex external SVG as
+a tactile figure (``brailix[graphics]``, ``brailix[graphics-svg-raster]``).
+The heavier Chinese and Japanese engines — segmentation, pinyin, kanji
+readings — are extras of their own; without them the ``auto`` chains fall back
+to the dependency-free ``char`` and ``kana`` analyzers rather than dropping the
+language. Every pluggable part — tokenizer, pinyin engine, math and music
+source formats, renderers, whole languages — is selected by name through a
+registry, and adding one is registration rather than a change to this package.
+``ARCHITECTURE.md`` explains the design; the *Extending brailix* guide is the
+how-to.
 
 The public surface
 ------------------
