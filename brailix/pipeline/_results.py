@@ -285,6 +285,12 @@ class CompiledBlock:
       formula / score isn't parsed twice when surrounding text — or an
       unrelated override — changes.  Empty when the block has no
       math, music, or graphic.
+      **Entries are read-only.** A hit hands the very same ``Element`` to
+      every compile that reuses it — and lands it on the ``ir`` above — so
+      editing one in place changes what a later, unrelated compile
+      translates. Nothing enforces this (a defensive copy would forfeit the
+      re-parse saving the pool exists for): mutate by clone-then-replace
+      instead, as :data:`TreeSubcache` spells out.
     * ``source_hash`` — stable digest of ``(block surface, resolved
       profile, structure)`` salted with the producing pipeline's
       compilation fingerprint (see :func:`brailix.pipeline.block_hash`
