@@ -7,7 +7,7 @@ brailix targets **Python 3.13 or newer**. The core package is pure-Python and ha
 ## Install
 
 ```bash
-pip install brailix              # core: plain text, Markdown, MusicXML
+pip install brailix              # core: plain text, Markdown, MusicXML, SVG tactile graphics
 pip install brailix[zh]          # Chinese: segmentation + pinyin (light, offline)
 pip install brailix[zh,latex]    # + LaTeX math
 pip install brailix[ja]          # Japanese: morphological analysis (kanji readings)
@@ -15,7 +15,7 @@ pip install brailix[hanlp,g2pw]  # accurate Chinese engines (download models)
 pip install brailix[docx]        # Word .docx / .docm (incl. MathType / OMML)
 ```
 
-Extras are grouped by language and by tool category — see the [README](../README.md) and [`pyproject.toml`](../pyproject.toml) for the full list (`zh`, `ja`, individual engines, `latex`, `docx`, `midi`, `abc`, `music`, and `all`). The `hanlp` and `g2pw` engines download their model weights on first use — HanLP's into a local `models/` directory that brailix points it at, g2pW's into its own library's cache; the `zh` pack (jieba plus pypinyin) is lightweight and works offline immediately.
+Extras are grouped by language and by tool category — see the [README](../README.md) and [`pyproject.toml`](../pyproject.toml) for the full list (`zh`, `ja`, individual engines, `latex`, `docx`, `midi`, `abc`, `music`, `graphics`, `graphics-svg-raster`, and `all`). The `hanlp` and `g2pw` engines download their model weights on first use — HanLP's into a local `models/` directory that brailix points it at, g2pW's into its own library's cache; the `zh` pack (jieba plus pypinyin) is lightweight and works offline immediately.
 
 ## Your first translation
 
@@ -77,6 +77,27 @@ result = pipe.translate_document(doc)
 ```
 
 Word `.docx` / `.docm` support (including MathType and OMML formulae) needs the `docx` extra. See the [API reference](https://brailix.github.io/brailix/) for every entry point.
+
+## Tactile graphics
+
+Braille is not the only thing brailix writes. `translate_graphic` compiles a drawing into a **tactile raster** — a grid of raise levels carrying its own physical page size — which renders to a `.bmp` for an embosser, a `.png` or `.pdf` for a sighted reference, or a Unicode-braille preview you can read on a refreshable display:
+
+```python
+from brailix import translate_graphic
+
+svg = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="50mm" height="50mm" '
+    'viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>'
+)
+figure = translate_graphic(svg, tactile_profile="generic")
+
+figure.render("bmp")              # embossable bytes
+figure.render("tactile_preview")  # a U+2800 readback of the page
+```
+
+A figure needs no braille standard, which is why this is a module-level function rather than a `Pipeline` method: `tactile_profile` names the page geometry (size, resolution, the minimum feature a device can raise) the way `profile` names the braille standard, and the result renders through the same registry the braille renderers live in. Pass `braille_profile` as well and any `<text>` label inside the drawing is translated into braille dots on the page.
+
+Nothing above needs an extra: parsing SVG and writing BMP, PNG, and PDF are all standard library. What does need one is reading a picture *in* — `brailix[graphics]` decodes a raster image (PNG, JPEG, ...) into raise levels, and `brailix[graphics-svg-raster]` renders a complex external SVG (gradients, filters, `clipPath`) that the built-in geometry rasterizer does not cover.
 
 ## Choosing engines
 

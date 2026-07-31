@@ -2,12 +2,24 @@
 
 Defines the ``requires`` marker: tag a test — or a whole class — with
 ``@pytest.mark.requires("<module>")`` and it is skipped when that optional
-adapter dependency can't be imported.  This keeps the minimal / per-extra CI
+adapter dependency is not installed.  This keeps the minimal / per-extra CI
 tiers green: an adapter test that asserts real conversion output turns into a
 clean *skip* when its extra is absent, instead of a spurious failure.  It also
 makes the tiers selectable — ``-m "requires"`` / ``-m "not requires"`` — for a
 per-dependency job matrix.  The tier layout is documented in
 ``[tool.pytest.ini_options]`` in pyproject.toml.
+
+**"Installed" here means findable, not importable**, and the difference is
+worth stating rather than glossing.  The check is
+:func:`importlib.util.find_spec`, which locates the module without executing
+it; a package that is present but *broken* — a missing transitive dependency, a
+shared library or ABI mismatch, a module whose top level raises — is found, so
+the test is not skipped and fails on the import instead.  That is the intended
+trade: importing for real at collection time would run every optional
+dependency's module-level code (model loads, native library probes) on every
+run, for a question that is almost always "is the extra installed at all".  A
+broken install *should* be loud; what this marker exists to keep quiet is an
+absent one.
 """
 
 from __future__ import annotations
@@ -63,10 +75,11 @@ def pytest_collection_modifyitems(
 ) -> None:
     """Skip any ``@pytest.mark.requires("mod")`` item whose ``mod`` is absent.
 
-    Uses :func:`importlib.util.find_spec` so a missing extra is detected
-    without importing (and running) the module.  Multiple ``requires`` markers
-    stack — a test needing both an analyzer and a pinyin engine skips if
-    *either* is missing.
+    Uses :func:`importlib.util.find_spec`, which answers "is it installed?"
+    without importing (and so without running) the module — see the module
+    docstring for why a present-but-broken package deliberately does *not*
+    skip.  Multiple ``requires`` markers stack — a test needing both an
+    analyzer and a pinyin engine skips if *either* is missing.
     """
     for item in items:
         for marker in item.iter_markers(name="requires"):

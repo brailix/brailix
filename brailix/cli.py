@@ -3,10 +3,18 @@
 ``brailix`` (or ``python -m brailix``) compiles text, Markdown, Word, and
 MusicXML sources into braille from a terminal. It is a thin wrapper over
 :class:`brailix.Pipeline` and the renderer registry — every pluggable
-choice (profile, segmentation engine, reading resolver, output renderer)
+choice (profile, segmentation engine, reading resolver, braille renderer)
 is enumerated from the core registries, so ``--list-*`` and the accepted
 values always reflect what the installed build actually provides rather
 than a hand-kept list.
+
+This command is **braille-only**, which is what its renderer listings mean:
+the registry it reads holds the tactile-graphics renderers too, and those are
+filtered out rather than offered, because a graphic is not something this CLI
+can take as input. Compiling a figure is
+:func:`brailix.translate_graphic` plus
+:meth:`~brailix.GraphicResult.render` from Python; there is no graphic input
+mode here.
 
 That includes the *languages*: the engine listings walk
 ``language_frontend_registry`` and ask each language what it offers
@@ -112,10 +120,13 @@ def build_parser() -> argparse.ArgumentParser:
     name are selectable without changing this parser.
 
     Only the braille renderers are offered: the CLI translates text to
-    braille, so the tactile-graphics renderers (``bmp`` / ``png`` /
+    braille, so the tactile-graphics renderers (``bmp`` / ``png`` / ``pdf`` /
     ``tactile_preview``) — which share ``renderer_registry`` but consume a
     raster, reached via the library's :meth:`~brailix.pipeline.GraphicResult.render`
     — are filtered out by :func:`~brailix.renderer.braille_renderer_names`.
+    That list is derived from each renderer's own ``consumes``, so a fifth
+    tactile renderer needs no edit here; this sentence naming four of them is
+    prose, and ``tests/test_output_domains.py`` is what keeps it honest.
     """
     renderers = braille_renderer_names()
     parser = argparse.ArgumentParser(
@@ -241,7 +252,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     disc.add_argument(
         "--list-renderers", dest="list_renderers", action="store_true",
-        help="list output renderers",
+        help="list the braille renderers this command accepts for --to",
     )
     disc.add_argument(
         "-V", "--version", action="store_true", help="print the brailix version",
