@@ -47,16 +47,23 @@ from typing import Any
 
 from brailix.core.context import GraphicsContext
 from brailix.core.errors import WarningCollector
+from brailix.frontend.graphics._numbers import as_finite, non_finite_paths
 from brailix.frontend.graphics.adapters.svg import svg_error_wrap
 
 
 def _fmt(value: Any) -> str:
-    """Compact numeric formatting: drop the decimal point for integers."""
-    try:
-        f = float(value)
-    except (TypeError, ValueError):
-        return "0"
-    return str(int(f)) if f.is_integer() else repr(f)
+    """Compact numeric formatting: drop the decimal point for integers.
+
+    A value that is not a drawable number formats as ``"0"`` — but only ever
+    reaches here through a shape :func:`primitives_to_svg` already declined to
+    reject, since a coordinate silently moved to the origin is a shape drawn
+    in the wrong place, which is worse than one not drawn at all. What this
+    must not do is what it used to: ``float("inf")`` converts, so ``inf``
+    formatted as the literal SVG attribute ``cx="inf"`` — well-formed XML that
+    is not a coordinate, handed to the backend as though it were one.
+    """
+    f = as_finite(value, None)
+    return "0" if f is None else (str(int(f)) if f.is_integer() else repr(f))
 
 
 def _points_attr(points: Any) -> str:
@@ -136,10 +143,14 @@ _SHAPE_BUILDERS: dict[str, Any] = {
 }
 
 
-def _warn(warnings: WarningCollector | None, message: str) -> None:
+def _warn(
+    warnings: WarningCollector | None,
+    message: str,
+    code: str = "GRAPHICS_UNKNOWN_SHAPE",
+) -> None:
     if warnings is not None:
         warnings.warn(
-            code="GRAPHICS_UNKNOWN_SHAPE",
+            code=code,
             message=message,
             source="frontend.graphics",
         )
@@ -160,11 +171,12 @@ def primitives_to_svg(
             type(spec).__name__, reason="primitives spec must be an object"
         )
     svg = ET.Element("svg")
-    try:
-        w, h = float(spec.get("width")), float(spec.get("height"))  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        w = h = 0.0
-    if w > 0 and h > 0:
+    # ``as_finite`` rather than a bare ``float()``: an infinite canvas passes
+    # ``> 0`` and would set ``width="infmm"`` on the root, which is where a
+    # page size comes from.
+    w = as_finite(spec.get("width"), None)
+    h = as_finite(spec.get("height"), None)
+    if w is not None and h is not None and w > 0 and h > 0:
         svg.set("viewBox", f"0 0 {_fmt(w)} {_fmt(h)}")
         svg.set("width", f"{_fmt(w)}mm")
         svg.set("height", f"{_fmt(h)}mm")
@@ -178,6 +190,21 @@ def primitives_to_svg(
             builder = _SHAPE_BUILDERS.get(stype) if isinstance(stype, str) else None
             if builder is None:
                 _warn(warnings, f"unknown primitive shape type {stype!r}; skipped")
+                continue
+            # After the type lookup, so a shape that is unknown *and* carries
+            # a bad coordinate still reports the unknown type — the fact its
+            # author can act on. Skipped rather than drawn with the offending
+            # number replaced: an SVG element placed at infinity is not
+            # geometry, and the backend's own guard would report it as a page
+            # that produced nothing, several layers from the field at fault.
+            bad = non_finite_paths(shape)
+            if bad:
+                _warn(
+                    warnings,
+                    f"{stype} shape carries a value that is not a number "
+                    f"({', '.join(bad)}); skipped",
+                    code="GRAPHICS_INVALID_SPEC",
+                )
                 continue
             builder(svg, shape)
     return ET.tostring(svg, encoding="unicode")
