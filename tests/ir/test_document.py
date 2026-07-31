@@ -8,6 +8,7 @@ import pytest
 from brailix.core.span import Span
 from brailix.ir.document import (
     _BLOCK_REGISTRY,
+    _SUPPORTED_IR_VERSIONS,
     Block,
     CodeBlock,
     DocumentIR,
@@ -331,6 +332,99 @@ class TestDocumentIR:
         assert len(d["blocks"]) == 2
         assert d["blocks"][0]["type"] == "heading"
         assert d["blocks"][1]["type"] == "paragraph"
+
+    def test_round_trip_restores_version_and_blocks(self):
+        doc = DocumentIR(
+            metadata={"language": "zh-CN"},
+            blocks=[Heading(level=1, text="标题"), Paragraph(text="正文")],
+        )
+        back = DocumentIR.from_dict(doc.to_dict())
+        assert back.version == doc.version
+        assert [type(b) for b in back.blocks] == [Heading, Paragraph]
+
+
+class TestDocumentIRLoadBoundary:
+    """``from_dict`` is a *boundary*: what it accepts, it must be able to
+    represent. Two payload-level facts used to go unread — the root type tag
+    and the format version — and each let a document load as something it was
+    not."""
+
+    def test_rejects_wrong_root_type(self):
+        # A block payload is not a document, however parseable its shape.
+        with pytest.raises(ValueError, match="document"):
+            DocumentIR.from_dict(
+                {
+                    "version": "1.0",
+                    "type": "paragraph",
+                    "metadata": {},
+                    "blocks": [],
+                }
+            )
+
+    def test_rejects_missing_root_type(self):
+        with pytest.raises(ValueError, match="document"):
+            DocumentIR.from_dict(
+                {"version": "1.0", "metadata": {}, "blocks": []}
+            )
+
+    def test_rejects_unsupported_version(self):
+        """The bug this closes was not the *refusal* of a 2.0 payload but the
+        acceptance of one: the version was stored verbatim, the fields 2.0
+        added were dropped by ``block_from_dict``, and ``to_dict`` wrote
+        ``"2.0"`` back out — a file still claiming a format whose content had
+        been silently discarded."""
+        with pytest.raises(ValueError, match="unsupported"):
+            DocumentIR.from_dict(
+                {
+                    "version": "2.0",
+                    "type": "document",
+                    "metadata": {},
+                    "blocks": [
+                        {
+                            "type": "paragraph",
+                            "text": "x",
+                            "semantic_annotations": {"reviewed": True},
+                        }
+                    ],
+                }
+            )
+
+    def test_rejects_unsupported_version_at_construction_too(self):
+        """Both directions, or the invariant only looks closed: a document
+        built with an unloadable version would serialize to a payload its own
+        ``from_dict`` refuses."""
+        with pytest.raises(ValueError, match="unsupported"):
+            DocumentIR(version="2.0")
+
+    def test_every_supported_version_actually_loads(self):
+        """Guard against the set and the loader drifting apart — an entry added
+        here without a code path is a promise nothing keeps."""
+        for version in _SUPPORTED_IR_VERSIONS:
+            doc = DocumentIR.from_dict(
+                {
+                    "version": version,
+                    "type": "document",
+                    "metadata": {},
+                    "blocks": [{"type": "paragraph", "text": "x"}],
+                }
+            )
+            assert doc.version == version
+            assert doc.to_dict()["version"] == version
+
+    def test_unknown_block_fields_are_still_tolerated(self):
+        """The version gate is what makes per-field tolerance safe, not a
+        replacement for it: inside a supported version an unknown field is
+        foreign data, and dropping it stays the documented behaviour."""
+        doc = DocumentIR.from_dict(
+            {
+                "version": "1.0",
+                "type": "document",
+                "metadata": {},
+                "blocks": [{"type": "paragraph", "text": "x", "future": "y"}],
+            }
+        )
+        assert [type(b) for b in doc.blocks] == [Paragraph]
+        assert doc.blocks[0].text == "x"
 
 
 class TestRegistry:
