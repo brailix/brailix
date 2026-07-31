@@ -266,13 +266,31 @@ class Pipeline:
     * ``mode`` — diagnostic policy (see :class:`RunMode`).
     * ``segmenter`` / ``normalizer`` — segmenter and normalizer adapter
       names.
-    * ``analyzer`` — Chinese tokenizer name (``auto`` / ``char`` /
-      ``thulac`` / ``jieba`` / ``hanlp``).
-    * ``resolver`` — pinyin resolver name (``auto`` / ``null`` /
-      ``pypinyin`` / ``g2pm`` / ``g2pw``).
+    * ``analyzer`` — word-segmentation engine for **the profile's
+      language**, not for one fixed language: the driver hands it to the
+      ``LanguageFrontend`` selected by the active profile's language
+      subtag, so a Chinese profile reads it as a Chinese tokenizer
+      (``auto`` / ``char`` / ``jieba`` / ``thulac`` / ``hanlp``) and a
+      Japanese one as a Japanese morphological analyzer (``auto`` /
+      ``kana`` / ``janome`` / ``fugashi`` / ``sudachi``). A new prose
+      language reuses this same field — which is why the name says
+      ``analyzer`` and not a script. Which names a given language offers is
+      the language's own declaration, read through
+      :func:`brailix.frontend.list_language_adapters`; a name belonging to
+      another language is rejected against the active one rather than
+      accepted here and failed on deeper in.
+    * ``resolver`` — reading engine for the profile's language, **where it
+      has one**. Chinese is the case that does: a pinyin resolver
+      (``auto`` / ``null`` / ``pypinyin`` / ``g2pm`` / ``g2pw``) runs after
+      segmentation. Japanese has no separate resolver family — a kana
+      reading comes out of its analyzer — so on a Japanese profile this
+      field has nothing to select, and setting it is a usage error rather
+      than a flag carried into the run and read by nobody.
     * ``user_pinyin_dict`` — optional ``surface → reading`` overrides
       layered on top of ``resolver`` (a proofreading front-end's personal
-      dictionary). Multi-char surfaces only; empty = no-op.
+      dictionary). Chinese-specific, as its name says and as ``resolver``
+      effectively is: the pinyin post-pass is what consumes it.
+      Multi-char surfaces only; empty = no-op.
     * ``default_renderer`` — forwarded to every
       :class:`TranslationResult` so :meth:`TranslationResult.render`
       knows what to use when called without arguments.
