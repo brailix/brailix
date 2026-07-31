@@ -202,6 +202,7 @@ brailix/
 │   │   └── graphics/       # source → SVG tree (= IR, tactile graphics)
 │   │       ├── normalizer.py / registry.py  # graphic_source_registry
 │   │       ├── generate.py       # figure spec → primitives spec generators (pure stdlib)
+│   │       ├── _numbers.py       # is this spec value drawable? (finite, in budget)
 │   │       └── adapters/         # svg / primitives / figure / image (image needs the graphics extra)
 │   ├── ir/
 │   │   ├── document.py       # DocumentIR: block level (incl. MathBlock / CodeBlock / ScoreBlock ...)
@@ -782,18 +783,28 @@ The existing IR node set suffices. `Word`, `HanziChar`, and `HanziMarker`, plus 
 
 ---
 
+<a id="arch-testing"></a>
 ## 13. Testing strategy
 
-Four layers, each runnable on its own.
+The suite is organised by layer, because that is the promise being kept: each directory under `tests/` runs on its own, against the layer that can be loaded on its own.
 
 | Layer | What it tests | Independent of |
 |---|---|---|
-| Frontend | type recognition, segmentation, pinyin, state machine | the Backend |
-| MathParser | structural equivalence of LaTeX → MathML tree | the Backend |
-| Backend | fixed IR → fixed BrailleIR | segmentation models (so model drift can't move the assertions) |
-| Pipeline | end-to-end golden tests | — (uses human-proofread samples) |
+| Input | containers and dialects decoded into raw blocks (`.docx`, Markdown, `.mxl`, `.mid`, MTEF-in-OLE); a malformed file produces a diagnosis, not a traceback | the Backend and the Renderer |
+| Frontend | type recognition, segmentation, pinyin and polyphone resolution, the Japanese kana and wakachigaki path, and the math / music / graphics parse entry points | the Backend |
+| IR | the mediator types on their own terms: serialization round-trips, nested-block validation, JSON-schema conformance, and the nesting-depth limits | every stage — it carries core primitives alone, which is checked by loading it in a fresh interpreter |
+| Backend | fixed IR → fixed BrailleIR, per language and per subsystem (Chinese, Latin, Japanese, math, music, chemistry), plus the tactile backend turning a normalized SVG tree into a `TactileRaster` | segmentation models, so model drift cannot move the assertions |
+| Renderer | cells and dots into bytes: Unicode, BRF, layout and pagination, music layout schemes, and the raster encoders (BMP, PNG, PDF, and the U+2800 preview) | the source language — everything needed is already in the cells |
+| Pipeline | the layers together: end-to-end compilation, incremental recompilation and cache identity, override application, span provenance, and mixed pages carrying braille beside figures | — this is the level where the seams are the subject |
+| Public surface and architecture | that `__all__`, the hand-written manifest and the runtime namespace agree; that the layer matrix holds in the source *and* in a fresh interpreter's `sys.modules`; that this document, the docstrings and the user guides still describe the code | — these read the tree rather than compile anything |
 
-The golden test set covers, at minimum, primary-school Chinese paragraphs; middle-school math with formulae; news text with numbers, dates, and foreign words; mixed Chinese and English; tables and lists; polyphone boundaries (重庆 / 银行 / 朝阳 / 长安); and formula boundaries (nested fractions, nested radicals, matrices, error recovery).
+Both output domains — `braille` and `tactile_raster` — are held to that table, not just the first. A tactile figure has a frontend (source adapter to normalized SVG), a backend (`TactileRaster`), renderers (the raster encoders), and its own end-to-end and page-composition tests; the renderer registry check derives the roster from the registry itself, so a renderer added to one domain and described in neither this document nor the `Renderer` protocol fails rather than passes.
+
+Three kinds of check carry what per-layer examples cannot:
+
+- **Golden cases** — human-proofread source and braille pairs, in JSON so the data is reviewable apart from the code. They cover, at minimum, primary-school Chinese paragraphs; middle-school math with formulae; news text with numbers, dates, and foreign words; mixed Chinese and English; tables and lists; polyphone boundaries (重庆 / 银行 / 朝阳 / 长安); formula boundaries (nested fractions, nested radicals, matrices, error recovery); and the warnings a bad input is expected to raise. Japanese carries its own golden set beside the Chinese one.
+- **Schema tests** — JSON Schemas for the document IR, the braille IR, a profile, a warning and a golden case, exercised both against real artefacts and against generated instances, which is how a loader was found to crash bare on input its own schema permits.
+- **Property tests** — invariants stated once and checked over generated input: span arithmetic, serialization round-trips, incremental recompilation agreeing with a full compile, layout never losing a cell. Run under two engines, since random generation and symbolic exploration reach different corners.
 
 Run the golden suite on every rule change; **the diff must be reviewed by hand.**
 
@@ -820,14 +831,21 @@ Keeping each component to its own job is what lets any one of them be swapped or
 
 ---
 
+<a id="arch-summary"></a>
 ## 15. Summary
 
-`brailix` compiles a source document into braille in five moves: the frontend recognizes and structures the input; the IR holds that meaning in a unified form; the backend applies profile-driven braille rules; BrailleIR records the result as a traceable cell sequence; and the renderer encodes it as Unicode, BRF, or a laid-out page.
+`brailix` compiles along **two** paths, and they are deliberately the same shape.
+
+The braille path takes a source document in five moves: the frontend recognizes and structures the input; `DocumentIR` holds that meaning in a unified form; the backend applies profile-driven braille rules; `BrailleDocument` records the result as a traceable cell sequence; and a braille renderer encodes it as Unicode, BRF, or a laid-out page.
+
+The tactile-graphics path takes a graphic source in the same five: a source adapter turns one graphic format into SVG; the normalized SVG tree *is* the graphics IR; the tactile backend applies profile-driven dot geometry; `TactileRaster` records the result as a traceable dot grid carrying its own physical size; and a tactile renderer encodes it as BMP, PNG, PDF, or a U+2800 braille-display preview.
+
+The two meet in a mixed document, where a `DocumentIR` carrying figures composes onto tactile pages — braille text stamped as real dots beside the figures it describes. They also share their machinery rather than running in parallel: one adapter-and-registry pattern, one warning collector, one renderer registry in which every renderer declares which IR it `consumes` (`braille` or `tactile_raster`) and the result object checks that before handing one over.
 
 - Chinese is handled by segmentation, pinyin, and polyphone disambiguation.
 - Numbers and dates stay structured and travel on their own track.
 - Math and music each parse into a tree IR (MathML, MusicXML), and the backend dispatches by tag through a contextual state machine.
-- The braille standard is a swappable profile.
-- The output is traceable, proofreadable, and format-swappable.
+- The braille standard is a swappable profile, and so is the tactile page's physical geometry.
+- The output is traceable, proofreadable, and format-swappable, in both domains.
 
 The whole design holds to one test: **every layer can be replaced or tested on its own.**
