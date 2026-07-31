@@ -55,7 +55,7 @@ from brailix.ir.document import (
 from brailix.ir.inline import InlineNode, Number
 
 # ---------------------------------------------------------------------------
-# Public entry point
+# Module entry point
 # ---------------------------------------------------------------------------
 
 

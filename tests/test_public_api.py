@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import re
 from pathlib import Path
 
 import pytest
@@ -875,6 +876,89 @@ def test_every_all_in_the_package_is_a_literal() -> None:
         "__all__ written in a form the static API guards cannot read:\n  "
         + "\n  ".join(offenders)
     )
+
+
+# ---------------------------------------------------------------------------
+# "public" is a word about the compatibility promise, not about scope
+# ---------------------------------------------------------------------------
+
+# Files whose "public entry point(s)" wording is about names that really are on
+# the supported surface. Every other file in the package is internal, so the
+# phrase there says the opposite of the top-level policy.
+#
+# The wording matters because a module docstring is the *only* thing most
+# readers consult before importing. ``brailix.backend.math`` had a docstring
+# spelling out "the whole package is internal" and, two paragraphs later, a
+# ``# Public entry points`` banner over the same two functions — a reader could
+# take away either. The subsystem facades said "one public entry point:
+# parse_math_tree" while ``brailix.frontend`` said, of the same function at the
+# same path, "internal, free to move between releases".
+_PUBLIC_WORDING_ALLOWED = {
+    # The policy statement itself, and the errors it points at.
+    "brailix/__init__.py",
+    "brailix/core/__init__.py",
+    # ``parse_markdown`` / ``parse_docx`` / ``parse_doc`` ARE published — the
+    # ``brailix.input`` facade re-exports each one — so naming them public
+    # where they are defined is accurate. What is internal there is the
+    # *path*, which those docstrings now say.
+    "brailix/input/markdown.py",
+    "brailix/input/docx/__init__.py",
+}
+
+# The vocabulary an internal module uses instead, established by
+# ``brailix.frontend``'s own subsystem table: "subsystem entry point" for a
+# vertical's single way in, "package"/"module entry point" for a file's.
+_PUBLIC_WORDING = re.compile(r"public\s+entry\s+point", re.IGNORECASE)
+
+
+def test_no_internal_module_calls_its_entry_point_public() -> None:
+    """An internal module names its entry point by *scope*, not by "public".
+
+    Read as text, not as docstrings: the drift lived in section banners
+    (``# Public entry points``) as much as in prose, and a banner is what a
+    reader skims to.
+    """
+    import importlib.util
+
+    spec = importlib.util.find_spec("brailix")
+    assert spec is not None and spec.origin is not None
+    package_root = Path(spec.origin).resolve().parent
+    offenders: list[str] = []
+    for path in sorted(package_root.rglob("*.py")):
+        rel = path.relative_to(package_root.parent).as_posix()
+        if rel in _PUBLIC_WORDING_ALLOWED:
+            continue
+        source = path.read_text(encoding="utf-8")
+        for n, line in enumerate(source.splitlines(), 1):
+            if _PUBLIC_WORDING.search(line):
+                offenders.append(f"{rel}:{n}: {line.strip()}")
+
+    assert not offenders, (
+        "internal modules calling their entry point 'public' — everything "
+        "outside the facades and the extension surface is internal, so say "
+        "'subsystem entry point' / 'package entry point' instead:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_the_public_wording_allowlist_is_still_accurate() -> None:
+    """Each allowlisted file is allowed because the names it calls public are
+    really re-exported by a facade. If one stops being published, the entry
+    becomes a licence to mislabel — so the reason is checked, not just stated.
+    """
+    import brailix
+    import brailix.core
+
+    published = set(brailix.__all__) | set(brailix.core.__all__)
+    import brailix.input
+
+    published |= set(brailix.input.__all__)
+    for name in ("parse_markdown", "parse_docx", "parse_doc"):
+        assert name in published, (
+            f"{name} is no longer on the supported surface, so the file that "
+            f"defines it must stop calling it a public entry point "
+            f"(_PUBLIC_WORDING_ALLOWED)"
+        )
 
 
 class TestTheFacadeBindingDetector:

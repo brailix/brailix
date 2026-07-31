@@ -14,7 +14,7 @@ Per ARCHITECTURE#arch-mediators they stay swap-independent: the analyzer must no
 import the resolver, so the orchestrator (:class:`brailix.Pipeline`)
 chains ``tokenize`` → ``pinyin.annotate`` → ``tokens_to_inline`` rather
 than letting one call the other. This umbrella therefore re-exports only
-the analyzer's public entry points; reach the resolver via
+the analyzer's subsystem entry points; reach the resolver via
 ``brailix.frontend.zh.pinyin``.
 """
 

@@ -1,4 +1,5 @@
-"""Tactile-graphics frontend — one public entry point: :func:`parse_graphic_tree`.
+"""Tactile-graphics frontend — one subsystem entry point:
+:func:`parse_graphic_tree`.
 
 SVG is the graphics vertical's normalized intermediate format — the
 direct analogue of MathML for math and MusicXML for music. A source
@@ -15,9 +16,11 @@ source format goes through its adapter to SVG, the normalizer settles
 that SVG into the shape the backend expects, and the tactile backend
 rasterises it.
 
-Callers only need :func:`parse_graphic_tree` — the graphics counterpart
-of :func:`brailix.frontend.math.parse_math_tree` and
-:func:`brailix.frontend.music.parse_music_tree`.
+In-subsystem callers only need :func:`parse_graphic_tree` — the graphics
+counterpart of :func:`brailix.frontend.math.parse_math_tree` and
+:func:`brailix.frontend.music.parse_music_tree`, and internal like both of
+them: "entry point" names how the compiler calls into the subsystem, not a
+published path (see :mod:`brailix.frontend`).
 """
 
 from __future__ import annotations

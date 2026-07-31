@@ -48,7 +48,7 @@ _NUMBER_DIGIT_POLICY = DigitRunPolicy(
 )
 
 # ---------------------------------------------------------------------------
-# Public entry points (one per IR node type)
+# Module entry points (one per IR node type)
 # ---------------------------------------------------------------------------
 
 

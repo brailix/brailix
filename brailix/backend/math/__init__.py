@@ -95,7 +95,7 @@ def _too_deep_fallback(
     return [_unknown_cell(surface or "?", span)]
 
 # ---------------------------------------------------------------------------
-# Public entry points
+# Package entry points — the two the docstring names, not published API
 # ---------------------------------------------------------------------------
 
 

@@ -1,4 +1,4 @@
-"""Music frontend subsystem — one public entry point:
+"""Music frontend subsystem — one subsystem entry point:
 :func:`parse_music_tree`.
 
 Source adapters (``musicxml`` / ``mxl`` / ``midi`` / ``abc`` /
@@ -7,7 +7,10 @@ registry based on :class:`~brailix.core.context.MusicContext`. The
 MusicXML tree returned by an adapter, after normalisation, is the
 music IR itself — there is no separate IR-builder layer.
 
-Callers only need :func:`parse_music_tree`.
+In-subsystem callers only need :func:`parse_music_tree`. The module path is
+internal — "entry point" means "how the compiler calls into this subsystem",
+not published API; see :mod:`brailix.frontend` for which frontend names carry
+a compatibility promise.
 """
 
 from __future__ import annotations

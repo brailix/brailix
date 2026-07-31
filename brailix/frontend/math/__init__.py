@@ -1,4 +1,5 @@
-"""Math frontend subsystem — one public entry point: :func:`parse_math_tree`.
+"""Math frontend subsystem — one subsystem entry point:
+:func:`parse_math_tree`.
 
 Source adapters (``latex`` / ``mathml`` / ``omml`` / ``mtef`` / ...) live in
 ``adapters/`` and are picked from an internal registry based on
@@ -6,7 +7,12 @@ Source adapters (``latex`` / ``mathml`` / ``omml`` / ``mtef`` / ...) live in
 by an adapter, after normalisation, is the math IR itself — there is no
 separate IR-builder layer.
 
-Callers only need :func:`parse_math_tree`.
+In-subsystem callers only need :func:`parse_math_tree`. Outside the
+subsystem, import it from the :mod:`brailix.frontend` facade, which is where
+it carries a compatibility promise — this module path is internal like every
+path outside the facades and the extension surface (see the top-level
+:mod:`brailix` docstring), and "entry point" here means "what the pipeline
+calls into this subsystem through", not "published API".
 """
 
 from __future__ import annotations
