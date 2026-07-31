@@ -167,6 +167,61 @@ class TestStripNamespace:
         assert seen == depth
 
 
+class TestStripNamespaceNonElementNodes:
+    """A comment and a processing instruction are ``Element`` instances whose
+    ``tag`` is the factory *function* that built them, not a string. The walk
+    visits them like any other child, and ``node.tag.startswith("{")`` on one
+    raised ``AttributeError: 'function' object has no attribute 'startswith'``
+    — the one class of exception the soft-failure boundaries deliberately
+    re-raise, so it crashed the compile rather than degrading.
+
+    ``ET.fromstring`` drops both, so the string path never produced one; a
+    **pre-parsed** ``ET.Element`` is an equally supported way to hand a tree
+    to ``MathInline`` / ``MusicInline`` / ``GraphicInline``, and that path
+    strips namespaces on whatever the caller built.
+    """
+
+    def test_preserves_comment_nodes(self) -> None:
+        root = ET.Element("{urn:x}math")
+        comment = ET.Comment("source note")
+        root.append(comment)
+
+        strip_namespace(root)
+
+        assert root.tag == "math"
+        assert root[0] is comment
+        assert root[0].text == "source note"
+
+    def test_preserves_processing_instruction_nodes(self) -> None:
+        root = ET.Element("{urn:x}math")
+        pi = ET.ProcessingInstruction("target", "value")
+        root.append(pi)
+
+        strip_namespace(root)
+
+        assert root.tag == "math"
+        assert root[0] is pi
+
+    def test_still_strips_elements_below_a_comment(self) -> None:
+        # The comment must be stepped over, not treated as a stop sign: its
+        # siblings and its own children still get stripped.
+        root = ET.Element("{urn:x}math")
+        root.append(ET.Comment("note"))
+        ET.SubElement(root, "{urn:x}mi").text = "x"
+
+        strip_namespace(root)
+
+        assert [c.tag for c in root][1] == "mi"
+
+    def test_tree_carrying_a_comment_still_serializes(self) -> None:
+        # The point of not raising is that the tree stays usable: the IR
+        # round-trip serializes a stored tree with ``ET.tostring``.
+        root = ET.Element("{urn:x}math")
+        root.append(ET.Comment("note"))
+        strip_namespace(root)
+        assert ET.tostring(root, encoding="unicode") == "<math><!--note--></math>"
+
+
 class TestStripWhitespaceText:
     def test_nulls_pure_whitespace_text_and_tail(self) -> None:
         root = ET.fromstring("<r>\n  <a>x</a>\n  <b>y</b>\n</r>")
@@ -192,6 +247,26 @@ class TestStripWhitespaceText:
         while len(node):
             node = node[0]
         assert node.text is None  # deepest whitespace text nulled
+
+    def test_comment_body_is_not_nulled(self) -> None:
+        # A comment's ``text`` is its *body*, not markup content, so the
+        # whitespace rule does not apply to it — and nulling it made the tree
+        # unserializable: ``ET.tostring`` writes the body with no None
+        # handling, so a blank comment came out as a literal ``<!--None-->``.
+        root = ET.Element("r")
+        root.append(ET.Comment("   "))
+        strip_whitespace_text(root)
+        assert ET.tostring(root, encoding="unicode") == "<r><!--   --></r>"
+
+    def test_tail_beside_a_comment_is_still_nulled(self) -> None:
+        # The tail is ordinary inter-element whitespace, not part of the
+        # comment — the guard is on ``text`` only.
+        root = ET.fromstring("<r><a>x</a></r>")
+        comment = ET.Comment("note")
+        comment.tail = "\n  "
+        root.append(comment)
+        strip_whitespace_text(root)
+        assert root[1].tail is None
 
 
 class TestTreeDepthExceeds:

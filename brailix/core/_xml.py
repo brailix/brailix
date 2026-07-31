@@ -122,6 +122,29 @@ def strip_xml_invalid_chars(text: str) -> str:
     return _XML_INVALID_CHARS.sub("", text)
 
 
+# Not every node an ElementTree walk visits is an *element*. A comment and a
+# processing instruction are also ``Element`` instances and also children of
+# their parent, but their ``tag`` is the factory **function** that made them
+# (``ET.Comment`` / ``ET.ProcessingInstruction``) rather than a tag name, and
+# their ``text`` is the comment / instruction body rather than markup content.
+# So the two walkers below — which rewrite tags and null out whitespace text —
+# must recognise them and pass them by: ``node.tag.startswith("{")`` on a
+# comment raised ``AttributeError: 'function' object has no attribute
+# 'startswith'``, and nulling a whitespace-only comment's ``text`` made the
+# tree unserialisable (``ET.tostring`` wrote a literal ``<!--None-->``).
+#
+# ``ET.fromstring`` drops both node types, so the string path never produced
+# one — but a **pre-parsed** ``ET.Element`` is an equally supported way to hand
+# a tree to :class:`~brailix.ir.inline.MathInline` / ``MusicInline`` /
+# ``GraphicInline``, and that path strips namespaces on whatever the caller
+# built. An ``AttributeError`` there is also the one class of exception the
+# soft-failure boundaries deliberately re-raise (``PROGRAMMING_ERRORS``), so it
+# crashed the compile rather than degrading.
+#
+# Typeshed declares ``Element.tag`` as ``str``, so the ``isinstance`` guards
+# below read as redundant to a type checker; they are the runtime truth.
+
+
 def strip_namespace(elem: ET.Element) -> None:
     """Drop any ``{namespace}local`` Clark-notation prefix from every
     element tag, leaving the bare local name.
@@ -136,14 +159,18 @@ def strip_namespace(elem: ET.Element) -> None:
     namespace, so the generic strip is equivalent to a prefix-specific
     one for valid input while also tidying any stray foreign-namespaced
     tag a vendor might have left behind.
+
+    Comment and processing-instruction nodes are walked past untouched —
+    see the note above on why a tag is not always a string.
     """
     stack: list[ET.Element] = [elem]
     while stack:
         node = stack.pop()
-        if node.tag.startswith("{"):
-            close = node.tag.find("}")
+        tag = node.tag
+        if isinstance(tag, str) and tag.startswith("{"):
+            close = tag.find("}")
             if close != -1:
-                node.tag = node.tag[close + 1:]
+                node.tag = tag[close + 1:]
         stack.extend(node)
 
 
@@ -153,11 +180,20 @@ def strip_whitespace_text(elem: ET.Element) -> None:
 
     Iterative (explicit stack) for the same depth-safety as
     :func:`strip_namespace`.
+
+    A comment's / processing instruction's ``text`` is its *body*, not
+    markup content, so it is left alone (see the note above); the ``tail``
+    beside one is ordinary inter-element whitespace and is nulled like any
+    other.
     """
     stack: list[ET.Element] = [elem]
     while stack:
         node = stack.pop()
-        if node.text is not None and not node.text.strip():
+        if (
+            isinstance(node.tag, str)
+            and node.text is not None
+            and not node.text.strip()
+        ):
             node.text = None
         for child in node:
             if child.tail is not None and not child.tail.strip():
