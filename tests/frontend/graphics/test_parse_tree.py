@@ -1,4 +1,4 @@
-"""``parse_graphic_tree`` — the graphics frontend's single public entry.
+"""``parse_graphic_tree`` — the graphics subsystem's single parse entry point.
 
 The graphics counterpart of ``parse_math_tree`` / ``parse_music_tree``:
 adapter resolution + ``to_svg`` + normalisation behind one callable, with

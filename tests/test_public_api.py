@@ -897,6 +897,8 @@ _PUBLIC_WORDING_ALLOWED = {
     # The policy statement itself, and the errors it points at.
     "brailix/__init__.py",
     "brailix/core/__init__.py",
+    # This file: the checks below quote the phrase in order to ban it.
+    "tests/test_public_api.py",
     # ``parse_markdown`` / ``parse_docx`` / ``parse_doc`` ARE published — the
     # ``brailix.input`` facade re-exports each one — so naming them public
     # where they are defined is accurate. What is internal there is the
@@ -911,32 +913,59 @@ _PUBLIC_WORDING_ALLOWED = {
 _PUBLIC_WORDING = re.compile(r"public\s+entry\s+point", re.IGNORECASE)
 
 
-def test_no_internal_module_calls_its_entry_point_public() -> None:
-    """An internal module names its entry point by *scope*, not by "public".
+def _public_wording_offenders(root: Path) -> list[str]:
+    """``file:line: text`` for every line under ``root`` using the phrase.
 
-    Read as text, not as docstrings: the drift lived in section banners
+    Read as text, not as docstrings: the drift lives in section banners
     (``# Public entry points``) as much as in prose, and a banner is what a
     reader skims to.
     """
-    import importlib.util
-
-    spec = importlib.util.find_spec("brailix")
-    assert spec is not None and spec.origin is not None
-    package_root = Path(spec.origin).resolve().parent
     offenders: list[str] = []
-    for path in sorted(package_root.rglob("*.py")):
-        rel = path.relative_to(package_root.parent).as_posix()
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root.parent).as_posix()
         if rel in _PUBLIC_WORDING_ALLOWED:
             continue
         source = path.read_text(encoding="utf-8")
         for n, line in enumerate(source.splitlines(), 1):
             if _PUBLIC_WORDING.search(line):
                 offenders.append(f"{rel}:{n}: {line.strip()}")
+    return offenders
+
+
+def test_no_internal_module_calls_its_entry_point_public() -> None:
+    """An internal module names its entry point by *scope*, not by "public"."""
+    import importlib.util
+
+    spec = importlib.util.find_spec("brailix")
+    assert spec is not None and spec.origin is not None
+    offenders = _public_wording_offenders(Path(spec.origin).resolve().parent)
 
     assert not offenders, (
         "internal modules calling their entry point 'public' — everything "
         "outside the facades and the extension surface is internal, so say "
         "'subsystem entry point' / 'package entry point' instead:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_no_test_calls_an_internal_entry_point_public() -> None:
+    """The same word, held to the same meaning in the suite that tests it.
+
+    A test docstring is design documentation — often the *first* thing a
+    contributor reads about a seam, since it says what the seam is for and what
+    must stay true of it. So the drift the package check above pins came back in
+    through the tests: the cross-vertical soft-failure contract opened with
+    "math, music and graphics each expose one public parse entry", of which only
+    ``parse_math_tree`` is published at all. Read as an invitation, that
+    sentence argues for adding the other two to the facade "for symmetry" —
+    exactly the change the compatibility promise is meant to make deliberate.
+    """
+    offenders = _public_wording_offenders(Path(__file__).resolve().parent)
+
+    assert not offenders, (
+        "tests calling an internal entry point 'public' — a test docstring is "
+        "read as design documentation, so it has to use the same vocabulary "
+        "the package does ('subsystem entry point' / 'parse entry point'):\n  "
         + "\n  ".join(offenders)
     )
 
