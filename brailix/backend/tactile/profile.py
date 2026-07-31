@@ -21,12 +21,12 @@ independently replaceable component.
 from __future__ import annotations
 
 import json
-import math
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
 from brailix.core.errors import ConfigurationError
+from brailix.core.measure import as_positive_finite
 from brailix.core.paths import resolve_named_resource
 
 # resources/ lives at the package root: this file is
@@ -103,6 +103,14 @@ def _check_positive(value: Any, field: str, prefix: str = "") -> float:
     """``value`` as a ``float``, or :class:`ConfigurationError` if it is not a
     finite number greater than zero.
 
+    The arithmetic is :func:`brailix.core.measure.as_positive_finite`, shared
+    with :class:`~brailix.ir.tactile.TactileRaster`, which checks the same
+    measurements on a raster built in code. What stays here is the diagnosis:
+    a profile comes out of a JSON file, so a bad value is a *configuration*
+    error naming that file, not the ``ValueError`` a caller's own bad argument
+    earns. See that module for why each step is there; the rest of this
+    docstring records what the checks cost when they were missing.
+
     ``NaN`` and ``Infinity`` are the reason this is not a bare ``<= 0`` test.
     Both are ordinary ``float`` values that JSON can carry (Python's decoder
     accepts the ``NaN`` / ``Infinity`` literals by default), and both slip
@@ -115,22 +123,11 @@ def _check_positive(value: Any, field: str, prefix: str = "") -> float:
     ``bool`` is refused for the neighbouring reason: it is an ``int`` subclass,
     so ``"dpi": true`` would quietly resolve to a 1-DPI profile.
     """
-    where = f"{prefix}tactile profile field {field!r}"
-    if isinstance(value, bool):
-        raise ConfigurationError(f"{where} must be a number, got {value!r}")
-    try:
-        num = float(value)
-    except (TypeError, ValueError):
-        raise ConfigurationError(
-            f"{where} must be a number, got {value!r}"
-        ) from None
-    if not math.isfinite(num):
-        raise ConfigurationError(
-            f"{where} must be a finite number, got {num}"
-        )
-    if num <= 0:
-        raise ConfigurationError(f"{where} must be > 0, got {num}")
-    return num
+    return as_positive_finite(
+        value,
+        f"{prefix}tactile profile field {field!r}",
+        error=ConfigurationError,
+    )
 
 
 def _require_positive(value: Any, field: str, path: Path) -> float:

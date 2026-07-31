@@ -186,6 +186,39 @@ class TestPhysicalFieldsAreChecked:
     def test_supported_bit_depths_are_accepted(self, bit_depth):
         assert self._build(bit_depth=bit_depth).bit_depth == bit_depth
 
+    @pytest.mark.parametrize(
+        "data", [None, False, 0, [], {}, set(), ""]
+    )
+    def test_a_falsy_non_grid_is_refused_instead_of_blanked(self, data):
+        # ``if not self.data`` was the whole test for "omitted", and every one
+        # of these is falsy: each was silently rewritten into a blank grid of
+        # the right size, so the construction *succeeded* and handed the caller
+        # an all-flat page. That is the dangerous direction — an embosser run
+        # comes back empty with nothing upstream reporting a fault — and it is
+        # exactly what an unset variable or a deserialiser returning ``None``
+        # for a missing key produces.
+        with pytest.raises(ValueError, match="data"):
+            self._build(data=data)
+
+    @pytest.mark.parametrize("data", [object(), 4, 1.5, "abcd", [0, 0, 0, 0]])
+    def test_a_non_grid_is_refused_by_type_and_names_the_field(self, data):
+        # The other half of the old test's blind spot: a non-falsy value went
+        # straight to ``len()``, which raised a bare ``TypeError: object of
+        # type 'object' has no len()`` — an error naming neither the field nor
+        # the raster — or, for the right-length ``str`` / ``list``, reached
+        # ``bytearray(...)`` and raised there instead. ``data`` is a grid or it
+        # is a ValueError that says so.
+        with pytest.raises(ValueError, match="data"):
+            self._build(data=data)
+
+    def test_a_memoryview_is_accepted_and_copied(self):
+        source = bytearray(4)
+        r = self._build(data=memoryview(source))
+        assert isinstance(r.data, bytearray)
+        r.set_raise(0, 0, 255)
+        assert r.get(0, 0) == 255
+        assert source == bytearray(4)  # the caller's buffer untouched
+
     def test_readonly_data_becomes_a_writable_copy(self):
         source = b"\x00\x00\x00\x00"
         r = self._build(data=source)
