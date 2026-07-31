@@ -1,9 +1,26 @@
-"""Renderer layer: BrailleIR → final output.
+"""Renderer layer: output-domain IR → encoded output.
 
-Renderers do not understand Chinese, math, or any source language —
-they only convert :class:`~brailix.ir.braille.BrailleCell` instances
-into a target encoding (Unicode braille, BRF, cells, layout,
-...).
+Renderers do not understand Chinese, math, or any source language — a
+renderer is a dumb encoder that turns one **output-domain IR** into
+bytes or text. There are two such domains, and both live in this one
+package behind the single
+:class:`~brailix.core.protocols.Renderer` protocol:
+
+* **braille** — a :class:`~brailix.ir.braille.BrailleDocument` /
+  :class:`~brailix.ir.braille.BrailleSequence` of
+  :class:`~brailix.ir.braille.BrailleCell` into Unicode braille
+  (``unicode``), BRF (``brf``), a dot array (``cells``) or a laid-out
+  page (``layout``);
+* **tactile_raster** — a :class:`~brailix.ir.tactile.TactileRaster` into
+  an embossable image (``bmp`` / ``png`` / ``pdf``) or a
+  refreshable-display preview (``tactile_preview``).
+
+A renderer says which one it reads through a ``consumes`` attribute
+(``"braille"`` when it doesn't say, which is what keeps the braille
+renderers that predate the attribute valid), and the result object
+checks that before handing over its IR — see
+:func:`braille_renderer_names` and
+:class:`~brailix.pipeline.GraphicResult`.
 
 Selection happens by name through :data:`renderer_registry`. Each
 renderer module self-registers via a loader so the registry stays
@@ -16,7 +33,9 @@ populated even on a bare install:
 Adding a new renderer means writing one module under
 ``brailix/renderer/`` with a class that satisfies the
 :class:`~brailix.core.protocols.Renderer` protocol, and calling
-``renderer_registry.register(name, loader)``.
+``renderer_registry.register(name, loader)`` — plus, for anything that
+does not read a braille IR, declaring the domain it does read
+(``consumes = "tactile_raster"``).
 """
 
 from __future__ import annotations

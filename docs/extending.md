@@ -105,7 +105,7 @@ An input adapter reads one document format and returns a `DocumentIR` with block
 
 ## Add a renderer
 
-A renderer encodes a braille IR into a concrete output and understands no source language. The protocol is `Renderer`: a `name` and `render(bir) -> Any` (the return type is deliberately open — a string, bytes, a cell list, HTML, or JSON). Register a loader with `renderer_registry` from `brailix.renderer`:
+A renderer is the dumb encoder at the end of the pipeline: it turns one *output-domain IR* into a concrete output and understands no source language. The protocol is `Renderer`: a `name` and `render(ir) -> Any` (the return type is deliberately open — a string, bytes, a cell list, HTML, or JSON). Register a loader with `renderer_registry` from `brailix.renderer`:
 
 ```python
 from brailix.renderer import renderer_registry
@@ -119,6 +119,28 @@ renderer_registry.register("pef", lambda: PefRenderer())
 ```
 
 Select it with `result.render("pef")`.
+
+**Say which IR you consume.** One registry holds the renderers of both output domains, so a renderer declares the IR it reads through a `consumes` attribute:
+
+| `consumes` | Input IR | Built-in renderers | Reached from |
+|---|---|---|---|
+| `"braille"` (the default) | `BrailleDocument` / `BrailleSequence` of `BrailleCell` | `unicode`, `brf`, `cells`, `layout` | `TranslationResult.render(...)` |
+| `"tactile_raster"` | `TactileRaster` (a grid of raise levels) | `bmp`, `png`, `pdf`, `tactile_preview` | `GraphicResult.render(...)`, `TactilePageResult.render(...)` |
+
+`PefRenderer` above omits the attribute, which means `"braille"` — that default is what keeps a renderer written before the tactile domain existed valid. A renderer for the other domain says so:
+
+```python
+class SwellRenderer:
+    name = "swell"
+    consumes = "tactile_raster"          # not a braille IR
+
+    def render(self, raster):
+        return _to_swell_bytes(raster)   # raster.width / .height / .data
+
+renderer_registry.register("swell", lambda: SwellRenderer())
+```
+
+Each result object checks that declaration before handing over its IR, so a domain mismatch is an `IncompatibleRendererError` naming both sides rather than a crash inside your `render`. It is also what a braille-only front-end filters on: `brailix --list-renderers` and `--to` offer the `"braille"` renderers only, since a text translation has no raster to give a tactile one.
 
 ## Add a braille profile (a new standard)
 

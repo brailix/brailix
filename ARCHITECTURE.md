@@ -6,9 +6,9 @@
 
 ## 1. What brailix is
 
-`brailix` is a **braille compiler**: it takes text or documents from any source, runs them through frontend structural analysis, a unified intermediate representation (IR), and a pluggable braille backend, and finally emits Unicode Braille, BRF, a dot array, or a laid-out braille page.
+`brailix` is a **braille compiler**: it takes text or documents from any source, runs them through frontend structural analysis, a unified intermediate representation (IR), and a pluggable backend, and compiles them into something a hand can read. There are two output domains: text, mathematics and music compile to **braille** (Unicode Braille, BRF, a dot array, or a laid-out braille page), and vector graphics rasterize to a **tactile image** (an embossable BMP, PNG or PDF, or a preview on a refreshable display).
 
-**Scope.** `brailix` is exactly the *compilation path* — text → IR → braille. A generic `Pipeline.translate_block(ir_transformer=...)` hook lets a front-end insert its own IR transform between the frontend and the backend, so a CLI, a server, a textbook-publishing system, or an editing UI can build its own features on top of the compiler core. That keeps `brailix` usable as a standalone library.
+**Scope.** `brailix` is exactly the *compilation path* — source → semantic IR → output-domain IR → encoded output. A generic `Pipeline.translate_block(ir_transformer=...)` hook lets a front-end insert its own IR transform between the frontend and the backend, so a CLI, a server, a textbook-publishing system, or an editing UI can build its own features on top of the compiler core. That keeps `brailix` usable as a standalone library.
 
 Design goals:
 
@@ -117,7 +117,9 @@ into a `BrailleDocument` (a cell sequence); a tactile graphic's SVG tree rasteri
 `TactileRaster` (a dot grid). Both are *output-domain IR* — the backend's product and the
 renderer's input — and each is encoded to bytes by the renderers that understand it. Both
 sets of renderers share one `renderer_registry`, each self-describing what it takes via
-`consumes` (a mismatch is an `IncompatibleRendererError`). So braille is not the pipeline's
+`consumes` — saying nothing means `"braille"`, a tactile renderer says
+`"tactile_raster"`, and the result object compares the two before handing over its IR (a
+mismatch is an `IncompatibleRendererError`). So braille is not the pipeline's
 only terminus, just one of its output domains: a new product vertical is added by
 introducing another output-domain IR plus the renderers that read it, never as a special
 case outside the layers.
@@ -128,7 +130,7 @@ Each layer answers exactly one question:
 |---|---|
 | Frontend | what each piece of input *is* |
 | IR | how that meaning is structured |
-| Backend | how the rules write it in braille |
+| Backend | how the rules write it (cells, or raised dots) |
 | Renderer | what bytes it becomes |
 
 **The input/frontend boundary.** Input answers only "what blocks does this document have, and where is the raw content": it cracks open containers (the `.docx` OOXML and OLE, the `.mxl` ZIP), picks a parser by file identity (suffix or content sniff), and yields a `DocumentIR` of block structure with inline content still raw text. Frontend answers "what each inline region is": it translates a known source dialect (LaTeX, MathML, OMML, MTEF, MIDI, ...) into normalized IR (a MathML or MusicXML tree), picking an adapter by context and soft-failing to `<merror>` / `<music-error>`. Both parse source formats; the dividing line is **payload shape**, not timing:

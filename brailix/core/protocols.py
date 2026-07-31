@@ -371,7 +371,8 @@ class Renderer(Protocol):
     :class:`BrailleDocument` (block-structured) or :class:`BrailleSequence`
     (flat) — for the braille renderers (``unicode`` / ``brf`` / ``cells`` /
     ``layout``), or a :class:`~brailix.ir.tactile.TactileRaster` for the
-    tactile-graphics renderers (``bmp`` / ``png`` / ``tactile_preview``).
+    tactile-graphics renderers (``bmp`` / ``png`` / ``pdf`` /
+    ``tactile_preview``).
     Both kinds share the one ``renderer_registry`` and this single protocol;
     each result type passes its own IR to the renderer it names (a braille
     :class:`~brailix.pipeline.TranslationResult` to a braille renderer, a
