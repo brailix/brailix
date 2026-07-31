@@ -73,6 +73,7 @@ from brailix.backend.tactile.page import (
     line_width_cells,
 )
 from brailix.backend.tactile.profile import TactileProfile
+from brailix.core._xml import tree_depth_exceeds
 from brailix.core.errors import WarningCollector
 from brailix.ir.braille import BrailleCell
 from brailix.ir.tactile import TactileRaster
@@ -108,6 +109,24 @@ _UNIT_MM: dict[str, float] = {
 }
 
 _MM_PER_INCH = 25.4
+
+# An SVG tree deeper than this overflows :func:`_walk`, which recurses through
+# every container element (``<g>``, ``<svg>``, ``<symbol>``...). Real drawings
+# nest well under this; a corrupt / adversarial tree past the cap degrades to a
+# blank raster plus one ``GRAPHICS_SOFT_FAIL`` — the same outcome the frontend
+# normalizer's own guard produces — instead of raising ``RecursionError``
+# through :func:`rasterize`'s "never raises" contract. The depth probe is
+# iterative, so the guard is itself depth-safe.
+#
+# The frontend normalizer caps depth too, and this is not redundant with it: a
+# tree reaches the backend without passing the normalizer whenever it comes off
+# a ``.blx`` round-trip (``GraphicInline.svg`` is re-parsed straight from its
+# serialized string) or out of a directly-constructed ``GraphicInline``, which
+# is exactly the gap that made a 6000-level ``<g>`` chain crash here. Its own
+# constant rather than an import of the frontend's: the backend does not depend
+# on the frontend (ARCHITECTURE#arch-layers), the same way ``backend.math``
+# keeps a cap beside the MathML normalizer's.
+_MAX_TREE_DEPTH = 200
 
 
 def _finite_positive(value: float, fallback: float) -> float:
@@ -854,12 +873,26 @@ def rasterize(
     injected so the backend never imports the text frontend) turns
     ``<text>`` labels into braille dots; without it, labels are warned and
     skipped. Diagnostics go to ``warnings`` when provided; the function
-    never raises on bad geometry.
+    never raises on bad geometry — nor on tree *depth*, which a tree arriving
+    from a ``.blx`` round-trip rather than from the normalizer can carry past
+    :data:`_MAX_TREE_DEPTH`: the drawing degrades to a blank page of the right
+    physical size.
     """
     if svg_root.get("data-bk-error") is not None and warnings is not None:
         warnings.error(
             code="GRAPHICS_SOFT_FAIL",
             message=f"graphic could not be parsed: {svg_root.get('data-bk-error')}",
+            source="backend.tactile",
+        )
+
+    too_deep = tree_depth_exceeds(svg_root, _MAX_TREE_DEPTH)
+    if too_deep and warnings is not None:
+        warnings.error(
+            code="GRAPHICS_SOFT_FAIL",
+            message=(
+                f"drawing nested deeper than {_MAX_TREE_DEPTH} levels; "
+                f"not rendered"
+            ),
             source="backend.tactile",
         )
 
@@ -931,10 +964,13 @@ def rasterize(
         labels=[],
         boxes=[],
     )
-    _walk(svg_root, raster, state, min_radius, None)
+    if not too_deep:
+        _walk(svg_root, raster, state, min_radius, None)
     # BANA touch-separability diagnostics (detection only — never moves the
     # author's geometry): element-to-element spacing, then the deferred labels
-    # (label-vs-figure / label-vs-label overlap) which also paints them.
+    # (label-vs-figure / label-vs-label overlap) which also paints them. A
+    # skipped walk leaves both collections empty, so they run as no-ops and the
+    # blank raster still comes back with its geometry and provenance set up.
     feature_px = max(1, round(profile.min_feature_spacing_mm * ppm))
     _check_spacing(
         state.boxes, feature_px, profile.min_feature_spacing_mm, ppm, warnings
