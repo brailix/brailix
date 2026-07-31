@@ -64,6 +64,21 @@ not qualify: it is kept raw and deferred to the frontend
 importing no frontend from the input layer. A *new* input format that reaches
 for the frontend fails here and has to justify the entry.
 
+**The source graph is not the runtime graph**, and only one of them is what a
+consumer gets. Every check above reads import statements inside a layer
+directory, while Python runs a package's ``__init__`` before any of its
+submodules — so ``brailix/__init__.py``, which is not a layer and which nothing
+here scans, could reconnect the whole compiler behind ``import brailix.ir``
+with every rule below still satisfied. It did exactly that: the root facade
+imported :mod:`brailix.pipeline` eagerly, so importing the neutral mediator
+layer that promises to load carrying core primitives alone pulled in the
+frontend, the backend, the renderers and the input layer — 135 modules for a
+package whose own ``__init__`` names two — and this file went on reporting a
+one-directional matrix.
+:func:`test_importing_a_layer_loads_only_what_it_may_import` asks the question
+an AST pass cannot answer: it imports each layer in a *fresh* interpreter and
+holds the resulting ``sys.modules`` to the same matrix.
+
 **What it does not cover**, said plainly, because "the layers are clean" is
 easy to read as "the repository is clean". Two things are outside the scan by
 design, and each would be a category error to include:
@@ -84,7 +99,12 @@ this file is silent rather than reassuring.
 from __future__ import annotations
 
 import ast
+import os
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 _PKG = Path(__file__).resolve().parents[1] / "brailix"
 
@@ -546,6 +566,115 @@ def test_no_guarded_layer_imports_the_root_package() -> None:
         "(``brailix.core`` / ``brailix.ir``) instead, so the edge is written "
         "down where this guard can read it:\n" + "\n".join(offenders)
     )
+
+
+# ---------------------------------------------------------------------------
+# The same matrix, asked of a running interpreter
+# ---------------------------------------------------------------------------
+
+
+def _runtime_closure(layer: str) -> frozenset[str]:
+    """Every layer ``brailix.<layer>`` may end up loading, from the matrix.
+
+    Transitive, because loading is: ``input`` may import ``frontend``, so
+    whatever ``frontend`` may import is fair game too. Derived from
+    :data:`_ALLOWED_EDGES` for the same reason the bans are — a closure written
+    out by hand is a second copy of the rule, and the copies drift.
+
+    It is a *permission*, not a prediction: ``core`` may name ``ir`` and does
+    not import it at runtime, which is checked separately and stays true here
+    because the assertion below is "nothing outside the closure", never
+    "everything in it".
+    """
+    seen = {layer}
+    stack = [layer]
+    while stack:
+        for nxt in _ALLOWED_EDGES[stack.pop()]:
+            if nxt not in seen:
+                seen.add(nxt)
+                stack.append(nxt)
+    return frozenset(seen)
+
+
+def _layers_loaded_by(module: str) -> set[str]:
+    """The brailix layers a **fresh** interpreter loads for ``import module``.
+
+    A subprocess, not this one: by the time any test runs, pytest has imported
+    the whole library, so ``sys.modules`` here answers a different question
+    than the one being asked. ``PYTHONPATH`` points at the package's own parent
+    so the working tree is what gets imported, installed or not.
+    """
+    code = (
+        f"import {module}, sys\n"
+        "print(' '.join(sorted({m.split('.')[1] for m in sys.modules "
+        "if m.startswith('brailix.')})))\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(_PKG.parent)},
+        check=False,
+    )
+    assert proc.returncode == 0, (
+        f"a fresh interpreter could not `import {module}`:\n{proc.stderr}"
+    )
+    return set(proc.stdout.split())
+
+
+def test_importing_the_root_package_loads_no_layer() -> None:
+    """``import brailix`` is the facade and nothing else.
+
+    Every published name resolves lazily (PEP 562, ``brailix.__getattr__``),
+    so the cost of touching the package is this one module — and, more to the
+    point, the cost of ``import brailix.ir`` is not the whole compiler, since
+    that runs this ``__init__`` first. The facade used to import
+    :mod:`brailix.pipeline`, which imports every layer there is.
+    """
+    loaded = _layers_loaded_by("brailix")
+    assert not loaded, (
+        f"importing the root package loaded {sorted(loaded)} — every name in "
+        f"``brailix.__all__`` must resolve through ``__getattr__``, or a "
+        f"consumer of any single layer pays for all of them (and the layer "
+        f"boundaries hold only in the source)"
+    )
+
+
+@pytest.mark.parametrize("layer", sorted(set(_LAYERS) - {"pipeline"}))
+def test_importing_a_layer_loads_only_what_it_may_import(layer: str) -> None:
+    """A layer, imported on its own, drags in nothing the matrix forbids it.
+
+    This is the promise the file's docstring makes in prose — "loadable on its
+    own, in an editor, an alternate compiler, or another process" — measured
+    rather than inferred. The AST sweep above cannot make it: it reads the
+    layer's own imports, and what a *parent package* runs on the way in is
+    invisible to it.
+
+    ``pipeline`` is excluded because it may import everything, so the check
+    would assert nothing.
+    """
+    allowed = _runtime_closure(layer)
+    loaded = _layers_loaded_by(f"brailix.{layer}")
+    forbidden = sorted(loaded - allowed)
+    assert not forbidden, (
+        f"`import brailix.{layer}` also loaded {forbidden} in a fresh "
+        f"interpreter, which the matrix does not allow it to import "
+        f"(allowed: {sorted(allowed)}). The edge is probably not in "
+        f"brailix/{layer}/ at all — check what brailix/__init__.py imports, "
+        f"since it runs first."
+    )
+
+
+def test_the_runtime_closure_is_derived_from_the_matrix() -> None:
+    """The derivation itself, so a mistake in it cannot silently widen the
+    check above into one that permits everything."""
+    assert _runtime_closure("ir") == frozenset({"ir", "core"})
+    assert _runtime_closure("renderer") == frozenset({"renderer", "core", "ir"})
+    # Transitive: input may take frontend, so it may take frontend's own edges.
+    assert _runtime_closure("input") == frozenset(
+        {"input", "core", "ir", "frontend"}
+    )
+    assert "pipeline" not in _runtime_closure("backend")
 
 
 def test_core_does_not_import_ir_at_runtime() -> None:

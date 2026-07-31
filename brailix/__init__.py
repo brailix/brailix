@@ -1,8 +1,11 @@
 """brailix: a pluggable braille compiler.
 
-Turn a document into braille, and keep every step of it inspectable.
-:class:`Pipeline` is the entry point: give it a braille standard (a
-*profile*) and hand it text, a parsed document, or a file.
+Turn a document into braille — or a drawing into an embossable tactile
+page — and keep every step of it inspectable. :class:`Pipeline` is the
+entry point for text: give it a braille standard (a *profile*) and hand it
+text, a parsed document, or a file. :func:`translate_graphic` is the entry
+point for a figure, and takes no braille standard at all: its product is a
+raised-dot raster rather than cells.
 
     from brailix import Pipeline
 
@@ -55,9 +58,27 @@ are re-exported here.
 
 Each facade's ``__all__`` **is** the promise, and it is pinned by an exact
 manifest in the test suite: a name cannot go missing without failing a
-test, and cannot quietly become public without a deliberate edit. That is
-also what this reference is generated from, so what you read here and what
-the library supports cannot drift apart.
+test, and cannot quietly become public without a deliberate edit — the
+manifest is checked for exact equality, and a facade's namespace is checked
+too, so a brailix name cannot merely *resolve* there without being
+published. That manifest is also what this reference is generated from, so
+what you read here and what the library supports cannot drift apart.
+
+Importing this package costs nothing but this module. Every name above is
+resolved **lazily**, on first attribute access (PEP 562): ``import brailix``
+loads no layer at all, and ``from brailix import Pipeline`` is what pulls in
+the orchestrator and everything under it. That is not a startup micro-
+optimisation — it is what keeps the layering real at runtime. Python runs a
+package's ``__init__`` before any of its submodules, so while this file
+imported :mod:`brailix.pipeline` eagerly, ``import brailix.ir`` — the neutral
+mediator layer that promises to load carrying core primitives alone — first
+executed *this* file, and with it the frontend, the backend, the renderers
+and the input layer. The dependency matrix was one-directional in the source
+and reconnected into the whole compiler at import time, and the AST guard
+that checks the matrix walks the layer directories, so it never saw the edge
+a facade added. ``tests/test_core_layering.py`` now also asserts the real
+``sys.modules`` set from a fresh interpreter, which is the only place that
+question has an honest answer.
 
 The extension surface
 ---------------------
@@ -90,28 +111,42 @@ guide is the how-to; everything else under those subsystems (the concrete
 adapters, the normalizers, the dispatch tables) remains internal.
 """
 
+from __future__ import annotations
+
+# Bound under private names on purpose: this is the namespace the whole
+# library is read through, and every plain binding here tab-completes beside
+# ``Pipeline`` as if it were part of the surface.
+from importlib import import_module as _import_module
+from typing import TYPE_CHECKING
+
 __version__ = "0.1.0"
 
-from brailix.backend.tactile.profile import (  # noqa: E402
-    TactileProfile,
-    list_tactile_profiles,
-    load_tactile_profile,
-)
-from brailix.input import (  # noqa: E402
-    DEFAULT_INPUT_LIMITS,
-    InputLimits,
-    InputTooLargeError,
-)
-from brailix.pipeline import (  # noqa: E402
-    CompiledBlock,
-    GraphicResult,
-    Pipeline,
-    TactilePageResult,
-    TranslationResult,
-    TreeSubcache,
-    block_hash,
-    translate_graphic,
-)
+if TYPE_CHECKING:
+    # For type checkers and IDEs only. At runtime these names arrive through
+    # ``__getattr__`` below, from the very same modules — the table under
+    # ``_EXPORTS`` is what makes the two spellings one fact.
+    from typing import Any
+
+    from brailix.backend.tactile.profile import (
+        TactileProfile,
+        list_tactile_profiles,
+        load_tactile_profile,
+    )
+    from brailix.input import (
+        DEFAULT_INPUT_LIMITS,
+        InputLimits,
+        InputTooLargeError,
+    )
+    from brailix.pipeline import (
+        CompiledBlock,
+        GraphicResult,
+        Pipeline,
+        TactilePageResult,
+        TranslationResult,
+        TreeSubcache,
+        block_hash,
+        translate_graphic,
+    )
 
 # Every type a public entry point hands back — or takes — is nameable from
 # here. ``translate_graphic`` returns a GraphicResult and
@@ -141,3 +176,53 @@ __all__ = [
     "InputTooLargeError",
     "DEFAULT_INPUT_LIMITS",
 ]
+
+# Where each published name really lives. The one table both halves above read
+# from: the ``TYPE_CHECKING`` block spells it for a checker, ``__getattr__``
+# resolves it at runtime, and ``tests/test_public_api.py`` checks it covers
+# ``__all__`` exactly — so a name cannot be published here and left
+# unresolvable, or resolvable and unpublished.
+_EXPORTS: dict[str, str] = {
+    "Pipeline": "brailix.pipeline",
+    "translate_graphic": "brailix.pipeline",
+    "TranslationResult": "brailix.pipeline",
+    "GraphicResult": "brailix.pipeline",
+    "TactilePageResult": "brailix.pipeline",
+    "CompiledBlock": "brailix.pipeline",
+    "TreeSubcache": "brailix.pipeline",
+    "block_hash": "brailix.pipeline",
+    "TactileProfile": "brailix.backend.tactile.profile",
+    "load_tactile_profile": "brailix.backend.tactile.profile",
+    "list_tactile_profiles": "brailix.backend.tactile.profile",
+    "InputLimits": "brailix.input",
+    "InputTooLargeError": "brailix.input",
+    "DEFAULT_INPUT_LIMITS": "brailix.input",
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a published name on first access (PEP 562).
+
+    This is what makes the facade free to import: the module it names is
+    imported here, at the moment somebody asks for the name, instead of when
+    this file runs. See "The public surface" above for why that matters — a
+    package's ``__init__`` runs ahead of every submodule, so an eager import
+    here put the whole compiler behind ``import brailix.ir``.
+
+    The resolved object is written into this module's globals, so the lookup
+    happens once per name: ``__getattr__`` is consulted only for attributes
+    the module does not already have.
+    """
+    module = _EXPORTS.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(_import_module(module), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    """``dir(brailix)`` lists the published names whether or not they have
+    been touched yet — otherwise a fresh interpreter's tab-completion would
+    show a shorter surface than a warm one's."""
+    return sorted(set(globals()) | set(_EXPORTS))
