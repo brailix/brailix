@@ -15,6 +15,7 @@ import zipfile
 import pytest
 
 from brailix.core.context import MusicContext
+from brailix.core.errors import UNREADABLE_ZIP_MEMBER_ERRORS
 from brailix.frontend.music import parse_music_tree
 
 # ---------------------------------------------------------------------------
@@ -459,6 +460,32 @@ class TestMxlUnreadableArchives:
         ctx = MusicContext(profile="cn_current", source="mxl")
         with pytest.raises(AttributeError):
             parse_music_tree(buf.getvalue(), ctx)
+
+    @pytest.mark.parametrize(
+        "exc",
+        [t("boom") for t in UNREADABLE_ZIP_MEMBER_ERRORS],
+        ids=[t.__name__ for t in UNREADABLE_ZIP_MEMBER_ERRORS],
+    )
+    def test_every_classified_error_degrades(self, monkeypatch, exc):
+        """*Which* exceptions mean "unreadable member" is one shared fact
+        (:data:`~brailix.core.errors.UNREADABLE_ZIP_MEMBER_ERRORS`); the two
+        ZIP containers act on it differently — this vertical soft-fails, the
+        ``.docx`` input boundary raises ``ParseError``. Both sides are pinned
+        against the tuple, so a type added to it cannot land honoured on one
+        side and forgotten on the other, which is how the ``.docx`` preflight
+        came to catch only ``BadZipFile``."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("score.xml", b"<score-partwise/>")
+
+        def _boom(self, name, *args, **kwargs):
+            raise exc
+
+        monkeypatch.setattr(zipfile.ZipFile, "open", _boom)
+        ctx = MusicContext(profile="cn_current", source="mxl")
+        tree = parse_music_tree(buf.getvalue(), ctx)
+        assert tree is not None
+        assert _has_music_error(tree)
 
     def test_ambiguous_duration_warns_and_skips(self):
         # divisions=2, duration=3 → dotted quarter: not a plain type.

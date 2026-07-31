@@ -7,6 +7,7 @@ mode promotes warnings to :class:`StrictModeError`.
 
 from __future__ import annotations
 
+import zlib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from enum import Enum
@@ -297,6 +298,48 @@ CANDIDATE_UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (
     # Installed, but alongside a dependency version known to break it at
     # runtime — selecting it would crash on first use, so skip it up front.
     IncompatibleDependencyError,
+)
+
+
+# ---------------------------------------------------------------------------
+# Unreadable-archive classification (ZIP container boundaries)
+# ---------------------------------------------------------------------------
+
+# What ``zipfile`` raises *besides* ``BadZipFile`` when the archive opens but a
+# member cannot be read. ``BadZipFile`` covers "this is not a zip / the
+# directory is broken"; these cover "the directory is fine, this member is
+# not", and every one of them is a property of the **input**, so a container
+# adapter owes its caller its own error (a ``ParseError``, a soft failure) for
+# each rather than letting a standard-library type escape.
+#
+# It lives here for the same reason :data:`CANDIDATE_UNAVAILABLE_ERRORS` does:
+# there is more than one ZIP container in the tree — ``.docx`` (input layer)
+# and ``.mxl`` (music frontend) — and *which exceptions mean "unreadable
+# member"* is one fact about ``zipfile``, not a per-adapter opinion. Written
+# out twice it drifted immediately: ``.mxl`` classified all five while the
+# ``.docx`` preflight caught only ``BadZipFile``, so an encrypted or
+# exotically-compressed ``.docx`` leaked a raw ``RuntimeError`` /
+# ``NotImplementedError`` / ``zlib.error`` past ``parse_docx``'s documented
+# "malformed OOXML → ParseError" surface.
+#
+# Only the *tuple* is shared. Each adapter keeps its own read loop, its own
+# size budget, its own rootfile logic and its own failure mode (``.docx``
+# raises, ``.mxl`` soft-fails into a ``<music-error>``) — a common "generic
+# unzipper" would weld two formats with genuinely different policies together.
+#
+# Deliberately NOT ``Exception``: an ``AttributeError`` / ``KeyError`` from a
+# regression inside the adapter itself must stay a loud crash, not be
+# relabelled "unreadable archive" (:data:`PROGRAMMING_ERRORS`).
+UNREADABLE_ZIP_MEMBER_ERRORS: tuple[type[Exception], ...] = (
+    # A corrupt deflate stream.
+    zlib.error,
+    # An encrypted member, with no password supplied.
+    RuntimeError,
+    # A compression method zipfile does not implement.
+    NotImplementedError,
+    # A truncated or otherwise malformed member stream.
+    EOFError,
+    ValueError,
 )
 
 

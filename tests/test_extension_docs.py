@@ -123,7 +123,7 @@ def test_every_source_adapter_method_is_documented(protocol_name: str) -> None:
 
 def test_the_frontend_subsystem_table_matches_reality() -> None:
     """``brailix.frontend``'s module docstring tabulates each subsystem's
-    single public entry point. It is the map an extender reads before deciding
+    single entry point. It is the map an extender reads before deciding
     where their adapter plugs in, and it had drifted both ways: it listed
     entries this facade does not export (reading as if it described
     ``brailix.frontend``'s own surface), while the graphics subsystem — a

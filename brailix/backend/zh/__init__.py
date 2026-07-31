@@ -37,7 +37,7 @@ from brailix.ir.inline import HanziChar, HanziMarker, Word
 _YEAR_MARKER = "年"
 
 # ---------------------------------------------------------------------------
-# Public entry points
+# Package entry points
 # ---------------------------------------------------------------------------
 
 

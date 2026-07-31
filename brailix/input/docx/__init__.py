@@ -59,8 +59,13 @@ Subpackage layout
     The adapter is split into cohesive helper modules, with the
     orchestration (public entry points + the LibreOffice converter
     resolution that tests monkeypatch) kept here in the package
-    ``__init__`` so ``brailix.input.docx.<name>`` stays the stable
-    namespace:
+    ``__init__`` so ``brailix.input.docx.<name>`` stays put as the split
+    grows. That is an in-repo convenience — it is what lets the tests
+    patch one namespace — not a compatibility promise: :func:`parse_docx`
+    and :func:`parse_doc` are supported API at the :mod:`brailix.input`
+    facade that re-exports them, and *this* path is internal like every
+    path outside the facades (see the top-level :mod:`brailix` docstring).
+    Layout:
 
     * :mod:`._xml`    — OOXML namespace constants + low-level XML / tag
       / serialisation helpers (the DAG leaf).
@@ -89,7 +94,11 @@ from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
-from brailix.core.errors import MissingExtraError, ParseError
+from brailix.core.errors import (
+    UNREADABLE_ZIP_MEMBER_ERRORS,
+    MissingExtraError,
+    ParseError,
+)
 from brailix.input.docx._blocks import _iter_body_blocks
 from brailix.input.docx._media import _build_image_blob_map
 from brailix.input.docx._ole import _build_ole_blob_map, _is_equation_ole
@@ -175,6 +184,17 @@ def _preflight_docx_archive(data: bytes, p: Path) -> None:
     non-ZIP / corrupt blob is *not* rejected here: it falls through so the
     ``Document(...)`` call below raises the canonical "not a valid .docx"
     :class:`ParseError` with its usual message, keeping one error surface.
+
+    An archive whose *directory* is fine but whose member cannot be read is a
+    different case, and one this had to start converting: reading a member is
+    exactly what this function does, so it — not python-docx — is where an
+    encrypted entry (``RuntimeError``), an unimplemented compression method
+    (``NotImplementedError``) or a corrupt deflate stream (``zlib.error``)
+    surfaces, and each escaped ``parse_docx`` raw, past the documented
+    "malformed OOXML → ``ParseError``" surface and past every caller catching
+    :class:`~brailix.core.errors.BrailixError`. The classification is shared
+    with the ``.mxl`` reader, which had the full set while this had one
+    (:data:`~brailix.core.errors.UNREADABLE_ZIP_MEMBER_ERRORS`).
     """
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
@@ -205,6 +225,12 @@ def _preflight_docx_archive(data: bytes, p: Path) -> None:
                             )
     except zipfile.BadZipFile:
         return  # not a zip → Document() raises the canonical ParseError
+    except UNREADABLE_ZIP_MEMBER_ERRORS as e:
+        # A ParseError raised by the caps above is not caught here: it is a
+        # BrailixError, not a ValueError.
+        raise ParseError(
+            f"not a valid .docx file: {p} (unreadable archive member: {e})"
+        ) from e
 
 
 # ---------------------------------------------------------------------------

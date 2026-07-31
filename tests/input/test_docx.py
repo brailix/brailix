@@ -11,7 +11,9 @@ the adapter is gated on the ``docx`` extras group.
 from __future__ import annotations
 
 import re
+import struct
 import zipfile
+import zlib
 from pathlib import Path
 
 import pytest
@@ -24,7 +26,10 @@ from lxml import etree  # noqa: E402
 
 import brailix.input.docx as docx_adapter  # noqa: E402
 from brailix.core import inline_math  # noqa: E402
-from brailix.core.errors import ParseError  # noqa: E402
+from brailix.core.errors import (  # noqa: E402
+    UNREADABLE_ZIP_MEMBER_ERRORS,
+    ParseError,
+)
 from brailix.input.docx import (  # noqa: E402
     _preflight_docx_archive,
     _read_docx_bytes,
@@ -2228,6 +2233,161 @@ class TestArchiveResourceCaps:
         p = tmp_path / "notzip.docx"
         p.write_bytes(b"this is plainly not a zip archive")
         _preflight_docx_archive(p.read_bytes(), p)  # no raise
+
+
+def _plain_zip_bytes() -> bytearray:
+    """A small, well-formed two-member ZIP, as raw bytes to be corrupted."""
+    import io
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", b"<Types/>")
+        zf.writestr("word/document.xml", b"<w:document/>" + b"x" * 4096)
+    return bytearray(buf.getvalue())
+
+
+def _patch_zip_headers(
+    data: bytearray, local_offset: int, central_offset: int, value: int
+) -> bytes:
+    """Write the 16-bit ``value`` at the given offset of every local-file and
+    central-directory header. ``zipfile`` writes a field in both places and
+    reads it back from both, so both have to be patched."""
+    b = bytearray(data)
+    for signature, offset in (
+        (b"PK\x03\x04", local_offset),
+        (b"PK\x01\x02", central_offset),
+    ):
+        i = 0
+        while (i := b.find(signature, i)) >= 0:
+            struct.pack_into("<H", b, i + offset, value)
+            i += 4
+    return bytes(b)
+
+
+def _encrypted_zip() -> bytes:
+    # General-purpose bit 0 = "this entry is encrypted". ``writestr``
+    # normalises the flags, so it is set by hand.
+    return _patch_zip_headers(_plain_zip_bytes(), 6, 8, 0x1)
+
+
+def _unsupported_compression_zip() -> bytes:
+    # Compression method 99 — what an AES-encrypted archive declares.
+    return _patch_zip_headers(_plain_zip_bytes(), 8, 10, 99)
+
+
+def _corrupt_deflate_zip() -> bytes:
+    """Overwrite the second member's compressed payload with garbage, leaving
+    every header — and so the whole directory — intact."""
+    b = _plain_zip_bytes()
+    i = b.find(b"PK\x03\x04")
+    i = b.find(b"PK\x03\x04", i + 4)
+    n_name, n_extra = struct.unpack_from("<HH", b, i + 26)
+    comp_size = struct.unpack_from("<I", b, i + 18)[0]
+    start = i + 30 + n_name + n_extra
+    b[start:start + comp_size] = b"\xff" * comp_size
+    return bytes(b)
+
+
+class TestUnreadableArchiveMembers:
+    """An archive whose *directory* opens but whose *member* cannot be read.
+
+    ``BadZipFile`` covers "not a zip"; it does not cover an encrypted entry,
+    an unimplemented compression method or a corrupt deflate stream — for
+    those, ``zipfile`` raises ``RuntimeError`` / ``NotImplementedError`` /
+    ``zlib.error`` at the read. The preflight is the code that reads members,
+    so those surfaced *there*, escaping ``parse_docx``'s documented
+    "malformed OOXML → ParseError" contract and every caller catching
+    ``BrailixError``. The ``.mxl`` reader had classified all of them from the
+    start; this is the same fact, and now the same tuple
+    (:data:`~brailix.core.errors.UNREADABLE_ZIP_MEMBER_ERRORS`).
+
+    The archives below are **real** — flag bits and compression fields
+    patched in the raw container so ``zipfile`` itself raises what it would
+    raise on a user's file. Simulating the raise at the read seam would pass
+    just as well against a preflight that never actually reads a member.
+    """
+
+    @pytest.mark.parametrize(
+        "make, expected_stdlib_error",
+        [
+            (_encrypted_zip, RuntimeError),
+            (_unsupported_compression_zip, NotImplementedError),
+            (_corrupt_deflate_zip, zlib.error),
+        ],
+        ids=["encrypted", "unsupported-compression", "corrupt-deflate"],
+    )
+    def test_member_read_error_becomes_parse_error(
+        self, tmp_path: Path, make, expected_stdlib_error
+    ) -> None:
+        blob = make()
+        p = tmp_path / "broken.docx"
+        p.write_bytes(blob)
+
+        # What the standard library does with it, unguarded — the exact
+        # exception that used to reach the caller.
+        with pytest.raises(expected_stdlib_error):
+            with zipfile.ZipFile(p) as zf:
+                for info in zf.infolist():
+                    with zf.open(info) as fh:
+                        fh.read()
+
+        with pytest.raises(ParseError, match="unreadable archive member"):
+            _preflight_docx_archive(blob, p)
+        with pytest.raises(ParseError, match="not a valid .docx"):
+            parse_docx(p, language="zh-CN", profile="cn_current")
+
+    @pytest.mark.parametrize(
+        "exc",
+        [t("boom") for t in UNREADABLE_ZIP_MEMBER_ERRORS],
+        ids=[t.__name__ for t in UNREADABLE_ZIP_MEMBER_ERRORS],
+    )
+    def test_every_classified_error_is_converted(
+        self, tmp_path: Path, monkeypatch, exc
+    ) -> None:
+        """Adding a type to the shared tuple without this boundary honouring
+        it goes red here — the drift that produced the bug in the first
+        place, caught mechanically instead of by re-reading two adapters."""
+        p = tmp_path / "ok.docx"
+        with zipfile.ZipFile(p, "w") as zf:
+            zf.writestr("word/document.xml", b"<xml/>")
+
+        def _boom(self, name, *args, **kwargs):  # noqa: ANN001, ANN202
+            raise exc
+
+        monkeypatch.setattr(zipfile.ZipFile, "open", _boom)
+        with pytest.raises(ParseError, match="unreadable archive member"):
+            _preflight_docx_archive(p.read_bytes(), p)
+
+    def test_programming_error_is_not_masked(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The mirror of the ``.mxl`` guard: a regression inside the preflight
+        must stay a loud crash, not be relabelled "unreadable archive". The
+        conversion is deliberately not ``except Exception``."""
+        p = tmp_path / "ok.docx"
+        with zipfile.ZipFile(p, "w") as zf:
+            zf.writestr("word/document.xml", b"<xml/>")
+
+        def _bug(self, name, *args, **kwargs):  # noqa: ANN001, ANN202
+            raise AttributeError("regression: 'NoneType' has no attribute 'read'")
+
+        monkeypatch.setattr(zipfile.ZipFile, "open", _bug)
+        with pytest.raises(AttributeError):
+            _preflight_docx_archive(p.read_bytes(), p)
+
+    def test_size_cap_still_wins_over_the_conversion(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The caps raise ``ParseError`` from *inside* the guarded block. That
+        is only safe because ``ParseError`` is a ``BrailixError``, not a
+        ``ValueError`` — were it ever reparented under ``ValueError``, the new
+        ``except`` would swallow and re-wrap its own bomb diagnostic."""
+        p = tmp_path / "bomb.docx"
+        with zipfile.ZipFile(p, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("word/document.xml", b"A" * 4096)
+        monkeypatch.setattr(docx_adapter, "_MAX_DOCX_MEMBER_BYTES", 64)
+        with pytest.raises(ParseError, match="inflates past"):
+            _preflight_docx_archive(p.read_bytes(), p)
 
     def test_parse_docx_wires_the_preflight(
         self, tmp_path: Path, monkeypatch

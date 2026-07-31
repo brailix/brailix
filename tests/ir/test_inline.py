@@ -284,6 +284,35 @@ class TestSerializationMathInline:
         assert graphic.svg.tag == "svg"
         assert graphic.svg[0].tag == "line"
 
+    @pytest.mark.parametrize(
+        "type_name, field, root_tag",
+        [
+            ("math_inline", "math", "math"),
+            ("music_inline", "score", "score-partwise"),
+            ("graphic_inline", "svg", "svg"),
+        ],
+    )
+    def test_preparsed_element_carrying_a_comment_deserializes(
+        self, type_name, field, root_tag
+    ):
+        # A comment / processing instruction is a child node whose ``tag`` is
+        # a function, not a string, so the namespace strip this boundary runs
+        # raised AttributeError on it — and AttributeError is what the
+        # soft-failure boundaries deliberately re-raise, so a third-party
+        # adapter handing over a pre-parsed tree with a vendor comment in it
+        # crashed the compile. ET.fromstring drops comments, which is why only
+        # the (equally supported) pre-parsed shape ever hit this.
+        root = ET.Element(f"{{urn:x}}{root_tag}")
+        root.append(ET.Comment("vendor note"))
+        ET.SubElement(root, "{urn:x}child")
+
+        node = from_dict({"type": type_name, "surface": "", field: root})
+
+        tree = getattr(node, field)
+        assert tree.tag == root_tag
+        assert tree[0].text == "vendor note"  # comment kept, body intact
+        assert tree[1].tag == "child"  # sibling below it still stripped
+
     def test_round_trip_strips_xmlns_attribute_tree(self):
         # Regression: a producer (e.g. normalize._try_atomic's math_op
         # path) can build the tree with an ``xmlns`` attribute.  After

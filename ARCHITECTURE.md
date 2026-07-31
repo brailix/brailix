@@ -50,8 +50,10 @@ Each such subsystem is built the same three-part way: an adapter converts some e
 | Pinyin | pinyin annotation (numeric tones) | Backend |
 | Math parsing | **MathML (`ET.Element`)** | MathBraille backend |
 | Music parsing | **MusicXML tree (`ET.Element`)** | MusicBraille backend |
+| Graphics parsing | **SVG tree (`ET.Element`)** | Tactile backend |
 | Document input | `DocumentIR` | Frontend |
-| Braille output | `BrailleIR` | Renderer |
+| Braille output | `BrailleIR` | braille renderers (unicode / BRF / cells / layout) |
+| Tactile rasterization | `TactileRaster` | tactile renderers (BMP / PNG / PDF / preview) |
 
 Whichever adapter you pick, downstream only ever sees the mediator format, so **swapping an adapter leaves every line of downstream code untouched.** The same property is what makes each layer testable on its own: feed a fixed mediator value in, assert on the mediator value out.
 
@@ -75,9 +77,9 @@ These two ideas — *isolate behind a mediator* and *keep provenance on every ce
 The compiler is a stack of layers. The Profile and its resource tables sit alongside the whole stack, supplying the rules and dot tables that the backend and renderer read.
 
 ```
-┌─────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────┐
 │  Input Layer       many sources → one Document        │
-├─────────────────────────────────────────────────────┤
+├───────────────────────────────────────────────────────┤
 │  Frontend Layer    text → structured IR               │
 │  ├─ Segmenter      block / inline / special regions   │
 │  ├─ Normalizer     tag numbers / dates / units / ...  │
@@ -87,25 +89,38 @@ The compiler is a stack of layers. The Profile and its resource tables sit along
 │  ├─ MathParser     source → MathML tree (= IR)        │
 │  ├─ MusicParser    source → MusicXML tree (= IR)      │
 │  └─ GraphicsParser source → SVG tree (= IR)           │
-├─────────────────────────────────────────────────────┤
+├───────────────────────────────────────────────────────┤
 │  IR Layer          DocumentIR / InlineIR /            │
-│                    MathML / BrailleIR                 │
-├─────────────────────────────────────────────────────┤
-│  Backend Layer     IR → BrailleIR                     │
+│                    MathML / MusicXML / SVG /          │
+│                    BrailleIR / TactileRaster          │
+├───────────────────────────────────────────────────────┤
+│  Backend Layer     semantic IR → output-domain IR     │
 │  ├─ Dispatcher     dispatch by node type              │
 │  ├─ ZhBraille      Chinese braille                    │
 │  ├─ NumberBraille  numbers / dates / quantities       │
 │  ├─ MathBraille    math braille (also a state machine)│
 │  ├─ LatinBraille   English / foreign                  │
-│  └─ PunctBraille   punctuation                        │
-├─────────────────────────────────────────────────────┤
-│  Renderer Layer    BrailleIR → output format          │
-│  ├─ Unicode Braille │ BRF │ Cells │ HTML preview      │
-│  └─ Layout          line breaks / indent / pagination │
-└─────────────────────────────────────────────────────┘
+│  ├─ PunctBraille   punctuation                        │
+│  └─ TactileBackend SVG tree → TactileRaster           │
+├───────────────────────────────────────────────────────┤
+│  Renderer Layer    output-domain IR → output format   │
+│  ├─ braille        Unicode │ BRF │ Cells              │
+│  ├─ tactile        BMP │ PNG │ PDF │ tactile preview  │
+│  └─ Layout         line breaks / indent / pagination  │
+└───────────────────────────────────────────────────────┘
           ↑                                    ↑
           └────────── Profile / Resources ─────┘
 ```
+
+**The backend has two output domains, not one.** Text, math and music semantic IR compile
+into a `BrailleDocument` (a cell sequence); a tactile graphic's SVG tree rasterizes into a
+`TactileRaster` (a dot grid). Both are *output-domain IR* — the backend's product and the
+renderer's input — and each is encoded to bytes by the renderers that understand it. Both
+sets of renderers share one `renderer_registry`, each self-describing what it takes via
+`consumes` (a mismatch is an `IncompatibleRendererError`). So braille is not the pipeline's
+only terminus, just one of its output domains: a new product vertical is added by
+introducing another output-domain IR plus the renderers that read it, never as a special
+case outside the layers.
 
 Each layer answers exactly one question:
 
@@ -166,7 +181,7 @@ brailix/
 │   │   ├── segment.py        # block segmentation + inline-region detection
 │   │   ├── normalize.py      # tag numbers / dates / units / percent signs
 │   │   ├── zh/               # Chinese-specific (language folder)
-│   │   │   ├── __init__.py        # umbrella: re-exports the analyzer's public entry points
+│   │   │   ├── __init__.py        # umbrella: re-exports the analyzer's subsystem entry points
 │   │   │   ├── analyzer/          # segmentation subsystem
 │   │   │   │   ├── registry.py        # ChineseAnalyzer registry
 │   │   │   │   └── adapters/         # auto / char / jieba / hanlp / thulac → ChineseToken
@@ -190,7 +205,7 @@ brailix/
 │   │   ├── inline.py         # InlineIR: inline tokens (incl. MathInline.math: ET.Element)
 │   │   ├── braille.py        # BrailleIR: cell sequence
 │   │   └── tactile.py        # TactileRaster: tactile dot grid (tactile-backend product, the graphics counterpart of BrailleIR)
-│   ├── backend/              # IR → BrailleIR
+│   ├── backend/              # semantic IR → output-domain IR (BrailleIR / TactileRaster)
 │   │   ├── dispatch.py       # dispatch by node type; prose nodes then pick a LanguageBackend by profile.language
 │   │   ├── number.py         # language-agnostic translator (numbers / dates / percent / quantities)
 │   │   ├── latin.py          # Latin backend (standalone, separate from punct)
@@ -204,7 +219,7 @@ brailix/
 │   │   ├── math/            # math braille state machine (chem / context / dispatch / handlers / utils)
 │   │   ├── music/          # music braille (handlers/ split into files by BANA chapter)
 │   │   └── tactile/        # SVG tree → TactileRaster (tactile rasterizer; page.py mixed-page compositor + profile.py TactileProfile)
-│   ├── renderer/            # BrailleIR → output format
+│   ├── renderer/            # output-domain IR → output format
 │   │   ├── unicode_braille.py / brf.py / cells.py
 │   │   ├── layout.py        # line breaks / indent / pagination
 │   │   ├── music_layout.py / _page_digits.py

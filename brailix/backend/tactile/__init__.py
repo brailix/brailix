@@ -709,7 +709,7 @@ def _walk(
 
 
 # ---------------------------------------------------------------------------
-# Geometry resolution + public entry point
+# Geometry resolution + package entry point
 # ---------------------------------------------------------------------------
 
 

@@ -421,6 +421,36 @@ _DEFAULT_IR_VERSION = "1.0"
 _SUPPORTED_IR_VERSIONS: frozenset[str] = frozenset({_DEFAULT_IR_VERSION})
 
 
+def _check_ir_version(version: object, action: str) -> None:
+    """Refuse a ``version`` this release cannot round-trip, as a
+    :class:`ValueError`. ``action`` names what the failing side does with the
+    set ("loads" / "writes and reads"), so each entry point keeps its own
+    diagnostic.
+
+    Shared by the two entry points that take a version — construction and
+    :meth:`DocumentIR.from_dict` — because when they were written separately
+    both checked only the *value*, and the value check alone is not safe on
+    unvalidated input: ``version not in _SUPPORTED_IR_VERSIONS`` asks the
+    frozenset to **hash** whatever arrived, so a payload whose ``"version"``
+    is a JSON array or object (both legal JSON, both reachable from a ``.blx``
+    file or an API caller) left the boundary as ``TypeError: unhashable type:
+    'list'`` — an implementation detail escaping a boundary that documents
+    :class:`ValueError` as its one malformed-payload failure, past every
+    caller written to catch that. So the type test has to come first, and it
+    has to come first in *both* places.
+    """
+    if not isinstance(version, str):
+        raise ValueError(
+            f"document IR version must be a string, got "
+            f"{type(version).__name__}"
+        )
+    if version not in _SUPPORTED_IR_VERSIONS:
+        raise ValueError(
+            f"unsupported document IR version {version!r}; this release "
+            f"{action} {sorted(_SUPPORTED_IR_VERSIONS)}"
+        )
+
+
 @dataclass(slots=True)
 class DocumentIR:
     """Root container. ``metadata`` carries language, profile name, and
@@ -452,12 +482,7 @@ class DocumentIR:
     assets: dict[str, bytes] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.version not in _SUPPORTED_IR_VERSIONS:
-            raise ValueError(
-                f"unsupported document IR version {self.version!r}; this "
-                f"release writes and reads "
-                f"{sorted(_SUPPORTED_IR_VERSIONS)}"
-            )
+        _check_ir_version(self.version, "writes and reads")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -479,7 +504,7 @@ class DocumentIR:
           and the JSON Schema declares it a constant, but nothing used to read
           it back, so a *block* payload — or any object whose shape happened to
           parse — loaded as a document without complaint.
-        * ``version`` must be one this release knows
+        * ``version`` must be a string, and one this release knows
           (:data:`_SUPPORTED_IR_VERSIONS`). An unknown version used to be
           stored verbatim and echoed back out by :meth:`to_dict`, while the
           fields that version added were dropped by
@@ -491,7 +516,12 @@ class DocumentIR:
           migration, not by silently half-reading.
 
         Raises :class:`ValueError` — the same failure type as every other
-        malformed-payload rejection at this boundary.
+        malformed-payload rejection at this boundary — for **any** shape of
+        either, including a ``version`` that is not a string at all
+        (:func:`_check_ir_version`). A payload is arbitrary decoded JSON, so
+        "the field is present" says nothing about its type; the construction
+        below would catch a bad version too, but checking here keeps the
+        refusal ahead of reading every block of a document that cannot load.
         """
         doc_type = payload.get("type")
         if doc_type != "document":
@@ -500,11 +530,7 @@ class DocumentIR:
                 f"{doc_type!r}"
             )
         version = payload.get("version", _DEFAULT_IR_VERSION)
-        if version not in _SUPPORTED_IR_VERSIONS:
-            raise ValueError(
-                f"unsupported document IR version {version!r}; this release "
-                f"loads {sorted(_SUPPORTED_IR_VERSIONS)}"
-            )
+        _check_ir_version(version, "loads")
         return cls(
             version=version,
             metadata=dict(payload.get("metadata", {})),

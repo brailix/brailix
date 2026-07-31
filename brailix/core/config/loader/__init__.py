@@ -1,6 +1,6 @@
 """Profile + table loading.
 
-The public entry point is :func:`load_profile`. Internally it composes
+The package entry point is :func:`load_profile`. Internally it composes
 the per-topic loaders below: a cells pool first, then per-section table
 parsers (zh / math / music / latin / greek / numbers / punct), then a
 post-load schema check.
@@ -62,7 +62,7 @@ PACKAGE_ROOT: Path = Path(__file__).resolve().parents[3]
 
 
 # ---------------------------------------------------------------------------
-# Public entry point
+# Package entry point
 # ---------------------------------------------------------------------------
 
 
