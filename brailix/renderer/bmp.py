@@ -2,10 +2,17 @@
 
 BMP is the de-facto raster interchange for tactile output: dot-matrix
 embossers (graphics mode), swell / capsule paper, and height-modulating
-embossers (ViewPlus Tiger) all accept it. The default is an **8-bit
+embossers (ViewPlus Tiger) all accept it. Two depths exist: an **8-bit
 grayscale** master — the most information-rich common form, where
-grayscale encodes dot height — with a **1-bit** black/white degradation
-available behind a flag (the same pipeline, one toggle).
+grayscale encodes dot height — and a **1-bit** black/white degradation
+(the same pipeline, one toggle).
+
+Which one a raster is written at is the **raster's** own answer:
+:attr:`~brailix.ir.tactile.TactileRaster.bit_depth` records the encoding its
+producer intended, and :class:`BmpRenderer` follows it. Constructing the
+renderer with an explicit depth overrides that, for a caller who wants this
+particular file at a depth the raster did not ask for; the low-level
+:func:`raster_to_bmp` takes the depth as an argument and asks nobody.
 
 Polarity: a *raised* dot is written **dark**. The raster stores raise
 levels (0 = flat … 255 = fully raised); this renderer emits pixel value
@@ -168,8 +175,19 @@ def _bmp_1bit(raster: TactileRaster, threshold: int) -> bytes:
 class BmpRenderer:
     """Encode a tactile raster as BMP bytes.
 
-    Defaults to the 8-bit grayscale master; construct with ``bit_depth=1``
-    for a black/white bitmap.
+    ``bit_depth`` is an **override**, not the answer: ``None`` (the default,
+    and what the shared ``renderer_registry`` holds) encodes at the depth the
+    raster itself carries, and an explicit ``1`` / ``8`` wins over it for this
+    renderer's own output.
+
+    The default used to be a flat ``8``, which made
+    :attr:`~brailix.ir.tactile.TactileRaster.bit_depth` a dead field: it was
+    published on the IR, validated at construction and documented as the
+    encoding the backend intends, yet the ordinary path — ``registry.get("bmp")``
+    from :meth:`~brailix.pipeline.GraphicResult.render` — never read it, so a
+    raster built with ``bit_depth=1`` was written out as an 8-bit BMP. One fact
+    had two unrelated homes, an IR field and a renderer argument, and the IR
+    field was the one a caller could see.
     """
 
     name: str = "bmp"
@@ -177,13 +195,12 @@ class BmpRenderer:
     # a braille-only front-end (the CLI) filter it out; see
     # ``brailix.renderer.braille_renderer_names``.
     consumes: str = "tactile_raster"
-    bit_depth: int = 8
+    bit_depth: int | None = None
     threshold: int = 128
 
     def render(self, raster: TactileRaster) -> bytes:
-        return raster_to_bmp(
-            raster, bit_depth=self.bit_depth, threshold=self.threshold
-        )
+        depth = raster.bit_depth if self.bit_depth is None else self.bit_depth
+        return raster_to_bmp(raster, bit_depth=depth, threshold=self.threshold)
 
 
 def _load() -> BmpRenderer:
