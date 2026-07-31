@@ -13,7 +13,11 @@ from dataclasses import dataclass
 import pytest
 
 from brailix import Pipeline, TranslationResult
+from brailix.core.errors import UnknownAdapterError
 from brailix.ir.braille import BrailleDocument
+from brailix.ir.document import DocumentIR
+from brailix.ir.tactile import TactileRaster
+from brailix.pipeline import GraphicResult, TactilePageResult
 from brailix.renderer import renderer_registry
 
 # ---------------------------------------------------------------------------
@@ -53,6 +57,76 @@ class TestExplicitName:
         result = pipe.translate_text("。")
         with pytest.raises(KeyError):
             result.render("does-not-exist")
+
+
+# ---------------------------------------------------------------------------
+# Only ``None`` means "no name given"
+# ---------------------------------------------------------------------------
+
+
+def _results() -> dict[str, object]:
+    """One of each result type, as the pipeline hands them back.
+
+    Every one of them selects a renderer, each used to select it with its own
+    copy of the same expression, and the four are checked together for that
+    reason: the bug was identical in all four, and a fix applied to the one
+    that happened to have a test would have left the other three.
+    """
+    raster = TactileRaster(
+        width=4,
+        height=4,
+        dpi=20.0,
+        page_width_mm=5.0,
+        page_height_mm=5.0,
+        data=bytearray(16),
+    )
+    pages = TactilePageResult(pages=[raster])
+    return {
+        "TranslationResult.render": TranslationResult(
+            text="", ir=DocumentIR(), braille_ir=BrailleDocument()
+        ).render,
+        "GraphicResult.render": GraphicResult(raster=raster).render,
+        "TactilePageResult.render": pages.render,
+        "TactilePageResult.render_all": pages.render_all,
+    }
+
+
+class TestTheEmptyRendererNameIsAName:
+    """``render("")`` must raise, not quietly render the default.
+
+    Selection read ``name or self.default_renderer``, which is not the rule the
+    documentation states and not the rule a caller assumes: ``""`` is a name
+    that was *passed*, and falsiness turned it into the default. So a renderer
+    read out of a config file with the key missing, a blank CLI flag, an unset
+    form field, or a plugin name assembled from parts that came out empty all
+    produced the default renderer's output and reported success — while every
+    other wrong name raised. A caller cannot tell that apart from having asked
+    for what they got.
+    """
+
+    @pytest.mark.parametrize("label", sorted(_results()))
+    def test_an_empty_name_is_not_the_default(self, label):
+        method = _results()[label]
+        with pytest.raises(UnknownAdapterError):
+            method("")
+
+    @pytest.mark.parametrize("label", sorted(_results()))
+    def test_omitting_the_name_and_passing_none_agree(self, label):
+        """The other half: fixing the empty string must not disturb the two
+        spellings that really do mean "no name given"."""
+        method = _results()[label]
+        assert method() == method(None)
+
+    def test_the_exception_is_the_registry_contract(self):
+        """Asserted against the registry's own error, not a bare ``KeyError``:
+        it subclasses ``KeyError`` so the documented promise still holds, and
+        the message names the subsystem and lists what is registered."""
+        assert issubclass(UnknownAdapterError, KeyError)
+        with pytest.raises(UnknownAdapterError) as excinfo:
+            TranslationResult(
+                text="", ir=DocumentIR(), braille_ir=BrailleDocument()
+            ).render("")
+        assert "renderer" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------
