@@ -389,6 +389,41 @@ class TestDocumentIRLoadBoundary:
                 }
             )
 
+    @pytest.mark.parametrize(
+        "version",
+        [[], {}, 1, 1.0, True, None, ["1.0"], {"1.0": True}],
+        ids=["list", "dict", "int", "float", "bool", "none", "list-of-str",
+             "dict-keyed"],
+    )
+    def test_rejects_non_string_version_as_value_error(self, version):
+        """A payload is arbitrary decoded JSON, so ``version`` can be an array
+        or an object — and the membership test *hashes* what it is given, so
+        those two left this boundary as ``TypeError: unhashable type: 'list'``
+        rather than the ``ValueError`` the boundary documents (and callers
+        catch). The hashable non-strings were already refused, but by accident
+        of not matching a string; they are pinned here so the type rule is what
+        holds, not the coincidence."""
+        with pytest.raises(ValueError, match="must be a string"):
+            DocumentIR.from_dict(
+                {
+                    "type": "document",
+                    "version": version,
+                    "metadata": {},
+                    "blocks": [],
+                }
+            )
+        with pytest.raises(ValueError, match="must be a string"):
+            DocumentIR(version=version)
+
+    def test_absent_version_still_defaults(self):
+        """Only a *missing* key falls back to the default. An explicit
+        ``null`` is a malformed payload, not an omission — the parametrized
+        rejection above covers it."""
+        doc = DocumentIR.from_dict(
+            {"type": "document", "metadata": {}, "blocks": []}
+        )
+        assert doc.version == "1.0"
+
     def test_rejects_unsupported_version_at_construction_too(self):
         """Both directions, or the invariant only looks closed: a document
         built with an unloadable version would serialize to a payload its own
