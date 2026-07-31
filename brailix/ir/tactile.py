@@ -192,6 +192,18 @@ class TactileRaster:
         self.dpi = _positive_finite(self.dpi, "dpi")
         self.page_width_mm = _positive_finite(self.page_width_mm, "page_width_mm")
         self.page_height_mm = _positive_finite(self.page_height_mm, "page_height_mm")
+        # ``bool`` first, for the reason the pixel pair rejects it: ``True ==
+        # 1``, so a bare membership test accepts it as the 1-bit depth and
+        # stores a *bool* in a field every encoder reads back as an int. The
+        # ``int`` test is not redundant either — membership on a frozenset
+        # hashes its operand, so an unhashable ``bit_depth`` (a list, a dict)
+        # left this constructor as ``TypeError: unhashable type`` instead of
+        # the field-level ``ValueError`` the rest of the dataclass raises.
+        if isinstance(self.bit_depth, bool) or not isinstance(self.bit_depth, int):
+            raise ValueError(
+                f"bit_depth must be an int, got "
+                f"{type(self.bit_depth).__name__} ({self.bit_depth!r})"
+            )
         if self.bit_depth not in SUPPORTED_BIT_DEPTHS:
             raise ValueError(
                 f"bit_depth must be one of {sorted(SUPPORTED_BIT_DEPTHS)}, "
@@ -222,14 +234,26 @@ class TactileRaster:
         page_height_mm: float,
         bit_depth: int = 8,
     ) -> TactileRaster:
-        """Construct an all-flat raster of the given size."""
+        """Construct an all-flat raster of the given size.
+
+        The grid is deliberately *not* allocated here: an omitted ``data`` is
+        what :meth:`__post_init__` fills with ``bytearray(width * height)``,
+        after the field checks. Allocating in this factory put the allocator
+        ahead of those checks, so the same illegal ``width`` that
+        ``TactileRaster(width=...)`` refuses with a ``ValueError`` naming the
+        field came back from here as whichever error ``bytearray`` happened to
+        raise — ``TypeError: cannot convert 'float' object to bytearray`` for
+        ``1.5``, ``TypeError: string argument without an encoding`` for
+        ``"4"``, a bare ``negative count`` for ``-1``. One type, one
+        construction contract: every caller can catch ``ValueError`` and show
+        the field it names, whichever way the raster was built.
+        """
         return cls(
             width=width,
             height=height,
             dpi=dpi,
             page_width_mm=page_width_mm,
             page_height_mm=page_height_mm,
-            data=bytearray(width * height),
             bit_depth=bit_depth,
         )
 
