@@ -31,7 +31,7 @@ from hypothesis_jsonschema import from_schema
 from jsonschema import Draft7Validator
 
 from brailix.ir.braille import BrailleDocument
-from brailix.ir.document import Block, DocumentIR
+from brailix.ir.document import _SUPPORTED_IR_VERSIONS, Block, DocumentIR
 from brailix.ir.inline import InlineNode
 from tests.ir.test_serialization_properties import (
     blocks,
@@ -58,6 +58,19 @@ _block_validator = Draft7Validator(
 _inline_validator = Draft7Validator(
     {"$ref": "#/definitions/inline_node", "definitions": _DOC_SCHEMA["definitions"]}
 )
+
+
+def test_schema_and_loader_agree_on_the_loadable_versions() -> None:
+    """The schema's ``version`` enum and the loader's supported set are two
+    statements of the same fact, and a reader has no way to tell which one is
+    stale: a payload the schema validates must be a payload ``from_dict``
+    accepts. Pin them to each other so a new version has to be added on both
+    sides (with its migration) rather than on whichever one the author
+    remembered."""
+    documented = set(
+        _DOC_SCHEMA["definitions"]["document"]["properties"]["version"]["enum"]
+    )
+    assert documented == set(_SUPPORTED_IR_VERSIONS)
 
 
 class TestCodeProducesSchemaValidPayloads:

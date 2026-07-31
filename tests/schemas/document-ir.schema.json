@@ -98,7 +98,10 @@
       "required": ["version", "type", "metadata", "blocks"],
       "additionalProperties": false,
       "properties": {
-        "version": { "type": "string" },
+        "version": {
+          "enum": ["1.0"],
+          "description": "Serialization format version. Enumerates exactly what DocumentIR.from_dict loads (brailix.ir.document._SUPPORTED_IR_VERSIONS — a test compares the two sets), so a payload this schema accepts is a payload the loader accepts. A future version joins both together with its migration."
+        },
         "type": { "const": "document" },
         "metadata": { "type": "object" },
         "blocks": {

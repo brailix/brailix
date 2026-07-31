@@ -16,7 +16,10 @@ at the right boundaries:
 Soft-failure contract: an unrecognised *element* is a no-op plus a
 ``MUSIC_*`` warning (it contributes no cells); an unrecognised
 *character* or a malformed note produces an unknown cell plus a
-warning. The pipeline never crashes.
+warning. The pipeline never crashes — including against tree *depth*,
+which the element-level handlers say nothing about: a tree nested past
+:data:`_MAX_TREE_DEPTH` soft-fails at the entry points rather than
+overflowing the recursive dispatch.
 
 The package's own interface is intentionally tiny:
 
@@ -43,10 +46,60 @@ from brailix.backend.music import handlers as _handlers  # noqa: F401
 from brailix.backend.music.context import MusicBrailleContext
 from brailix.backend.music.dispatch import _emit_element
 from brailix.backend.music.utils import _unknown_cell_seq
+from brailix.core._xml import tree_depth_exceeds
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
+from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
 from brailix.ir.inline import MusicInline
+
+# A MusicXML tree deeper than this overflows the recursive descent through
+# _emit_element and the container handlers, which hand every child back to it
+# (score → part → measure → note sequence). Real scores nest under ~15 levels;
+# a corrupt / adversarial tree past the cap degrades to a soft failure (one
+# MUSIC_ERROR warning + a single unknown cell) instead of raising
+# ``RecursionError`` — this package's "pipeline never crashes" contract, which
+# a 6000-level ``<score-partwise>`` chain did break. The depth probe is
+# iterative, so the guard is itself depth-safe.
+#
+# The check lives here rather than in the frontend normalizer because a tree
+# can reach the backend without passing it: a ``.blx`` round-trip re-parses
+# ``MusicInline.score`` straight from its serialized string, and a caller can
+# construct a ``MusicInline`` directly. (The normalizer's own passes are all
+# iterative, so it has nothing to protect on its own behalf.) Same reasoning,
+# and the same cap, as ``backend.math``'s guard; both read the depth through
+# the shared ``core._xml`` probe rather than sharing a cross-vertical helper.
+_MAX_TREE_DEPTH = 150
+
+
+def _too_deep_fallback(
+    surface: str | None, span: Span | None, ctx: BackendContext
+) -> list[BrailleCell]:
+    """Soft-fail a tree nested past :data:`_MAX_TREE_DEPTH`: one MUSIC_ERROR
+    warning plus a single unknown cell.
+
+    One marker cell, not the per-character run ``MUSIC_NO_IR`` emits: there
+    *is* a parsed tree here, we are refusing to walk it, so the output marks
+    the passage rather than spelling its surface out. Mirrors the
+    ``<music-error>`` handler's cell shape.
+    """
+    ctx.warnings.error(
+        code="MUSIC_ERROR",
+        message=(
+            f"score nested deeper than {_MAX_TREE_DEPTH} levels; not rendered"
+        ),
+        surface=surface,
+        span=span,
+        source="backend.music",
+    )
+    return [
+        BrailleCell(
+            dots=(),
+            role="music_error",
+            source_text=surface or "?",
+            source_span=span,
+        )
+    ]
 
 
 def translate(
@@ -73,6 +126,9 @@ def translate(
         )
         return _unknown_cell_seq(node.surface, node.span)
 
+    if tree_depth_exceeds(score_tree, _MAX_TREE_DEPTH):
+        return _too_deep_fallback(node.surface, node.span, ctx)
+
     mctx = MusicBrailleContext(
         profile=profile,
         backend=ctx,
@@ -92,7 +148,13 @@ def _emit_tree(
     Equivalent to wrapping the element in a fresh :class:`MusicInline`
     and calling :func:`translate`. Underscore-named because that is all it is:
     a test convenience with no caller in the compiler.
+
+    Depth-guarded like :func:`translate` — both entry points reach the same
+    recursive dispatch, so a check on only one of them leaves the contract
+    broken through the other.
     """
+    if tree_depth_exceeds(elem, _MAX_TREE_DEPTH):
+        return _too_deep_fallback(None, None, ctx)
     mctx = MusicBrailleContext(
         profile=profile,
         backend=ctx,

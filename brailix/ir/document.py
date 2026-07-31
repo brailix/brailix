@@ -410,6 +410,16 @@ class GraphicBlock(Block):
 # Document root
 # ---------------------------------------------------------------------------
 
+# The serialization versions :meth:`DocumentIR.from_dict` can load without
+# losing content, and the one it writes. Adding an entry here is a claim that
+# this release reads that format faithfully — so a version whose payload needs
+# reshaping joins the set together with the migration that reshapes it, never
+# on its own. ``tests/schemas/document-ir.schema.json`` pins the same set on
+# the schema side (a test compares them), so a reader validating against the
+# schema and a caller going through ``from_dict`` agree on what is loadable.
+_DEFAULT_IR_VERSION = "1.0"
+_SUPPORTED_IR_VERSIONS: frozenset[str] = frozenset({_DEFAULT_IR_VERSION})
+
 
 @dataclass(slots=True)
 class DocumentIR:
@@ -425,12 +435,29 @@ class DocumentIR:
     the ARCHITECTURE#arch-layers rule that the text IR carries no binary payload;
     :meth:`to_dict` deliberately excludes it (that is the text-IR view —
     a container format that persists a document's assets serialises them
-    itself, in its own encoding)."""
+    itself, in its own encoding).
 
-    version: str = "1.0"
+    ``version`` names the serialization format, and both directions hold it to
+    the set this release can load faithfully (:data:`_SUPPORTED_IR_VERSIONS`):
+    :meth:`from_dict` refuses a payload carrying anything else, and
+    construction refuses it here — so a document that serialises is a document
+    that reloads, the same invariant :attr:`Block.structural_fields` keeps for
+    nested block fields. Checking it at construction rather than in
+    :meth:`to_dict` puts the error where the wrong value was chosen, the way
+    :class:`~brailix.ir.tactile.TactileRaster` validates its metrics."""
+
+    version: str = _DEFAULT_IR_VERSION
     metadata: dict[str, Any] = field(default_factory=dict)
     blocks: list[Block] = field(default_factory=list)
     assets: dict[str, bytes] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.version not in _SUPPORTED_IR_VERSIONS:
+            raise ValueError(
+                f"unsupported document IR version {self.version!r}; this "
+                f"release writes and reads "
+                f"{sorted(_SUPPORTED_IR_VERSIONS)}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -442,8 +469,44 @@ class DocumentIR:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> DocumentIR:
+        """Rebuild a document from :meth:`to_dict`'s payload.
+
+        Two things about the payload are checked before any block is read,
+        because getting either wrong produces a document that looks fine and
+        is not:
+
+        * the root ``type`` must be ``"document"``. :meth:`to_dict` writes it
+          and the JSON Schema declares it a constant, but nothing used to read
+          it back, so a *block* payload — or any object whose shape happened to
+          parse — loaded as a document without complaint.
+        * ``version`` must be one this release knows
+          (:data:`_SUPPORTED_IR_VERSIONS`). An unknown version used to be
+          stored verbatim and echoed back out by :meth:`to_dict`, while the
+          fields that version added were dropped by
+          :func:`block_from_dict` (which skips fields the dataclass does not
+          declare — deliberate forward tolerance *within* a known version).
+          The result was not a document degraded to 1.0 but a file still
+          claiming to be a 2.0 document with its 2.0 content gone. Refusing
+          the load says so; a future version arrives with an explicit
+          migration, not by silently half-reading.
+
+        Raises :class:`ValueError` — the same failure type as every other
+        malformed-payload rejection at this boundary.
+        """
+        doc_type = payload.get("type")
+        if doc_type != "document":
+            raise ValueError(
+                f"document payload must carry type 'document', got "
+                f"{doc_type!r}"
+            )
+        version = payload.get("version", _DEFAULT_IR_VERSION)
+        if version not in _SUPPORTED_IR_VERSIONS:
+            raise ValueError(
+                f"unsupported document IR version {version!r}; this release "
+                f"loads {sorted(_SUPPORTED_IR_VERSIONS)}"
+            )
         return cls(
-            version=payload.get("version", "1.0"),
+            version=version,
             metadata=dict(payload.get("metadata", {})),
             blocks=[block_from_dict(b) for b in payload.get("blocks", [])],
         )

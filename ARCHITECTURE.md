@@ -250,7 +250,7 @@ Four IRs, from coarse to fine. The first three describe the document; the last i
 }
 ```
 
-Block types: `heading / paragraph / list / list_item / table / table_row / table_cell / quote / footnote / code_block / math_block / score / music_block / image_alt`.
+Block types: `heading / paragraph / list / list_item / table / table_row / table_cell / quote / footnote / code_block / math_block / score / music_block / image_alt / graphic`. (`score` is a whole score, `ScoreBlock`; `music_block` a single passage, `MusicBlock` — both filled through the same children-carrier pattern as `MathBlock`. `graphic` is a tactile graphic, `GraphicBlock`, whose source is SVG, a primitives spec or a figure spec, carried the same way; it is the one block that does not translate to braille cells, rasterizing instead into a `TactileRaster` — see §5.3 and §8.)
 
 ### 5.2 InlineIR (inline tokens)
 
@@ -269,17 +269,17 @@ Inline token types:
 ```
 word / hanzi_char / number / hanzi_marker / date / quantity / percent /
 punct / latin_word / latin_acronym /
-code_inline / phonetic_inline / math_inline / music_inline / space /
-connector / unknown
+code_inline / phonetic_inline / math_inline / music_inline / graphic_inline /
+space / connector / unknown
 ```
 
 > `hanzi_char` is the single-character fallback when segmentation fails; `unknown` keeps the pipeline running on anything else.
 
 > `phonetic_inline` is an English IPA transcription: a `/.../` or `[...]` region in prose whose content carries an IPA-distinct character is recognised by the segmenter as a protected region (same mechanism as `$...$`; math wins any conflict). The node holds only the phoneme run with its delimiters stripped, and `backend/phonetic` greedily longest-matches each phoneme against the profile's phonetic table (two-character phonemes like `tʃ` / `eɪ` beat their single-character prefixes), flagging a symbol the table doesn't define (a stress mark) with `PHONETIC_UNKNOWN_SYMBOL` rather than inventing braille.
 
-### 5.3 Math and music as tree IRs
+### 5.3 Math, music and graphics as tree IRs
 
-A math formula uses its **normalized MathML tree** as its IR directly, and a score uses its **normalized MusicXML tree** the same way. In both cases the mediator format (§2.1) *is* the IR, and the backend dispatches by element tag. The math tree looks like:
+A math formula uses its **normalized MathML tree** as its IR directly, a score uses its **normalized MusicXML tree** the same way, and a tactile graphic its **normalized SVG tree**. In all three the mediator format (§2.1) *is* the IR, and the backend dispatches by element tag. Where graphics differs is only the product: math and music compile to braille cells, an SVG tree rasterizes into a `TactileRaster` (§8). The math tree looks like:
 
 ```xml
 <math>
@@ -294,7 +294,7 @@ A math formula uses its **normalized MathML tree** as its IR directly, and a sco
 </math>
 ```
 
-The full math and music subsystems are described in §7 and §8.
+Each tree hangs off an inline carrier — `math_inline`, `music_inline`, `graphic_inline` — which is how the block types `math_block`, `score` / `music_block` and `graphic` hold their content. The full math, music and tactile-graphics subsystems are described in §7 and §8.
 
 <a id="arch-braille-ir"></a>
 ### 5.4 BrailleIR (cell sequence)
