@@ -144,6 +144,12 @@ class GraphicResult:
         :class:`~brailix.core.IncompatibleRendererError` if ``name`` is a
         braille renderer (``unicode`` / ``brf`` / ``layout`` / ``cells``), which
         cannot consume a tactile raster.
+
+        The encoding follows the raster: ``bmp`` writes at the raster's own
+        :attr:`~brailix.ir.tactile.TactileRaster.bit_depth`, and every encoder
+        stamps physical size from its millimetre pair. Nothing here is
+        configurable per call — a renderer constructed with its own settings is
+        how a caller overrides that, and it is registered (or used) by name.
         """
         renderer = _resolve_renderer(
             name or self.default_renderer, _TACTILE_DOMAIN

@@ -55,9 +55,10 @@ size and printed at another.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from typing import Any
+
+from brailix.core.measure import as_positive_finite
 
 MAX_LEVEL = 255
 
@@ -69,35 +70,13 @@ MAX_LEVEL = 255
 SUPPORTED_BIT_DEPTHS = frozenset({1, 8})
 
 
-def _positive_finite(value: Any, field_name: str) -> float:
-    """``value`` as a ``float``, or ``ValueError`` if it is not finite and > 0.
-
-    ``NaN`` / ``±inf`` are the reason this is not a bare ``<= 0`` test: both
-    are ordinary floats that pass every comparison a guard like that makes,
-    and both fail much later and much further away — ``round(nan)`` raises
-    inside the BMP encoder, ``inf`` millimetres reach a PDF ``MediaBox`` as
-    the literal text ``inf``, which no reader accepts. The converted number is
-    returned so the caller can store it: a value that merely *converts* (a
-    ``"100"`` from a hand-built raster) would otherwise live on in a field
-    declared ``float`` and raise ``TypeError`` in the first arithmetic.
-
-    :class:`~brailix.backend.tactile.profile.TactileProfile` makes the same
-    check on its own metrics, but that one is a *configuration* error (a JSON
-    file's fault) and raises ``ConfigurationError``; a raster is built in code,
-    so a bad value here is a caller's bug and stays a ``ValueError`` like the
-    dimension checks next to it.
-    """
-    if isinstance(value, bool):  # an int subclass: True would mean 1 dpi
-        raise ValueError(f"{field_name} must be a number, got {value!r}")
-    try:
-        num = float(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{field_name} must be a number, got {value!r}") from None
-    if not math.isfinite(num):
-        raise ValueError(f"{field_name} must be finite, got {num}")
-    if num <= 0:
-        raise ValueError(f"{field_name} must be > 0, got {num}")
-    return num
+# The physical pair's own check is :func:`brailix.core.measure.as_positive_finite`
+# — shared with
+# :class:`~brailix.backend.tactile.profile.TactileProfile`, which validates the
+# same measurements coming out of a JSON file. Only the *diagnosis* differs and
+# stays here: a profile's bad value is a ``ConfigurationError`` naming the file,
+# while a raster is built in code, so a bad value is a caller's bug and stays a
+# ``ValueError`` like the dimension checks below.
 
 
 def _pixel_count(value: Any, field_name: str) -> int:
@@ -145,8 +124,10 @@ class TactileRaster:
     ``width * height`` (each byte a raise level ``0..255``). It defaults
     to an all-flat grid of the right size when omitted, so callers can
     write ``TactileRaster(w, h, dpi=..., page_width_mm=..., ...)`` and
-    then paint into it. A read-only bytes-like of the right length is
-    accepted and copied — see :meth:`__post_init__`.
+    then paint into it. A read-only bytes-like (``bytes`` / ``memoryview``)
+    of the right length is accepted and copied; anything else is a
+    ``ValueError`` naming the field, never a blank grid — see
+    :meth:`__post_init__`.
 
     The page is ``page_width_mm × page_height_mm`` (both > 0); see the
     module docstring for why that pair, and not ``dpi``, is what an encoder
@@ -159,9 +140,13 @@ class TactileRaster:
     page_width_mm: float
     page_height_mm: float
     data: bytearray = field(default_factory=bytearray)
-    # Informational: which encoding the backend intends (8 = grayscale
-    # master, 1 = bilevel). The data is always stored as 0..255 raise
-    # levels regardless; the renderer decides how to pack the bytes.
+    # Which encoding this raster is meant to be written at (8 = grayscale
+    # master, 1 = bilevel). The data is always *stored* as 0..255 raise levels
+    # regardless — this says how to pack them, and
+    # :class:`~brailix.renderer.bmp.BmpRenderer` reads it, so
+    # ``GraphicResult.render("bmp")`` on a 1-bit raster produces a 1-bit BMP.
+    # A renderer constructed with its own explicit depth overrides it. (The
+    # depth-less encoders — PNG, PDF — are grayscale by format and ignore it.)
     bit_depth: int = 8
     # Optional element → touched-pixel provenance (flat indices), for the
     # editor's cross-pane highlight. ``None``
@@ -189,9 +174,11 @@ class TactileRaster:
         """
         self.width = _pixel_count(self.width, "width")
         self.height = _pixel_count(self.height, "height")
-        self.dpi = _positive_finite(self.dpi, "dpi")
-        self.page_width_mm = _positive_finite(self.page_width_mm, "page_width_mm")
-        self.page_height_mm = _positive_finite(self.page_height_mm, "page_height_mm")
+        self.dpi = as_positive_finite(self.dpi, "dpi")
+        self.page_width_mm = as_positive_finite(self.page_width_mm, "page_width_mm")
+        self.page_height_mm = as_positive_finite(
+            self.page_height_mm, "page_height_mm"
+        )
         # ``bool`` first, for the reason the pixel pair rejects it: ``True ==
         # 1``, so a bare membership test accepts it as the 1-bit depth and
         # stores a *bool* in a field every encoder reads back as an int. The
@@ -209,19 +196,41 @@ class TactileRaster:
                 f"bit_depth must be one of {sorted(SUPPORTED_BIT_DEPTHS)}, "
                 f"got {self.bit_depth!r}"
             )
-        expected = self.width * self.height
-        if not self.data:
-            self.data = bytearray(expected)
-        elif len(self.data) != expected:
-            raise ValueError(
-                f"data length {len(self.data)} does not match "
-                f"{self.width}x{self.height} = {expected}"
-            )
-        elif not isinstance(self.data, bytearray):
+        # The TYPE first, before anything reads a length. ``if not self.data``
+        # was the whole test, and "falsy" is not "omitted": ``None``, ``False``,
+        # ``0``, ``[]`` and ``{}`` all matched it, so a value that contradicts
+        # the declared type — an unset variable, a deserialiser returning
+        # ``None`` for a missing key — was silently rewritten into a blank grid
+        # of the right size. The call then *succeeded* and produced an
+        # all-flat page, which is worse than failing: an embosser run comes
+        # back empty and nothing upstream ever reported a fault. The other
+        # half was as bad in the other direction — a non-falsy value with no
+        # ``len()`` (an ``object()``, an ``int``) raised a bare ``TypeError``
+        # from the length check, naming neither the field nor the raster.
+        if isinstance(self.data, bytearray):
+            grid = self.data
+        elif isinstance(self.data, (bytes, memoryview)):
             # Right length, wrong mutability: a bytes / memoryview passes the
             # length check and every read, then makes set_raise raise on its
             # first write. Copy into the writable grid the type promises.
-            self.data = bytearray(self.data)
+            grid = bytearray(self.data)
+        else:
+            raise ValueError(
+                f"data must be a bytearray (or a bytes-like to copy from), "
+                f"got {type(self.data).__name__}"
+            )
+        expected = self.width * self.height
+        if not grid:
+            # Omitted — the ``bytearray()`` default — so allocate the flat grid
+            # the docstring promises. An explicitly passed empty bytes-like is
+            # indistinguishable from omission and means the same thing.
+            grid = bytearray(expected)
+        elif len(grid) != expected:
+            raise ValueError(
+                f"data length {len(grid)} does not match "
+                f"{self.width}x{self.height} = {expected}"
+            )
+        self.data = grid
 
     @classmethod
     def blank(

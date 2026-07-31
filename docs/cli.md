@@ -43,7 +43,7 @@ brailix "123" --to cells -p cn_current           # a JSON array of cell data
 brailix "abc def ghij" --width 32 -p cn_current  # wrap Unicode braille at 32 cells
 ```
 
-`--to` accepts any renderer the build provides (`brailix --list-renderers`):
+`--to` accepts any **braille** renderer the build provides (`brailix --list-renderers`):
 
 | Renderer | Output | Use |
 |---|---|---|
@@ -51,6 +51,8 @@ brailix "abc def ghij" --width 32 -p cn_current  # wrap Unicode braille at 32 ce
 | `brf` | NABCC ASCII bytes | sending to an embosser or saving a `.brf` |
 | `cells` | a JSON document of cell data (dots, role, source span) | feeding another tool |
 | `layout` | laid-out Unicode braille | a page-ready transcript |
+
+Those four are the whole list, and the emphasis above is the reason: brailix also ships tactile-graphics renderers (`bmp`, `png`, `pdf`, `tactile_preview`), which live in the same registry but encode a raised-dot raster rather than braille cells. This command takes no drawing as input, so it neither offers them nor lists them. Compiling a figure is `translate_graphic()` plus `GraphicResult.render()` from Python — see [Getting started](getting-started.md#tactile-graphics).
 
 The layout options turn on line-wrapping, per-block indentation, and pagination:
 
@@ -99,7 +101,7 @@ These flags print what the installed build supports and exit:
 brailix --list-profiles      # cn_current, cn_ncb, ja_current
 brailix --list-analyzers     # segmentation engines, grouped by language
 brailix --list-resolvers     # reading engines, grouped by language
-brailix --list-renderers     # output renderers
+brailix --list-renderers     # braille renderers, i.e. what --to accepts
 brailix --version
 ```
 

@@ -3,7 +3,7 @@ name = "brailix"
 # Core-library version axis — read from brailix/__init__.py (see
 # [tool.hatch.version] below).
 dynamic = ["version"]
-description = "Pluggable Braille compiler with normalized intermediate representation."
+description = "Pluggable braille and tactile-graphics compiler with a normalized intermediate representation."
 readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "Apache-2.0" }
@@ -172,7 +172,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-ra --strict-markers"
 markers = [
-    "requires(module): skip unless the named optional-dependency module imports — lets a partial install run green; e.g. `@pytest.mark.requires('latex2mathml')`. CI installs every extra (see .github/workflows/ci.yml), so nothing skips there.",
+    "requires(module): skip unless the named optional-dependency module is *findable* (importlib.util.find_spec — the module is not imported, so a package present but broken does not skip); lets a partial install run green; e.g. `@pytest.mark.requires('latex2mathml')`. CI installs every extra (see .github/workflows/ci.yml), so nothing skips there.",
 ]
 
 # Mutation-testing scope (mutmut; see the verify dependency group). The

@@ -226,6 +226,42 @@ def test_every_published_name_actually_resolves(module: str) -> None:
         assert hasattr(mod, name), f"{module}.{name} missing from facade"
 
 
+def test_the_lazy_root_facade_resolves_exactly_what_it_publishes() -> None:
+    """``brailix.__all__`` and its lazy-export table are one list, twice.
+
+    The top-level facade resolves every published name on first attribute
+    access (``brailix.__getattr__``), so that it can be imported without
+    dragging in a layer — see ``tests/test_core_layering.py`` for why that is a
+    layering rule and not a startup tweak. The cost is a second list: a mapping
+    from name to the module that defines it. Two lists mean two ways to be
+    wrong, and neither is loud. A name in ``__all__`` but not in the table
+    raises ``AttributeError`` at the caller's ``from brailix import X`` (and
+    ``import *`` fails outright); a name in the table but not in ``__all__`` is
+    an unpublished name that resolves at the address the documentation sends
+    everybody to — which is the thing this file exists to prevent.
+
+    ``test_every_published_name_actually_resolves`` covers the first direction
+    by consequence; this covers both by construction, and says which list to
+    edit when it fails.
+    """
+    import brailix
+
+    table = set(brailix._EXPORTS)
+    published = set(brailix.__all__)
+    assert table == published, (
+        f"brailix._EXPORTS and brailix.__all__ disagree: "
+        f"published but unresolvable {sorted(published - table)}; "
+        f"resolvable but unpublished {sorted(table - published)}"
+    )
+    # And the modules named really define them, rather than the name happening
+    # to be reachable from somewhere else too.
+    for name, module in brailix._EXPORTS.items():
+        assert hasattr(importlib.import_module(module), name), (
+            f"brailix._EXPORTS sends {name!r} to {module}, which has no such "
+            f"attribute"
+        )
+
+
 def test_facade_reexports_are_the_same_objects() -> None:
     """The facade must re-export the *same* object, not a copy/alias."""
     from brailix.core import Span

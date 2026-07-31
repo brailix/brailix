@@ -168,6 +168,7 @@ brailix/
 │   │   ├── _xml.py           # shared XML helper (safe_fromstring: parsing with entity expansion off)
 │   │   ├── chars.py          # irregular-character sets (one authority, consumed by the backend and by front-ends)
 │   │   ├── paths.py          # a configured *name* is not a path (one validator, shared by every resource loader)
+│   │   ├── measure.py        # positive-finite check for physical measurements (shared by the raster IR and the tactile profile; each keeps its own error type)
 │   │   ├── inline_math.py    # inline-formula island codec (source tag + original text)
 │   │   ├── defaults.py / dispatch.py
 │   │   ├── config/           # profile loaders

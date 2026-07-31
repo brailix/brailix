@@ -170,6 +170,39 @@ class TestRenderer:
         r = _raster(4, 4)
         assert BmpRenderer(bit_depth=1).render(r) == raster_to_bmp(r, bit_depth=1)
 
+    def test_the_raster_decides_the_depth(self):
+        """The registered renderer carries no depth of its own, so a raster
+        built as bilevel is *written* as bilevel.
+
+        It used to carry ``bit_depth=8``, which made the IR field dead on the
+        only path a caller normally takes: ``GraphicResult.render("bmp")``
+        fetches this instance from the shared registry and hands it the raster,
+        so a ``bit_depth=1`` raster came back as an 8-bit BMP with nothing
+        reporting the disagreement.
+        """
+        r = _raster(4, 4)
+        r.bit_depth = 1
+        assert BmpRenderer().render(r) == raster_to_bmp(r, bit_depth=1)
+        assert _u16(BmpRenderer().render(r), 28) == 1
+
+    def test_an_explicit_depth_overrides_the_raster(self):
+        """Both directions, so "the raster decides" cannot be implemented as
+        "the raster is the only thing that decides" — a caller who wants this
+        one file at the other depth constructs the renderer with it."""
+        grayscale = _raster(4, 4)
+        bilevel = _raster(4, 4)
+        bilevel.bit_depth = 1
+        assert _u16(BmpRenderer(bit_depth=1).render(grayscale), 28) == 1
+        assert _u16(BmpRenderer(bit_depth=8).render(bilevel), 28) == 8
+
+    def test_the_registered_renderer_defers_to_the_raster(self):
+        """Through the registry, which is what the result objects use."""
+        from brailix.renderer import renderer_registry
+
+        r = _raster(4, 4)
+        r.bit_depth = 1
+        assert _u16(renderer_registry.get("bmp").render(r), 28) == 1
+
     def test_invalid_bit_depth(self):
         with pytest.raises(ValueError):
             raster_to_bmp(_raster(2, 2), bit_depth=4)

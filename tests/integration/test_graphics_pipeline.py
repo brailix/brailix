@@ -179,11 +179,31 @@ class TestSvgToBmp:
         pixels = bmp[offset:]
         assert any(b == 0 for b in pixels)  # at least one raised (black) dot
 
-    def test_one_bit_variant(self):
-        # A non-default bit depth is a renderer option, taken on the raster.
+    def test_one_bit_through_the_low_level_encoder(self):
+        # The encoder takes the depth as an argument and asks nobody — the
+        # bottom half of the contract, and all this test used to check. Its
+        # comment said "taken on the raster", which described neither what it
+        # ran nor, at the time, what the public path did.
         bmp = raster_to_bmp(_raster(CIRCLE), bit_depth=1)
         assert bmp[:2] == b"BM"
         assert struct.unpack("<H", bmp[28:30])[0] == 1
+
+    def test_one_bit_through_the_public_render_path(self):
+        """A 1-bit raster renders as a 1-bit BMP through ``GraphicResult``.
+
+        The top half, and the one that was missing: ``render("bmp")`` takes the
+        renderer out of the shared registry, and that instance carried its own
+        ``bit_depth=8`` — so the raster's field was published, validated, and
+        then ignored by the only path a caller normally uses. Encoding the
+        low-level call instead proved the encoder worked while the public
+        contract was broken.
+        """
+        result = _compile(CIRCLE)
+        result.raster.bit_depth = 1
+        bmp = result.render("bmp")
+        assert struct.unpack("<H", bmp[28:30])[0] == 1
+        # And the default is still the grayscale master.
+        assert struct.unpack("<H", _compile(CIRCLE).render("bmp")[28:30])[0] == 8
 
     def test_png_sibling(self):
         png = _compile(CIRCLE).render("png")
