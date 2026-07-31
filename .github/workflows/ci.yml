@@ -125,10 +125,23 @@ jobs:
   # Publishing is split from building so the build can run on pull requests
   # from forks with no permissions at all, while only a push to the default
   # branch gets the write-scoped token that can deploy.
+  #
+  # It is scoped to the repository that owns the published site as well,
+  # because the same commits reach more than one remote — a fork, or a copy
+  # that tracks this repository commit for commit — while Pages is enabled on
+  # exactly one of them. Everywhere else this job ended every push to main
+  # with "Failed to create deployment (status: 404) ... Ensure GitHub Pages
+  # has been enabled", and nothing was actually wrong: lint, both test
+  # matrices, the wheel smoke test and the reference build itself all passed,
+  # and only the deploy of a site that repository doesn't publish failed. A
+  # main branch that is *expected* to be red is worse than no signal at all,
+  # so the job is skipped where it cannot apply instead of failing there.
   publish-docs:
     name: publish the API reference
     needs: docs
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && github.repository == 'brailix/brailix'
     runs-on: ubuntu-latest
     permissions:
       pages: write

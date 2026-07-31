@@ -34,13 +34,20 @@ pytest && ruff check && mypy brailix
 
 ## Design principles
 
-Read `ARCHITECTURE.md` first — it explains the pipeline (text → IR → braille)
-and the patterns the codebase is built on. A few rules matter more than the rest:
+Read `ARCHITECTURE.md` first — it explains the pipeline (source → semantic IR →
+output-domain IR → encoded output) and the patterns the codebase is built on. A
+few rules matter more than the rest:
 
 - **Adapter + normalization mediator.** The library depends on no specific
   third-party tool; each subsystem defines a normalized mediator format
-  (`ChineseToken`, MathML, `DocumentIR`, `BrailleIR`) and plugs tools in through
-  adapters. Add a new tool as an adapter, not by editing core code.
+  (`ChineseToken`, MathML, MusicXML, SVG, `DocumentIR`, `BrailleIR`,
+  `TactileRaster`) and plugs tools in through adapters. Add a new tool as an
+  adapter, not by editing core code.
+- **Two output domains, one set of layers.** Braille is not the only terminus:
+  the backend also rasterizes graphics into a `TactileRaster`, which its own
+  renderers encode. A new product vertical is added the same way — another
+  output-domain IR plus the renderers that read it — never as a special case
+  outside the layers.
 - **No hardcoding, low coupling.** Prefer a registry / adapter plus a normalized
   mediator over `if/else` dispatch on a concrete type.
 - **Respect the component responsibilities** in

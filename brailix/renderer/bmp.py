@@ -53,6 +53,17 @@ def raster_to_bmp(
     that looks like a rendering bug rather than a bad argument.
     """
     raster.require_renderable()
+    # ``bool`` before the depth dispatch below, for the reason the raster's own
+    # field check rejects it: ``True == 1``, so ``bit_depth=True`` fell into the
+    # 1-bit branch and returned a bilevel bitmap for a caller who asked for
+    # nothing of the sort. Only that half of the type was silently accepted —
+    # ``False`` equals no supported depth, so it already reached the
+    # "unsupported bit_depth" raise below.
+    if isinstance(bit_depth, bool) or not isinstance(bit_depth, int):
+        raise ValueError(
+            f"bit_depth must be an int, got "
+            f"{type(bit_depth).__name__} ({bit_depth!r})"
+        )
     if isinstance(threshold, bool) or not isinstance(threshold, int):
         raise ValueError(
             f"threshold must be an integer raise level, got {threshold!r}"

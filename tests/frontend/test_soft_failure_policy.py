@@ -1,6 +1,6 @@
 """One soft-failure policy, three verticals — pinned in a single place.
 
-Math, music and graphics each expose one public parse entry
+Math, music and graphics each have one subsystem parse entry point
 (:func:`~brailix.frontend.math.parse_math_tree`,
 :func:`~brailix.frontend.music.parse_music_tree`,
 :func:`~brailix.frontend.graphics.parse_graphic_tree`) that wraps the adapter
@@ -76,7 +76,7 @@ class _FakeAdapter:
 
 @dataclass(frozen=True)
 class _Vertical:
-    """How to drive one vertical's public parse entry, and how to recognise
+    """How to drive one vertical's parse entry point, and how to recognise
     its recovery product."""
 
     name: str

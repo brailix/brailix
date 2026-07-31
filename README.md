@@ -2,18 +2,33 @@
 
 Pluggable Braille compiler with a normalized intermediate representation.
 
-`brailix` compiles text into braille through a normalized IR
-(text → IR → braille). The core package has **zero third-party parser
-dependencies** — install only the adapters you need as `pip` extras:
+`brailix` compiles source documents into the two things a reader's hands can
+use:
+
+- **Braille** — prose, mathematics and music, emitted as Unicode braille, BRF
+  for an embosser, a dot array, or a laid-out page.
+- **Tactile graphics** — an SVG or a figure spec, rasterized into an
+  embossable BMP, PNG or PDF, or into a preview for a refreshable display.
+
+Both take the same route through a normalized IR: source, semantic IR,
+output-domain IR, encoded output. The core package has **zero third-party
+parser dependencies** — install only the adapters you need as `pip` extras:
 
 ```bash
-pip install brailix              # core: plain text, Markdown, MusicXML
+pip install brailix              # core: plain text, Markdown, MusicXML, SVG tactile graphics
 pip install brailix[zh]          # Chinese: segmentation + pinyin (light, offline)
 pip install brailix[zh,latex]    # + LaTeX math
 pip install brailix[ja]          # Japanese: kana + kanji readings (light, offline)
 pip install brailix[hanlp,g2pw]  # accurate Chinese engines (download models)
 pip install brailix[docx]        # Word .docx / .docm (incl. MathType / OMML)
+pip install brailix[graphics]    # import an existing bitmap as a tactile figure
 ```
+
+Tactile graphics are part of that zero-dependency core: SVG parsing and
+BMP / PNG / PDF writing are standard library, so a figure drawn as SVG or
+described as a spec compiles with nothing extra installed. The `graphics`
+extra is only needed to bring an existing *bitmap* (PNG, JPEG, ...) in as a
+figure, which needs an image decoder.
 
 The `hanlp` and `g2pw` backends download their model weights on first use.
 HanLP's go into a local `models/` directory that brailix points it at; g2pW

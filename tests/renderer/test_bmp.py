@@ -173,3 +173,17 @@ class TestRenderer:
     def test_invalid_bit_depth(self):
         with pytest.raises(ValueError):
             raster_to_bmp(_raster(2, 2), bit_depth=4)
+
+    @pytest.mark.parametrize("bit_depth", [True, False])
+    def test_a_bool_is_not_a_bit_depth(self, bit_depth):
+        # ``True == 1`` matched the 1-bit branch, so ``bit_depth=True`` came
+        # back as a bilevel bitmap — a silently degraded page for a caller who
+        # asked for nothing of the sort, and a different answer from the same
+        # value handed to the raster's own ``bit_depth`` field. ``False``
+        # already raised (it equals neither depth), which is exactly why the
+        # gap survived: half the type looked covered.
+        r = _raster(4, 4)
+        with pytest.raises(ValueError, match="bit_depth"):
+            raster_to_bmp(r, bit_depth=bit_depth)
+        with pytest.raises(ValueError, match="bit_depth"):
+            BmpRenderer(bit_depth=bit_depth).render(r)

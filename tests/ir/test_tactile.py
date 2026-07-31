@@ -163,6 +163,25 @@ class TestPhysicalFieldsAreChecked:
         with pytest.raises(ValueError, match="bit_depth"):
             self._build(bit_depth=bit_depth)
 
+    @pytest.mark.parametrize("bit_depth", [True, False])
+    def test_a_bool_is_not_a_bit_depth(self, bit_depth):
+        # ``True == 1``, so the membership test against {1, 8} accepted it as
+        # the 1-bit depth and stored a *bool* in a field the encoders read back
+        # as an int — the same trap the pixel pair and the measurements above
+        # each spell out. Only half the type slipped through (``False`` equals
+        # neither depth, so it already raised), which is why the pair is
+        # parametrized rather than asserted once.
+        with pytest.raises(ValueError, match="bit_depth"):
+            self._build(bit_depth=bit_depth)
+
+    @pytest.mark.parametrize("bit_depth", [[1], {8: "yes"}, {1, 8}])
+    def test_an_unhashable_bit_depth_is_still_a_named_value_error(self, bit_depth):
+        # Membership on a frozenset hashes its operand, so the check meant to
+        # produce this ValueError raised ``TypeError: unhashable type`` before
+        # reaching it — an error naming neither the field nor the raster.
+        with pytest.raises(ValueError, match="bit_depth"):
+            self._build(bit_depth=bit_depth)
+
     @pytest.mark.parametrize("bit_depth", [1, 8])
     def test_supported_bit_depths_are_accepted(self, bit_depth):
         assert self._build(bit_depth=bit_depth).bit_depth == bit_depth
@@ -188,6 +207,59 @@ class TestPhysicalFieldsAreChecked:
         r = self._build(width=0, height=0)
         assert r.data == bytearray()
         assert math.isfinite(r.dpi)
+
+
+class TestBlankAndDirectConstructionAgree:
+    """One type, one construction contract — whichever way a raster is built.
+
+    :meth:`TactileRaster.blank` used to allocate ``bytearray(width * height)``
+    itself and pass it in, which put the allocator *ahead of* the field checks
+    in ``__post_init__``. So the illegal ``width`` that
+    ``TactileRaster(width=...)`` refuses with a ``ValueError`` naming the field
+    came back from the factory as whatever ``bytearray`` happened to raise —
+    ``TypeError: cannot convert 'float' object to bytearray`` for ``1.5``,
+    ``TypeError: string argument without an encoding`` for ``"4"``, a bare
+    ``negative count`` (no field, no raster) for ``-1``. A caller cannot catch
+    or display a field-level diagnostic that only one of the two paths raises,
+    so both are asserted together here rather than in either path's own class.
+    """
+
+    @staticmethod
+    def _kwargs(**overrides) -> dict:
+        kwargs = dict(
+            width=2, height=2, dpi=100.0, page_width_mm=1.0, page_height_mm=1.0
+        )
+        kwargs.update(overrides)
+        return kwargs
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            (field, value)
+            for field in ("width", "height")
+            for value in (1.5, "4", -1, True, None)
+        ]
+        + [
+            ("dpi", 0.0),
+            ("dpi", float("nan")),
+            ("page_width_mm", -1.0),
+            ("page_height_mm", "wide"),
+            ("bit_depth", 4),
+            ("bit_depth", True),
+        ],
+    )
+    def test_both_paths_reject_it_and_name_the_field(self, field, value):
+        with pytest.raises(ValueError, match=field):
+            TactileRaster(**self._kwargs(**{field: value}))
+        with pytest.raises(ValueError, match=field):
+            TactileRaster.blank(**self._kwargs(**{field: value}))
+
+    @pytest.mark.parametrize("size", [(0, 0), (2, 3), (5, 1)])
+    def test_both_paths_build_the_same_flat_grid(self, size):
+        w, h = size
+        kwargs = self._kwargs(width=w, height=h)
+        assert TactileRaster.blank(**kwargs) == TactileRaster(**kwargs)
+        assert len(TactileRaster.blank(**kwargs).data) == w * h
 
 
 class TestPixelAccess:
