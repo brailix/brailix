@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
 import xml.etree.ElementTree as ET
+
+import pytest
 
 from brailix.core.context import GraphicsContext
 from brailix.core.errors import WarningCollector
@@ -121,6 +124,84 @@ class TestSoftFailures:
     def test_missing_size_omits_viewbox(self):
         root = ET.fromstring(primitives_to_svg({"shapes": []}))
         assert root.get("viewBox") is None
+
+
+class TestNonFiniteCoordinates:
+    """``inf`` and ``NaN`` are not coordinates, and they used to be written as
+    though they were.
+
+    ``float("inf")`` converts without complaint, so the old formatter emitted
+    the literal attribute ``cx="inf"`` — well-formed XML, not geometry, handed
+    to the backend as if it were a point. Nothing raised and nothing warned;
+    the figure came back blank. JSON reaches here carrying either literal, so
+    a spec typed by hand or produced by a buggy tool arrives this way without
+    anyone constructing a float.
+    """
+
+    @staticmethod
+    def _build(shape: dict) -> tuple[ET.Element, WarningCollector]:
+        warn = WarningCollector()
+        out = primitives_to_svg(
+            {"width": 9, "height": 9, "shapes": [shape]}, warn
+        )
+        return ET.fromstring(out), warn
+
+    @pytest.mark.parametrize(
+        "shape",
+        [
+            {"type": "circle", "cx": math.inf, "cy": 5, "r": 2},
+            {"type": "circle", "cx": 5, "cy": 5, "r": math.nan},
+            {"type": "line", "x1": 0, "y1": 0, "x2": -math.inf, "y2": 1},
+            {"type": "rect", "x": 0, "y": 0, "width": math.inf, "height": 1},
+            {"type": "polyline", "points": [[0, 0], [math.nan, 1]]},
+            {"type": "label", "x": math.inf, "y": 1, "text": "A"},
+            {"type": "circle", "cx": 1, "cy": 1, "r": 1, "stroke_width": math.inf},
+        ],
+    )
+    def test_the_shape_is_skipped_with_a_warning(self, shape):
+        root, warn = self._build(shape)
+        assert list(root) == [], "a shape with no drawable coordinate was drawn"
+        assert any(w.code == "GRAPHICS_INVALID_SPEC" for w in warn)
+
+    def test_no_non_finite_literal_reaches_the_svg(self):
+        """The property that matters downstream, checked on the text itself:
+        whatever the skip logic does, ``inf`` / ``nan`` must not appear in an
+        attribute the backend will parse as a number."""
+        out = primitives_to_svg(
+            {
+                "width": 9,
+                "height": 9,
+                "shapes": [
+                    {"type": "circle", "cx": math.inf, "cy": 0, "r": math.nan},
+                    {"type": "circle", "cx": 4, "cy": 4, "r": 2},
+                ],
+            }
+        )
+        assert "inf" not in out and "nan" not in out
+        assert [c.tag for c in ET.fromstring(out)] == ["circle"]
+
+    def test_a_non_finite_canvas_omits_the_page_size(self):
+        """``inf > 0`` is True, so an infinite canvas used to set
+        ``width="infmm"`` on the root — which is where a page size comes
+        from."""
+        root = ET.fromstring(
+            primitives_to_svg({"width": math.inf, "height": 9, "shapes": []})
+        )
+        assert root.get("viewBox") is None
+        assert root.get("width") is None
+
+    def test_an_unknown_type_still_reports_the_unknown_type(self):
+        """Diagnostic priority: told about one thing, an author should be told
+        the thing they can act on. A shape whose ``type`` is not a shape is not
+        usefully described as having a bad coordinate."""
+        _, warn = self._build({"type": "blob", "x": math.inf})
+        codes = {w.code for w in warn}
+        assert codes == {"GRAPHICS_UNKNOWN_SHAPE"}
+
+    def test_finite_shapes_are_untouched(self):
+        root, warn = self._build({"type": "circle", "cx": 5, "cy": 5, "r": 2})
+        assert [c.tag for c in root] == ["circle"]
+        assert not list(warn)
 
 
 class TestAdapter:

@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import math
+
+import pytest
+
 from brailix.frontend.graphics.generate import (
+    _MAX_TICKS,
+    FigureSpecError,
     _fmt,
+    _num,
     _ticks,
     generator_kinds,
     get_generator,
@@ -39,6 +46,128 @@ class TestHelpers:
     def test_fmt_integers(self):
         assert _fmt(3.0) == "3"
         assert _fmt(2.5) == "2.5"
+
+
+class TestTicksStayInRange:
+    """The stated upper bound is the real one.
+
+    A divisible range hides this entirely, and a divisible range is all the
+    happy-path test above ever asked for: with ``round()``, ``_ticks(0, 10, 2)``
+    and ``_ticks(0, 11, 3)`` are the same code path and only the second one is
+    wrong.
+    """
+
+    def test_a_range_the_step_does_not_divide(self):
+        # round(11/3) == 4, which put a tick at 12 — mapped past the end of the
+        # plot area and labelled, on an axis whose author wrote 11.
+        assert _ticks(0, 11, 3) == [0, 3, 6, 9]
+
+    @pytest.mark.parametrize(
+        ("lo", "hi", "step"),
+        [
+            (0, 11, 3),
+            (0, 10, 3),
+            (0, 1, 0.3),
+            (-5, 5, 3),
+            (-7.5, 2.5, 1.5),
+            (0.1, 0.9, 0.25),
+            (1e6, 1e6 + 7, 2),
+        ],
+    )
+    def test_no_tick_ever_exceeds_the_upper_bound(self, lo, hi, step):
+        ticks = _ticks(lo, hi, step)
+        assert ticks, "a representable range should produce at least one tick"
+        assert max(ticks) <= hi
+        assert min(ticks) >= lo
+
+    def test_a_representable_endpoint_is_still_included(self):
+        """The other half — flooring must not start dropping the last tick.
+
+        ``(0.3 - 0) / 0.1`` is 2.9999999999999996 in binary floating point, so
+        a bare ``floor`` would stop at 0.2 and an axis labelled "0 to 0.3"
+        would end at 0.2.
+        """
+        ticks = _ticks(0, 0.3, 0.1)
+        assert len(ticks) == 4
+        assert ticks[-1] == pytest.approx(0.3)
+
+    def test_the_divisible_case_is_unchanged(self):
+        assert _ticks(-5, 5, 1) == [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]
+
+
+class TestTicksRefuseWhatCannotBeDrawn:
+    """Non-finite and unbounded requests, which used to leave through the
+    adapter as an ``OverflowError`` or as a multi-hundred-megabyte list."""
+
+    @pytest.mark.parametrize(
+        ("lo", "hi", "step"),
+        [
+            (0.0, math.inf, 1.0),
+            (0.0, math.nan, 1.0),
+            (-math.inf, 0.0, 1.0),
+            (0.0, 10.0, math.nan),
+            (0.0, 10.0, math.inf),
+        ],
+    )
+    def test_a_non_finite_bound_is_an_axis_with_no_ticks(self, lo, hi, step):
+        assert _ticks(lo, hi, step) == []
+
+    def test_finite_endpoints_whose_quotient_overflows(self):
+        """Both operands are ordinary floats; only the division is not.
+        ``int(round(inf))`` raised ``OverflowError`` from inside a drawing
+        routine, out through an adapter documented to soft-fail."""
+        with pytest.raises(FigureSpecError):
+            _ticks(0.0, 1e308, 1e-308)
+
+    def test_finite_endpoints_whose_span_overflows(self):
+        with pytest.raises(FigureSpecError):
+            _ticks(-1e308, 1e308, 1.0)
+
+    def test_a_step_too_small_for_the_range_is_refused(self):
+        """Refused, not truncated: drawing the first ten thousand of a hundred
+        million ticks yields an axis labelled 0 to 0.0001 for a figure whose
+        author wrote 0 to 1, and a wrong chart reads like a right one."""
+        with pytest.raises(FigureSpecError) as excinfo:
+            _ticks(0.0, 1.0, 1e-8)
+        assert "tick" in str(excinfo.value)
+
+    def test_the_budget_boundary(self):
+        """Exactly at the limit is allowed; one past it is not — so the bound
+        is a decision, not an accident of where the arithmetic lands."""
+        assert len(_ticks(0.0, float(_MAX_TICKS - 1), 1.0)) == _MAX_TICKS
+        with pytest.raises(FigureSpecError):
+            _ticks(0.0, float(_MAX_TICKS), 1.0)
+
+    def test_a_plausible_form_entry_is_refused(self):
+        """Not only a hostile-input bound. A form offering a range and a step
+        as ordinary numeric fields — say -9999 to 9999 by 0.01 — is two million
+        ticks from two entries that look reasonable apart, and it used to run
+        for minutes before returning anything."""
+        with pytest.raises(FigureSpecError):
+            _ticks(-9999.0, 9999.0, 0.01)
+
+
+class TestNum:
+    """``_num`` is the gate every spec field passes through."""
+
+    def test_reads_numbers_and_numeric_strings(self):
+        assert _num(3) == 3.0
+        assert _num("2.5") == 2.5
+
+    def test_falls_back_for_unreadable_values(self):
+        assert _num(None, 7.0) == 7.0
+        assert _num("abc", 7.0) == 7.0
+        assert _num({}, 7.0) == 7.0
+
+    @pytest.mark.parametrize("value", [math.inf, -math.inf, math.nan])
+    def test_non_finite_is_unreadable_not_a_number(self, value):
+        """It used to convert cleanly and propagate: one infinite value in a
+        line chart's data made every mapped coordinate ``NaN``, and the figure
+        rasterised, warned about nothing, and showed nothing."""
+        assert _num(value, 7.0) == 7.0
+
+    def test_bool_is_not_a_measurement(self):
+        assert _num(True, 7.0) == 7.0
 
 
 class TestBar:

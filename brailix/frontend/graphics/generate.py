@@ -24,13 +24,33 @@ axis so larger values sit higher on the page.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from typing import Any
+
+from brailix.frontend.graphics._numbers import as_finite
 
 # A generator turns a figure spec into a primitives spec.
 FigureGenerator = Callable[[dict[str, Any]], dict[str, Any]]
 
 _GENERATORS: dict[str, FigureGenerator] = {}
+
+
+class FigureSpecError(ValueError):
+    """A figure spec that describes no drawable figure.
+
+    Raised by a generator, converted by
+    :class:`~brailix.frontend.graphics.adapters.figure.FigureSourceAdapter`
+    into the subsystem's usual soft failure: a ``GRAPHICS_INVALID_SPEC``
+    warning plus an error-marked ``<svg>``, so the pipeline keeps going.
+
+    A *narrow* exception, and deliberately not a blanket ``except Exception``
+    at the adapter: the two entry points above it already backstop anything
+    else a generator raises (``parse_graphic_tree`` degrades it to the same
+    error tree), and a broad catch here would swallow the generator bugs that
+    backstop exists to make visible. This type says "the spec is the problem",
+    which is the one case the adapter can diagnose better than the backstop.
+    """
 
 # Default canvas + margin (mm). The margin leaves room for axis / data
 # labels, which render at physical braille size.
@@ -57,10 +77,18 @@ def generator_kinds() -> tuple[str, ...]:
 
 
 def _num(value: Any, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+    """A spec field as a drawable number, or ``default``.
+
+    Non-finite counts as unreadable, not as a number: it used to convert
+    cleanly and then propagate, so ``{"values": [1, Infinity, 3]}`` produced a
+    line chart whose every mapped coordinate was ``NaN`` — a figure that
+    rasterised, carried no warning, and showed nothing. The adapter rejects
+    such a spec outright before a generator ever runs
+    (:func:`~brailix.frontend.graphics._numbers.non_finite_paths`); this keeps
+    the arithmetic below sound for a generator reached any other way.
+    """
+    num = as_finite(value, None)
+    return default if num is None else num
 
 
 def _fmt(value: float) -> str:
@@ -94,12 +122,79 @@ def _label(x: float, y: float, text: Any) -> dict[str, Any]:
     return {"type": "label", "x": x, "y": y, "text": str(text)}
 
 
+# The most tick marks a generated axis may carry. Every tick is a line plus a
+# label, and a label rasterises to braille dots at physical size, so an axis
+# past this count is not a scale anyone can read by touch — it is a solid bar.
+# Not only a hostile-input bound. A form-driven front end that offers a range
+# and a step as ordinary numeric fields puts two million ticks within reach of
+# an author typing numbers that look reasonable apart — a wide range and a fine
+# step are each ordinary on their own.
+#
+# A *resource* bound, not a legibility one, and set where the two do not have
+# to be argued together: the densest figure it still admits (a grid on both
+# axes at the limit) compiles in about 16 seconds, and the backend already
+# reports it as unreadable through GRAPHICS_LABEL_OVERLAP /
+# GRAPHICS_FEATURES_TOO_CLOSE — which is the layer that knows the page's
+# physical geometry and so is the one that can say how close is too close.
+# Before this, the same spec one order of magnitude further along ran for
+# minutes and allocated the SVG in the hundreds of megabytes.
+_MAX_TICKS = 10_000
+
+# Ticks are ``lo + i * step``, but their *count* comes from a division, and
+# that division carries representation error: ``(0.3 - 0) / 0.1`` is
+# 2.9999999999999996, and the tick at 0.3 is one the author asked for.
+# Relative rather than a fixed epsilon, because these are figure coordinates —
+# millimetres on one page and astronomical distances on the next — and a
+# constant tolerance is either useless at one magnitude or ruinous at the
+# other.
+_TICK_EPS = 1e-9
+
+
 def _ticks(lo: float, hi: float, step: float) -> list[float]:
-    """Tick values from ``lo`` to ``hi`` inclusive, spaced by ``step``."""
+    """Tick values from ``lo`` to ``hi`` inclusive, spaced by ``step``.
+
+    **Never past** ``hi``. The count used to be rounded, so ``_ticks(0, 11, 3)``
+    read 11/3 as four steps and returned a tick at 12 — which the number-line
+    and axes generators then mapped past the end of the plot area and
+    labelled, giving an axis that runs further than the range its author wrote
+    down, with nothing raised and nothing warned. Flooring is what makes the
+    stated upper bound the real one, and the values are filtered against it
+    besides, since ``lo + i * step`` accumulates its own error.
+
+    Two refusals, both raising :class:`FigureSpecError` for the adapter to turn
+    into a warning:
+
+    * a request over :data:`_MAX_TICKS`, refused rather than truncated —
+      quietly drawing the first ten thousand of two million ticks yields an
+      axis labelled 0 to 0.1 for a figure whose author wrote 0 to 1, and a
+      chart that is wrong reads exactly like a chart that is right;
+    * a span or quotient that overflows to infinity on *finite* endpoints
+      (``-1e308`` to ``1e308``; ``1e308`` at step ``1e-308``). This is where
+      ``round()`` used to raise ``OverflowError`` from inside a drawing
+      routine, out through an adapter documented to soft-fail.
+
+    Degenerate arguments — a non-positive step, an empty or inverted range,
+    a non-finite bound — are not errors, just an axis with no ticks on it.
+    """
+    if not (math.isfinite(lo) and math.isfinite(hi) and math.isfinite(step)):
+        return []
     if step <= 0 or hi <= lo:
         return []
-    n = int(round((hi - lo) / step))
-    return [lo + i * step for i in range(n + 1)]
+    # Guarded before the multiply below, which would otherwise be the thing
+    # that overflows. ``steps`` is the count of *intervals*, so the tick count
+    # is one more than its floor.
+    steps = (hi - lo) / step
+    if not math.isfinite(steps) or steps > _MAX_TICKS - 1:
+        raise FigureSpecError(
+            f"an axis from {lo:g} to {hi:g} by {step:g} would need more than "
+            f"{_MAX_TICKS} tick marks — widen the step or narrow the range"
+        )
+    limit = hi + _TICK_EPS * max(abs(lo), abs(hi), abs(step))
+    return [
+        value
+        for i in range(math.floor(steps * (1.0 + _TICK_EPS)) + 1)
+        if (value := lo + i * step) <= limit
+    ]
 
 
 def _title(shapes: list[dict[str, Any]], spec: dict[str, Any], m: float) -> None:

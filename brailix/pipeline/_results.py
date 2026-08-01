@@ -39,8 +39,9 @@ _BRAILLE_DOMAIN = "braille"
 _TACTILE_DOMAIN = "tactile_raster"
 
 
-def _resolve_renderer(name: str, expected_domain: str) -> Any:
-    """Look up ``name`` and verify it consumes ``expected_domain``.
+def _resolve_renderer(name: str | None, default: str, expected_domain: str) -> Any:
+    """Look up ``name`` (or ``default``) and verify it consumes
+    ``expected_domain``.
 
     Both the braille and the tactile renderers live in one shared
     :data:`~brailix.renderer.renderer_registry` behind a deliberately wide
@@ -51,11 +52,27 @@ def _resolve_renderer(name: str, expected_domain: str) -> Any:
     :class:`IncompatibleRendererError`. A renderer self-describes its domain via
     a ``consumes`` attribute, defaulting to ``"braille"`` for the braille
     renderers that predate the attribute.
+
+    **Only ``None`` means "no name given."** Each of the four ``render``
+    methods used to select with ``name or self.default_renderer``, which reads
+    the same to a human and is not the same rule: ``""`` is a name a caller
+    passed, and falsiness quietly turned it into the default. So
+    ``render(config["renderer"])`` on a config with an empty or missing value,
+    a blank CLI flag, an unset form field, or a plugin name assembled from
+    parts that came out empty all produced the default renderer's output and
+    reported success — the one input where the caller most needs the
+    :class:`~brailix.core.errors.UnknownAdapterError` that any *other* wrong
+    name would have raised. Defaulting lives here, once, rather than at four
+    call sites that have to agree with each other.
     """
-    renderer = renderer_registry.get(name)
+    selected = default if name is None else name
+    renderer = renderer_registry.get(selected)
     consumes = getattr(renderer, "consumes", _BRAILLE_DOMAIN)
     if consumes != expected_domain:
-        raise IncompatibleRendererError(name, consumes, expected_domain)
+        # ``selected``, not ``name``: on the default path ``name`` is None, and
+        # a mismatch message reading "renderer None cannot consume ..." names
+        # nothing the caller can go and change.
+        raise IncompatibleRendererError(selected, consumes, expected_domain)
     return renderer
 
 # ---------------------------------------------------------------------------
@@ -83,7 +100,8 @@ class TranslationResult:
     def render(self, name: str | None = None) -> Any:
         """Render the braille IR through the named renderer.
 
-        ``name`` defaults to :attr:`default_renderer`. Returns whatever
+        Omitting ``name`` (or passing ``None``) uses :attr:`default_renderer`;
+        any other value is a name, ``""`` included. Returns whatever
         the renderer produces — typically ``str`` (Unicode braille) or
         ``bytes`` (BRF); cells / layout renderers may produce other types.
 
@@ -95,7 +113,7 @@ class TranslationResult:
         ``tactile_preview``), which cannot consume a braille IR.
         """
         renderer = _resolve_renderer(
-            name or self.default_renderer, _BRAILLE_DOMAIN
+            name, self.default_renderer, _BRAILLE_DOMAIN
         )
         return renderer.render(self.braille_ir)
 
@@ -137,7 +155,8 @@ class GraphicResult:
     def render(self, name: str | None = None) -> Any:
         """Render the tactile raster through the named renderer.
 
-        ``name`` defaults to :attr:`default_renderer` (``"bmp"``). Returns
+        Omitting ``name`` (or passing ``None``) uses :attr:`default_renderer`
+        (``"bmp"``); any other value is a name, ``""`` included. Returns
         whatever the renderer produces — ``bytes`` for ``bmp`` / ``png`` / ``pdf``,
         a ``str`` for the ``tactile_preview`` U+2800 readback. Raises
         :class:`KeyError` if no renderer is registered under ``name``;
@@ -152,7 +171,7 @@ class GraphicResult:
         how a caller overrides that, and it is registered (or used) by name.
         """
         renderer = _resolve_renderer(
-            name or self.default_renderer, _TACTILE_DOMAIN
+            name, self.default_renderer, _TACTILE_DOMAIN
         )
         return renderer.render(self.raster)
 
@@ -183,22 +202,24 @@ class TactilePageResult:
     def render(self, name: str | None = None, *, page: int = 0) -> Any:
         """Render one page (default the first) through the named renderer.
 
-        ``name`` defaults to :attr:`default_renderer` (``"bmp"``). Raises
+        Omitting ``name`` (or passing ``None``) uses :attr:`default_renderer`
+        (``"bmp"``); any other value is a name, ``""`` included. Raises
         :class:`IndexError` if ``page`` is out of range, :class:`KeyError` if
         no renderer is registered under ``name``,
         :class:`~brailix.core.IncompatibleRendererError` if ``name`` is a
         braille renderer (a page is a tactile raster)."""
         renderer = _resolve_renderer(
-            name or self.default_renderer, _TACTILE_DOMAIN
+            name, self.default_renderer, _TACTILE_DOMAIN
         )
         return renderer.render(self.pages[page])
 
     def render_all(self, name: str | None = None) -> list[Any]:
         """Render every page through the named renderer, in order — one output
         per page (e.g. a list of ``.bmp`` byte strings ready to write as
-        ``page-1.bmp`` … ``page-N.bmp``)."""
+        ``page-1.bmp`` … ``page-N.bmp``). ``name`` selects the renderer on the
+        same terms as :meth:`render`."""
         renderer = _resolve_renderer(
-            name or self.default_renderer, _TACTILE_DOMAIN
+            name, self.default_renderer, _TACTILE_DOMAIN
         )
         return [renderer.render(p) for p in self.pages]
 
