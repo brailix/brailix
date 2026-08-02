@@ -134,9 +134,9 @@ def _mtd_is_omitted(tcell: ET.Element) -> bool:
 
 def _mtable_has_omitted_cell(mtable: ET.Element) -> bool:
     """Does any row carry an omitted (empty) ``<mtd/>``? Such a matrix /
-    determinant is written with its zeros left out, so its non-zero
-    elements must keep their COLUMN alignment (see
-    :func:`_emit_mtable_aligned`)."""
+    determinant is written with its zeros left out. Read by the equation
+    system, where it decides whether the rows are column-aligned; a matrix
+    is column-aligned either way (see :func:`_emit_mtable_aligned`)."""
     return any(
         _mtd_is_omitted(td)
         for row in mtable
@@ -144,6 +144,30 @@ def _mtable_has_omitted_cell(mtable: ET.Element) -> bool:
         for td in row
         if td.tag == "mtd"
     )
+
+
+def _mtable_cell_spans_lines(mtable: ET.Element) -> bool:
+    """Does any cell of ``mtable`` contain something that breaks a line?
+
+    A column has a width only while each cell is one line long. A nested
+    table (a block matrix) or an explicit newline ``<mspace>`` inside a
+    cell makes "how wide is this cell" meaningless — measuring it would
+    count the cells of every line at once and pad the column to that — so
+    such a table keeps the unmeasured element-by-element path.
+
+    Asked of the tree rather than of the rendered buffers so the decision
+    costs nothing and, more to the point, is made **before** anything is
+    rendered: deciding afterwards would mean rendering every cell twice
+    and emitting each cell's warnings twice with it.
+    """
+    for el in mtable.iter():
+        if el is mtable:
+            continue
+        if el.tag == "mtable":
+            return True
+        if el.tag == "mspace" and el.get("linebreak") == "newline":
+            return True
+    return False
 
 
 def _render_mtd(mctx: MathBrailleContext, tcell: ET.Element) -> list[BrailleCell]:
@@ -184,19 +208,42 @@ def _emit_aligned_row(
     mctx: MathBrailleContext,
     bufs: list[list[BrailleCell]],
     col_w: list[int],
+    *,
+    pad_trailing: bool = False,
 ) -> None:
     """Place one row's pre-measured cell buffers column-aligned: an omitted
-    cell is ``col_w`` blanks, columns are one blank apart, each written
-    column is padded to its width so the next lines up, and TRAILING
-    omitted cells are dropped (write stops after the last non-empty cell)."""
-    last = max((c for c, buf in enumerate(bufs) if buf), default=-1)
+    cell is ``col_w`` blanks, columns are one blank apart, and each written
+    column is padded to its width so the next one lines up.
+
+    ``pad_trailing`` decides what happens at the END of a row whose last
+    cells are omitted, and the two callers want opposite things:
+
+    * A **matrix / determinant** closes every row with a 界符, and those
+      have to stand in one column — the reader tracks the frame's right
+      edge exactly as they track the columns inside it. So the row is
+      written out to the full table width, trailing omitted cells and all.
+      Dropping them (which this did for every caller) left the closing
+      界符 wherever that row's last non-zero element happened to end: a
+      3×3 diagonal matrix closed at columns 4, 7 and 10 on its three rows,
+      and an arrow matrix at 10, 4, 4.
+    * An **equation system** has no closing fence, so a padded tail would
+      be blanks running to a line break with nothing to frame. It keeps
+      the short row.
+
+    ``bufs`` may be shorter than ``col_w`` (a row with fewer ``<mtd>`` than
+    the widest one); a missing entry reads as omitted.
+    """
+    if pad_trailing:
+        last = len(col_w) - 1
+    else:
+        last = max((c for c, buf in enumerate(bufs) if buf), default=-1)
     for c in range(last + 1):
         if c > 0:
             cells.append(blank_cell(mctx.span))  # column separator
-        buf = bufs[c]
+        buf = bufs[c] if c < len(bufs) else []
         cells.extend(buf)
-        if c < last:  # pad to the column width so the next one aligns
-            cells.extend(
+        if c < last or pad_trailing:  # pad so the next column / the closing
+            cells.extend(  # 界符 lines up
                 blank_cell(mctx.span) for _ in range(col_w[c] - len(buf))
             )
 
@@ -208,20 +255,27 @@ def _emit_mtable_aligned(
     open_char: str,
     close_char: str,
 ) -> None:
-    """Row-by-row notation for a matrix / determinant whose zeros are
-    OMITTED (empty ``<mtd/>`` cells) — a diagonal / triangular / tridiagonal
-    / arrow / block-diagonal shape, etc.
+    """Row-by-row notation for a matrix / determinant, column-aligned.
 
-    Unlike the plain path (elements blank-separated, no column alignment),
-    an omitted-zero matrix must keep every non-zero element under its
-    column so the reader can place it: a diagonal element cascades one
-    column right per row, an upper-triangular row's first non-zero lines up
-    with the same column above, and a lower-triangular row (zeros only
-    trailing) is unchanged. Column widths come from
-    :func:`_measure_aligned_cells`; each row is placed by
-    :func:`_emit_aligned_row`. If the zeros are NOT omitted the caller keeps
-    the plain path (normal translation). The staircase equation system
-    (阶梯型方程组) reuses the same two helpers from the cases path."""
+    A print matrix is a grid and its braille is read as one: every element
+    stands under the element above it, and both 界符 stand in a column of
+    their own. Column widths come from :func:`_measure_aligned_cells` (each
+    column as wide as its widest element); each row is placed by
+    :func:`_emit_aligned_row`, padded out to the full table width so the
+    closing 界符 lines up — the frame's right edge is as much a landmark as
+    the columns inside it.
+
+    Alignment used to apply only where the zeros were OMITTED (empty
+    ``<mtd/>`` cells — diagonal / triangular / tridiagonal / arrow shapes),
+    on the reasoning that only there must the reader *place* a non-zero
+    element. But a full matrix is read the same way by the same finger:
+    with elements of unequal width (``1`` beside ``100``) the unaligned
+    path put every row's columns, and both its 界符, somewhere else.
+
+    A table whose cells span lines keeps the unmeasured path — see
+    :func:`_mtable_cell_spans_lines`. The staircase equation system
+    (阶梯型方程组) reuses the same two helpers from the cases path, without
+    the trailing pad: it has no closing fence to line up."""
     rows = [row for row in mtable if row.tag == "mtr"]
     row_bufs, col_w = _measure_aligned_cells(mctx, rows)
     cells.append(hang_open_cell(mctx.span))
@@ -232,7 +286,7 @@ def _emit_mtable_aligned(
         first_row = False
         _emit_as_mo(cells, mctx, open_char)
         mctx.need_number_sign = True
-        _emit_aligned_row(cells, mctx, bufs, col_w)
+        _emit_aligned_row(cells, mctx, bufs, col_w, pad_trailing=True)
         _emit_as_mo(cells, mctx, close_char)
     cells.append(hang_close_cell(mctx.span))
     mctx.need_number_sign = True
@@ -255,9 +309,13 @@ def _emit_mtable_linear(
     Content before the first row / after the last row stays on those
     rows' lines (trailing operators attach to the last row).
     The delimiter cells reuse the profile's lpar/rpar/lbrack/rbrack/
-    verbar symbols. A matrix / determinant whose zeros are OMITTED (empty
-    ``<mtd/>`` cells) instead goes through :func:`_emit_mtable_aligned` so
-    its non-zero elements keep their column alignment. Block matrices /
+    verbar symbols.
+
+    This is now the **fallback**: a matrix whose cells are each one line
+    long goes through :func:`_emit_mtable_aligned` and comes out
+    column-aligned. What is left here is the table this cannot be measured
+    for — a cell that breaks a line of its own (a nested table, an explicit
+    newline), where a column has no single width. Block matrices /
     two-dimensional layout are otherwise deferred."""
     if not any(child.tag == "mtr" for child in mtable):
         # A malformed / empty <mtable> (no rows) would otherwise emit a pair of
@@ -271,7 +329,7 @@ def _emit_mtable_linear(
             source="backend.math",
         )
         return
-    if _mtable_has_omitted_cell(mtable):
+    if not _mtable_cell_spans_lines(mtable):
         _emit_mtable_aligned(cells, mctx, mtable, open_char, close_char)
         return
     cells.append(hang_open_cell(mctx.span))

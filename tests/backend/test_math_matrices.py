@@ -494,12 +494,18 @@ class TestEllipsisSymbols:
         assert any(w.code == "MATH_UNKNOWN_SYMBOL" for w in wc)
 
 
-class TestOmittedZeroMatrix:
-    """A matrix / determinant written with its zeros LEFT OUT (empty
-    <mtd/> cells) keeps its non-zero elements column-aligned: an omitted
-    cell is written as blanks the width of its column, elements are one
-    blank apart, and trailing omitted cells are dropped. Verified through
-    the layout so the column positions are visible."""
+class TestMatrixColumnAlignment:
+    """A matrix / determinant is a grid, and its braille reads as one:
+    every element stands under the element above it, an omitted (empty
+    ``<mtd/>``) cell is written as blanks the width of its column, and
+    every row runs the full table width so both 界符 stand in a column of
+    their own.
+
+    Verified through the layout, so the column positions are visible —
+    which matters more than usual here, because with single-cell elements
+    (which is what most fixtures use) alignment is invisible: the tests
+    that show it are the ones with omitted cells or elements of unequal
+    width."""
 
     @staticmethod
     def _m(grid, o="(", c=")"):
@@ -514,16 +520,21 @@ class TestOmittedZeroMatrix:
     def _mi(*names):
         return ["" if n == "" else f"<mi>{n}</mi>" for n in names]
 
+    @staticmethod
+    def _mn(*vals):
+        return ["" if v == "" else f"<mn>{v}</mn>" for v in vals]
+
     def test_diagonal_layout(self, profile):
         cells, _ = emit(mml(self._m([
             self._mi("a", "", ""),
             self._mi("", "b", ""),
             self._mi("", "", "c"),
         ])), profile)
-        # ⠣ a ⠜ ; ⠣ (col0 pad+sep) b ⠜ ; ⠣ (col0,col1 pads+seps) c ⠜
+        # Each element under its own column, and every row padded out to
+        # the full width so all three ⠜ stand in the same column.
         assert _layout_lines(cells) == [
-            "⠣⠰⠁⠜",
-            "⠣⠀⠀⠀⠰⠃⠜",
+            "⠣⠰⠁⠀⠀⠀⠀⠀⠀⠜",
+            "⠣⠀⠀⠀⠰⠃⠀⠀⠀⠜",
             "⠣⠀⠀⠀⠀⠀⠀⠰⠉⠜",
         ]
 
@@ -541,20 +552,109 @@ class TestOmittedZeroMatrix:
             "⠣⠀⠀⠀⠀⠀⠀⠰⠋⠜",
         ]
 
-    def test_lower_triangular_is_unchanged(self, profile):
+    def test_lower_triangular_needs_no_leading_pad(self, profile):
+        """Nothing is omitted before a lower-triangular row's elements, so
+        they sit where the row below has them with no leading blanks — but
+        the trailing omissions are still written out, or the closing 界符
+        would climb left one column per row."""
         cells, _ = emit(mml(self._m([
             self._mi("a", "", ""),
             self._mi("b", "c", ""),
             self._mi("d", "e", "f"),
         ])), profile)
         assert _layout_lines(cells) == [
-            "⠣⠰⠁⠜",
-            "⠣⠰⠃⠀⠰⠉⠜",
+            "⠣⠰⠁⠀⠀⠀⠀⠀⠀⠜",
+            "⠣⠰⠃⠀⠰⠉⠀⠀⠀⠜",
             "⠣⠰⠙⠀⠰⠑⠀⠰⠋⠜",
         ]
 
-    def test_full_matrix_keeps_the_plain_path(self, profile):
-        # No omitted cells -> normal translation (no column padding).
+    @pytest.mark.parametrize(
+        "grid",
+        [
+            # diagonal — trailing omissions on every row but the last
+            [("a", "", ""), ("", "b", ""), ("", "", "c")],
+            # lower triangular
+            [("a", "", ""), ("b", "c", ""), ("d", "e", "f")],
+            # upper triangular — leading omissions, already full width
+            [("a", "b", "c"), ("", "d", "e"), ("", "", "f")],
+            # tridiagonal
+            [("a", "b", ""), ("c", "d", "e"), ("", "f", "g")],
+            # arrow — here the LAST row is the shortest, so "line up with
+            # the last row" can only mean "line up at the full width"
+            [("a", "b", "c"), ("d", "", ""), ("e", "", "")],
+            # nothing omitted at all: the frame still has to be a frame
+            [("a", "b", "c"), ("d", "e", "f"), ("g", "h", "i")],
+        ],
+        ids=["diagonal", "lower", "upper", "tridiagonal", "arrow", "full"],
+    )
+    def test_the_closing_delimiter_stands_in_one_column(self, profile, grid):
+        """The invariant, stated once over every shape.
+
+        A reader tracks the frame's right edge exactly as they track the
+        columns inside it, so a 界符 that climbs left one column per row
+        reads as a matrix changing width. Trailing omitted cells used to be
+        dropped, which is precisely what moved it: a 3×3 diagonal matrix
+        closed at columns 4, 7 and 10 on its three rows.
+        """
+        cells, _ = emit(mml(self._m([self._mi(*row) for row in grid])), profile)
+        lines = _layout_lines(cells)
+        assert len(lines) == len(grid)
+        assert len({len(line) for line in lines}) == 1, lines
+        assert all(line.endswith("⠜") for line in lines)
+
+    def test_a_full_matrix_of_unequal_elements_is_aligned_too(self, profile):
+        """The case only a full matrix can show: nothing is omitted, but
+        ``100`` is a cell wider than ``1``, so without column widths the
+        second element of each row — and the closing 界符 — landed
+        somewhere different on every row."""
+        cells, _ = emit(mml(self._m([
+            self._mn("1", "2"),
+            self._mn("100", "3"),
+        ])), profile)
+        assert _layout_lines(cells) == [
+            "⠣⠼⠁⠀⠀⠀⠼⠃⠜",
+            "⠣⠼⠁⠚⠚⠀⠼⠉⠜",
+        ]
+
+    def test_a_cell_that_breaks_a_line_keeps_the_unmeasured_path(
+        self, profile
+    ):
+        """A column has a width only while each cell is one line long. A
+        nested table inside a cell writes lines of its own, so measuring
+        that cell would count them all as one width and pad the column to
+        it — the outer table stays element-by-element instead."""
+        inner = (
+            "<mo>(</mo><mtable>"
+            "<mtr><mtd><mi>a</mi></mtd></mtr>"
+            "<mtr><mtd><mi>b</mi></mtd></mtr>"
+            "</mtable><mo>)</mo>"
+        )
+        cells, _ = emit(mml(
+            f"<math><mo>(</mo><mtable><mtr><mtd>{inner}</mtd>"
+            "<mtd><mi>c</mi></mtd></mtr></mtable><mo>)</mo></math>"
+        ), profile)
+        # It renders (the nested rows land on their own lines) rather than
+        # padding a column to the combined width of both of them.
+        lines = _layout_lines(cells)
+        assert len(lines) > 1
+        assert all(line for line in lines)
+
+    def test_a_determinant_closes_in_one_column_too(self, profile):
+        """Same rule, other 界符: the vertical bars of a determinant."""
+        cells, _ = emit(
+            mml(self._m(
+                [self._mi("a", ""), self._mi("", "b")], o="|", c="|"
+            )),
+            profile,
+        )
+        # 2 columns of width 2 plus one separator = 5 cells between the
+        # bars on both rows.
+        assert _layout_lines(cells) == ["⠸⠰⠁⠀⠀⠀⠸", "⠸⠀⠀⠀⠰⠃⠸"]
+
+    def test_equal_width_elements_need_no_padding(self, profile):
+        """Alignment is not visible when every element is one cell wide —
+        which is why the whole suite's single-letter fixtures stayed byte
+        for byte identical when a full matrix started being aligned too."""
         cells, _ = emit(mml(self._m([
             self._mi("a", "b"),
             self._mi("c", "d"),
@@ -580,4 +680,20 @@ class TestOmittedZeroMatrix:
             "⠎⠀⠰⠁⠀⠰⠃⠀⠰⠉",
             "⠇⠀⠀⠀⠀⠰⠃⠀⠰⠉",
             "⠣⠀⠀⠀⠀⠀⠀⠀⠰⠉",
+        ]
+
+    def test_a_staircase_row_is_not_padded_out_at_the_end(self, profile):
+        """The matrix rule stops at the fence. An equation system closes
+        with nothing, so padding a row whose last terms are omitted would
+        run blanks to the line break with no 界符 to line up — noise on a
+        line the reader is about to leave anyway."""
+        cells, _ = emit(mml(
+            "<math><mo>{</mo><mtable>"
+            "<mtr><mtd><mi>a</mi></mtd><mtd><mi>b</mi></mtd></mtr>"
+            "<mtr><mtd><mi>c</mi></mtd><mtd/></mtr>"
+            "</mtable></math>"
+        ), profile)
+        assert _layout_lines(cells) == [
+            "⠎⠀⠰⠁⠀⠰⠃",
+            "⠣⠀⠰⠉",
         ]
