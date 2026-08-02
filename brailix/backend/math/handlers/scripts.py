@@ -26,7 +26,7 @@ from brailix.backend.math.handlers.leaves import _emit_function_name
 from brailix.backend.math.utils import (
     _emit_structure,
     _is_atomic,
-    _is_single_digit_mn,
+    _is_digits_mn,
     _unpack_script,
     _unpack_under_over,
 )
@@ -142,13 +142,25 @@ def _emit_regular_script(
     sup_marker + sup_content [+ close]`` — when both scripts are present
     the subscript is written first (x_1^2 → x ⠡⠂ ⠌⠆). The close marker is
     skipped only when the content is a bare number (``<mn>``) and the
-    ``math.simplify_script`` feature is on; a single *letter* keeps the
-    close to bound the script (``a^n`` → ``a ⠌ ⠰n ⠱``), since unlike a
-    digit run it carries no self-delimiting number context.
+    ``math.simplify_script`` feature is on; a *letter* keeps the close to
+    bound the script (``a^n`` → ``a ⠌ n ⠱``), since unlike a digit run it
+    carries no self-delimiting number context.
 
-    Single-digit script content uses the Antoine lower-form digit (no
+    All-digit script content is written in lower-form digits (no
     number_sign, no close marker) when ``math.atomic_script_lower_digit``
-    is on — same optimisation as big-op scripts use for their limits.
+    is on — same rule big-op scripts use for their limits.
+
+    **The script indicator does not break the base's letter run.** A
+    structural marker normally does (:func:`_emit_structure` — the
+    fraction bar between ``a`` and ``b`` must not let ``a/b`` share one
+    sign), but the standard's letter-sign rule is "consecutive letters of
+    the same class take one sign, on the first", and a base and its script
+    letter are written consecutively: ``a_n`` is ``⠰⠁⠡⠝⠱``, one lowercase
+    run, and ``a_{n,1}`` is ``⠰⠁⠡⠝⠐ ⠼⠁⠱`` — the subscript's ``n`` carries
+    no sign of its own. So the base's run class is put back right after
+    the indicator. It is restored again after the body so a following
+    baseline letter still shares it (``a^2b`` is one run, matching
+    ``ab^2``).
     """
     profile = mctx.profile
     simplify = profile.feature("math.simplify_script", True)
@@ -162,6 +174,7 @@ def _emit_regular_script(
         saved_run = None
     if sub is not None:
         _emit_structure(cells, mctx, "script.sub", role="math_subscript")
+        mctx.letter_run_class = saved_run
         if not _try_emit_atomic_lower_digit(cells, mctx, sub):
             mctx.need_number_sign = True
             _emit_element(cells, mctx, sub)
@@ -176,6 +189,7 @@ def _emit_regular_script(
             _emit_accent_char(cells, mctx, (sup.text or "").strip())
         else:
             _emit_structure(cells, mctx, "script.sup", role="math_superscript")
+            mctx.letter_run_class = saved_run
             if not _try_emit_atomic_lower_digit(cells, mctx, sup):
                 mctx.need_number_sign = True
                 _emit_element(cells, mctx, sup)
@@ -279,28 +293,45 @@ def _try_emit_atomic_lower_digit(
     mctx: MathBrailleContext,
     content: ET.Element,
 ) -> bool:
-    """If ``content`` is a single-digit ``<mn>`` and the profile opts in,
-    emit the Antoine lower-form digit and return True. Used by both
-    regular scripts (``x^2``) and big-op scripts (``\\int_0^1``) — same
-    rule: one-digit script content drops the number_sign and close
-    marker, encoded as a "lowered" digit cell instead.
+    """If ``content`` is an all-digit ``<mn>`` and the profile opts in,
+    emit it in lower-form digits and return True. Used by both regular
+    scripts (``x^2``) and big-op scripts (``\\int_0^1``) — same rule: a
+    script that is a plain number drops the number sign and the close
+    marker, written as "lowered" digit cells instead.
+
+    **Every digit of it**, not just a one-digit script. The standard drops
+    the number sign and lowers the digits for a subscript that is a
+    non-negative number carrying no comma, and for an exponent that is an
+    integer; a determinant's elements are written ``a₁₁`` → ``⠡⠂⠂`` and
+    ``a₁₂`` → ``⠡⠂⠆``, two lowered digits each. This used to stop at one
+    digit, so ``a₁₁`` came out ``⠡⠼⠁⠁`` — number sign and upper digits —
+    while ``a₁`` beside it was correctly ``⠡⠂``.
+
+    Returns False for anything that is not a bare run of digits (``x^{n}``,
+    ``x^{n+1}``, a negative or non-integer exponent), which keeps the
+    ordinary indicator + content + close path.
     """
     if not mctx.profile.feature("math.atomic_script_lower_digit", False):
         return False
-    if not _is_single_digit_mn(content):
+    if not _is_digits_mn(content):
         return False
     text = (content.text or "").strip()
-    lower = mctx.profile.math_digits_lower.get(text)
-    if not lower:
+    lowered = [mctx.profile.math_digits_lower.get(d) for d in text]
+    if not all(lowered):
+        # A profile whose lower-digit table is incomplete: fall back whole
+        # rather than emitting half the number in one form and half in the
+        # other, which would read as two different numbers.
         return False
-    cells.append(
-        BrailleCell(
-            dots=lower,
-            role="math_digit_lower",
-            source_span=mctx.span,
-            source_text=text,
+    for digit, dots in zip(text, lowered, strict=True):
+        assert dots is not None
+        cells.append(
+            BrailleCell(
+                dots=dots,
+                role="math_digit_lower",
+                source_span=mctx.span,
+                source_text=digit,
+            )
         )
-    )
     mctx.need_number_sign = False
     return True
 

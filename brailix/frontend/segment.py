@@ -1,9 +1,14 @@
 """Text segmenter — module-level entry: :func:`segment`.
 
-The :func:`segment` function below is the only public surface; the
-underlying registry of pluggable segmenter implementations is an
-implementation detail. ``ctx.options["segmenter"]`` selects which
-adapter to use (default ``"default"``).
+:func:`segment` is what the orchestrator calls; ``ctx.options["segmenter"]``
+selects which adapter runs, defaulting to :data:`AUTO_SEGMENTER` — the
+delegating adapter that picks by the profile's language, not the
+:class:`DefaultSegmenter` described below.
+
+:data:`segmenter_registry` beside it is **not** an implementation detail: it is
+a documented extension point (``tests/test_public_api.py``'s extension manifest
+pins it, and adding a language means registering a segmenter under its subtag),
+so it carries the same compatibility promise the function does.
 
 ------------------------------------------------------------------
 

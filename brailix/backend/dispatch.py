@@ -125,9 +125,12 @@ language_backend_registry: Registry[LanguageBackend] = Registry(
 language_backend_registry.register("zh", _ZhBackend)
 language_backend_registry.register("ja", _JaBackend)
 
-# Prose node types routed by the profile's language rather than the
-# static dispatch table.
-_LANGUAGE_NODE_TYPES = (Word,)
+# The prose node type routed by the profile's language rather than by the
+# static dispatch table. One type, one :class:`LanguageBackend` method
+# (``translate_word``) — it was a tuple of two while single characters had
+# their own node type, and the branch picking between the two methods
+# outlived that type as an ``else`` nothing could reach.
+_LANGUAGE_NODE_TYPE = Word
 
 
 def _enforce_source_spans(
@@ -180,7 +183,7 @@ def translate_node(
     span-carrying cells, or the offending backend is named in a
     :class:`BackendContractError` at the exact boundary it violated.
     """
-    if isinstance(node, _LANGUAGE_NODE_TYPES):
+    if isinstance(node, _LANGUAGE_NODE_TYPE):
         lang = profile.language.split("-")[0]
         if not language_backend_registry.has(lang):
             ctx.warnings.warn(
@@ -192,12 +195,10 @@ def translate_node(
             )
             return []
         backend = language_backend_registry.get(lang)
-        if isinstance(node, Word):
-            cells = backend.translate_word(node, ctx, profile)
-        else:
-            cells = backend.translate_hanzi_char(node, ctx, profile)
         return _enforce_source_spans(
-            cells, node, f"language backend {lang!r}"
+            backend.translate_word(node, ctx, profile),
+            node,
+            f"language backend {lang!r}",
         )
 
     handler = _DISPATCH.get(type(node))

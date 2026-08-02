@@ -159,28 +159,63 @@ def shift_token_spans(
 
     Returns a fresh list of new :class:`ChineseToken` instances —
     inputs are not mutated, so callers can keep the originals if they
-    need an unshifted copy.  ``base == 0`` is a fast path that
-    returns the input list unchanged (no allocation).
+    need an unshifted copy.
 
-    Tokens without a span get one constructed from ``len(surface)`` —
-    this matches what every shipped adapter actually produces but
-    guards against future adapters that omit spans.
+    Tokens without a span get one laid out from a **running cursor** (see
+    :func:`_local_spans`), so a run of spanless tokens comes out ordered
+    rather than all starting at zero. This matches what every shipped
+    adapter actually produces but guards against future adapters that omit
+    spans.
+
+    ``base == 0`` is a fast path that returns the input list unchanged (no
+    allocation) — but only when every token already carries a span. It used
+    to be unconditional, which silently skipped the synthesis this function
+    documents: with ``base == 0`` a spanless token stayed spanless, and the
+    same input at ``base == 5`` came back with coordinates.
     """
-    if base == 0:
+    if base == 0 and all(t.span is not None for t in tokens):
         return tokens
-    out: list[ChineseToken] = []
-    for t in tokens:
-        local_span = t.span if t.span else Span(0, len(t.surface))
-        out.append(
-            ChineseToken(
-                surface=t.surface,
-                pos=t.pos,
-                span=Span(base + local_span.start, base + local_span.end),
-                pinyin=t.pinyin,
-                confidence=t.confidence,
-            )
+    return [
+        ChineseToken(
+            surface=t.surface,
+            pos=t.pos,
+            span=Span(base + local.start, base + local.end),
+            pinyin=t.pinyin,
+            confidence=t.confidence,
         )
-    return out
+        for t, local in zip(tokens, _local_spans(tokens), strict=True)
+    ]
+
+
+def _local_spans(tokens: list[ChineseToken]) -> list[Span]:
+    """One span per token, synthesising the missing ones from a cursor.
+
+    A token that carries a span keeps it, exactly as its adapter wrote it.
+    A token that doesn't gets ``Span(cursor, cursor + len(surface))``, where
+    the cursor is the end of the previous token's span — so consecutive
+    spanless tokens tile the source instead of each restarting at zero.
+
+    That restart was the bug: every spanless token was given
+    ``Span(0, len(surface))`` independently, so two of them in a row
+    produced ``(0,2)`` then ``(0,1)`` — overlapping, non-monotonic
+    coordinates flowing straight into the IR, where source↔braille
+    navigation and warning highlights read them as positions in the
+    document. Built-in adapters all set spans, so the damage was confined to
+    hand-built token lists and third-party adapters — which is to say, to
+    exactly the extension point this helper exists to be defensive for.
+
+    A token whose adapter *did* give a span always wins, even where that
+    contradicts the cursor: coordinates that came from a real analyzer are
+    evidence about the source text, and a guess derived from surface lengths
+    is not.
+    """
+    spans: list[Span] = []
+    cursor = 0
+    for t in tokens:
+        span = t.span if t.span is not None else Span(cursor, cursor + len(t.surface))
+        spans.append(span)
+        cursor = span.end
+    return spans
 
 
 def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
@@ -205,6 +240,10 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
     Inputs of length 0 or 1 are returned without any Space insertion
     — a single-word segment has no boundaries to mark.
 
+    A token that arrives without a span gets one laid out from a running
+    cursor (:func:`_local_spans`), so the emitted nodes stay ordered and
+    non-overlapping whether or not the adapter supplied coordinates.
+
     No pinyin lookup happens here.  Per ARCHITECTURE#arch-mediators / #arch-boundaries, this
     helper deliberately doesn't import :mod:`brailix.frontend.zh.pinyin`;
     the orchestrator (:class:`brailix.Pipeline`) chains
@@ -213,18 +252,16 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
     """
     if not tokens:
         return []
-    nodes: list[InlineNode] = []
-    for t in tokens:
-        local_span = t.span if t.span else Span(0, len(t.surface))
-        nodes.append(
-            Word(
-                surface=t.surface,
-                span=local_span,
-                reading=t.pinyin,
-                pos=t.pos,
-                confidence=t.confidence,
-            )
+    nodes: list[InlineNode] = [
+        Word(
+            surface=t.surface,
+            span=span,
+            reading=t.pinyin,
+            pos=t.pos,
+            confidence=t.confidence,
         )
+        for t, span in zip(tokens, _local_spans(tokens), strict=True)
+    ]
     if len(nodes) < 2:
         return nodes
     spaced: list[InlineNode] = [nodes[0]]
@@ -233,7 +270,10 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
     # the intent here (we're walking adjacent pairs, not zipping two
     # equal-length lists).
     for prev, cur in zip(nodes, nodes[1:], strict=False):
-        boundary = prev.span.end if prev.span else 0
+        # Every node above carries a span (synthesised when the token had
+        # none), so the boundary is always the previous word's end.
+        assert prev.span is not None
+        boundary = prev.span.end
         spaced.append(Space(surface="", span=Span(boundary, boundary)))
         spaced.append(cur)
     return spaced
@@ -247,10 +287,12 @@ _FOREIGN_NODE_TYPES: tuple[type[InlineNode], ...] = (LatinWord, MathInline)
 # Number is not a composite — an ordinal-bound number like 第3 stays tight,
 # so the Chinese ↔ Number boundary keeps its own policy.)
 _COMPOSITE_NODE_TYPES: tuple[type[InlineNode], ...] = (Date, Quantity, Percent)
-# A foreign *letter* run (Latin / Greek — both flow through these two
-# IR types per the Normalizer) can bind to a hanzi as one compound word;
-# a MathInline ($...$) never does, so it's excluded from the compound
-# check and always takes the space path below.
+# A foreign *letter* run (Latin and Greek both flow through this one IR type
+# per the Normalizer) can bind to a hanzi as one compound word; a MathInline
+# ($...$) never does, so it's excluded from the compound check and always
+# takes the space path below. A one-member tuple rather than a bare class
+# because the membership is the thing being declared: an all-caps run was a
+# second entry here until the backend started reading it off the surface.
 _FOREIGN_LETTER_TYPES: tuple[type[InlineNode], ...] = (LatinWord,)
 
 
@@ -446,9 +488,13 @@ def _is_letter_hanzi_compound(
     return (prev.surface + cur.surface) in compounds
 
 
+# This subsystem publishes its own contract and its five entry points.
+# ``ChineseToken`` is imported above because :class:`ChineseAnalyzer`'s
+# signature names it, but it is NOT published here — see the same note in
+# :mod:`brailix.frontend.zh.pinyin`: the mediator belongs to neither end, so
+# it is published once, from :mod:`brailix.frontend.zh.tokens`.
 __all__ = (
     "ChineseAnalyzer",
-    "ChineseToken",
     "tokenize",
     "list_analyzers",
     "shift_token_spans",

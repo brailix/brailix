@@ -485,6 +485,7 @@ class TestCrossProfileLabelInheritsConfig:
             analyzer="char",
             user_pinyin_dict={"重庆": "chong2 qing4"},
             user_seg_dict={"国家": ("国家",)},
+            profile_features={"zh.tone": False},
             extra_profile_paths=("nonexistent-user-dir",),
         )
         base.update(over)
@@ -504,6 +505,7 @@ class TestCrossProfileLabelInheritsConfig:
         assert child.analyzer == parent.analyzer
         assert child.user_pinyin_dict == parent.user_pinyin_dict
         assert child.user_seg_dict == parent.user_seg_dict
+        assert dict(child.profile_features) == dict(parent.profile_features)
         assert child.extra_profile_paths == parent.extra_profile_paths
         assert child.mode == parent.mode
 
@@ -524,6 +526,7 @@ class TestCrossProfileLabelInheritsConfig:
             "analyzer",
             "user_pinyin_dict",
             "user_seg_dict",
+            "profile_features",
             "extra_profile_paths",
             "mode",
         }

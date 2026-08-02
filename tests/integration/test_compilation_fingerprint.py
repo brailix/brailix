@@ -135,6 +135,112 @@ class TestFingerprintIdentity:
         assert shadowed.fingerprint != base.fingerprint
 
 
+class TestTheSerializationCannotBeSpoofed:
+    """The digest is a *structure*, not a stream of delimited records.
+
+    The user dictionaries are the only inputs whose content a user writes
+    freely, and they used to be serialized as ``<tag>=<value>|`` with no
+    escaping — so a value could contain the delimiters and impersonate the
+    records that would have followed it. That is not a theoretical weakness in
+    a hash's preimage resistance; it is two different configurations agreeing
+    on a cache key, which the fingerprint exists to prevent, and it was
+    reproducible with ordinary dictionary content.
+    """
+
+    def test_a_pinyin_value_cannot_forge_a_segmentation_entry(self) -> None:
+        # The measured collision. Left: one reading whose text happens to
+        # contain the separators. Right: that reading, plus a real entry
+        # folding 国家 into one word. They compile differently — the right one
+        # writes 国家 without an internal blank cell — and hashed identically.
+        injected = Pipeline(
+            profile="cn_current",
+            user_pinyin_dict={"重庆": "chong2 qing4|segdict:国家=国家"},
+        )
+        real = Pipeline(
+            profile="cn_current",
+            user_pinyin_dict={"重庆": "chong2 qing4"},
+            user_seg_dict={"国家": ("国家",)},
+        )
+        assert injected.fingerprint != real.fingerprint
+
+    def test_a_pinyin_value_cannot_forge_a_second_pinyin_entry(self) -> None:
+        # Same trick within one dictionary: a value carrying what the next
+        # record would have looked like.
+        injected = Pipeline(
+            profile="cn_current",
+            user_pinyin_dict={"重庆": "chong2 qing4|dict:银行=yin2 hang2"},
+        )
+        real = Pipeline(
+            profile="cn_current",
+            user_pinyin_dict={"重庆": "chong2 qing4", "银行": "yin2 hang2"},
+        )
+        assert injected.fingerprint != real.fingerprint
+
+    def test_a_piece_containing_the_old_piece_separator_stays_distinct(
+        self,
+    ) -> None:
+        # The pieces used to be joined with ``\x1f`` on the stated assumption
+        # that it "cannot occur inside one" — an assumption nothing enforced.
+        # One piece holding that character serialized exactly like the two
+        # pieces it claimed to separate.
+        one = Pipeline(profile="cn_current", user_seg_dict={"甲\x1f乙": ("甲\x1f乙",)})
+        two = Pipeline(profile="cn_current", user_seg_dict={"甲\x1f乙": ("甲", "乙")})
+        assert one.fingerprint != two.fingerprint
+
+    def test_a_surface_carrying_the_delimiters_stays_distinct(self) -> None:
+        # The key side of the same problem: a tag was built by string
+        # interpolation, so a surface could close its own record and open
+        # another.
+        forged = Pipeline(
+            profile="cn_current",
+            user_seg_dict={"国家=国家|segdict:银行": ("银行",)},
+        )
+        plain = Pipeline(
+            profile="cn_current",
+            user_seg_dict={"国家": ("国家",), "银行": ("银行",)},
+        )
+        assert forged.fingerprint != plain.fingerprint
+
+    def test_no_two_adversarial_configurations_share_a_digest(self) -> None:
+        """All of the above at once, plus their neighbours — the property is
+        pairwise distinctness, not the survival of four named cases."""
+        configs: list[dict[str, object]] = [
+            {},
+            {"user_pinyin_dict": {"重庆": "chong2 qing4|segdict:国家=国家"}},
+            {
+                "user_pinyin_dict": {"重庆": "chong2 qing4"},
+                "user_seg_dict": {"国家": ("国家",)},
+            },
+            {"user_pinyin_dict": {"重庆": "chong2 qing4|dict:银行=yin2 hang2"}},
+            {"user_pinyin_dict": {"重庆": "chong2 qing4", "银行": "yin2 hang2"}},
+            {"user_pinyin_dict": {"重庆": "chong2 qing4"}},
+            {"user_seg_dict": {"甲\x1f乙": ("甲\x1f乙",)}},
+            {"user_seg_dict": {"甲\x1f乙": ("甲", "乙")}},
+            {"user_seg_dict": {"国家=国家|segdict:银行": ("银行",)}},
+            {"user_seg_dict": {"国家": ("国家",), "银行": ("银行",)}},
+            {"user_pinyin_dict": {"国家": "国家"}},
+            {"user_seg_dict": {"国家": ("国家",)}},
+        ]
+        digests = {
+            Pipeline(profile="cn_current", **cfg).fingerprint  # type: ignore[arg-type]
+            for cfg in configs
+        }
+        assert len(digests) == len(configs)
+
+    def test_a_list_and_a_tuple_of_the_same_pieces_agree(self) -> None:
+        """The deliberate non-difference: pieces are a sequence, and which
+        container a caller reached for is not configuration. (The Pipeline
+        freezes both to a tuple anyway, so this pins that they stay one
+        configuration all the way through.)"""
+        as_list = Pipeline(
+            profile="cn_current", user_seg_dict={"国家通用": ["国家", "通用"]}
+        )
+        as_tuple = Pipeline(
+            profile="cn_current", user_seg_dict={"国家通用": ("国家", "通用")}
+        )
+        assert as_list.fingerprint == as_tuple.fingerprint
+
+
 # ---------------------------------------------------------------------------
 # source_hash covers the configuration
 # ---------------------------------------------------------------------------

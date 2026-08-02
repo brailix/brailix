@@ -197,10 +197,38 @@ class TestAtomicScriptLowerDigitFeature:
         assert r.count("math_digit_lower") == 2
         assert "number_sign" not in r
 
-    def test_multi_digit_sup_does_not_lower(self, profile):
-        # x^{12}: multi-digit content falls back to normal number_sign + digits
+    def test_multi_digit_sup_lowers_every_digit(self, profile):
+        """x^{12}: a number does not stop being one at two digits.
+
+        The standard lowers an exponent that is an integer and a subscript
+        that is a non-negative number; a determinant's a₁₁ / a₁₂ are
+        written ``⠡⠂⠂`` / ``⠡⠂⠆``. This used to stop at one digit, so
+        ``x^{12}`` came back with a number sign and upper digits while
+        ``x^1`` beside it was lowered.
+        """
         cells, _ = emit(
             mml("<math><msup><mi>x</mi><mn>12</mn></msup></math>"), profile
+        )
+        r = roles(cells)
+        assert r.count("math_digit_lower") == 2
+        assert "number_sign" not in r
+        assert "math_script_close" not in r
+
+    def test_a_partly_lowerable_number_falls_back_whole(self, profile):
+        """A profile whose lower-digit table is missing one of the digits
+        must not write half the number lowered and half not — that reads as
+        two numbers, and the reader has no way to tell it was one."""
+        from dataclasses import replace as dc_replace
+
+        holed = dc_replace(
+            profile,
+            math_digits_lower={
+                d: v for d, v in profile.math_digits_lower.items() if d != "2"
+            },
+            _letter_cache={},
+        )
+        cells, _ = emit(
+            mml("<math><msup><mi>x</mi><mn>12</mn></msup></math>"), holed
         )
         r = roles(cells)
         assert "math_digit_lower" not in r

@@ -380,6 +380,25 @@ def _is_single_digit_mn(elem: ET.Element | None) -> bool:
     return len(text) == 1 and text.isdigit()
 
 
+def _is_digits_mn(elem: ET.Element | None) -> bool:
+    """An ``<mn>`` holding nothing but digits, of ANY length.
+
+    Separate from :func:`_is_single_digit_mn` because the two answer
+    different questions. The Antoine *fraction* form needs one digit over
+    one digit — that is what "a/b written as a lowered b" means, and 12/34
+    has no such form. A *script* asks something else: the lowered form
+    applies to a subscript that is a non-negative number, and to an
+    exponent that is an integer, and a number does not stop being one at
+    two digits (``a₁₁`` is written ⠡ + lowered 1 + lowered 1).
+    """
+    if elem is None or elem.tag != "mn":
+        return False
+    if list(elem):
+        return False
+    text = (elem.text or "").strip()
+    return bool(text) and text.isdigit()
+
+
 def _last_is_blank(cells: list[BrailleCell]) -> bool:
     """Is the last cell already a separator, so a following operator/
     connector must not add another blank?

@@ -197,6 +197,30 @@ class TestNormalize:
         out = normalize_seg_dict({"国家": ["国家"], "通用": ["通", "X"]})
         assert out == {"国家": ("国家",)}
 
+    @pytest.mark.parametrize(
+        "value",
+        [None, 123, object(), ("国", None), ("国", 7), (["国"], ["家"])],
+        ids=repr,
+    )
+    def test_drops_structurally_impossible_pieces(self, value: object) -> None:
+        """The checks above all assume the value can be walked as strings,
+        and the walk itself used to be what raised: ``tuple(None)`` threw a
+        ``TypeError`` straight out of a function whose whole contract is to
+        skip the record and carry on."""
+        assert normalize_seg_dict({"国家": value}) == {}  # type: ignore[dict-item]
+
+    def test_drops_a_bare_string_rather_than_iterating_it(self) -> None:
+        """``{"国家": "国家"}`` looks like *this is one word* and iterates to
+        ``("国", "家")`` — *cut it apart*, the opposite instruction, and it
+        even spells the surface, so every later check would wave it through.
+        Pieces are written as a sequence; anything else is too ambiguous to
+        act on."""
+        assert normalize_seg_dict({"国家": "国家"}) == {}
+
+    def test_a_structurally_bad_entry_costs_only_itself(self) -> None:
+        out = normalize_seg_dict({"国家": ["国家"], "通用": None})  # type: ignore[dict-item]
+        assert out == {"国家": ("国家",)}
+
 
 class TestThroughTokenize:
     """The wiring: ``tokenize`` reads the option and applies the pass."""

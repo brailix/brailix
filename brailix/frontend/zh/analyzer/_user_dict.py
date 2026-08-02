@@ -183,12 +183,21 @@ def normalize_seg_dict(
     """Drop entries that could not describe a division of their own key.
 
     The guard for everything that reaches this module from outside — a
-    hand-edited dictionary file, a front-end, a caller's literal. Three
-    ways an entry is meaningless, all silently skipped rather than raised
-    on, because one bad line must not stop a document from compiling:
+    hand-edited dictionary file, a front-end, a caller's literal. Four ways
+    an entry is meaningless, all silently skipped rather than raised on,
+    because one bad line must not stop a document from compiling:
 
     * **A surface shorter than two characters** — nothing to divide (see
       :data:`_MIN_SURFACE_LEN`).
+    * **Pieces that aren't a sequence of strings** — ``None``, a number, an
+      object that will not iterate, a ``None`` sitting among real pieces.
+      This one is *structural*: the three below all assume the value can be
+      walked as strings at all, and the walk itself used to be the thing
+      that raised (``tuple(None)`` → ``TypeError``, out of a function whose
+      contract is to skip and carry on). A bare string is refused too, not
+      read: ``{"国家": "国家"}`` would iterate to ``("国", "家")`` and so mean
+      the opposite of what it looks like — *cut this apart* where the author
+      wrote *this is one word*.
     * **No pieces, or an empty piece** — an empty piece would emit a
       zero-width token that no source text backs.
     * **Pieces that don't spell the surface** — the invariant the rewrite
@@ -199,8 +208,13 @@ def normalize_seg_dict(
     for surface, pieces in raw.items():
         if not isinstance(surface, str) or len(surface) < _MIN_SURFACE_LEN:
             continue
-        parts = tuple(pieces)
-        if not parts or any(not p for p in parts):
+        if isinstance(pieces, (str, bytes)):
+            continue
+        try:
+            parts = tuple(pieces)
+        except TypeError:
+            continue
+        if not parts or any(not isinstance(p, str) or not p for p in parts):
             continue
         if "".join(parts) != surface:
             continue

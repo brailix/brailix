@@ -51,8 +51,6 @@ from brailix.ir.inline import (
 # Constants
 # ---------------------------------------------------------------------------
 
-_DATE_MARKERS: tuple[str, ...] = ("年", "月", "日")
-
 # ASCII characters routed through the math backend that have no HTML5
 # entity (so the symbols table — keyed by entity name resolved to a
 # Unicode char — can't store them directly). We rewrite ``<mo>`` text
