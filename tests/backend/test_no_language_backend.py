@@ -39,7 +39,7 @@ class TestNoLanguageBackend:
         assert cells == []
         assert [w.code for w in ctx.warnings.warnings] == ["NO_LANGUAGE_BACKEND"]
 
-    def test_hanzi_char_falls_back_with_one_warning(self, monkeypatch):
+    def test_single_character_word_falls_back_with_one_warning(self, monkeypatch):
         prof = _profile_without_fr_backend(monkeypatch)
         ctx = _ctx(prof)
         cells = translate_node(

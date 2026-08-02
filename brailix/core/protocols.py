@@ -141,12 +141,18 @@ class LanguageFrontend(Protocol):
 class LanguageBackend(Protocol):
     """Translate a language's prose IR nodes to cells.
 
-    Three node kinds, one required method each: :class:`Word`,
-    :class:`HanziMarker` (the date markers, whose
-    reading *and* number-joiner rule are the language's own — see
-    :meth:`translate_date_marker`). All three are required; the registry runs a
+    Two node kinds, one required method each: :class:`Word` (a language's
+    prose word, of any length) and :class:`HanziMarker` (the date markers,
+    whose reading *and* number-joiner rule are the language's own — see
+    :meth:`translate_date_marker`). Both are required; the registry runs a
     runtime protocol check on first resolution, so an implementation missing
     one is rejected at ``get()``.
+
+    There used to be a third, ``translate_hanzi_char``, for a separate
+    single-character node type. A single character is now simply a
+    one-character :class:`Word` (see that class), so the method is gone —
+    an adapter that still writes one satisfies this protocol, and is never
+    called.
 
     Registered per language (``backend.dispatch.language_backend_registry``);
     the dispatcher routes prose nodes to the one matching the profile's

@@ -41,11 +41,6 @@ class _SpanlessBackend:
 
         return [BLANK_CELL]
 
-    def translate_hanzi_char(self, node, ctx, profile):
-        from brailix.ir.braille import BLANK_CELL
-
-        return [BLANK_CELL]
-
     def translate_date_marker(self, marker, follows_number, ctx, profile):
         return []
 
@@ -112,8 +107,14 @@ class TestDispatchPerNodeType:
         cells = translate_node(Word(surface="我", reading="wo3"), ctx, profile)
         assert any(c.role == "zh_final" for c in cells)
 
-    def test_hanzi_char(self, ctx, profile):
-        cells = translate_node(Word(surface="我", reading="wo3"), ctx, profile)
+    def test_multi_character_word_takes_the_same_route(self, ctx, profile):
+        # One node type, one language-backend method, whatever the length —
+        # there was a second case here asserting the identical thing on the
+        # identical input, left over from when single characters had a node
+        # type (and a protocol method) of their own.
+        cells = translate_node(
+            Word(surface="重庆", reading="chong2 qing4"), ctx, profile
+        )
         assert any(c.role == "zh_final" for c in cells)
 
     def test_number(self, ctx, profile):

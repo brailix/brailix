@@ -257,14 +257,14 @@ class TestDispatchRouting:
         assert _dots(cells) == [(5,), (1, 6)]
         assert _roles(cells) == ["ja_kana", "ja_kana"]
 
-    def test_hanzi_char_routes_to_ja(self, ctx, profile):
+    def test_single_character_word_routes_to_ja(self, ctx, profile):
         # 水 -> ミズ : ミ, ズ(dakuon + ス) — the kanji->reading case.
         cells = translate_node(
             Word(surface="水", reading="ミズ", span=Span(0, 1)), ctx, profile
         )
         assert _dots(cells) == [(1, 2, 3, 5, 6), (5,), (1, 4, 5, 6)]
 
-    def test_translate_hanzi_char_entry(self, ctx, profile):
+    def test_translate_word_entry_takes_a_single_character(self, ctx, profile):
         cells = translate_word(
             Word(surface="木", reading="キ", span=Span(0, 1)), ctx, profile
         )
