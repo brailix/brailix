@@ -319,8 +319,8 @@ class TestEndToEnd:
     def test_cn_ncb_profile_loads(self, cn_ncb):
         assert cn_ncb.name == "cn_ncb"
         # Reuses current tables — both initials and finals are populated.
-        assert "b" in cn_ncb.initials
-        assert "ai" in cn_ncb.finals
+        assert "b" in cn_ncb.lang_table("initials")
+        assert "ai" in cn_ncb.lang_table("finals")
 
     def test_cn_ncb_emits_ban1_with_tone(self, ctx, cn_ncb):
         # ban1 (b initial, omit_tone=4) — tone 1 not in omit set → keep.
@@ -358,7 +358,7 @@ class TestEndToEnd:
         tone_cells = [c for c in cells if c.role == "zh_tone"]
         # Exactly one tone cell expected — ci2's, not ai4's.
         assert len(tone_cells) == 1
-        assert tone_cells[0].dots == cn_ncb.tones["2"]
+        assert tone_cells[0].dots == cn_ncb.lang_table("tones")["2"][0]
 
     def test_cn_ncb_shiye_keeps_both_tones(self, ctx, cn_ncb):
         # 事业 shi4/ye4 → ⠱⠆⠑⠆.
@@ -372,7 +372,7 @@ class TestEndToEnd:
         assert len(tone_cells) == 2
         # Both should be tone-4 cells.
         for tc in tone_cells:
-            assert tc.dots == cn_ncb.tones["4"]
+            assert tc.dots == cn_ncb.lang_table("tones")["4"][0]
 
     def test_cn_current_still_uses_basic_policy(self, ctx, cn_current):
         # Sanity: cn_current did not opt into ncb_omission, so the
@@ -386,15 +386,15 @@ class TestEndToEnd:
         assert _has_tone(cells)
 
     def test_cross_word_boundary_two_hanzichars(self, ctx, cn_ncb):
-        # Cross-IR-node boundary: 慈 + 爱 as two separate HanziChar
+        # Cross-IR-node boundary: 慈 + 爱 as two separate Word
         # nodes (no Space between) should also trigger the boundary
         # rule — same outcome as the Word("慈爱") case.
         from brailix.backend.block import translate_document
         from brailix.ir.document import DocumentIR, Paragraph
-        from brailix.ir.inline import HanziChar
+        from brailix.ir.inline import Word
         doc = DocumentIR(blocks=[Paragraph(children=[
-            HanziChar(surface="慈", reading="ci2"),
-            HanziChar(surface="爱", reading="ai4"),
+            Word(surface="慈", reading="ci2"),
+            Word(surface="爱", reading="ai4"),
         ])])
         braille = translate_document(doc, ctx, cn_ncb)
         cells = braille.blocks[0].cells
@@ -403,7 +403,7 @@ class TestEndToEnd:
             "cross-Word boundary should keep ci2's tone (and omit ai4's "
             "per zero-initial default-omit-4)"
         )
-        assert tone_cells[0].dots == cn_ncb.tones["2"]
+        assert tone_cells[0].dots == cn_ncb.lang_table("tones")["2"][0]
 
     def test_cross_word_boundary_breaks_on_space(self, ctx, cn_ncb):
         # When a Space sits between the two HanziChars, they're not
@@ -411,11 +411,11 @@ class TestEndToEnd:
         # gets omitted per the c-initial rule.
         from brailix.backend.block import translate_document
         from brailix.ir.document import DocumentIR, Paragraph
-        from brailix.ir.inline import HanziChar, Space
+        from brailix.ir.inline import Space, Word
         doc = DocumentIR(blocks=[Paragraph(children=[
-            HanziChar(surface="慈", reading="ci2"),
+            Word(surface="慈", reading="ci2"),
             Space(),
-            HanziChar(surface="爱", reading="ai4"),
+            Word(surface="爱", reading="ai4"),
         ])])
         braille = translate_document(doc, ctx, cn_ncb)
         cells = braille.blocks[0].cells
@@ -432,10 +432,10 @@ class TestEndToEnd:
         # boundary rule doesn't fire because next is not zero-initial.
         from brailix.backend.block import translate_document
         from brailix.ir.document import DocumentIR, Paragraph
-        from brailix.ir.inline import HanziChar
+        from brailix.ir.inline import Word
         doc = DocumentIR(blocks=[Paragraph(children=[
-            HanziChar(surface="慈", reading="ci2"),
-            HanziChar(surface="北", reading="bei3"),
+            Word(surface="慈", reading="ci2"),
+            Word(surface="北", reading="bei3"),
         ])])
         braille = translate_document(doc, ctx, cn_ncb)
         cells = braille.blocks[0].cells
@@ -444,7 +444,7 @@ class TestEndToEnd:
         # bei3: b-omit-4, tone 3 → kept.
         # Only one tone cell, and it should be tone-3.
         assert len(tone_cells) == 1
-        assert tone_cells[0].dots == cn_ncb.tones["3"]
+        assert tone_cells[0].dots == cn_ncb.lang_table("tones")["3"][0]
 
     def test_policy_does_not_leak_across_freshly_loaded_profiles(self, ctx):
         # Regression: an earlier version cached policies keyed on

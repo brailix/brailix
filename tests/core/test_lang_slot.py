@@ -21,13 +21,29 @@ def test_ja_profile_populates_slot():
     assert kana["ガ"] == ((5,), (1, 6))
 
 
-def test_zh_profile_leaves_slot_empty():
-    # zh uses the welded initials/finals/tones fields, not the generic
-    # slot — loading cn_current must not populate lang_tables (and the
-    # accessor returns {} for a table the language doesn't define).
+def test_zh_reads_its_phoneme_tables_from_the_same_slot():
+    # Chinese used to be the exception: three welded fields on the shared
+    # dataclass while every other language used the slot. It is now read the
+    # same way, which is what makes "adding a language is registration"
+    # true of the profile too.
     profile = load_profile("cn_current")
-    assert profile.lang_tables == {}
+    assert sorted(profile.lang_tables["zh"]) == ["finals", "initials", "tones"]
+    assert profile.lang_table("initials")["b"] == ((1, 2),)
+    # A table this language doesn't define still answers empty.
     assert profile.lang_table("kana") == {}
+
+
+def test_language_neutral_tables_stay_out_of_the_slot():
+    """``tables.zh`` also declares punctuation / numbers / compounds.
+
+    Those are not per-language cell tables — punctuation and numbers are
+    read by every language, and compounds is a word list — so the generic
+    loader must not sweep them in just because of where they're declared.
+    """
+    profile = load_profile("cn_current")
+    assert set(profile.lang_tables["zh"]) == {"initials", "finals", "tones"}
+    assert profile.punctuation  # still on its own field
+    assert profile.zh_compounds  # word list, not a cell table
 
 
 def test_lang_table_missing_name_returns_empty():

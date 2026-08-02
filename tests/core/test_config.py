@@ -68,25 +68,34 @@ class TestCnDefaultProfile:
 
     def test_initials_table_loaded(self):
         p = load_profile("cn_current")
-        assert "zh" in p.initials
-        assert "b" in p.initials
-        assert p.initials["b"] == (1, 2)
-        # All values are tuples of ints
-        for v in p.initials.values():
+        assert "zh" in p.lang_table("initials")
+        assert "b" in p.lang_table("initials")
+        # Values are cell SEQUENCES now (a zh phoneme is a one-cell one).
+        assert p.lang_table("initials")["b"] == ((1, 2),)
+        # Values are cell sequences: a tuple of dot-tuples.
+        for v in p.lang_table("initials").values():
             assert isinstance(v, tuple)
-            assert all(isinstance(d, int) for d in v)
+            for cell in v:
+                assert isinstance(cell, tuple)
+                assert all(isinstance(d, int) for d in cell)
 
     def test_finals_table_loaded(self):
         p = load_profile("cn_current")
-        assert "a" in p.finals
-        assert "uo" in p.finals
-        assert "ü" in p.finals
+        assert "a" in p.lang_table("finals")
+        assert "uo" in p.lang_table("finals")
+        assert "ü" in p.lang_table("finals")
 
     def test_tones_table_loaded(self):
         p = load_profile("cn_current")
         # All 5 tones present.
-        assert set(p.tones) >= {"1", "2", "3", "4", "5"}
-        assert p.tones["5"] == ()  # neutral tone is blank
+        assert set(p.lang_table("tones")) >= {"1", "2", "3", "4", "5"}
+        # The neutral tone emits NOTHING, so it is an empty sequence — not a
+        # sequence holding one empty cell. The distinction is invisible in
+        # the table and loud in the output: the backend emits one cell per
+        # entry in the sequence, so the wrapped form would put a stray blank
+        # cell after every neutral-tone syllable (的, 我们, …).
+        assert p.lang_table("tones")["5"] == ()
+        assert p.lang_table("tones")["1"] == ((1,),)
 
     def test_punctuation_table_loaded(self):
         p = load_profile("cn_current")
@@ -113,7 +122,7 @@ class TestCnDefaultProfile:
         # (underscore = 36 dots), so the filter rejects only multi-char
         # ``_``-prefixed names.
         p = load_profile("cn_current")
-        for table in (p.initials, p.finals, p.tones, p.punctuation, p.digits):
+        for table in (p.lang_table("initials"), p.lang_table("finals"), p.lang_table("tones"), p.punctuation, p.digits):
             assert all(not (len(k) > 1 and k.startswith("_")) for k in table)
 
     def test_math_symbol_provisional_default_false(self):
@@ -237,10 +246,12 @@ class TestCustomRoot:
         )
         p = load_profile("tiny", root=tmp_path)
         assert p.name == "tiny"
-        assert p.initials == {"b": (1, 2)}
+        # Flat ``tables.initials`` (the older shape) still resolves, and
+        # lands in the same per-language slot as the nested form.
+        assert p.lang_table("initials") == {"b": ((1, 2),)}
         assert p.feature("tone") is False
         # Missing tables become empty dicts.
-        assert p.finals == {}
+        assert p.lang_table("finals") == {}
         # No ``tables.connector`` → empty tuple; a Connector node then
         # degrades to a blank cell rather than crashing.
         assert p.connector == ()

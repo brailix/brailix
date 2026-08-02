@@ -164,7 +164,7 @@ class NcbWordOverrides:
 
     Applied when the IR carries the target as a single :class:`Word`
     node (i.e. the segmenter saw it as a unit).  If the segmenter
-    split the word into multiple HanziChar nodes, this layer doesn't
+    split the word into multiple single-character Word nodes, this layer doesn't
     fire and the rule needs to be expressed via
     :class:`NcbCharOverrides` instead (or the segmenter granularity
     adjusted).
