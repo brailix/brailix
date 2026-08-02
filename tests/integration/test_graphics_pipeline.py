@@ -484,6 +484,7 @@ class TestCrossProfileLabelInheritsConfig:
             resolver="null",
             analyzer="char",
             user_pinyin_dict={"重庆": "chong2 qing4"},
+            user_seg_dict={"国家": ("国家",)},
             extra_profile_paths=("nonexistent-user-dir",),
         )
         base.update(over)
@@ -501,11 +502,40 @@ class TestCrossProfileLabelInheritsConfig:
         assert child.profile == "cn_ncb"  # only the braille standard changes
         assert child.resolver == parent.resolver
         assert child.analyzer == parent.analyzer
-        assert child.segmenter == parent.segmenter
-        assert child.normalizer == parent.normalizer
         assert child.user_pinyin_dict == parent.user_pinyin_dict
+        assert child.user_seg_dict == parent.user_seg_dict
         assert child.extra_profile_paths == parent.extra_profile_paths
         assert child.mode == parent.mode
+
+    def test_every_config_field_is_covered_by_the_check_above(self):
+        """The check is only worth anything if it names every field.
+
+        A field added later and forgotten here would be silently dropped from
+        the sub-pipeline — a label tokenizing differently from the body it
+        labels, with no test objecting.
+        """
+        import dataclasses
+
+        from brailix.pipeline import Pipeline
+
+        checked = {
+            "profile",
+            "resolver",
+            "analyzer",
+            "user_pinyin_dict",
+            "user_seg_dict",
+            "extra_profile_paths",
+            "mode",
+        }
+        # ``asset_resolver`` / ``default_renderer`` are late-bound and
+        # output-side respectively; ``replace`` carries them anyway.
+        exempt = {"asset_resolver", "default_renderer"}
+        declared = {
+            f.name
+            for f in dataclasses.fields(Pipeline)
+            if not f.name.startswith("_")  # internal state, not configuration
+        }
+        assert declared - exempt == checked
 
     def test_same_profile_reuses_parent_text_path(self):
         from brailix.core.errors import WarningCollector
