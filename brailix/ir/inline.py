@@ -17,14 +17,13 @@ for it to be right about in the first place.
 Hierarchy:
 
     InlineNode (abstract)
-      ├── Word              # Chinese word, with pinyin
-      ├── HanziChar         # single-character fallback
-      ├── Number            # numeric literal
+      ├── Word              # prose word (any length), with its reading
+        ├── Number            # numeric literal
       ├── Date              # holds an internal ``parts`` structure
       ├── Quantity          # number + unit
       ├── Percent
       ├── Punct
-      ├── LatinWord / LatinAcronym
+      ├── LatinWord         # Latin / Greek letter run (all-caps included)
       ├── CodeInline
       ├── PhoneticInline    # IPA transcription; ``surface`` holds the raw phoneme run
       ├── MathInline        # ``math`` field holds the normalised MathML ET.Element tree
@@ -37,7 +36,6 @@ Hierarchy:
 Also defined here:
 
     Segment       — Segmenter output (chunked by region type)
-    ChineseToken  — ChineseAnalyzer output (tokenization + POS + optional pinyin)
 """
 
 from __future__ import annotations
@@ -89,27 +87,30 @@ class InlineNode:
 
 @dataclass(slots=True)
 class Word(InlineNode):
-    """A multi-character prose word, in whichever language produced it.
+    """A prose word, of any length, in whichever language produced it.
 
     Not Chinese-specific: the Japanese frontend turns its analysed tokens into
     ``Word`` nodes too, and ``reading`` carries whatever phonetic annotation
     that language uses — pinyin for Chinese, kana for Japanese. That is the
     point of the shared prose IR: a new language registers a frontend and a
     backend, and reuses these nodes rather than adding its own.
+
+    **A single character is just a one-character word.** There used to be a
+    separate ``HanziChar`` node for that case, and it was a distinction
+    without a difference: both language backends translated it through the
+    identical call, every consumer discriminated on the tuple
+    ``(Word, HanziChar)`` rather than on either alone, and the only thing it
+    really carried was "shorter than two characters" — which ``surface``
+    already says. What it cost was real: one more required method on
+    :class:`~brailix.core.protocols.LanguageBackend` for every language to
+    implement twice, and a tuple every consumer had to remember to write, where
+    forgetting half of it silently skipped single characters.
     """
 
     type: ClassVar[str] = "word"
     reading: str | None = None
     pos: str | None = None
     confidence: float | None = None
-
-
-@dataclass(slots=True)
-class HanziChar(InlineNode):
-    """Single-character fallback when tokenization fails to bind a word."""
-
-    type: ClassVar[str] = "hanzi_char"
-    reading: str | None = None
 
 
 @dataclass(slots=True)
@@ -164,11 +165,6 @@ class Punct(InlineNode):
 @dataclass(slots=True)
 class LatinWord(InlineNode):
     type: ClassVar[str] = "latin_word"
-
-
-@dataclass(slots=True)
-class LatinAcronym(InlineNode):
-    type: ClassVar[str] = "latin_acronym"
 
 
 @dataclass(slots=True)
@@ -290,7 +286,7 @@ class Unknown(InlineNode):
 
 
 # ---------------------------------------------------------------------------
-# Segment (Segmenter output) + ChineseToken (ChineseAnalyzer output)
+# Segment (Segmenter output)
 # ---------------------------------------------------------------------------
 
 
@@ -314,34 +310,6 @@ class Segment:
         return d
 
 
-@dataclass(slots=True)
-class ChineseToken:
-    """A single token emitted by a :class:`~brailix.core.protocols.ChineseAnalyzer`.
-
-    The ``pinyin`` field is initially ``None`` and filled in by a
-    :class:`~brailix.core.protocols.PinyinResolver`. The resolver
-    must not change the token's surface or span.
-    """
-
-    surface: str
-    pos: str | None = None
-    span: Span | None = None
-    pinyin: str | None = None
-    confidence: float | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {"surface": self.surface}
-        if self.pos is not None:
-            d["pos"] = self.pos
-        if self.span is not None:
-            d["span"] = list(self.span.to_tuple())
-        if self.pinyin is not None:
-            d["pinyin"] = self.pinyin
-        if self.confidence is not None:
-            d["confidence"] = self.confidence
-        return d
-
-
 # ---------------------------------------------------------------------------
 # Registry + (de)serialization
 # ---------------------------------------------------------------------------
@@ -351,7 +319,6 @@ _INLINE_REGISTRY: dict[str, type[InlineNode]] = {
     cls.type: cls
     for cls in (
         Word,
-        HanziChar,
         Number,
         HanziMarker,
         Date,
@@ -359,7 +326,6 @@ _INLINE_REGISTRY: dict[str, type[InlineNode]] = {
         Percent,
         Punct,
         LatinWord,
-        LatinAcronym,
         CodeInline,
         PhoneticInline,
         MathInline,
@@ -372,10 +338,34 @@ _INLINE_REGISTRY: dict[str, type[InlineNode]] = {
 }
 
 
+# Type tags that older builds wrote into saved documents, and what they are
+# read back as. A project file outlives the schema that produced it, so a
+# retired tag has to keep resolving or every document saved before the change
+# fails to open — the one failure mode a proofreader cannot work around.
+#
+# ``hanzi_char`` was a single-character word; ``Word`` now covers that, and the
+# fields it carried (``surface`` / ``span`` / ``reading``) are all fields
+# ``Word`` has, so the payload deserializes unchanged. Nothing writes the old
+# tag any more, so a re-saved file quietly moves to the current one.
+_LEGACY_TYPE_ALIASES: dict[str, str] = {
+    "hanzi_char": "word",
+    # ``latin_acronym`` was an all-caps Latin word. It carried no field the
+    # plain word lacks, and the backend never read the type — the doubled
+    # capital sign comes from ``surface.isupper()``, which the payload still
+    # says. So the stored node deserializes to the same cells it always did.
+    "latin_acronym": "latin_word",
+}
+
+
 def inline_node_for(type_name: str) -> type[InlineNode]:
-    """Look up the dataclass for an inline node type name."""
+    """Look up the dataclass for an inline node type name.
+
+    Retired tags from older saved documents resolve to their replacement (see
+    :data:`_LEGACY_TYPE_ALIASES`).
+    """
+    resolved = _LEGACY_TYPE_ALIASES.get(type_name, type_name)
     try:
-        return _INLINE_REGISTRY[type_name]
+        return _INLINE_REGISTRY[resolved]
     except KeyError as e:
         raise KeyError(f"unknown inline node type: {type_name!r}") from e
 

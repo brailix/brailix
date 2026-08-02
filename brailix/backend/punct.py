@@ -9,7 +9,7 @@ Code-inline rendering is the dumbest possible thing: each character
 is looked up in the punctuation table and falls back to unknown.
 Proper handling is future work.
 
-LatinWord / LatinAcronym translation lives in
+LatinWord translation lives in
 :mod:`brailix.backend.latin` (it used to share this module but
 was moved to its own layer in line with the architecture in
 ``ARCHITECTURE#arch-layers``).

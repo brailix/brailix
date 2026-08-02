@@ -3,8 +3,8 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from brailix.core.span import Span
+from brailix.frontend.zh.tokens import ChineseToken
 from brailix.ir.inline import (
-    ChineseToken,
     Date,
     HanziMarker,
     InlineNode,

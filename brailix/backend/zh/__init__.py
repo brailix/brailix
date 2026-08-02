@@ -1,4 +1,4 @@
-"""Translate Chinese inline IR (Word / HanziChar) into braille cells.
+"""Translate Chinese inline IR (Word) into braille cells.
 
 For each token with a pinyin annotation:
 
@@ -28,7 +28,7 @@ from brailix.core.config.zh_ncb_tables import NcbCharOverrides
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
-from brailix.ir.inline import HanziChar, HanziMarker, Word
+from brailix.ir.inline import HanziMarker, Word
 
 # The year marker 年 writes directly against its year digits with no
 # number→marker connector (NCB convention); every other date marker
@@ -53,18 +53,6 @@ def translate_word(
     )
 
 
-def translate_hanzi_char(
-    node: HanziChar, ctx: BackendContext, profile: BrailleProfile
-) -> list[BrailleCell]:
-    return _translate_chinese(
-        surface=node.surface,
-        pinyin=node.reading,
-        span=node.span,
-        ctx=ctx,
-        profile=profile,
-    )
-
-
 def translate_date_marker(
     marker: HanziMarker,
     follows_number: bool,
@@ -78,7 +66,7 @@ def translate_date_marker(
     the number→marker **connector rule** (a connector ⠤ precedes a marker
     that directly follows a Number, except the year marker 年 — NCB
     convention) and the marker's **syllable reading** (via
-    :func:`translate_hanzi_char`, so a missing reading still degrades to a
+    :func:`translate_word`, so a missing reading still degrades to a
     MISSING_PINYIN warning + unknown cell, never a crash).
     """
     out: list[BrailleCell] = []
@@ -95,8 +83,8 @@ def translate_date_marker(
             )
         )
     out.extend(
-        translate_hanzi_char(
-            HanziChar(
+        translate_word(
+            Word(
                 surface=marker.surface,
                 span=marker.span,
                 reading=marker.reading,
@@ -172,7 +160,7 @@ def _translate_chinese(
     )
 
     # Cross-IR-node lookahead: when this is the last syllable of the
-    # current Word/HanziChar and the immediately adjacent sibling is
+    # current Word and the immediately adjacent sibling is
     # another Chinese node (no Space / Punct between them), peek at
     # its first syllable so the cross-syllable boundary rule fires across
     # IR-node boundaries too — not just within a single Word.
@@ -198,7 +186,7 @@ def _translate_chinese(
             next_syl = syllables[i + 1]
         else:
             # At the last char of this surface: fall back to the
-            # cross-IR-node peek so 慈/爱 split across HanziChar nodes
+            # cross-IR-node peek so 慈/爱 split across single-character Word nodes
             # still triggers the boundary rule. (慈/爱 = cí/ài, example chars.)
             next_syl = cross_node_next_syl
         if char_overrides is not None:
@@ -224,7 +212,7 @@ def _peek_next_chinese_syllable(ctx: BackendContext) -> str | None:
 
     * no sibling exists (last child),
     * the sibling is not a Chinese node (Punct / Space / Number / ...),
-    * the sibling has no pinyin (HanziChar / Word default), or
+    * the sibling has no pinyin (a Word's default), or
     * the pinyin string is empty after splitting.
     """
     sibling = ctx.options.get("_next_inline_sibling")
@@ -332,8 +320,8 @@ def _emit_parsed(
     cells: list[BrailleCell] = []
 
     if parsed.has_initial():
-        dots = profile.initials.get(parsed.initial)
-        if dots is None:
+        seq = profile.lang_table("initials").get(parsed.initial)
+        if not seq:
             ctx.warnings.warn(
                 code="MISSING_INITIAL",
                 message=f"no braille cell for initial {parsed.initial!r}",
@@ -345,13 +333,14 @@ def _emit_parsed(
                 BrailleCell(dots=(), role="unknown", source_span=span, source_text=ch)
             )
         else:
-            cells.append(
+            cells.extend(
                 BrailleCell(
                     dots=dots,
                     role="zh_initial",
                     source_span=span,
                     source_text=ch,
                 )
+                for dots in seq
             )
 
     if parsed.final == "":
@@ -383,8 +372,8 @@ def _emit_parsed(
                     BrailleCell(dots=(), role="unknown", source_span=span, source_text=ch)
                 )
     else:
-        dots = profile.finals.get(parsed.final)
-        if dots is None:
+        seq = profile.lang_table("finals").get(parsed.final)
+        if not seq:
             ctx.warnings.warn(
                 code="MISSING_FINAL",
                 message=f"no braille cell for final {parsed.final!r}",
@@ -396,13 +385,14 @@ def _emit_parsed(
                 BrailleCell(dots=(), role="unknown", source_span=span, source_text=ch)
             )
         else:
-            cells.append(
+            cells.extend(
                 BrailleCell(
                     dots=dots,
                     role="zh_final",
                     source_span=span,
                     source_text=ch,
                 )
+                for dots in seq
             )
 
     # Tone — controlled by the profile's tone policy.  The strategy
@@ -436,16 +426,15 @@ def _emit_parsed(
             ):
                 should_emit = True
     if should_emit:
-        tone_dots = profile.tones.get(parsed.tone, ())
-        if tone_dots:
-            cells.append(
-                BrailleCell(
-                    dots=tone_dots,
-                    role="zh_tone",
-                    source_span=span,
-                    source_text=ch,
-                )
+        cells.extend(
+            BrailleCell(
+                dots=dots,
+                role="zh_tone",
+                source_span=span,
+                source_text=ch,
             )
+            for dots in profile.lang_table("tones").get(parsed.tone, ())
+        )
     return cells
 
 

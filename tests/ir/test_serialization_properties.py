@@ -61,10 +61,8 @@ from brailix.ir.inline import (
     Connector,
     Date,
     GraphicInline,
-    HanziChar,
     HanziMarker,
     InlineNode,
-    LatinAcronym,
     LatinWord,
     MathInline,
     MusicInline,
@@ -120,8 +118,8 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
     kind = draw(
         st.sampled_from(
             [
-                "word", "hanzi_char", "number", "hanzi_marker", "punct",
-                "latin_word", "latin_acronym", "code_inline", "phonetic_inline",
+                "word", "word", "number", "hanzi_marker", "punct",
+                "latin_word", "latin_word", "code_inline", "phonetic_inline",
                 "space", "connector", "unknown", "math", "music", "graphic",
             ]
         )
@@ -136,8 +134,8 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
             pos=draw(_opt_short),
             confidence=draw(st.one_of(st.none(), st.floats(0, 1, allow_nan=False))),
         )
-    if kind == "hanzi_char":
-        return HanziChar(surface=surface, span=span, reading=draw(_opt_short))
+    if kind == "word":
+        return Word(surface=surface, span=span, reading=draw(_opt_short))
     if kind == "number":
         return Number(surface=surface, span=span, role=draw(_opt_short))
     if kind == "hanzi_marker":
@@ -146,8 +144,8 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
         return Punct(surface=surface, span=span)
     if kind == "latin_word":
         return LatinWord(surface=surface, span=span)
-    if kind == "latin_acronym":
-        return LatinAcronym(surface=surface, span=span)
+    if kind == "latin_word":
+        return LatinWord(surface=surface, span=span)
     if kind == "code_inline":
         return CodeInline(surface=surface, span=span)
     if kind == "phonetic_inline":
