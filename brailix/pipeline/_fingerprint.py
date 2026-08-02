@@ -21,9 +21,12 @@ Covered (a change flips the fingerprint):
 * the **resolved profile content** — every loaded table / feature, so a
   same-named profile edited on ``extra_profile_paths`` fingerprints apart
   from the builtin it shadows;
-* the selected **adapter names** (segmenter / normalizer after language
-  resolution, analyzer / resolver as configured);
-* the **user pinyin dictionary** (order-insensitive);
+* the selected **adapter names** (analyzer / resolver as configured);
+  segmenter / normalizer are absent because they are not configuration —
+  which one runs follows from the profile's language, and the profile's
+  full content is hashed above;
+* the **user pinyin dictionary** and the **user segmentation dictionary**
+  (both order-insensitive);
 * the **run mode** — braille output is mode-independent, but recorded
   warnings are not (STRICT raises, LENIENT downgrades), and a cached
   compile replays its warnings;
@@ -65,17 +68,18 @@ import hashlib
 import itertools
 import weakref
 from dataclasses import fields, is_dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from brailix.core.config import BrailleProfile
 
 # Schema version of the fingerprint composition. Bump when the set of
 # covered inputs or their serialization changes, so a digest computed under
 # the old recipe can never equal one computed under the new.
-_FINGERPRINT_VERSION = "1"
+_FINGERPRINT_VERSION = "2"
 
 
 def _canon(value: Any, out: list[str]) -> None:
@@ -138,18 +142,16 @@ def compilation_fingerprint(
     profile: BrailleProfile,
     *,
     mode: str,
-    segmenter: str,
-    normalizer: str,
     analyzer: str,
     resolver: str,
     user_pinyin_dict: Mapping[str, str],
+    user_seg_dict: Mapping[str, Sequence[str]] = MappingProxyType({}),
 ) -> str:
     """SHA-256 hex digest of one Pipeline's compilation configuration.
 
     See the module docstring for exactly what is (and is not) covered.
-    ``segmenter`` / ``normalizer`` should be the *resolved* names (after
-    per-language selection); ``analyzer`` / ``resolver`` are the configured
-    names — ``"auto"`` is a configuration value in its own right.
+    ``analyzer`` / ``resolver`` are the configured names — ``"auto"`` is a
+    configuration value in its own right.
     """
     from brailix import __version__
 
@@ -165,12 +167,17 @@ def compilation_fingerprint(
     put("brailix", __version__)
     put("profile", profile_digest(profile))
     put("mode", mode)
-    put("segmenter", segmenter)
-    put("normalizer", normalizer)
     put("analyzer", analyzer)
     put("resolver", resolver)
     for surface in sorted(user_pinyin_dict):
         put(f"dict:{surface}", user_pinyin_dict[surface])
+    # Word division changes the braille as surely as a reading does (Chinese
+    # braille writes a word together and separates words with a blank cell),
+    # so the segmentation dictionary belongs here too. The pieces are joined
+    # with a separator that cannot occur inside one, so ("a","bc") and
+    # ("ab","c") can't serialize alike.
+    for surface in sorted(user_seg_dict):
+        put(f"segdict:{surface}", "\x1f".join(user_seg_dict[surface]))
     return h.hexdigest()
 
 

@@ -7,7 +7,9 @@ CLI and any caller that enumerates the analyzer registry:
 
 * :func:`tokenize` — text → ``list[ChineseToken]`` via the analyzer
   adapter selected by ``ctx.options["zh_analyzer"]``.  The pluggable
-  surface; ``"auto"`` lazily picks ``thulac`` → ``hanlp`` → ``jieba`` → ``char``.
+  surface; ``"auto"`` lazily picks ``thulac`` → ``hanlp`` → ``jieba`` → ``char``,
+  skipping whatever isn't installed.  A personal segmentation dictionary
+  (``ctx.options["user_seg_dict"]``) is applied on top as a post-pass.
 * :func:`list_analyzers` — names of the registered analyzer adapters
   (drives the CLI ``--list-analyzers`` flag).
 * :func:`shift_token_spans` — promote per-segment span coordinates
@@ -32,16 +34,22 @@ pinyin; the orchestrator chains the steps.
 
 from __future__ import annotations
 
+from typing import Protocol, runtime_checkable
+
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
+from brailix.frontend.zh.analyzer._user_dict import (
+    apply_user_seg_dict as _apply_user_seg_dict,
+)
+from brailix.frontend.zh.analyzer._user_dict import (
+    normalize_seg_dict as _normalize_seg_dict,
+)
+from brailix.frontend.zh.tokens import ChineseToken
 from brailix.ir.inline import (
-    ChineseToken,
     Connector,
     Date,
-    HanziChar,
     HanziMarker,
     InlineNode,
-    LatinAcronym,
     LatinWord,
     MathInline,
     Number,
@@ -51,7 +59,37 @@ from brailix.ir.inline import (
     Word,
 )
 
-_DEFAULT_ANALYZER: str = "auto"
+# The ``auto`` adapter's registered name — what a caller who names
+# nothing gets. Matches the corresponding :class:`brailix.Pipeline`
+# field default, which is the library-wide declaration; not imported
+# from there because the orchestrator sits ABOVE this layer. Pinned
+# equal by ``tests/frontend/test_default_adapter_names.py``.
+_AUTO = "auto"
+
+
+@runtime_checkable
+class ChineseAnalyzer(Protocol):
+    """Tokenize a Chinese text region into words with POS tags.
+
+    Implementations wrap external tokenizers (HanLP, jieba, THULAC, ...)
+    and emit the normalized :class:`~brailix.frontend.zh.tokens.ChineseToken`
+    shape so downstream code never depends on the underlying library.
+
+    ``ctx`` may be ``None`` so callers (notably the ``auto`` delegating
+    adapter) can pass through whatever they received without forcing
+    a non-None context just to satisfy the type checker.
+
+    Lives here rather than in :mod:`brailix.core.protocols`: a protocol whose
+    signature names Chinese types is Chinese's contract, and putting it on a
+    shared layer made this language's seam differ from every other one's
+    (Japanese declares ``JapaneseAnalyzer`` in its own analyzer package).
+    """
+
+    name: str
+
+    def analyze(
+        self, text: str, ctx: FrontendContext | None
+    ) -> list[ChineseToken]: ...
 
 
 def tokenize(
@@ -62,16 +100,34 @@ def tokenize(
     The analyzer is selected by ``ctx.options["zh_analyzer"]``; when
     absent the default is ``"auto"`` which lazily picks
     ``thulac`` → ``hanlp`` → ``jieba`` → ``char`` depending on what's installed.
+
+    A personal **segmentation dictionary** on
+    ``ctx.options["user_seg_dict"]`` (surface → the pieces it should become)
+    is applied as a post-pass over whichever adapter ran, so a division the
+    user pinned wins over every engine's opinion and composes with all of
+    them. Absent / empty for the bare library — see
+    :mod:`brailix.frontend.zh.analyzer._user_dict`.
     """
-    name = _DEFAULT_ANALYZER
+    name = _AUTO
+    seg_dict: dict[str, tuple[str, ...]] | None = None
     if ctx is not None and ctx.options:
-        name = ctx.options.get("zh_analyzer", _DEFAULT_ANALYZER)
+        name = ctx.options.get("zh_analyzer", _AUTO)
+        # Injected as plain data by a front-end (a proofreading front-end).
+        # Normalized here rather than trusted: the option bag is reachable
+        # from a hand-edited file, and an entry whose pieces don't spell its
+        # key would rewrite text the document never contained.
+        raw_seg = ctx.options.get("user_seg_dict")
+        if raw_seg:
+            seg_dict = _normalize_seg_dict(raw_seg)
 
     # Lazy import: keeps registry-registration order independent of
     # import order at the top of ``frontend/__init__.py``.
     from brailix.frontend.zh.analyzer.registry import analyzer_registry
 
-    return analyzer_registry.get(name).analyze(text, ctx)
+    tokens = analyzer_registry.get(name).analyze(text, ctx)
+    if seg_dict:
+        tokens = _apply_user_seg_dict(tokens, seg_dict)
+    return tokens
 
 
 def list_analyzers() -> list[str]:
@@ -132,10 +188,10 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
 
     Two responsibilities:
 
-    1. **Type dispatch** — single-character tokens become
-       :class:`HanziChar`; multi-character tokens become :class:`Word`.
-       Pinyin / POS / confidence carry across; the inline schema
-       preserves them where the type supports them.
+    1. **Node construction** — every token becomes one :class:`Word`,
+       whatever its length, with pinyin / POS / confidence carried across.
+       (Single characters used to become a separate ``HanziChar`` node; that
+       distinction bought nothing — see :class:`~brailix.ir.inline.Word`.)
     2. **Word-boundary spacing** — Chinese braille writes characters
        within a word without gaps and separates adjacent words with
        one blank cell (write a word together, separate words with a
@@ -160,20 +216,15 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
     nodes: list[InlineNode] = []
     for t in tokens:
         local_span = t.span if t.span else Span(0, len(t.surface))
-        if len(t.surface) == 1:
-            nodes.append(
-                HanziChar(surface=t.surface, span=local_span, reading=t.pinyin)
+        nodes.append(
+            Word(
+                surface=t.surface,
+                span=local_span,
+                reading=t.pinyin,
+                pos=t.pos,
+                confidence=t.confidence,
             )
-        else:
-            nodes.append(
-                Word(
-                    surface=t.surface,
-                    span=local_span,
-                    reading=t.pinyin,
-                    pos=t.pos,
-                    confidence=t.confidence,
-                )
-            )
+        )
     if len(nodes) < 2:
         return nodes
     spaced: list[InlineNode] = [nodes[0]]
@@ -188,8 +239,8 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
     return spaced
 
 
-_CHINESE_NODE_TYPES: tuple[type[InlineNode], ...] = (Word, HanziChar, HanziMarker)
-_FOREIGN_NODE_TYPES: tuple[type[InlineNode], ...] = (LatinWord, LatinAcronym, MathInline)
+_CHINESE_NODE_TYPES: tuple[type[InlineNode], ...] = (Word, HanziMarker)
+_FOREIGN_NODE_TYPES: tuple[type[InlineNode], ...] = (LatinWord, MathInline)
 # Normalizer composites — a whole date / measured quantity / percentage,
 # each its own "word", set off from adjacent Chinese on BOTH sides with a
 # boundary Space: 在2026年 是 在 ⟂ 2026年, 2026年去 是 2026年 ⟂ 去. (A bare
@@ -200,7 +251,7 @@ _COMPOSITE_NODE_TYPES: tuple[type[InlineNode], ...] = (Date, Quantity, Percent)
 # IR types per the Normalizer) can bind to a hanzi as one compound word;
 # a MathInline ($...$) never does, so it's excluded from the compound
 # check and always takes the space path below.
-_FOREIGN_LETTER_TYPES: tuple[type[InlineNode], ...] = (LatinWord, LatinAcronym)
+_FOREIGN_LETTER_TYPES: tuple[type[InlineNode], ...] = (LatinWord,)
 
 
 def insert_cross_kind_boundary_spaces(
@@ -210,9 +261,9 @@ def insert_cross_kind_boundary_spaces(
     """Insert a synthetic separator at Chinese ↔ Latin/Greek/Math boundaries.
 
     The National Common Braille (NCB) "segment-and-join-words" rule
-    extends across IR-node kinds: a Chinese run (Word / HanziChar /
-    HanziMarker) adjacent to a Latin / Greek / Math fragment (LatinWord /
-    LatinAcronym / MathInline) needs a marker between them.
+    extends across IR-node kinds: a Chinese run (Word / HanziMarker)
+    adjacent to a Latin / Greek / Math fragment (LatinWord /
+    MathInline) needs a marker between them.
     :func:`tokens_to_inline` handles the within-Chinese case (Word↔Word
     inside a single ``hanzi_text`` segment); this helper covers the
     cross-segment case the orchestrator assembles by concatenating
@@ -372,7 +423,7 @@ def _is_letter_hanzi_compound(
     """Whether ``prev``/``cur`` are a foreign-letter run and a hanzi run
     that together form one compound word (→ connector instead of a space).
 
-    Requires exactly one letter side (LatinWord / LatinAcronym) and one
+    Requires exactly one letter side (LatinWord) and one
     Chinese side, the two source-adjacent (no gap — a user-typed space
     would sit between them as its own node and break this pair), and the
     document-order concatenation of their surfaces present in the
@@ -396,6 +447,8 @@ def _is_letter_hanzi_compound(
 
 
 __all__ = (
+    "ChineseAnalyzer",
+    "ChineseToken",
     "tokenize",
     "list_analyzers",
     "shift_token_spans",

@@ -147,7 +147,7 @@ class TestMixedSpacing:
         result = pipe.translate_text(self.SRC)
         children = _children(result)
         # 学习 / 很 / 有用 are separate Chinese tokens; between adjacent
-        # Word/HanziChar nodes a synthetic empty-surface Space sits.
+        # Word/Word nodes a synthetic empty-surface Space sits.
         synthetic_spaces = [
             c for c in children if isinstance(c, Space) and c.surface == ""
         ]

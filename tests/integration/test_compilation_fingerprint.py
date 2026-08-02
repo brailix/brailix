@@ -89,6 +89,36 @@ class TestFingerprintIdentity:
         p2 = Pipeline(profile="cn_current", user_pinyin_dict=d2)
         assert p1.fingerprint == p2.fingerprint
 
+    def test_user_seg_dict_changes_fingerprint(self, base: Pipeline) -> None:
+        # Word division changes the braille as surely as a reading does, so a
+        # cache keyed without it would serve the other division's cells.
+        other = Pipeline(
+            profile="cn_current", user_seg_dict={"国家": ("国家",)}
+        )
+        assert other.fingerprint != base.fingerprint
+
+    def test_user_seg_dict_is_order_insensitive(self) -> None:
+        d1 = {"国家": ("国家",), "银行": ("银行",)}
+        d2 = dict(reversed(list(d1.items())))
+        p1 = Pipeline(profile="cn_current", user_seg_dict=d1)
+        p2 = Pipeline(profile="cn_current", user_seg_dict=d2)
+        assert p1.fingerprint == p2.fingerprint
+
+    def test_seg_dict_pieces_are_not_ambiguous_when_joined(self) -> None:
+        # ("a","bc") and ("ab","c") are different divisions of the same
+        # surface; serializing them by concatenation would collapse both to
+        # "abc" and let one division's cache serve the other's braille.
+        p1 = Pipeline(profile="cn_current", user_seg_dict={"甲乙丙": ("甲", "乙丙")})
+        p2 = Pipeline(profile="cn_current", user_seg_dict={"甲乙丙": ("甲乙", "丙")})
+        assert p1.fingerprint != p2.fingerprint
+
+    def test_a_seg_dict_is_not_a_pinyin_dict(self) -> None:
+        # The two dictionaries are hashed under distinct tags, so an entry in
+        # one can never fingerprint like an entry in the other.
+        seg = Pipeline(profile="cn_current", user_seg_dict={"国家": ("国家",)})
+        pin = Pipeline(profile="cn_current", user_pinyin_dict={"国家": "国家"})
+        assert seg.fingerprint != pin.fingerprint
+
     def test_mode_changes_fingerprint(self, base: Pipeline) -> None:
         # Braille output is mode-independent, but a cached compile also
         # replays its recorded warnings, whose levels pivot on the mode.
@@ -318,8 +348,8 @@ class TestRegistryReRegisterInvalidation:
     def test_re_register_advances_fingerprint_and_source_hash(self) -> None:
         from brailix.frontend.segment import DefaultSegmenter, segmenter_registry
 
-        with segmenter_registry.overriding("probe", DefaultSegmenter):
-            pipe = Pipeline(profile="cn_current", segmenter="probe")
+        with segmenter_registry.overriding("zh", DefaultSegmenter):
+            pipe = Pipeline(profile="cn_current")
             fp1 = pipe.fingerprint
             h1 = pipe.translate_block(Paragraph(text=TEXT)).source_hash
 
@@ -405,8 +435,8 @@ class TestRegistryReRegisterInvalidation:
                     segmenter_registry.register("probe", DefaultSegmenter)
                 return DefaultSegmenter().segment(block, ctx)
 
-        with segmenter_registry.overriding("probe", _SelfRegistering):
-            pipe = Pipeline(profile="cn_current", resolver="null", segmenter="probe")
+        with segmenter_registry.overriding("zh", _SelfRegistering):
+            pipe = Pipeline(profile="cn_current", resolver="null")
             drifted = pipe.translate_block(Paragraph(text=TEXT))
             settled = pipe.translate_block(Paragraph(text=TEXT))
 
@@ -443,9 +473,9 @@ class TestRegistryReRegisterInvalidation:
                     segmenter_registry.register("probe", DefaultSegmenter)
                 return DefaultSegmenter().segment(block, ctx)
 
-        with segmenter_registry.overriding("probe", _SelfRegistering):
+        with segmenter_registry.overriding("zh", _SelfRegistering):
             pipe = Pipeline(
-                profile="cn_current", resolver="null", segmenter="probe"
+                profile="cn_current", resolver="null"
             )
             drifted = pipe.translate_block(Paragraph(text=TEXT))
             settled = pipe.translate_block(Paragraph(text=TEXT))
@@ -506,9 +536,9 @@ class TestRegistryReRegisterInvalidation:
                     segmenter_registry.register("probe", DefaultSegmenter)
                 return DefaultSegmenter().segment(block, ctx)
 
-        with segmenter_registry.overriding("probe", _SelfRegistering):
+        with segmenter_registry.overriding("zh", _SelfRegistering):
             pipe = Pipeline(
-                profile="cn_current", resolver="null", segmenter="probe"
+                profile="cn_current", resolver="null"
             )
             drifted = translate(pipe)
             settled = translate(pipe)
@@ -663,16 +693,18 @@ class TestRegistryReRegisterInvalidation:
         # stale children and the NEW implementation observably runs.
         from brailix.frontend.segment import DefaultSegmenter, segmenter_registry
 
-        with segmenter_registry.overriding("probe", DefaultSegmenter):
+        with segmenter_registry.overriding("zh", DefaultSegmenter):
             pipe = Pipeline(
-                profile="cn_current", segmenter="probe", resolver="null"
+                profile="cn_current", resolver="null"
             )
             block = Paragraph(text="abc")
             first = pipe.translate_block(block)
             children1 = block.children
             assert children1
 
-            segmenter_registry.register("probe", _ShoutSegmenter)
+            # Replace what the language subtag resolves to — that is the name
+            # the ``auto`` segmenter picks, so the swap is observable.
+            segmenter_registry.register("zh", _ShoutSegmenter)
 
             second = pipe.translate_block(block)
             assert block.children is not children1  # stamp invalidated
@@ -807,9 +839,7 @@ class TestCompileConfigIsImmutable:
         [
             ("profile", "cn_ncb"),
             ("mode", "strict"),
-            ("segmenter", "regex"),
-            ("normalizer", "default"),
-            ("analyzer", "char"),
+                                    ("analyzer", "char"),
             ("resolver", "pypinyin"),
             ("user_pinyin_dict", dict(ALT_DICT)),
             ("extra_profile_paths", ("/nonexistent",)),
