@@ -67,19 +67,24 @@ from __future__ import annotations
 import hashlib
 import itertools
 import weakref
+from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     from brailix.core.config import BrailleProfile
 
 # Schema version of the fingerprint composition. Bump when the set of
 # covered inputs or their serialization changes, so a digest computed under
 # the old recipe can never equal one computed under the new.
-_FINGERPRINT_VERSION = "2"
+#
+# 3: the composition moved from a hand-rolled ``<tag>=<value>|`` record
+#    stream to :func:`_canon` over one nested structure. The old scheme was
+#    collidable — see :func:`compilation_fingerprint`.
+_FINGERPRINT_VERSION = "3"
 
 
 def _canon(value: Any, out: list[str]) -> None:
@@ -92,8 +97,14 @@ def _canon(value: Any, out: list[str]) -> None:
     (honouring ``compare=False`` — runtime memoization like
     ``BrailleProfile._letter_cache`` must not perturb the digest), and
     fall back to ``repr`` for scalars.
+
+    Every mapping, not only ``dict``: :class:`~types.MappingProxyType` is
+    not a ``dict`` subclass, so a read-only view (which is exactly the shape
+    :class:`~brailix.pipeline.Pipeline` holds its user dictionaries in) would
+    otherwise fall through to ``repr`` — insertion-ordered, and so no longer
+    order-insensitive.
     """
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         out.append("{")
         for key in sorted(value, key=repr):
             out.append(repr(key))
@@ -152,33 +163,53 @@ def compilation_fingerprint(
     See the module docstring for exactly what is (and is not) covered.
     ``analyzer`` / ``resolver`` are the configured names — ``"auto"`` is a
     configuration value in its own right.
+
+    The inputs are hashed as **one nested structure** through
+    :func:`_canon`, not as a stream of ``<tag>=<value>`` records. A
+    delimiter protocol over unescaped user-supplied text is collidable, and
+    this one demonstrably was: a pinyin reading of
+    ``"chong2 qing4|segdict:国家=国家"`` serialized byte-for-byte like a
+    plain ``"chong2 qing4"`` reading beside a segmentation entry folding
+    国家 — two configurations that compile the same text differently,
+    sharing a fingerprint, hence a ``source_hash``, hence a cache entry.
+    ``_canon`` cannot be spoofed that way: a value is ``repr``\\ ed (quoted
+    and escaped, so no user text can imitate a structural token) and the
+    structure it sits in is written around it, so "a string containing a
+    separator" and "the structure that separator would have introduced"
+    encode differently by construction.
+
+    Two consequences worth stating, both deliberate:
+
+    * The pieces of a segmentation entry keep their boundaries —
+      ``("甲", "乙丙")`` and ``("甲乙", "丙")`` are different divisions of
+      one surface and must not share a digest — without relying on any
+      character being absent from a piece.
+    * A ``list`` and a ``tuple`` of the same pieces digest alike, because
+      ``_canon`` writes both as sequences. That is the intent: they are the
+      same division, and a caller's choice of container is not
+      configuration.
     """
     from brailix import __version__
 
-    h = hashlib.sha256()
-
-    def put(tag: str, value: str) -> None:
-        h.update(tag.encode("utf-8"))
-        h.update(b"=")
-        h.update(value.encode("utf-8"))
-        h.update(b"|")
-
-    put("fp", _FINGERPRINT_VERSION)
-    put("brailix", __version__)
-    put("profile", profile_digest(profile))
-    put("mode", mode)
-    put("analyzer", analyzer)
-    put("resolver", resolver)
-    for surface in sorted(user_pinyin_dict):
-        put(f"dict:{surface}", user_pinyin_dict[surface])
-    # Word division changes the braille as surely as a reading does (Chinese
-    # braille writes a word together and separates words with a blank cell),
-    # so the segmentation dictionary belongs here too. The pieces are joined
-    # with a separator that cannot occur inside one, so ("a","bc") and
-    # ("ab","c") can't serialize alike.
-    for surface in sorted(user_seg_dict):
-        put(f"segdict:{surface}", "\x1f".join(user_seg_dict[surface]))
-    return h.hexdigest()
+    parts: list[str] = []
+    _canon(
+        (
+            ("fp", _FINGERPRINT_VERSION),
+            ("brailix", __version__),
+            ("profile", profile_digest(profile)),
+            ("mode", mode),
+            ("analyzer", analyzer),
+            ("resolver", resolver),
+            ("user_pinyin_dict", dict(user_pinyin_dict)),
+            # Word division changes the braille as surely as a reading does
+            # (Chinese braille writes a word together and separates words
+            # with a blank cell), so the segmentation dictionary belongs
+            # here too.
+            ("user_seg_dict", dict(user_seg_dict)),
+        ),
+        parts,
+    )
+    return hashlib.sha256("".join(parts).encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
