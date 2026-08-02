@@ -1136,7 +1136,10 @@ class TestLetterRunCoalesce:
     def test_script_content_mrow_still_merges(self, profile):
         # x_{ab}: the mrow INSIDE the slot is a sequence — a and b share
         # one lowercase sign, and the script close marker stays (a
-        # two-letter word is not atomic).
+        # two-letter word is not atomic). They share it with the BASE too:
+        # the subscript indicator does not break x's run (《盲文常用数学
+        # 符号》§二 规则1, 同类型字母连写只在第一个前加字母号), so the whole
+        # x-a-b stretch carries the one ⠰ at the front.
         cells, _ = emit(
             mml(
                 "<math><msub><mi>x</mi>"
@@ -1145,9 +1148,9 @@ class TestLetterRunCoalesce:
             profile,
         )
         dots = [c.dots for c in cells]
-        # x(56+1346) + sub(16) + ⠰ab(56, 1, 12) + close(156)
+        # ⠰x(56, 1346) + sub(16) + ab(1, 12) + close(156)
         assert dots == [
-            (5, 6), (1, 3, 4, 6), (1, 6), (5, 6), (1,), (1, 2), (1, 5, 6),
+            (5, 6), (1, 3, 4, 6), (1, 6), (1,), (1, 2), (1, 5, 6),
         ]
 
     def test_function_match_wins_over_letter_word(self, profile):

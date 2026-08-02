@@ -15,12 +15,12 @@
     "scripts": {
       "description": "Big operators with sub/sup limits — limit markers carry the 46 prefix (below/above ⠨⠡/⠨⠌)",
       "cases": [
-        {"src": "$\\sum_{i=1}^{n} a_i$", "expected": "⠸⠎⠨⠡⠰⠊⠀⠶⠼⠁⠱⠨⠌⠰⠝⠱⠰⠁⠡⠰⠊⠱", "note": "sum lower/upper limits carry the 46 prefix; the trailing a_i is an ordinary single-letter subscript (no 46) and closes with ⠱"},
-        {"src": "$\\sum_{i=1} a_i$", "expected": "⠸⠎⠨⠡⠰⠊⠀⠶⠼⠁⠱⠰⠁⠡⠰⠊⠱", "note": "sum with sub-only limit; trailing a_i closes with ⠱"},
-        {"src": "$\\sum^{n} a_i$", "expected": "⠸⠎⠨⠌⠰⠝⠱⠰⠁⠡⠰⠊⠱", "note": "sum with sup-only limit; trailing a_i closes with ⠱"},
-        {"src": "$\\sum_{k=3}^{} a_k$", "expected": "⠸⠎⠨⠡⠰⠅⠀⠶⠼⠉⠱⠨⠌⠱⠰⠁⠡⠰⠅⠱", "note": "sum with empty sup; trailing a_k closes with ⠱"},
-        {"src": "$\\prod_{i=1}^{n} a_i$", "expected": "⠸⠏⠨⠡⠰⠊⠀⠶⠼⠁⠱⠨⠌⠰⠝⠱⠰⠁⠡⠰⠊⠱", "note": "prod with full limits; trailing a_i closes with ⠱"},
-        {"src": "$\\prod_{n=1} a_n$", "expected": "⠸⠏⠨⠡⠰⠝⠀⠶⠼⠁⠱⠰⠁⠡⠰⠝⠱", "note": "prod with sub-only; trailing a_n closes with ⠱"},
+        {"src": "$\\sum_{i=1}^{n} a_i$", "expected": "⠸⠎⠨⠡⠰⠊⠀⠶⠼⠁⠱⠨⠌⠰⠝⠱⠰⠁⠡⠊⠱", "note": "sum lower/upper limits carry the 46 prefix; the trailing a_i is an ordinary single-letter subscript (no 46) and closes with ⠱"},
+        {"src": "$\\sum_{i=1} a_i$", "expected": "⠸⠎⠨⠡⠰⠊⠀⠶⠼⠁⠱⠰⠁⠡⠊⠱", "note": "sum with sub-only limit; trailing a_i closes with ⠱"},
+        {"src": "$\\sum^{n} a_i$", "expected": "⠸⠎⠨⠌⠰⠝⠱⠰⠁⠡⠊⠱", "note": "sum with sup-only limit; trailing a_i closes with ⠱"},
+        {"src": "$\\sum_{k=3}^{} a_k$", "expected": "⠸⠎⠨⠡⠰⠅⠀⠶⠼⠉⠱⠨⠌⠱⠰⠁⠡⠅⠱", "note": "sum with empty sup; trailing a_k closes with ⠱"},
+        {"src": "$\\prod_{i=1}^{n} a_i$", "expected": "⠸⠏⠨⠡⠰⠊⠀⠶⠼⠁⠱⠨⠌⠰⠝⠱⠰⠁⠡⠊⠱", "note": "prod with full limits; trailing a_i closes with ⠱"},
+        {"src": "$\\prod_{n=1} a_n$", "expected": "⠸⠏⠨⠡⠰⠝⠀⠶⠼⠁⠱⠰⠁⠡⠝⠱", "note": "prod with sub-only; trailing a_n closes with ⠱"},
         {"src": "$\\int_0^1 f(x) dx$", "expected": "⠮⠨⠡⠴⠨⠌⠂⠰⠋⠣⠰⠭⠜⠰⠙⠭", "note": "integral with both bounds (atomic digits, big_op_prefix=46); dx is one lowercase run ⠰⠙⠭ — matches the docx integral example ⠮⠰⠭⠌⠍⠱⠰⠙⠭"},
         {"src": "$\\int_a b$", "expected": "⠮⠨⠡⠰⠁⠱⠰⠃", "note": "integral with letter sub bound only"},
         {"src": "$\\oint f dx$", "expected": "⠮⠴⠰⠋⠙⠭", "note": "contour integral ∮ ⠮⠴ (= ∫ + 356), no sub/sup limits; f d x are adjacent same-class letters → one ⠰ (the print thin-space has no braille cell)"},
@@ -33,9 +33,9 @@
       "cases": [
         {"src": "$\\lim_{x \\to 0} f(x)$", "expected": "⠫⠇⠍⠨⠡⠰⠭⠀⠒⠕⠼⠚⠱⠰⠋⠣⠰⠭⠜", "note": "\\lim ⠫⠇⠍ + sub limit with prefix"},
         {"src": "$\\max_{x} f$", "expected": "⠫⠍⠭⠨⠡⠰⠭⠱⠰⠋", "note": "max(m+x) + sub limit with the 46 prefix"},
-        {"src": "$\\min_{n} a_n$", "expected": "⠫⠍⠝⠨⠡⠰⠝⠱⠰⠁⠡⠰⠝⠱", "note": "min(m+n) + sub limit; trailing a_n closes with ⠱"},
+        {"src": "$\\min_{n} a_n$", "expected": "⠫⠍⠝⠨⠡⠰⠝⠱⠰⠁⠡⠝⠱", "note": "min(m+n) + sub limit; trailing a_n closes with ⠱"},
         {"src": "$\\sup_{x} f$", "expected": "⠫⠎⠥⠏⠨⠡⠰⠭⠱⠰⠋", "note": "sup(s+u+p) + sub limit"},
-        {"src": "$\\inf_{n} a_n$", "expected": "⠫⠊⠝⠋⠨⠡⠰⠝⠱⠰⠁⠡⠰⠝⠱", "note": "inf(i+n+f) + sub limit; trailing a_n closes with ⠱"}
+        {"src": "$\\inf_{n} a_n$", "expected": "⠫⠊⠝⠋⠨⠡⠰⠝⠱⠰⠁⠡⠝⠱", "note": "inf(i+n+f) + sub limit; trailing a_n closes with ⠱"}
       ]
     }
   }
