@@ -10,6 +10,10 @@ language's two frontend jobs:
 * :mod:`~brailix.frontend.zh.pinyin` — fill each token's reading
   (pypinyin / g2pM / g2pW adapters).
 
+The format they hand between them, :class:`~brailix.frontend.zh.tokens.ChineseToken`,
+sits in :mod:`~brailix.frontend.zh.tokens` — belonging to neither end is what
+keeps the two independently replaceable.
+
 Per ARCHITECTURE#arch-mediators they stay swap-independent: the analyzer must not
 import the resolver, so the orchestrator (:class:`brailix.Pipeline`)
 chains ``tokenize`` → ``pinyin.annotate`` → ``tokens_to_inline`` rather

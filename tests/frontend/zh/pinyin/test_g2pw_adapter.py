@@ -15,7 +15,7 @@ from brailix.frontend.zh.pinyin.adapters.g2pw import (
     _normalize_predictor_output,
 )
 from brailix.frontend.zh.pinyin.registry import resolver_registry
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 # ---------------------------------------------------------------------------
 # Lazy-import / missing-extra contract
@@ -143,7 +143,7 @@ class TestLowConfidenceWarning:
 
 class TestProtocolConformance:
     def test_satisfies_protocol(self):
-        from brailix.core.protocols import PinyinResolver
+        from brailix.frontend.zh.pinyin import PinyinResolver
 
         adapter = G2pwPinyinResolver(predictor=_predictor([]))
         assert isinstance(adapter, PinyinResolver)

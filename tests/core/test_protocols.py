@@ -62,11 +62,31 @@ def test_segmenter_isinstance():
 
 
 def test_chinese_analyzer_isinstance():
-    assert isinstance(GoodChineseAnalyzer(), protocols.ChineseAnalyzer)
+    # Declared by the language, not by core: a protocol whose signature names
+    # Chinese types is Chinese's contract (Japanese declares its own the same
+    # way). Checked here anyway — this file is where "every protocol is a
+    # usable runtime check" is stated.
+    from brailix.frontend.zh.analyzer import ChineseAnalyzer
+
+    assert isinstance(GoodChineseAnalyzer(), ChineseAnalyzer)
 
 
 def test_pinyin_resolver_isinstance():
-    assert isinstance(GoodPinyinResolver(), protocols.PinyinResolver)
+    from brailix.frontend.zh.pinyin import PinyinResolver
+
+    assert isinstance(GoodPinyinResolver(), PinyinResolver)
+
+
+def test_language_protocols_are_not_on_the_core_surface():
+    """core must not regrow one language's contracts.
+
+    The asymmetry this closes was invisible from either side: Chinese's
+    analyzer protocol sat in core while Japanese's sat in its own package,
+    so an adapter author learned a different import path per language and a
+    third language had no consistent example to copy.
+    """
+    assert not hasattr(protocols, "ChineseAnalyzer")
+    assert not hasattr(protocols, "PinyinResolver")
 
 
 def test_math_source_adapter_isinstance():
@@ -82,6 +102,13 @@ def test_all_protocols_are_runtime_checkable():
     # If any protocol forgets @runtime_checkable, isinstance() raises
     # TypeError; the smoke checks above would have caught that, but
     # this test states the invariant explicitly.
+    from brailix.frontend.zh.analyzer import ChineseAnalyzer
+    from brailix.frontend.zh.pinyin import PinyinResolver
+
+    language_protocols = {
+        "ChineseAnalyzer": ChineseAnalyzer,
+        "PinyinResolver": PinyinResolver,
+    }
     for name in (
         "Segmenter",
         "ChineseAnalyzer",
@@ -89,6 +116,6 @@ def test_all_protocols_are_runtime_checkable():
         "MathSourceAdapter",
         "Renderer",
     ):
-        cls = getattr(protocols, name)
+        cls = language_protocols.get(name) or getattr(protocols, name)
         # _is_runtime_protocol is the private flag set by @runtime_checkable
         assert getattr(cls, "_is_runtime_protocol", False), f"{name} not runtime_checkable"

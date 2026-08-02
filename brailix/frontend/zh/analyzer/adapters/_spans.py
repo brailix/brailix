@@ -15,7 +15,7 @@ from collections.abc import Iterable
 
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 
 def recover_spans_by_cursor(

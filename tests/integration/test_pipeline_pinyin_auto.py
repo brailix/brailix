@@ -9,7 +9,8 @@ from brailix import Pipeline
 from brailix.core.span import Span
 from brailix.frontend.zh.analyzer.registry import analyzer_registry
 from brailix.frontend.zh.pinyin.registry import resolver_registry
-from brailix.ir.inline import ChineseToken, Word
+from brailix.frontend.zh.tokens import ChineseToken
+from brailix.ir.inline import Word
 
 
 @pytest.fixture(autouse=True)

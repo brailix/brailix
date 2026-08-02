@@ -19,7 +19,7 @@ Import the IR and core types from the shallow facades (`brailix.ir`, `brailix.co
 ```python
 # mypkg/lac_adapter.py
 from brailix.core import Span
-from brailix.ir import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 from brailix.frontend.zh.analyzer.registry import analyzer_registry
 
 

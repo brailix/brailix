@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 
 @dataclass(slots=True)

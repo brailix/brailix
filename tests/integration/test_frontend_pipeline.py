@@ -22,9 +22,9 @@ from brailix.frontend.normalize import DefaultNormalizer
 from brailix.frontend.segment import DefaultSegmenter
 from brailix.frontend.zh.analyzer.registry import analyzer_registry
 from brailix.frontend.zh.pinyin.registry import resolver_registry
+from brailix.frontend.zh.tokens import ChineseToken
 from brailix.ir.document import Paragraph
 from brailix.ir.inline import (
-    ChineseToken,
     InlineNode,
     Number,
     Percent,
@@ -69,19 +69,19 @@ def _chinese_tokens_to_inline(
 ) -> list[InlineNode]:
     """Wrap ChineseToken in Word InlineNodes with absolute spans.
 
-    In a more complete pipeline we'd build Word vs HanziChar based on
+    In a more complete pipeline we'd build Word vs Word based on
     token length and pos tag. For the integration test we just need
     something that conforms to InlineNode.
     """
     from brailix.core.span import Span
-    from brailix.ir.inline import HanziChar, Word
+    from brailix.ir.inline import Word
 
     out: list[InlineNode] = []
     for t in tokens:
         local_span = t.span if t.span else Span(0, len(t.surface))
         abs_span = Span(base + local_span.start, base + local_span.end)
         if len(t.surface) == 1:
-            out.append(HanziChar(surface=t.surface, span=abs_span, reading=t.pinyin))
+            out.append(Word(surface=t.surface, span=abs_span, reading=t.pinyin))
         else:
             out.append(Word(surface=t.surface, span=abs_span, reading=t.pinyin, pos=t.pos))
     return out
@@ -104,8 +104,8 @@ class TestCanonicalSentence:
         assert "Date" in kinds
         assert "Punct" in kinds
         # Char analyzer breaks 重庆银行 into 4 HanziChars, so we expect
-        # plenty of HanziChar entries.
-        hanzi_chars = [c for c in children if type(c).__name__ == "HanziChar"]
+        # plenty of Word entries.
+        hanzi_chars = [c for c in children if type(c).__name__ == "Word"]
         assert len(hanzi_chars) == 8  # 我 在 去 了 重 庆 银 行
 
         # Date sits where expected.

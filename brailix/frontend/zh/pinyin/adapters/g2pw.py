@@ -16,7 +16,7 @@ from typing import Any
 from brailix.core.context import FrontendContext
 from brailix.core.errors import PROGRAMMING_ERRORS, MissingExtraError
 from brailix.frontend.zh.pinyin.adapters._align import resolve_by_char_alignment
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 LOW_CONFIDENCE_THRESHOLD = 0.75
 

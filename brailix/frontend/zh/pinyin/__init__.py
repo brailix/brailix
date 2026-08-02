@@ -11,11 +11,42 @@ lazily prefers ``g2pm`` → ``g2pw`` → ``pypinyin`` → ``null``).
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Protocol, runtime_checkable
 
 from brailix.core.context import FrontendContext
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
-_DEFAULT_RESOLVER: str = "auto"
+# The ``auto`` adapter's registered name — what a caller who names
+# nothing gets. Matches the corresponding :class:`brailix.Pipeline`
+# field default, which is the library-wide declaration; not imported
+# from there because the orchestrator sits ABOVE this layer. Pinned
+# equal by ``tests/frontend/test_default_adapter_names.py``.
+_AUTO = "auto"
+
+
+@runtime_checkable
+class PinyinResolver(Protocol):
+    """Annotate Chinese tokens with pinyin (numeric-tone form).
+
+    The resolver fills the ``pinyin`` field on tokens; it must not
+    change token boundaries or types. Low-confidence readings should
+    be reported via the context's
+    :class:`~brailix.core.errors.WarningCollector`. ``ctx`` may be ``None``
+    so callers (notably the ``auto`` delegating adapter) can pass through
+    whatever they received.
+
+    Lives here rather than in :mod:`brailix.core.protocols`: a reading engine
+    is a Chinese concern — the language declares what can be chosen for it —
+    and a protocol whose signature names Chinese types belongs with the
+    language, not on a layer every language shares. Japanese has no
+    counterpart at all: its readings come out of its analyzer.
+    """
+
+    name: str
+
+    def resolve(
+        self, tokens: list[ChineseToken], ctx: FrontendContext | None
+    ) -> list[ChineseToken]: ...
 
 
 def annotate(
@@ -26,10 +57,10 @@ def annotate(
     Resolver selection comes from ``ctx.options["pinyin_resolver"]``;
     default ``"auto"``.
     """
-    name = _DEFAULT_RESOLVER
+    name = _AUTO
     user_dict: dict[str, str] | None = None
     if ctx is not None and ctx.options:
-        name = ctx.options.get("pinyin_resolver", _DEFAULT_RESOLVER)
+        name = ctx.options.get("pinyin_resolver", _AUTO)
         # Personal pinyin dictionary, injected by a front-end (a
         # proofreading front-end) as plain data on the options bag.  Absent /
         # empty for the
@@ -113,4 +144,4 @@ def _apply_user_dict(
             tokens[i] = replace(tok, pinyin=reading, confidence=None)
 
 
-__all__ = ("annotate", "list_resolvers")
+__all__ = ("ChineseToken", "PinyinResolver", "annotate", "list_resolvers")

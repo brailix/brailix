@@ -22,7 +22,7 @@ from brailix.frontend.ja.analyzer import (
     tokens_to_inline,
 )
 from brailix.frontend.ja.analyzer.registry import analyzer_registry
-from brailix.ir.inline import HanziChar, Word
+from brailix.ir.inline import Word
 
 
 class TestTokensToInline:
@@ -40,12 +40,12 @@ class TestTokensToInline:
     def test_kanji_without_reading_becomes_placeholder(self):
         nodes = tokens_to_inline([JapaneseToken("私", None, None, Span(0, 1))])
         assert len(nodes) == 1
-        assert isinstance(nodes[0], HanziChar)
+        assert isinstance(nodes[0], Word)
         assert nodes[0].reading is None
 
     def test_multi_kanji_placeholder_per_char(self):
         nodes = tokens_to_inline([JapaneseToken("漢字", None, None, Span(0, 2))])
-        assert [type(n) for n in nodes] == [HanziChar, HanziChar]
+        assert [type(n) for n in nodes] == [Word, Word]
         assert nodes[0].span == Span(0, 1)
         assert nodes[1].span == Span(1, 2)
 

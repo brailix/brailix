@@ -18,8 +18,8 @@ from brailix.core.errors import (
     CANDIDATE_UNAVAILABLE_ERRORS,
     UnknownAdapterError,
 )
-from brailix.core.protocols import PinyinResolver
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.pinyin import PinyinResolver
+from brailix.frontend.zh.tokens import ChineseToken
 
 
 @dataclass(slots=True)

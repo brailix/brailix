@@ -1,7 +1,7 @@
 from brailix.core.span import Span
 from brailix.frontend.zh.pinyin.adapters.null import NullPinyinResolver
 from brailix.frontend.zh.pinyin.registry import resolver_registry
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 
 class TestNullResolver:

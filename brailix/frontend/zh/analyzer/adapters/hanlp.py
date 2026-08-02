@@ -40,7 +40,7 @@ from brailix.core.models.asset_registry import (
 )
 from brailix.core.models.paths import get_model_dir
 from brailix.frontend.zh.analyzer.adapters._spans import recover_spans_by_cursor
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 # Pinned MTL model id. Update _MTL_DIR in lockstep when bumping the
 # constant to a newer HanLP release — the directory name is the URL's

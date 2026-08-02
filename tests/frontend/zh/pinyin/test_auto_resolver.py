@@ -7,7 +7,7 @@ import pytest
 
 from brailix.core.context import FrontendContext
 from brailix.frontend.zh.pinyin.registry import resolver_registry
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 
 @pytest.fixture(autouse=True)

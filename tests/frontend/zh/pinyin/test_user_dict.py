@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from brailix.core.context import FrontendContext
 from brailix.frontend.zh.pinyin import _apply_user_dict, annotate
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 
 class TestApplyUserDict:
