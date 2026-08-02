@@ -55,6 +55,17 @@ class TestShiftTokenSpans:
         out = shift_token_spans(tokens, 0)
         assert out is tokens
 
+    def test_base_zero_still_synthesises_a_missing_span(self) -> None:
+        """The fast path is for "nothing to do", and a spanless token is
+        something to do. It used to skip on ``base == 0`` alone, so the
+        documented synthesis simply didn't happen at the offset every
+        first segment of a block starts at — while the same input at
+        ``base == 5`` came back with coordinates."""
+        tokens = [ChineseToken(surface="重庆", span=None)]
+        out = shift_token_spans(tokens, 0)
+        assert out is not tokens
+        assert out[0].span == Span(0, 2)
+
     def test_positive_base_shifts_every_span(self) -> None:
         tokens = [
             ChineseToken(surface="好", span=Span(0, 1)),
@@ -100,6 +111,40 @@ class TestShiftTokenSpans:
         # Synthesized as Span(0, len(surface)) then shifted.
         assert out[0].span == Span(5, 7)
 
+    def test_consecutive_spanless_tokens_tile_rather_than_restart(self) -> None:
+        """Each spanless token used to be given ``Span(0, len(surface))`` on
+        its own, so a second one went BACKWARDS — ``(5,7)`` then ``(5,6)``.
+        The synthesis continues from the previous token's end instead."""
+        tokens = [
+            ChineseToken(surface="重庆", span=None),
+            ChineseToken(surface="好", span=None),
+        ]
+        out = shift_token_spans(tokens, 5)
+        assert [t.span for t in out] == [Span(5, 7), Span(7, 8)]
+
+    def test_an_adapter_supplied_span_wins_and_moves_the_cursor(self) -> None:
+        """Mixed input: a real span is evidence about the source and is kept
+        as given; the next synthesised span picks up from it, not from where
+        surface lengths alone would have put it."""
+        tokens = [
+            ChineseToken(surface="重庆", span=Span(4, 6)),
+            ChineseToken(surface="好", span=None),
+        ]
+        out = shift_token_spans(tokens, 0)
+        assert [t.span for t in out] == [Span(4, 6), Span(6, 7)]
+
+    def test_spanless_tokens_stay_monotonic_across_the_whole_list(self) -> None:
+        """The property the per-token assertions could not state: walk the
+        entire output and require each span to start where the last ended."""
+        tokens = [ChineseToken(surface=s) for s in ("盲文", "出版", "社", "很好")]
+        out = shift_token_spans(tokens, 3)
+        cursor = 3
+        for t in out:
+            assert t.span is not None
+            assert t.span.start == cursor
+            assert t.span.length == len(t.surface)
+            cursor = t.span.end
+
 
 # ---------------------------------------------------------------------------
 # tokens_to_inline
@@ -110,11 +155,10 @@ class TestTokensToInline:
     def test_empty_input_returns_empty(self) -> None:
         assert tokens_to_inline([]) == []
 
-    def test_single_char_token_becomes_hanzi_char(self) -> None:
-        """Single-char tokens are the unknown / single-syllable case;
-        :class:`Word` is the correct IR shape (no ``pos`` /
-        ``confidence`` fields — those only make sense for
-        multi-character words)."""
+    def test_single_char_token_becomes_a_one_character_word(self) -> None:
+        """A single character is a :class:`Word` of length one — the same node
+        type a multi-character token becomes, which is what makes the length
+        a property of the surface rather than of the IR."""
         tokens = [
             ChineseToken(surface="好", span=Span(0, 1), pinyin="hao3")
         ]
@@ -194,8 +238,8 @@ class TestTokensToInline:
 
     def test_pinyinless_tokens_become_pinyinless_nodes(self) -> None:
         """A pre-pinyin call (or a deliberately empty pinyin) must not
-        break tokens_to_inline.  Word.reading / Word.reading stay
-        ``None``; backend warning machinery handles it from there."""
+        break tokens_to_inline.  ``Word.reading`` stays ``None``; the
+        backend's warning machinery handles it from there."""
         tokens = [
             ChineseToken(surface="重庆", span=Span(0, 2)),
             ChineseToken(surface="好", span=Span(2, 3)),
@@ -213,10 +257,40 @@ class TestTokensToInline:
             ChineseToken(surface="好", span=None),
         ]
         out = tokens_to_inline(tokens)
-        # First Word span synthesised as Span(0, 2); boundary at 2.
+        # First Word span synthesised as Span(0, 2); boundary at 2; the
+        # second Word continues from there rather than restarting at 0 —
+        # the assertion this test used to stop just short of, which is why
+        # the restart survived.
         assert out[0].span == Span(0, 2)
         assert isinstance(out[1], Space)
         assert out[1].span == Span(2, 2)
+        assert out[2].span == Span(2, 3)
+
+    def test_every_span_is_monotonic_when_no_token_carries_one(self) -> None:
+        """The whole-list property. Spans flow into the IR as source
+        positions — proofreading jumps, warning highlights, override
+        anchoring all read them — so an out-of-order or overlapping pair is
+        wrong output, not just untidy. Word nodes tile the source; the
+        boundary Spaces sit zero-width between them."""
+        tokens = [ChineseToken(surface=s) for s in ("盲文", "出版", "社")]
+        out = tokens_to_inline(tokens)
+        cursor = 0
+        for node in out:
+            assert node.span is not None
+            assert node.span.start == cursor, f"{node} does not follow on"
+            assert node.span.length == len(node.surface)
+            cursor = node.span.end
+        assert cursor == len("盲文出版社")
+
+    def test_a_supplied_span_is_kept_and_the_rest_follow_it(self) -> None:
+        """Mixed input: the adapter's coordinates win where it gave any, and
+        the synthesised ones continue from them."""
+        tokens = [
+            ChineseToken(surface="重庆", span=Span(7, 9)),
+            ChineseToken(surface="好", span=None),
+        ]
+        out = tokens_to_inline(tokens)
+        assert [n.span for n in out] == [Span(7, 9), Span(9, 9), Span(9, 10)]
 
 
 # ---------------------------------------------------------------------------
@@ -225,12 +299,11 @@ class TestTokensToInline:
 
 
 class TestInsertCrossKindBoundarySpaces:
-    """Cross-IR-kind segmentation spacing — Chinese (Word / Word /
-    HanziMarker) adjacent to Latin / Greek / Math (LatinWord /
-    LatinWord / MathInline) gets one synthetic zero-width Space
-    in between. A Number directly followed by Chinese (10页 / 3个) gets a
-    Connector instead; the reverse and Number↔Latin are left
-    alone. Punct boundaries are left alone by design.
+    """Cross-IR-kind segmentation spacing — Chinese (Word / HanziMarker)
+    adjacent to Latin / Greek / Math (LatinWord / MathInline) gets one
+    synthetic zero-width Space in between. A Number directly followed by
+    Chinese (10页 / 3个) gets a Connector instead; the reverse and
+    Number↔Latin are left alone. Punct boundaries are left alone by design.
     """
 
     def test_empty_input_returns_empty(self) -> None:
@@ -279,7 +352,7 @@ class TestInsertCrossKindBoundarySpaces:
         kinds = [type(n).__name__ for n in out]
         assert kinds == ["MathInline", "Space", "Word"]
 
-    def test_hanzi_char_treated_as_chinese(self) -> None:
+    def test_single_character_word_treated_as_chinese(self) -> None:
         nodes = [
             Word(surface="的", span=Span(0, 1)),
             LatinWord(surface="α", span=Span(1, 2)),
@@ -297,7 +370,7 @@ class TestInsertCrossKindBoundarySpaces:
         kinds = [type(n).__name__ for n in out]
         assert kinds == ["HanziMarker", "Space", "LatinWord"]
 
-    def test_latin_acronym_treated_as_foreign(self) -> None:
+    def test_all_caps_latin_word_treated_as_foreign(self) -> None:
         nodes = [
             Word(surface="使用", span=Span(0, 2)),
             LatinWord(surface="CPU", span=Span(2, 5)),

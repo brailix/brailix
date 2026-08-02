@@ -144,4 +144,12 @@ def _apply_user_dict(
             tokens[i] = replace(tok, pinyin=reading, confidence=None)
 
 
-__all__ = ("ChineseToken", "PinyinResolver", "annotate", "list_resolvers")
+# This subsystem publishes its own contract and its own two entry points.
+# ``ChineseToken`` is imported above because :class:`PinyinResolver`'s
+# signature names it, but it is NOT published here: the token is the mediator
+# the analyzer and this resolver hand between them, and belongs to neither end
+# (:mod:`brailix.frontend.zh.tokens`, which is where the extension manifest and
+# the extension guide both point). Publishing it from one end as well would put
+# the shared format's compatibility promise at an address that is free to be
+# replaced along with that end.
+__all__ = ("PinyinResolver", "annotate", "list_resolvers")

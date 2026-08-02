@@ -94,10 +94,8 @@ _FACADE: dict[str, list[str]] = {
         "Connector",
         "Date",
         "GraphicInline",
-        "Word",
         "HanziMarker",
         "InlineNode",
-        "LatinWord",
         "LatinWord",
         "MathInline",
         "MusicInline",
@@ -392,7 +390,17 @@ _EXTENSION_SURFACE: dict[str, list[str]] = {
     # the language"), and a third language has a consistent example to copy.
     # These used to differ — Chinese's protocol sat in ``core.protocols`` and
     # its token in ``brailix.ir`` while Japanese kept both in its own package.
-    "brailix.frontend.zh.analyzer": ["ChineseAnalyzer", "ChineseToken"],
+    #
+    # ``ChineseToken`` is promised at ONE address, and it is neither
+    # subsystem's. It is the mediator the analyzer and the resolver hand
+    # between them, and ``brailix.frontend.zh.tokens`` says in as many words
+    # that belonging to neither end is what keeps the two independently
+    # replaceable — so promising it from an end too would tie the shared
+    # format's compatibility to a package that exists to be swappable.
+    # (Japanese has no equivalent line because it has one subsystem: with no
+    # second consumer to stay independent of, ``JapaneseToken`` lives in the
+    # analyzer that emits it.)
+    "brailix.frontend.zh.analyzer": ["ChineseAnalyzer"],
     "brailix.frontend.zh.pinyin": ["PinyinResolver"],
     "brailix.frontend.zh.tokens": ["ChineseToken"],
     "brailix.frontend.ja.analyzer": ["JapaneseAnalyzer", "JapaneseToken"],
@@ -412,6 +420,29 @@ _EXTENSION_SURFACE: dict[str, list[str]] = {
     "brailix.frontend": ["language_frontend_registry", "boundary_registry"],
     "brailix.renderer": ["renderer_registry"],
 }
+
+
+def test_no_manifest_lists_a_name_twice() -> None:
+    """A manifest is read as much as it is asserted against.
+
+    Every check in this file converts its list to a ``set``, so a duplicate can
+    never fail one — and two arrived unnoticed when ``HanziChar`` became
+    ``Word`` and ``LatinAcronym`` became ``LatinWord`` in place, leaving each
+    name listed twice in the same block. A list that calls itself *the*
+    manifest of the public surface should at least be able to say what it
+    contains: a reader counting the published inline nodes against
+    ``brailix.ir`` got two different numbers and no check disagreed.
+    """
+    dupes = {
+        f"{label}[{module!r}]": sorted({n for n in names if names.count(n) > 1})
+        for label, manifest in (
+            ("_FACADE", _FACADE),
+            ("_EXTENSION_SURFACE", _EXTENSION_SURFACE),
+        )
+        for module, names in manifest.items()
+        if len(names) != len(set(names))
+    }
+    assert not dupes, f"manifest entries listed more than once: {dupes}"
 
 
 @pytest.mark.parametrize("module", sorted(_EXTENSION_SURFACE))
@@ -436,22 +467,30 @@ def test_extension_surface_resolves(module: str) -> None:
 # analyzer / resolver package is the subsystem entry point the orchestrator
 # calls (``tokenize`` / ``annotate`` / ``analyze``) AND the home of that
 # language's contracts. Its ``__all__`` answers the first job; the manifest
-# promises the second. Requiring equality would force one of the two to stop
-# being published.
-_EXTENSION_DUAL_ROLE_MODULES = frozenset(
-    {
-        "brailix.frontend.zh.analyzer",
-        "brailix.frontend.zh.pinyin",
-        "brailix.frontend.ja.analyzer",
-    }
-)
+# promises the second, so its ``__all__`` is legitimately wider than the
+# manifest — by *these names*, listed here.
+#
+# An explicit set, not a skip. The previous shape excluded these modules from
+# the equality check outright, and the hole was immediate: ``zh.pinyin``
+# published ``ChineseToken``, a name the manifest promises at a different
+# address on purpose, and no check could see it because the module was on the
+# exemption list. "Publishes a second thing as well" is a reason to say what
+# that second thing is, not a reason to stop looking.
+_SUBSYSTEM_ENTRY_POINTS: dict[str, set[str]] = {
+    "brailix.frontend.zh.analyzer": {
+        "tokenize",
+        "list_analyzers",
+        "shift_token_spans",
+        "tokens_to_inline",
+        "insert_cross_kind_boundary_spaces",
+    },
+    "brailix.frontend.zh.pinyin": {"annotate", "list_resolvers"},
+}
 
 
 @pytest.mark.parametrize(
     "module",
-    sorted(
-        set(_EXTENSION_SURFACE) - set(_FACADE) - _EXTENSION_DUAL_ROLE_MODULES
-    ),
+    sorted(set(_EXTENSION_SURFACE) - set(_FACADE)),
 )
 def test_extension_module_publishes_no_more_than_it_promises(module: str) -> None:
     """The other direction, which presence-only could not give: a module on
@@ -474,14 +513,24 @@ def test_extension_module_publishes_no_more_than_it_promises(module: str) -> Non
     are excluded: their ``__all__`` is pinned exactly by ``_FACADE``, and the
     extension entry repeats a subset of it so this list answers "where do I
     register?" on its own.
+
+    A language subsystem publishes its contract *and* the entry points the
+    orchestrator calls, so for those modules the expected set is the manifest
+    plus :data:`_SUBSYSTEM_ENTRY_POINTS` — named there rather than waved
+    through, because the last exemption is how a mediator type ended up
+    published from one of the two subsystems it deliberately sits between.
     """
     mod = importlib.import_module(module)
     published = getattr(mod, "__all__", None)
     if published is None:
         return
-    assert set(published) == set(_EXTENSION_SURFACE[module]), (
+    expected = set(_EXTENSION_SURFACE[module]) | _SUBSYSTEM_ENTRY_POINTS.get(
+        module, set()
+    )
+    assert set(published) == expected, (
         f"{module}.__all__ is {sorted(published)} but the extension manifest "
-        f"promises {sorted(_EXTENSION_SURFACE[module])}. ``__all__`` is the "
+        f"(plus its declared subsystem entry points) promises "
+        f"{sorted(expected)}. ``__all__`` is the "
         f"promise: publish it here (and in the top-level policy docstring and "
         f"the extension guide) as a deliberate widening, or take it out of "
         f"``__all__`` — an explicit ``from <mod> import <name>`` never "
