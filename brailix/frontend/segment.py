@@ -34,7 +34,7 @@ ChineseAnalyzer):
   letter-prefix (Greek upper/lower-case sign ⠸/⠨ vs Latin
   upper/lower-case sign ⠠/⠰) at the head of its run; downstream the
   Normalizer routes them
-  through the same ``LatinWord`` / ``LatinAcronym`` path because
+  through the same ``LatinWord`` path because
   ``profile.letter()`` already picks the right prefix per character.
 * ``punct``       — any single punctuation char.
 * ``space``       — whitespace run.
@@ -57,6 +57,7 @@ from brailix.core.context import FrontendContext
 from brailix.core.protocols import Segmenter
 from brailix.core.registry import Registry
 from brailix.core.span import Span
+from brailix.frontend._language_pick import pick_by_language
 from brailix.ir.document import Block
 from brailix.ir.inline import Segment
 
@@ -447,19 +448,52 @@ def _segment_unprotected(
 # ---------------------------------------------------------------------------
 
 segmenter_registry: Registry[Segmenter] = Registry("segmenter", protocol=Segmenter)
-segmenter_registry.register("default", DefaultSegmenter)
+
+# What :func:`segment` falls back to when the context names no segmenter —
+# the delegating adapter that picks by the document's language.
+AUTO_SEGMENTER = "auto"
+
+# The built-in, language-neutral segmenter's registered name, kept distinct
+# from the name above: one is what THIS adapter is called, the other is what
+# a caller who names nothing gets. Conflating them is what used to make
+# ``segmenter="default"`` unselectable — passing it read as "no preference".
+BUILTIN_SEGMENTER = "default"
+
+segmenter_registry.register(BUILTIN_SEGMENTER, DefaultSegmenter)
 
 
-_DEFAULT_SEGMENTER: str = "default"
+@dataclass(slots=True)
+class AutoSegmenter:
+    """Delegating segmenter: uses the active language's, else the built-in.
+
+    Mirrors the ``auto`` analyzer / resolver adapters so every pluggable
+    frontend family is selected the same way — a caller that names nothing
+    gets ``auto`` and stops caring which implementations exist. The
+    delegation is resolved per call rather than cached: unlike the engine
+    chains, what this picks depends on the *document* (its language), not on
+    the environment, so there is nothing stable to memoise.
+    """
+
+    name: str = "auto"
+
+    def segment(
+        self, block: Block, ctx: FrontendContext | None = None
+    ) -> list[Segment]:
+        picked = pick_by_language(segmenter_registry, ctx, BUILTIN_SEGMENTER)
+        return segmenter_registry.get(picked).segment(block, ctx)
+
+
+segmenter_registry.register(AUTO_SEGMENTER, AutoSegmenter)
 
 
 def segment(block, ctx: FrontendContext | None = None) -> list[Segment]:
     """Split one :class:`~brailix.ir.document.Block` into Segments.
 
-    The active segmenter is chosen by ``ctx.options["segmenter"]``
-    (default ``"default"``). Returns the segmenter's output unchanged.
+    The active segmenter is chosen by ``ctx.options["segmenter"]``,
+    defaulting to :data:`AUTO_SEGMENTER`.
+    Returns the segmenter's output unchanged.
     """
-    name = _DEFAULT_SEGMENTER
+    name = AUTO_SEGMENTER
     if ctx is not None and ctx.options:
-        name = ctx.options.get("segmenter", _DEFAULT_SEGMENTER)
+        name = ctx.options.get("segmenter", AUTO_SEGMENTER)
     return segmenter_registry.get(name).segment(block, ctx)

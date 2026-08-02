@@ -230,12 +230,16 @@ class TestProofreadJson:
 # ---------------------------------------------------------------------------
 
 
-class TestSegmenterAndNormalizerFields:
-    """``segmenter`` and ``normalizer`` are now Pipeline-level fields
-    that look up adapters by name in their respective registries — no
-    longer hard-coded to ``DefaultSegmenter`` / ``DefaultNormalizer``."""
+class TestLanguageRegisteredSegmenterAndNormalizer:
+    """Segmentation and normalization are pluggable **by language**.
 
-    def test_custom_segmenter_via_field(self):
+    Neither is a ``Pipeline`` field: which one applies follows from
+    ``profile.language``, so a replacement is installed by registering it
+    under the language subtag — the same move a new language makes — and
+    the ``auto`` adapter routes to it. Registering under an arbitrary name
+    would prove nothing, since nothing would ever select it."""
+
+    def test_custom_segmenter_via_language_registration(self):
         from dataclasses import dataclass
 
         from brailix import Pipeline
@@ -255,8 +259,8 @@ class TestSegmenterAndNormalizerFields:
                 # default normalizer wraps it as a single Punct node.
                 return [Segment(type="punct", surface=text, span=Span(0, len(text)))]
 
-        with segmenter_registry.overriding("all-punct-test", _OneBigPunctSegmenter):
-            pipe = Pipeline(profile="cn_current", segmenter="all-punct-test")
+        with segmenter_registry.overriding("zh", _OneBigPunctSegmenter):
+            pipe = Pipeline(profile="cn_current")
             # Pipe a single known-punct char through and confirm it
             # actually went through our segmenter.
             result = pipe.translate_text("。")
@@ -264,7 +268,7 @@ class TestSegmenterAndNormalizerFields:
             # 。 = ⠐⠆ is two cells with no trailing space.
             assert len(result.render()) == 2
 
-    def test_custom_normalizer_via_field(self):
+    def test_custom_normalizer_via_language_registration(self):
         from dataclasses import dataclass
 
         from brailix import Pipeline
@@ -277,8 +281,8 @@ class TestSegmenterAndNormalizerFields:
             def normalize(self, segments, ctx=None):
                 return []  # drop all segments
 
-        with normalizer_registry.overriding("drop-test", _DropEverythingNormalizer):
-            pipe = Pipeline(profile="cn_current", normalizer="drop-test")
+        with normalizer_registry.overriding("zh", _DropEverythingNormalizer):
+            pipe = Pipeline(profile="cn_current")
             result = pipe.translate_text("。")
             # Nothing came through the normalizer → no cells rendered.
             assert result.render() == ""
@@ -287,8 +291,8 @@ class TestSegmenterAndNormalizerFields:
 class TestUnhandledSegmentType:
     """Pipeline dispatches Segment.type to a per-type handler internally;
     an unknown type emits a structural-drop warning instead of crashing.
-    We trigger one by injecting a custom segmenter that emits a type the
-    Pipeline doesn't know."""
+    We trigger one by registering, under the profile's language, a segmenter
+    that emits a type the Pipeline doesn't know."""
 
     def test_unknown_segment_type_emits_warning(self):
         from brailix import Pipeline
@@ -302,8 +306,8 @@ class TestUnhandledSegmentType:
             def segment(self, block, ctx):
                 return [Segment(type="kanji_text", surface=block.text, span=Span(0, len(block.text)))]
 
-        with segmenter_registry.overriding("mystery", _MysterySegmenter):
-            pipe = Pipeline(profile="cn_current", segmenter="mystery")
+        with segmenter_registry.overriding("zh", _MysterySegmenter):
+            pipe = Pipeline(profile="cn_current")
             result = pipe.translate_text("X")
             codes = {w.code for w in result.warnings}
             assert "UNHANDLED_SEGMENT_TYPE" in codes

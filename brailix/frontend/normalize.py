@@ -30,11 +30,11 @@ from brailix.core.context import FrontendContext
 from brailix.core.protocols import Normalizer
 from brailix.core.registry import Registry
 from brailix.core.span import Span
+from brailix.frontend._language_pick import pick_by_language
 from brailix.ir.inline import (
     Date,
     HanziMarker,
     InlineNode,
-    LatinAcronym,
     LatinWord,
     MathInline,
     Number,
@@ -394,8 +394,10 @@ def _try_atomic(seg: Segment) -> InlineNode | None:
         # for the rest. The segmenter
         # already split Latin and Greek into separate runs so each gets
         # its own prefix.
-        if len(seg.surface) >= 2 and seg.surface.isupper():
-            return LatinAcronym(surface=seg.surface, span=seg.span)
+        # All-caps runs are not a separate node: the backend decides the
+        # doubled capital sign from ``surface`` itself, and its test is in
+        # fact stricter than this one was (it also requires ASCII letters),
+        # so the type never matched the behaviour it looked like it drove.
         return LatinWord(surface=seg.surface, span=seg.span)
     if seg.type == "unknown":
         return Unknown(surface=seg.surface, span=seg.span)
@@ -442,10 +444,39 @@ def _peel_marker_if_starts_with(segs: list[Segment], idx: int, marker: str) -> b
 # ---------------------------------------------------------------------------
 
 normalizer_registry: Registry[Normalizer] = Registry("normalizer", protocol=Normalizer)
-normalizer_registry.register("default", DefaultNormalizer)
+
+# What :func:`normalize` falls back to when the context names no normalizer —
+# the delegating adapter that picks by the document's language.
+AUTO_NORMALIZER = "auto"
+
+# The built-in, language-neutral normalizer's registered name, kept distinct
+# from the name above for the same reason as
+# :data:`~brailix.frontend.segment.BUILTIN_SEGMENTER`.
+BUILTIN_NORMALIZER = "default"
+
+normalizer_registry.register(BUILTIN_NORMALIZER, DefaultNormalizer)
 
 
-_DEFAULT_NORMALIZER: str = "default"
+@dataclass(slots=True)
+class AutoNormalizer:
+    """Delegating normalizer: uses the active language's, else the built-in.
+
+    Counterpart to :class:`~brailix.frontend.segment.AutoSegmenter`; see it
+    for why the choice is made per call rather than cached.
+    """
+
+    name: str = "auto"
+
+    def normalize(
+        self,
+        segments: Iterable[Segment],
+        ctx: FrontendContext | None = None,
+    ) -> list[NormalizedItem]:
+        picked = pick_by_language(normalizer_registry, ctx, BUILTIN_NORMALIZER)
+        return normalizer_registry.get(picked).normalize(segments, ctx)
+
+
+normalizer_registry.register(AUTO_NORMALIZER, AutoNormalizer)
 
 
 def normalize(
@@ -454,12 +485,13 @@ def normalize(
 ):
     """Run the active normalizer over ``segments``.
 
-    The adapter is chosen by ``ctx.options["normalizer"]`` (default
-    ``"default"``). Returns whatever the adapter returns — a list of
+    The adapter is chosen by ``ctx.options["normalizer"]``, defaulting to
+    :data:`AUTO_NORMALIZER`. Returns whatever
+    the adapter returns — a list of
     :class:`~brailix.ir.inline.InlineNode` (and possibly
     :class:`Segment`) entries.
     """
-    name = _DEFAULT_NORMALIZER
+    name = AUTO_NORMALIZER
     if ctx is not None and ctx.options:
-        name = ctx.options.get("normalizer", _DEFAULT_NORMALIZER)
+        name = ctx.options.get("normalizer", AUTO_NORMALIZER)
     return normalizer_registry.get(name).normalize(segments, ctx)

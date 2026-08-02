@@ -40,24 +40,21 @@ from brailix.core.context import (
     FrontendContext,
     MathContext,
 )
-from brailix.core.defaults import DEFAULT_NORMALIZER, DEFAULT_SEGMENTER
 from brailix.core.span import Span
 from brailix.frontend import _apply_boundary, language_frontend_registry
 from brailix.frontend import normalize as _frontend_normalize
 from brailix.frontend import parse_math_tree as _frontend_parse_math_tree
 from brailix.frontend import segment as _frontend_segment
+from brailix.frontend._language_pick import LANGUAGE_OPTION
 from brailix.frontend.graphics import (
     parse_graphic_tree as _frontend_parse_graphic_tree,
 )
 from brailix.frontend.music import parse_music_tree as _frontend_parse_music_tree
-from brailix.frontend.normalize import normalizer_registry
-from brailix.frontend.segment import segmenter_registry
 from brailix.ir.document import Paragraph
 from brailix.ir.inline import InlineNode, MathInline, Segment
 from brailix.pipeline._helpers import (
     _all_prose_types,
     _block_surface,
-    _resolve_language_adapter,
     cache_record,
     tree_cache_key,
 )
@@ -65,7 +62,7 @@ from brailix.pipeline._populate import parse_cached_tree, populate_leaf
 from brailix.pipeline._results import TreeSubcache
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
     from brailix.core.protocols import GraphicAssetResolver
 
@@ -138,11 +135,10 @@ class FrontendDriver:
     __slots__ = (
         "profile",
         "_profile",
-        "segmenter",
-        "normalizer",
         "analyzer",
         "resolver",
         "user_pinyin_dict",
+        "user_seg_dict",
         "asset_resolver",
         "fingerprint",
         "_parse_math_tree",
@@ -155,11 +151,10 @@ class FrontendDriver:
         *,
         profile: str,
         profile_obj: BrailleProfile,
-        segmenter: str,
-        normalizer: str,
         analyzer: str,
         resolver: str,
         user_pinyin_dict: Mapping[str, str],
+        user_seg_dict: Mapping[str, Sequence[str]],
         asset_resolver: GraphicAssetResolver | None,
         parse_math_tree: TreeParser = _frontend_parse_math_tree,
         parse_music_tree: TreeParser = _frontend_parse_music_tree,
@@ -167,11 +162,10 @@ class FrontendDriver:
     ) -> None:
         self.profile = profile
         self._profile = profile_obj
-        self.segmenter = segmenter
-        self.normalizer = normalizer
         self.analyzer = analyzer
         self.resolver = resolver
         self.user_pinyin_dict = user_pinyin_dict
+        self.user_seg_dict = user_seg_dict
         self.asset_resolver = asset_resolver
         # The owning Pipeline's compilation fingerprint
         # (:attr:`brailix.pipeline.Pipeline.fingerprint`), assigned by
@@ -422,12 +416,13 @@ class FrontendDriver:
     def frontend_options(self) -> dict[str, Any]:
         lang = self._profile.language.split("-")[0]
         return {
-            "segmenter": _resolve_language_adapter(
-                segmenter_registry, self.segmenter, DEFAULT_SEGMENTER, lang
-            ),
-            "normalizer": _resolve_language_adapter(
-                normalizer_registry, self.normalizer, DEFAULT_NORMALIZER, lang
-            ),
+            # The active language, published for whichever adapter needs it.
+            # The ``auto`` segmenter / normalizer read it to pick a
+            # language-specific implementation; the orchestrator resolves
+            # nothing on their behalf, so "which segmenter runs" is decided
+            # in one place — the adapter — the same way the analyzer /
+            # resolver chains decide their own.
+            LANGUAGE_OPTION: lang,
             # Analyzer is selected per language: each LanguageFrontend reads
             # ``ctx.options["{lang}_analyzer"]`` (zh reads ``zh_analyzer``, ja
             # reads ``ja_analyzer``). Key off the active profile's language
@@ -441,6 +436,10 @@ class FrontendDriver:
             f"{lang}_analyzer": self.analyzer,
             "pinyin_resolver": self.resolver,
             "user_pinyin_dict": self.user_pinyin_dict,
+            # Read by the zh tokenizer post-pass. Keyed unconditionally (like
+            # the pinyin dictionary) rather than per-language: a language whose
+            # frontend doesn't look for it simply never reads the key.
+            "user_seg_dict": self.user_seg_dict,
             # Forwarded onto the GraphicsContext (built from a copy of these
             # options in _populate.populate_graphic_block) so a graphic-image fence's
             # image reference resolves to in-document bytes. Omitted when
