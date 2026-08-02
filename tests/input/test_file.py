@@ -360,8 +360,8 @@ class TestMetadataPropagation:
         path = tmp_path / "doc.txt"
         path.write_text("hi", encoding="utf-8")
         doc = parse_file(path, profile="cn_current", language="zh-CN")
-        # Defaults come from brailix.core.defaults; we don't pin the
-        # exact value here so changing the default doesn't ripple
+        # Defaults come from the Pipeline field declarations; we don't pin
+        # the exact value here so changing a default doesn't ripple
         # through this test.
         assert "language" in doc.metadata
         assert "profile" in doc.metadata

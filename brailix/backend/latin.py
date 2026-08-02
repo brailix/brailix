@@ -205,8 +205,10 @@ _RUN_CARRY_TYPES = (Space, Punct, Number)
 def english_run_role(node: InlineNode) -> str:
     """Classify ``node``'s effect on a running English context.
 
-    Returns ``"letter"`` for a Latin word/acronym (it *is* English — it
-    opens the run and, once open, keeps it open), ``"carry"`` for a node
+    Returns ``"letter"`` for a Latin word, all-caps or not (it *is*
+    English — it opens the run and, once open, keeps it open, and whether
+    it is an acronym is read off the surface, not off a node type),
+    ``"carry"`` for a node
     that may sit inside an English stretch without ending it (space,
     punctuation, digits), or ``"break"`` for anything that ends it
     (Chinese prose, math, an unknown token …).
