@@ -19,7 +19,7 @@ confidences are present).
 from __future__ import annotations
 
 from brailix.core.context import FrontendContext
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 
 def resolve_by_char_alignment(

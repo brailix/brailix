@@ -20,13 +20,11 @@ from brailix.frontend.zh import (
     shift_token_spans,
     tokens_to_inline,
 )
+from brailix.frontend.zh.tokens import ChineseToken
 from brailix.ir.inline import (
-    ChineseToken,
     Connector,
     Date,
-    HanziChar,
     HanziMarker,
-    LatinAcronym,
     LatinWord,
     MathInline,
     Number,
@@ -114,7 +112,7 @@ class TestTokensToInline:
 
     def test_single_char_token_becomes_hanzi_char(self) -> None:
         """Single-char tokens are the unknown / single-syllable case;
-        :class:`HanziChar` is the correct IR shape (no ``pos`` /
+        :class:`Word` is the correct IR shape (no ``pos`` /
         ``confidence`` fields — those only make sense for
         multi-character words)."""
         tokens = [
@@ -122,7 +120,7 @@ class TestTokensToInline:
         ]
         out = tokens_to_inline(tokens)
         assert len(out) == 1
-        assert isinstance(out[0], HanziChar)
+        assert isinstance(out[0], Word)
         assert out[0].surface == "好"
         assert out[0].reading == "hao3"
         assert out[0].span == Span(0, 1)
@@ -166,7 +164,7 @@ class TestTokensToInline:
         assert len(out) == 3
         assert isinstance(out[0], Word)
         assert isinstance(out[1], Space)
-        assert isinstance(out[2], HanziChar)
+        assert isinstance(out[2], Word)
 
     def test_space_marker_span_is_zero_width_at_boundary(self) -> None:
         """The inserted Space carries a zero-width span at the boundary
@@ -192,11 +190,11 @@ class TestTokensToInline:
         out = tokens_to_inline(tokens)
         assert len(out) == 5
         kinds = [type(n).__name__ for n in out]
-        assert kinds == ["Word", "Space", "HanziChar", "Space", "HanziChar"]
+        assert kinds == ["Word", "Space", "Word", "Space", "Word"]
 
     def test_pinyinless_tokens_become_pinyinless_nodes(self) -> None:
         """A pre-pinyin call (or a deliberately empty pinyin) must not
-        break tokens_to_inline.  Word.reading / HanziChar.reading stay
+        break tokens_to_inline.  Word.reading / Word.reading stay
         ``None``; backend warning machinery handles it from there."""
         tokens = [
             ChineseToken(surface="重庆", span=Span(0, 2)),
@@ -204,7 +202,7 @@ class TestTokensToInline:
         ]
         out = tokens_to_inline(tokens)
         assert out[0].reading is None  # Word
-        assert out[2].reading is None  # HanziChar
+        assert out[2].reading is None  # Word
 
     def test_tokens_without_spans_still_produce_inline_nodes(self) -> None:
         """Defensive: synthesize spans from surface length when the
@@ -227,9 +225,9 @@ class TestTokensToInline:
 
 
 class TestInsertCrossKindBoundarySpaces:
-    """Cross-IR-kind segmentation spacing — Chinese (Word / HanziChar /
+    """Cross-IR-kind segmentation spacing — Chinese (Word / Word /
     HanziMarker) adjacent to Latin / Greek / Math (LatinWord /
-    LatinAcronym / MathInline) gets one synthetic zero-width Space
+    LatinWord / MathInline) gets one synthetic zero-width Space
     in between. A Number directly followed by Chinese (10页 / 3个) gets a
     Connector instead; the reverse and Number↔Latin are left
     alone. Punct boundaries are left alone by design.
@@ -283,12 +281,12 @@ class TestInsertCrossKindBoundarySpaces:
 
     def test_hanzi_char_treated_as_chinese(self) -> None:
         nodes = [
-            HanziChar(surface="的", span=Span(0, 1)),
+            Word(surface="的", span=Span(0, 1)),
             LatinWord(surface="α", span=Span(1, 2)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         kinds = [type(n).__name__ for n in out]
-        assert kinds == ["HanziChar", "Space", "LatinWord"]
+        assert kinds == ["Word", "Space", "LatinWord"]
 
     def test_hanzi_marker_treated_as_chinese(self) -> None:
         nodes = [
@@ -302,11 +300,11 @@ class TestInsertCrossKindBoundarySpaces:
     def test_latin_acronym_treated_as_foreign(self) -> None:
         nodes = [
             Word(surface="使用", span=Span(0, 2)),
-            LatinAcronym(surface="CPU", span=Span(2, 5)),
+            LatinWord(surface="CPU", span=Span(2, 5)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         kinds = [type(n).__name__ for n in out]
-        assert kinds == ["Word", "Space", "LatinAcronym"]
+        assert kinds == ["Word", "Space", "LatinWord"]
 
     def test_existing_space_not_doubled(self) -> None:
         """Idempotent: if a Space already sits between the two nodes
@@ -341,11 +339,11 @@ class TestInsertCrossKindBoundarySpaces:
         be read as a continuation of the number."""
         nodes = [
             Number(surface="3", span=Span(0, 1)),
-            HanziChar(surface="个", span=Span(1, 2)),
+            Word(surface="个", span=Span(1, 2)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         kinds = [type(n).__name__ for n in out]
-        assert kinds == ["Number", "Connector", "HanziChar"]
+        assert kinds == ["Number", "Connector", "Word"]
         assert out[1].surface == ""
         assert out[1].span == Span(1, 1)
 
@@ -363,7 +361,7 @@ class TestInsertCrossKindBoundarySpaces:
         to a following number — no space (and no connector). Every other
         hanzi → number boundary takes a space (see the next test)."""
         nodes = [
-            HanziChar(surface="第", span=Span(0, 1)),
+            Word(surface="第", span=Span(0, 1)),
             Number(surface="3", span=Span(1, 2)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
@@ -373,12 +371,12 @@ class TestInsertCrossKindBoundarySpaces:
         """去3个 / 有3: a number is its own word, so any non-第 hanzi before
         it takes a word-boundary space."""
         nodes = [
-            HanziChar(surface="有", span=Span(0, 1)),
+            Word(surface="有", span=Span(0, 1)),
             Number(surface="3", span=Span(1, 2)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         kinds = [type(n).__name__ for n in out]
-        assert kinds == ["HanziChar", "Space", "Number"]
+        assert kinds == ["Word", "Space", "Number"]
         assert out[1].span == Span(1, 1)
 
     def test_number_hanzi_non_adjacent_not_joined(self) -> None:
@@ -387,7 +385,7 @@ class TestInsertCrossKindBoundarySpaces:
         # connector is inserted.
         nodes = [
             Number(surface="10", span=Span(0, 2)),
-            HanziChar(surface="页", span=Span(5, 6)),
+            Word(surface="页", span=Span(5, 6)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         assert out == nodes
@@ -420,11 +418,11 @@ class TestInsertCrossKindBoundarySpaces:
         # abuts 我's. Regression: composites were in neither kind set.
         nodes = [
             Date(surface="2026年", span=Span(0, 5)),
-            HanziChar(surface="我", span=Span(5, 6)),
+            Word(surface="我", span=Span(5, 6)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         kinds = [type(n).__name__ for n in out]
-        assert kinds == ["Date", "Space", "HanziChar"]
+        assert kinds == ["Date", "Space", "Word"]
         assert out[1].surface == ""
         assert out[1].span == Span(5, 5)
 
@@ -432,11 +430,11 @@ class TestInsertCrossKindBoundarySpaces:
         # 3.5kg重 — the unit cell (kg) would otherwise abut 重.
         nodes = [
             Quantity(surface="3.5kg", span=Span(0, 5)),
-            HanziChar(surface="重", span=Span(5, 6)),
+            Word(surface="重", span=Span(5, 6)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         assert [type(n).__name__ for n in out] == [
-            "Quantity", "Space", "HanziChar"
+            "Quantity", "Space", "Word"
         ]
 
     def test_percent_then_hanzi_inserts_space(self) -> None:
@@ -454,12 +452,12 @@ class TestInsertCrossKindBoundarySpaces:
         # composite→hanzi). A bare ordinal-bound Number (第3) is the
         # different case and keeps no space; see test_inline's Number tests.
         nodes = [
-            HanziChar(surface="在", span=Span(0, 1)),
+            Word(surface="在", span=Span(0, 1)),
             Date(surface="2026年", span=Span(1, 6)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         kinds = [type(n).__name__ for n in out]
-        assert kinds == ["HanziChar", "Space", "Date"]
+        assert kinds == ["Word", "Space", "Date"]
         assert out[1].span == Span(1, 1)
 
     def test_composite_hanzi_non_adjacent_not_spaced(self) -> None:
@@ -467,7 +465,7 @@ class TestInsertCrossKindBoundarySpaces:
         # there — leave the boundary alone (mirrors the Number path).
         nodes = [
             Date(surface="2026年", span=Span(0, 5)),
-            HanziChar(surface="我", span=Span(8, 9)),
+            Word(surface="我", span=Span(8, 9)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         assert out == nodes
@@ -484,11 +482,11 @@ class TestLetterHanziCompoundConnector:
         # x轴: x and 轴 are one word → Connector, not Space.
         nodes = [
             LatinWord(surface="x", span=Span(0, 1)),
-            HanziChar(surface="轴", span=Span(1, 2)),
+            Word(surface="轴", span=Span(1, 2)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         kinds = [type(n).__name__ for n in out]
-        assert kinds == ["LatinWord", "Connector", "HanziChar"]
+        assert kinds == ["LatinWord", "Connector", "Word"]
         assert out[1].surface == ""
         assert out[1].span == Span(1, 1)
 
@@ -496,11 +494,11 @@ class TestLetterHanziCompoundConnector:
         # T恤: a single uppercase letter is a LatinWord (len<2, not an acronym).
         nodes = [
             LatinWord(surface="T", span=Span(0, 1)),
-            HanziChar(surface="恤", span=Span(1, 2)),
+            Word(surface="恤", span=Span(1, 2)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         assert [type(n).__name__ for n in out] == [
-            "LatinWord", "Connector", "HanziChar",
+            "LatinWord", "Connector", "Word",
         ]
 
     def test_hanzi_before_latin_compound(self) -> None:
@@ -515,14 +513,14 @@ class TestLetterHanziCompoundConnector:
         ]
 
     def test_acronym_hanzi_compound(self) -> None:
-        # AA制: AA is a LatinAcronym (≥2 uppercase); joining AA+制 = AA制.
+        # AA制: AA is a LatinWord (≥2 uppercase); joining AA+制 = AA制.
         nodes = [
-            LatinAcronym(surface="AA", span=Span(0, 2)),
-            HanziChar(surface="制", span=Span(2, 3)),
+            LatinWord(surface="AA", span=Span(0, 2)),
+            Word(surface="制", span=Span(2, 3)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         assert [type(n).__name__ for n in out] == [
-            "LatinAcronym", "Connector", "HanziChar",
+            "LatinWord", "Connector", "Word",
         ]
 
     def test_non_compound_letter_hanzi_stays_space(self) -> None:
@@ -539,14 +537,14 @@ class TestLetterHanziCompoundConnector:
         # 穿T恤: 穿 | T恤 are two words (Space between 穿 and T), while T恤 is a
         # compound (Connector between T and 恤).
         nodes = [
-            HanziChar(surface="穿", span=Span(0, 1)),
+            Word(surface="穿", span=Span(0, 1)),
             LatinWord(surface="T", span=Span(1, 2)),
-            HanziChar(surface="恤", span=Span(2, 3)),
+            Word(surface="恤", span=Span(2, 3)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         kinds = [type(n).__name__ for n in out]
         assert kinds == [
-            "HanziChar", "Space", "LatinWord", "Connector", "HanziChar",
+            "Word", "Space", "LatinWord", "Connector", "Word",
         ]
 
     def test_explicit_source_space_not_joined(self) -> None:
@@ -556,11 +554,11 @@ class TestLetterHanziCompoundConnector:
         nodes = [
             LatinWord(surface="x", span=Span(0, 1)),
             Space(surface=" ", span=Span(1, 2)),
-            HanziChar(surface="轴", span=Span(2, 3)),
+            Word(surface="轴", span=Span(2, 3)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         kinds = [type(n).__name__ for n in out]
-        assert kinds == ["LatinWord", "Space", "HanziChar"]
+        assert kinds == ["LatinWord", "Space", "Word"]
         assert not any(isinstance(n, Connector) for n in out)
 
     def test_non_adjacent_spans_not_joined(self) -> None:
@@ -568,10 +566,10 @@ class TestLetterHanziCompoundConnector:
         # single writing unit, so keep the Space.
         nodes = [
             LatinWord(surface="x", span=Span(0, 1)),
-            HanziChar(surface="轴", span=Span(5, 6)),
+            Word(surface="轴", span=Span(5, 6)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
-        assert [type(n).__name__ for n in out] == ["LatinWord", "Space", "HanziChar"]
+        assert [type(n).__name__ for n in out] == ["LatinWord", "Space", "Word"]
 
     def test_math_inline_hanzi_never_connector(self) -> None:
         # A MathInline next to hanzi is never a compound (a formula isn't a
@@ -579,11 +577,11 @@ class TestLetterHanziCompoundConnector:
         # the lexicon.
         nodes = [
             MathInline(surface="x", span=Span(0, 1), source="latex"),
-            HanziChar(surface="轴", span=Span(1, 2)),
+            Word(surface="轴", span=Span(1, 2)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         assert [type(n).__name__ for n in out] == [
-            "MathInline", "Space", "HanziChar",
+            "MathInline", "Space", "Word",
         ]
 
 

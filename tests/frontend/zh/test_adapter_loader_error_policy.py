@@ -52,7 +52,7 @@ from brailix.frontend.zh.analyzer.adapters.auto import AutoChineseAnalyzer
 from brailix.frontend.zh.analyzer.registry import analyzer_registry
 from brailix.frontend.zh.pinyin.adapters.auto import AutoPinyinResolver
 from brailix.frontend.zh.pinyin.registry import resolver_registry
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 # ---------------------------------------------------------------------------
 # The three third-party modules, faked down to the one call ``_load`` makes

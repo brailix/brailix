@@ -29,9 +29,6 @@ class BrailleProfile:
     cell: str = "six_dot"
     features: dict[str, Any] = field(default_factory=dict)
 
-    initials: dict[str, tuple[int, ...]] = field(default_factory=dict)
-    finals: dict[str, tuple[int, ...]] = field(default_factory=dict)
-    tones: dict[str, tuple[int, ...]] = field(default_factory=dict)
     # Punctuation values are *cell sequences* — one entry may map to
     # several cells (e.g. the Chinese full stop 。 = ⠐⠆ is two cells). Same shape as
     # ``math_symbols`` so the backend treats them uniformly.
@@ -124,8 +121,10 @@ class BrailleProfile:
     # slot): subtag -> table name -> entry -> cell sequence, e.g.
     # ``lang_tables["ja"]["kana"]["カ"] == ((1, 6),)``. New languages put
     # their cell tables here (read via :meth:`lang_table`) instead of
-    # welding per-language fields onto this dataclass the way the legacy
-    # zh tables (initials / finals / tones) did. zh isn't migrated yet.
+    # welding per-language fields onto this dataclass. Chinese reads its
+    # phoneme tables the same way (``lang_table("initials")`` and friends);
+    # they used to be three fields on this class, which is what made adding
+    # a language mean editing a shared dataclass.
     lang_tables: dict[
         str, dict[str, dict[str, tuple[tuple[int, ...], ...]]]
     ] = field(default_factory=dict)
@@ -167,10 +166,11 @@ class BrailleProfile:
         """Per-language cell table ``name`` (e.g. ``"kana"``) for this
         profile's language subtag, or ``{}`` if absent.
 
-        The generic counterpart to the welded zh tables: a Japanese
-        backend reads ``profile.lang_table("kana")`` the way the Chinese
-        backend reads ``profile.finals``. Keyed by the subtag before the
-        hyphen in :attr:`language` (``ja-JP`` -> ``ja``)."""
+        Every language reads its cell tables this way — Japanese
+        ``lang_table("kana")``, Chinese ``lang_table("finals")`` — so a new
+        language ships tables without this dataclass growing a field. Keyed
+        by the subtag before the hyphen in :attr:`language`
+        (``ja-JP`` -> ``ja``)."""
         lang = self.language.split("-")[0]
         return self.lang_tables.get(lang, {}).get(name, {})
 

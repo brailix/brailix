@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from brailix.core.defaults import DEFAULT_RENDERER
 from brailix.core.errors import (
     IncompatibleRendererError,
     Warning,
@@ -95,7 +94,12 @@ class TranslationResult:
     ir: DocumentIR
     braille_ir: BrailleDocument
     warnings: WarningCollector = field(default_factory=WarningCollector)
-    default_renderer: str = DEFAULT_RENDERER
+    # Matches :attr:`brailix.Pipeline.default_renderer`, which is what fills
+    # this in on every result the library builds; the literal is only reached
+    # by a hand-constructed result. (Not imported FROM ``Pipeline`` — this
+    # module is imported by it.) Pinned equal by
+    # ``tests/frontend/test_default_adapter_names.py``.
+    default_renderer: str = "unicode"
 
     def render(self, name: str | None = None) -> Any:
         """Render the braille IR through the named renderer.

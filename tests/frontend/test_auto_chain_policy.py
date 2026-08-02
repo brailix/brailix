@@ -51,7 +51,7 @@ from brailix.frontend.zh.analyzer.registry import (
 )
 from brailix.frontend.zh.pinyin.adapters.auto import AutoPinyinResolver
 from brailix.frontend.zh.pinyin.registry import resolver_registry
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 
 @dataclass(frozen=True)

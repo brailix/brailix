@@ -34,7 +34,7 @@ from brailix.ir.document import (
     TableRow,
 )
 from brailix.ir.document import List as ListBlock
-from brailix.ir.inline import HanziChar
+from brailix.ir.inline import Word
 from brailix.pipeline import CompiledBlock, block_hash
 
 
@@ -87,7 +87,7 @@ class TestBlockHash:
     def test_block_with_children_hashes_by_concatenated_surface(self) -> None:
         """Block without raw .text but with populated children hashes
         by the concatenated surface — reflects the source."""
-        b = Paragraph(children=[HanziChar(surface="字")])
+        b = Paragraph(children=[Word(surface="字")])
         h_children = block_hash(b, "cn_current")
         h_text = block_hash(Paragraph(text="字"), "cn_current")
         assert h_children == h_text
@@ -212,7 +212,7 @@ class TestTranslateBlock:
         assert a.source_hash != b.source_hash
 
     def test_pre_populated_children_skips_frontend(self, pipe: Pipeline) -> None:
-        block = Paragraph(children=[HanziChar(surface="字")])
+        block = Paragraph(children=[Word(surface="字")])
         out = pipe.translate_block(block)
         assert len(out.ir.children) == 1
         assert out.ir.children[0].surface == "字"
@@ -230,8 +230,8 @@ class TestTranslateBlock:
     ) -> None:
         """Composite block: 2 list items → 2 braille blocks expansion."""
         items = [
-            ListItem(children=[HanziChar(surface="一")]),
-            ListItem(children=[HanziChar(surface="二")]),
+            ListItem(children=[Word(surface="一")]),
+            ListItem(children=[Word(surface="二")]),
         ]
         lst = ListBlock(items=items, ordered=False)
         out = pipe.translate_block(lst)
@@ -285,14 +285,14 @@ class TestIrTransformer:
     def test_transformer_can_mutate_block_in_place(
         self, pipe: Pipeline
     ) -> None:
-        """A transformer that sets pinyin on a HanziChar should write
+        """A transformer that sets pinyin on a Word should write
         through to the returned IR (proves the hook fires + mutations
         survive into the compiled output)."""
 
         def set_pinyin(doc: DocumentIR) -> None:
             doc.blocks[0].children[0].reading = "yi1"
 
-        block = Paragraph(children=[HanziChar(surface="一")])
+        block = Paragraph(children=[Word(surface="一")])
         out = pipe.translate_block(block, ir_transformer=set_pinyin)
         assert out.ir.children[0].reading == "yi1"
 
@@ -1084,7 +1084,7 @@ class TestEditToEmptySelfHeal:
     ) -> None:
         """The empty-string rule must not eat the hand-built contract:
         ``text=None`` has no authoritative source, children stay."""
-        block = Paragraph(children=[HanziChar(surface="字")])
+        block = Paragraph(children=[Word(surface="字")])
         out = pipe.translate_block(block)
         assert len(out.ir.children) == 1
         assert out.ir.children[0].surface == "字"

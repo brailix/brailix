@@ -9,9 +9,7 @@ from brailix.ir.document import DocumentIR, Heading, Paragraph
 from brailix.ir.inline import (
     CodeInline,
     Connector,
-    HanziChar,
     InlineNode,
-    LatinAcronym,
     LatinWord,
     MathInline,
     Number,
@@ -115,7 +113,7 @@ class TestDispatchPerNodeType:
         assert any(c.role == "zh_final" for c in cells)
 
     def test_hanzi_char(self, ctx, profile):
-        cells = translate_node(HanziChar(surface="我", reading="wo3"), ctx, profile)
+        cells = translate_node(Word(surface="我", reading="wo3"), ctx, profile)
         assert any(c.role == "zh_final" for c in cells)
 
     def test_number(self, ctx, profile):
@@ -141,10 +139,21 @@ class TestDispatchPerNodeType:
         # "hi" → 1 + 2 = 3 cells.
         assert len(translate_node(LatinWord(surface="hi"), ctx, profile)) == 3
 
-    def test_latin_acronym(self, ctx, profile):
+    def test_all_caps_word_takes_the_doubled_capital_sign(self, ctx, profile):
         # "CPU" → doubled upper prefix (whole-word capitals, ⠠⠠) +
         # 3 bare letter cells = 5 cells.
-        assert len(translate_node(LatinAcronym(surface="CPU"), ctx, profile)) == 5
+        #
+        # The rule is driven by the SURFACE, not by a node type: there used
+        # to be a ``LatinAcronym`` node that looked like it carried this,
+        # while the backend read ``surface.isupper()`` and never the type
+        # (with a stricter test than the node's own creation condition, so
+        # the two did not even agree). This is what actually decides it.
+        assert len(translate_node(LatinWord(surface="CPU"), ctx, profile)) == 5
+
+    def test_a_lowercase_word_of_the_same_length_does_not(self, ctx, profile):
+        # Same node type, different surface, different cells — which is the
+        # whole reason the type was redundant.
+        assert len(translate_node(LatinWord(surface="cpu"), ctx, profile)) == 4
 
     def test_unknown(self, ctx, profile):
         cells = translate_node(Unknown(surface="?"), ctx, profile)
@@ -213,8 +222,8 @@ class TestTranslateDocument:
 
     def test_multi_block(self, ctx, profile):
         doc = DocumentIR(blocks=[
-            Heading(level=1, children=[HanziChar(surface="一", reading="yi1")]),
-            Paragraph(children=[HanziChar(surface="二", reading="er4")]),
+            Heading(level=1, children=[Word(surface="一", reading="yi1")]),
+            Paragraph(children=[Word(surface="二", reading="er4")]),
         ])
         bd = translate_document(doc, ctx, profile)
         assert len(bd.blocks) == 2

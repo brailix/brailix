@@ -31,7 +31,7 @@ from typing import Any
 from brailix.core.context import FrontendContext
 from brailix.core.errors import MissingExtraError
 from brailix.frontend.zh.analyzer.adapters._spans import recover_spans_by_cursor
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 
 @dataclass(slots=True)

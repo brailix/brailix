@@ -9,8 +9,8 @@ selection.
 
 from __future__ import annotations
 
-from brailix.core.protocols import PinyinResolver
 from brailix.core.registry import Registry
+from brailix.frontend.zh.pinyin import PinyinResolver
 
 resolver_registry: Registry[PinyinResolver] = Registry(
     "pinyin", protocol=PinyinResolver

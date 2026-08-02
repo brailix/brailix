@@ -1,4 +1,4 @@
-"""Translate ``LatinWord`` and ``LatinAcronym`` IR nodes into braille cells.
+"""Translate ``LatinWord`` IR nodes into braille cells.
 
 This module is the dedicated home for Latin / English braille
 translation. The implementation follows the Current Chinese Braille convention for
@@ -52,7 +52,6 @@ from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
 from brailix.ir.inline import (
     InlineNode,
-    LatinAcronym,
     LatinWord,
     Number,
     Punct,
@@ -61,7 +60,7 @@ from brailix.ir.inline import (
 
 
 def translate_latin(
-    node: LatinWord | LatinAcronym,
+    node: LatinWord,
     ctx: BackendContext,
     profile: BrailleProfile,
 ) -> list[BrailleCell]:
@@ -219,7 +218,7 @@ def english_run_role(node: InlineNode) -> str:
     next to the rule it serves — stops the generic block dispatcher from
     hard-coding inline-type knowledge.
     """
-    if isinstance(node, (LatinWord, LatinAcronym)):
+    if isinstance(node, LatinWord):
         return "letter"
     if isinstance(node, _RUN_CARRY_TYPES):
         return "carry"

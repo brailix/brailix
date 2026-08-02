@@ -15,8 +15,8 @@ analyzer picker:
   one :class:`~brailix.ir.inline.Word` (the reading rides ``Word.reading``
   the way pinyin does for Chinese); a token with no reading (a kanji the
   ``kana`` fallback can't read) becomes per-character placeholder
-  :class:`~brailix.ir.inline.HanziChar` nodes (the backend emits a
-  ``MISSING_READING`` cell). A blank cell precedes each 自立語 (bunsetsu
+  one-character :class:`~brailix.ir.inline.Word` nodes (the backend emits
+  a ``MISSING_READING`` cell). A blank cell precedes each 自立語 (bunsetsu
   head) for word-spacing (分かち書き), decided from each token's
   part-of-speech.
 
@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from brailix.core.span import Span
 from brailix.frontend.ja._chars import _is_kana
-from brailix.ir.inline import HanziChar, InlineNode, Space, Word
+from brailix.ir.inline import InlineNode, Space, Word
 
 if TYPE_CHECKING:
     from brailix.core.context import FrontendContext
@@ -61,6 +61,16 @@ class JapaneseAnalyzer(Protocol):
     ) -> list[JapaneseToken]: ...
 
 
+# Japanese's own default, stated here rather than shared with the Chinese
+# subsystem's identical one: zh and ja are independently replaceable
+# language components, so this is a coincidence of policy, not one fact in
+# two places. A single constant for both would mean neither language could
+# change its default without touching the other.
+#
+# Nor is it read off :class:`brailix.Pipeline` the way ``analyzer`` /
+# ``resolver`` are — those are fields a caller sets, whereas a Japanese
+# analyzer is chosen through the per-language ``"{lang}_analyzer"`` option
+# key and has no field of its own to agree with.
 _DEFAULT_ANALYZER: str = "auto"
 
 
@@ -180,7 +190,8 @@ def tokens_to_inline(
     """Convert Japanese tokens to inline IR (spans shifted by ``base``).
 
     A token with a reading → one :class:`Word`. A token with no reading
-    (kanji the fallback couldn't read) → per-character :class:`HanziChar`
+    (kanji the fallback couldn't read) → per-character one-character
+    :class:`Word`
     placeholders so the backend warns ``MISSING_READING`` rather than
     mis-rendering. A blank cell is inserted before each 自立語 (bunsetsu
     head) for 文節 word-spacing (分かち書き), decided by the part-of-speech.
@@ -209,6 +220,6 @@ def tokens_to_inline(
         else:
             for k, ch in enumerate(t.surface):
                 cspan = Span(start + k, start + k + 1) if start is not None else None
-                out.append(HanziChar(surface=ch, reading=None, span=cspan))
+                out.append(Word(surface=ch, reading=None, span=cspan))
         prev = t
     return out

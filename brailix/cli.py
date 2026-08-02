@@ -46,18 +46,14 @@ same renderers :meth:`brailix.TranslationResult.render` exposes.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from brailix import Pipeline, __version__
 from brailix.core import RunMode
 from brailix.core.config import iter_builtin_profiles, load_profile
-from brailix.core.defaults import (
-    DEFAULT_PINYIN_RESOLVER,
-    DEFAULT_RENDERER,
-    DEFAULT_ZH_ANALYZER,
-)
 from brailix.core.errors import BrailixError
 from brailix.frontend import (
     language_display_name,
@@ -75,6 +71,14 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from brailix.pipeline import TranslationResult
+
+# The library's own defaults, read off :class:`~brailix.Pipeline`'s field
+# declarations rather than copied. A CLI default that drifted from the API's
+# would make ``--help`` describe a run the library doesn't do — and the two
+# are the same decision, so only one of them should be allowed to state it.
+_PIPELINE_DEFAULTS: dict[str, Any] = {
+    f.name: f.default for f in dataclasses.fields(Pipeline)
+}
 
 # Formats the ``--in-format`` flag (text / stdin) accepts. These mirror
 # :meth:`brailix.Pipeline.parse_text`'s contract; the input layer keeps no
@@ -171,8 +175,8 @@ def build_parser() -> argparse.ArgumentParser:
         "-t",
         "--to",
         choices=renderers,
-        default=DEFAULT_RENDERER,
-        help="output renderer: " + " / ".join(renderers) + f" (default: {DEFAULT_RENDERER}). "
+        default=_PIPELINE_DEFAULTS["default_renderer"],
+        help="output renderer: " + " / ".join(renderers) + f" (default: {_PIPELINE_DEFAULTS['default_renderer']}). "
         "unicode/brf/cells are encodings; layout is laid-out Unicode braille",
     )
     out.add_argument(
@@ -207,18 +211,18 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument(
         "-a",
         "--analyzer",
-        default=DEFAULT_ZH_ANALYZER,
+        default=_PIPELINE_DEFAULTS["analyzer"],
         metavar="NAME",
         help="word-segmentation engine for the profile's language "
-        f"(default: {DEFAULT_ZH_ANALYZER}; see --list-analyzers)",
+        f"(default: {_PIPELINE_DEFAULTS['analyzer']}; see --list-analyzers)",
     )
     tr.add_argument(
         "-r",
         "--resolver",
-        default=DEFAULT_PINYIN_RESOLVER,
+        default=_PIPELINE_DEFAULTS["resolver"],
         metavar="NAME",
         help="reading engine for the profile's language, where it has one "
-        f"(Chinese pinyin today; default: {DEFAULT_PINYIN_RESOLVER}; "
+        f"(Chinese pinyin today; default: {_PIPELINE_DEFAULTS['resolver']}; "
         "see --list-resolvers)",
     )
     tr.add_argument(
@@ -419,8 +423,8 @@ def _validate_language_adapters(
     if lang is None:
         return
     for flag, value, default, family in (
-        ("--analyzer", args.analyzer, DEFAULT_ZH_ANALYZER, "analyzer"),
-        ("--resolver", args.resolver, DEFAULT_PINYIN_RESOLVER, "resolver"),
+        ("--analyzer", args.analyzer, _PIPELINE_DEFAULTS["analyzer"], "analyzer"),
+        ("--resolver", args.resolver, _PIPELINE_DEFAULTS["resolver"], "resolver"),
     ):
         if value == default:
             continue
@@ -483,8 +487,8 @@ def _validate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None
             "the file's suffix (pipe the file in to force a format)"
         )
     if (
-        args.analyzer != DEFAULT_ZH_ANALYZER
-        or args.resolver != DEFAULT_PINYIN_RESOLVER
+        args.analyzer != _PIPELINE_DEFAULTS["analyzer"]
+        or args.resolver != _PIPELINE_DEFAULTS["resolver"]
     ):
         _validate_language_adapters(args, parser)
     if args.to == "cells" and (args.width or args.page_height or args.page_numbers):

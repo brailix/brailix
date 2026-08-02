@@ -9,30 +9,96 @@ implementation plus throwaway registrations.
 
 from __future__ import annotations
 
+from brailix.core.context import FrontendContext
 from brailix.core.registry import Registry
 from brailix.frontend import language_frontend_registry
-from brailix.frontend.segment import DefaultSegmenter, segmenter_registry
+from brailix.frontend._language_pick import LANGUAGE_OPTION, pick_by_language
+from brailix.frontend.segment import (
+    BUILTIN_SEGMENTER,
+    segment,
+    segmenter_registry,
+)
+from brailix.ir.document import Paragraph
 from brailix.pipeline import Pipeline
-from brailix.pipeline._helpers import _all_prose_types, _resolve_language_adapter
+from brailix.pipeline._helpers import _all_prose_types
 
 
-class TestResolveLanguageAdapter:
-    """Precedence: explicit override > language registration > default."""
+def _ctx(language: str | None = None) -> FrontendContext:
+    options = {LANGUAGE_OPTION: language} if language else {}
+    return FrontendContext(profile="cn_current", options=options)
 
-    def test_explicit_non_default_override_wins(self):
+
+class TestPickByLanguage:
+    """An adapter registered under the language subtag wins; else built-in."""
+
+    def test_language_registration_is_used(self):
         reg: Registry = Registry("t")
         reg.register("ja", lambda: object())
-        # User passed a specific adapter; it wins even if a language one exists.
-        assert _resolve_language_adapter(reg, "hanlp", "default", "ja") == "hanlp"
+        assert pick_by_language(reg, _ctx("ja"), "default") == "ja"
 
-    def test_language_registration_used_when_configured_is_default(self):
+    def test_falls_back_when_no_language_adapter(self):
+        reg: Registry = Registry("t")
+        assert pick_by_language(reg, _ctx("zh"), "default") == "default"
+
+    def test_falls_back_when_context_names_no_language(self):
+        # A direct call in a test, or a caller that built its own context:
+        # the behaviour every such caller had before languages were pluggable.
         reg: Registry = Registry("t")
         reg.register("ja", lambda: object())
-        assert _resolve_language_adapter(reg, "default", "default", "ja") == "ja"
+        assert pick_by_language(reg, _ctx(), "default") == "default"
+        assert pick_by_language(reg, None, "default") == "default"
 
-    def test_falls_back_to_default_when_no_language_adapter(self):
-        reg: Registry = Registry("t")
-        assert _resolve_language_adapter(reg, "default", "default", "zh") == "default"
+
+class TestAutoSegmenterDelegates:
+    """``auto`` is a real registered adapter, not a name the driver resolves."""
+
+    def test_auto_uses_the_language_segmenter(self):
+        seen: list[str] = []
+
+        class _Probe:
+            name = "probe"
+
+            def segment(self, block, ctx=None):  # noqa: ANN001
+                seen.append("probe")
+                return []
+
+        with segmenter_registry.overriding("ja", _Probe):
+            segmenter_registry.get("auto").segment(
+                Paragraph(text="ひらがな"), _ctx("ja")
+            )
+        assert seen == ["probe"]
+
+    def test_auto_falls_back_to_the_builtin(self):
+        out = segmenter_registry.get("auto").segment(
+            Paragraph(text="我"), _ctx("zh")
+        )
+        assert [s.type for s in out] == ["hanzi_text"]
+
+    def test_naming_the_builtin_through_the_context_is_taken_literally(self):
+        # ``segment`` still honours an explicit name on the context — the
+        # frontend entry points are public, and a caller building their own
+        # context can bypass the language routing. What went away is only the
+        # Pipeline-level knob, not this.
+        seen: list[str] = []
+
+        class _Probe:
+            name = "probe"
+
+            def segment(self, block, ctx=None):  # noqa: ANN001
+                seen.append("probe")
+                return []
+
+        with segmenter_registry.overriding("zh", _Probe):
+            ctx = FrontendContext(
+                profile="cn_current",
+                options={
+                    LANGUAGE_OPTION: "zh",
+                    "segmenter": BUILTIN_SEGMENTER,
+                },
+            )
+            out = segment(Paragraph(text="我"), ctx)
+        assert seen == []  # the language adapter was NOT used
+        assert [seg.type for seg in out] == ["hanzi_text"]
 
 
 class TestProseTypes:
@@ -45,28 +111,42 @@ class TestProseTypes:
 
 
 class TestLanguageSelectedAdapters:
-    """``profile.language`` selects the segmenter / normalizer when one is
-    registered under the language subtag (default Chinese has none)."""
+    """``profile.language`` selects the segmenter / normalizer, with nothing
+    left for a caller to configure — neither is a ``Pipeline`` field.
 
-    def test_segmenter_defaults_when_no_language_specific(self):
+    Registering under the language subtag is the whole mechanism (default
+    Chinese registers neither and gets the built-ins)."""
+
+    def test_driver_publishes_the_language(self):
+        # The driver states the language and resolves nothing on the adapters'
+        # behalf, so "which segmenter runs" is decided in exactly one place —
+        # the adapter. It doesn't pass a segmenter / normalizer name at all:
+        # there is no such configuration to pass.
         opts = Pipeline(profile="cn_current")._frontend.frontend_options()
-        assert opts["segmenter"] == "default"
-        assert opts["normalizer"] == "default"
+        assert opts[LANGUAGE_OPTION] == "zh"
+        assert "segmenter" not in opts
+        assert "normalizer" not in opts
 
-    def test_language_registered_segmenter_is_auto_selected(self):
-        # cn_current is language zh-CN → subtag "zh".
-        with segmenter_registry.overriding("zh", DefaultSegmenter):
-            assert Pipeline(profile="cn_current")._frontend.frontend_options()["segmenter"] == "zh"
+    def test_japanese_profile_publishes_its_subtag(self):
+        opts = Pipeline(profile="ja_current")._frontend.frontend_options()
+        assert opts[LANGUAGE_OPTION] == "ja"
 
-    def test_explicit_segmenter_overrides_language_selection(self):
-        with segmenter_registry.overriding("zh", DefaultSegmenter):
-            opts = Pipeline(profile="cn_current", segmenter="default")._frontend.frontend_options()
-            # Passing the default name reads as "auto", so the language one
-            # still wins; an explicit *non-default* name would override.
-            assert opts["segmenter"] == "zh"
-            segmenter_registry.register("custom", DefaultSegmenter)
-            opts2 = Pipeline(profile="cn_current", segmenter="custom")._frontend.frontend_options()
-            assert opts2["segmenter"] == "custom"
+    def test_a_language_segmenter_reaches_a_real_compile(self):
+        # End to end rather than by inspecting options: registering under the
+        # language subtag is what a new language does, and it must change what
+        # actually segments without the orchestrator learning the name.
+        seen: list[str] = []
+
+        class _Probe:
+            name = "probe"
+
+            def segment(self, block, ctx=None):  # noqa: ANN001
+                seen.append("probe")
+                return []
+
+        with segmenter_registry.overriding("zh", _Probe):
+            Pipeline(profile="cn_current").translate_text("我")
+        assert seen  # the zh-registered segmenter ran
 
 
 class TestChineseStillRoutes:

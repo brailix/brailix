@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from brailix.core.context import FrontendContext
 from brailix.frontend.zh.pinyin.adapters._align import resolve_by_char_alignment
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 
 @dataclass(slots=True)

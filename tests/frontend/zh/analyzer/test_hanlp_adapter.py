@@ -403,7 +403,7 @@ class TestTransformersCompatGuard:
 
 class TestProtocolConformance:
     def test_instance_satisfies_protocol(self):
-        from brailix.core.protocols import ChineseAnalyzer
+        from brailix.frontend.zh.analyzer import ChineseAnalyzer
 
         adapter = HanLPChineseAnalyzer(pipeline=_make_pipeline([]))
         assert isinstance(adapter, ChineseAnalyzer)

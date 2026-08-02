@@ -13,7 +13,6 @@ from brailix.ir.document import Paragraph
 from brailix.ir.inline import (
     Date,
     HanziMarker,
-    LatinAcronym,
     LatinWord,
     MathInline,
     Number,
@@ -104,14 +103,19 @@ class TestAtomicConversions:
         out = _normalize_text("hello")
         assert isinstance(out[0], LatinWord)
 
-    def test_latin_acronym(self):
+    def test_all_caps_run_is_a_plain_word_node(self):
+        # There is no separate acronym node: capitalisation is in the
+        # surface, and the backend is what reads it (see
+        # tests/backend/test_latin.py). The normalizer's job here is only
+        # to say "this is a Latin run".
         out = _normalize_text("CPU")
-        assert isinstance(out[0], LatinAcronym)
-
-    def test_latin_single_uppercase_is_word_not_acronym(self):
-        out = _normalize_text("A")
-        # Single uppercase letter is a word, not an acronym.
         assert isinstance(out[0], LatinWord)
+        assert out[0].surface == "CPU"
+
+    def test_single_uppercase_letter_is_the_same_node(self):
+        out = _normalize_text("A")
+        assert isinstance(out[0], LatinWord)
+        assert out[0].surface == "A"
 
     def test_greek_lowercase_letter_becomes_latin_word(self):
         # τ takes the same IR path as Latin letters: the backend's translate_latin
@@ -123,7 +127,7 @@ class TestAtomicConversions:
 
     def test_greek_uppercase_run_becomes_acronym(self):
         out = _normalize_text("ΑΒΓ")
-        assert isinstance(out[0], LatinAcronym)
+        assert isinstance(out[0], LatinWord)
         assert out[0].surface == "ΑΒΓ"
 
     def test_greek_mixed_case_word(self):

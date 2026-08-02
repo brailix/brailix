@@ -26,6 +26,7 @@ is where the callers that wanted them now look.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -117,9 +118,6 @@ def load_profile(
     def t(key: str) -> Any:
         return _table_ref(tables, "zh", key)
 
-    initials = _load_table(base, t("initials"), cells_pool, group="initials")
-    finals = _load_table(base, t("finals"), cells_pool, group="finals")
-    tones = _load_table(base, t("tones"), cells_pool, group="tones")
     punctuation = _load_punct_table(base, t("punctuation"), cells_pool)
     punctuation_spacing = _load_punct_spacing(base, t("punctuation"))
     numbers = _load_numbers_table(base, t("numbers"), cells_pool)
@@ -155,6 +153,10 @@ def load_profile(
     # Generic per-language table slot (ARCHITECTURE#arch-language-slots): load every
     # ``tables.<lang>`` cell-sequence table for a non-zh language.
     lang_tables = _load_lang_tables(base, payload, tables, cells_pool)
+    if payload["language"].split("-")[0] == "zh":
+        zh_cells = _load_zh_cell_tables(base, t, cells_pool)
+        if zh_cells:
+            lang_tables.setdefault("zh", {}).update(zh_cells)
 
     features = dict(payload.get("features", {}))
 
@@ -163,9 +165,6 @@ def load_profile(
         language=payload["language"],
         cell=payload.get("cell", "six_dot"),
         features=features,
-        initials=initials,
-        finals=finals,
-        tones=tones,
         punctuation=punctuation,
         punctuation_spacing=punctuation_spacing,
         digits=numbers["digits"],
@@ -240,6 +239,41 @@ def _load_lang_table(
     return _resolve_table(src, cells_pool)
 
 
+# Chinese's phoneme tables. They are per-language cell tables like any
+# other language's and live in the same slot — but their references may be
+# written flat (``tables.initials``) as well as nested (``tables.zh.initials``),
+# a shape older and fixture profiles still use, so they are resolved through
+# ``_table_ref`` rather than by the generic loader.
+_ZH_CELL_TABLES: tuple[str, ...] = ("initials", "finals", "tones")
+
+
+def _load_zh_cell_tables(
+    base: Path,
+    ref: Callable[[str], Any],
+    cells_pool: dict[str, tuple[int, ...]],
+) -> dict[str, dict[str, tuple[tuple[int, ...], ...]]]:
+    """zh's phoneme tables, shaped for the per-language slot.
+
+    Each entry is stored as a one-cell SEQUENCE, which is the slot's shape
+    (a Japanese mora can be two cells). A zh phoneme has always been exactly
+    one cell; making that a sequence of one costs nothing and means the
+    backend reads every language's tables through one accessor.
+
+    An entry with **no** dots stays an EMPTY sequence rather than becoming a
+    sequence holding one empty cell. The neutral tone (``tones["5"]``) is the
+    case: it means "emit nothing", and wrapping it would have made the
+    backend emit one blank-dot cell per neutral-tone syllable.
+    """
+    out: dict[str, dict[str, tuple[tuple[int, ...], ...]]] = {}
+    for name in _ZH_CELL_TABLES:
+        table = _load_table(base, ref(name), cells_pool, group=name)
+        if table:
+            out[name] = {
+                key: (dots,) if dots else () for key, dots in table.items()
+            }
+    return out
+
+
 def _load_lang_tables(
     base: Path,
     payload: dict[str, Any],
@@ -248,12 +282,15 @@ def _load_lang_tables(
 ) -> dict[str, dict[str, dict[str, tuple[tuple[int, ...], ...]]]]:
     """Load the generic per-language table slot (ARCHITECTURE#arch-language-slots).
 
-    For any non-zh language, load every cell-sequence table declared
-    under ``tables.<lang>`` into ``{<lang>: {<name>: table}}`` keyed by
-    the same name. zh keeps its welded loaders (initials / finals /
-    tones / exceptions / compounds); when zh migrates to this slot, drop
-    the guard. The subtag is taken before the hyphen so ``ja-JP`` ->
-    ``ja``.
+    Loads every cell-sequence table declared under ``tables.<lang>`` into
+    ``{<lang>: {<name>: table}}`` keyed by the same name. The subtag is
+    taken before the hyphen so ``ja-JP`` -> ``ja``.
+
+    Chinese is loaded into the same slot but not by this function: its table
+    references may sit at the top level OR under ``tables.zh`` (older and
+    fixture profiles use the flat shape, which :func:`_table_ref` resolves and
+    this loader does not), so it goes through :func:`_load_zh_cell_tables`
+    and lands in the same place.
     """
     lang_tables: dict[
         str, dict[str, dict[str, tuple[tuple[int, ...], ...]]]

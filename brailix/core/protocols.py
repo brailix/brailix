@@ -33,8 +33,6 @@ if TYPE_CHECKING:
     )
     from brailix.ir.document import Block
     from brailix.ir.inline import (
-        ChineseToken,
-        HanziChar,
         HanziMarker,
         InlineNode,
         Segment,
@@ -46,7 +44,13 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Frontend: text segmentation + Chinese pipeline
+# Frontend: text segmentation + normalization
+#
+# The per-language analyzer / reading-resolver protocols are NOT here: they
+# live with their language (``frontend.zh.analyzer.ChineseAnalyzer``,
+# ``frontend.ja.analyzer.JapaneseAnalyzer``), because a protocol naming one
+# language's types is that language's contract, not the core's. What stays
+# is what every language routes through.
 # ---------------------------------------------------------------------------
 
 
@@ -83,43 +87,6 @@ class Normalizer(Protocol):
         segments: Iterable[Segment],
         ctx: FrontendContext | None = None,
     ) -> list[NormalizedItem]: ...
-
-
-@runtime_checkable
-class ChineseAnalyzer(Protocol):
-    """Tokenize a Chinese text region into words with POS tags.
-
-    Implementations wrap external tokenizers (HanLP, jieba, pkuseg, ...)
-    and emit the normalized :class:`ChineseToken` shape so downstream
-    code never depends on the underlying library.
-
-    ``ctx`` may be ``None`` so callers (notably the ``auto`` delegating
-    adapter) can pass through whatever they received without forcing
-    a non-None context just to satisfy the type checker.
-    """
-
-    name: str
-
-    def analyze(
-        self, text: str, ctx: FrontendContext | None
-    ) -> list[ChineseToken]: ...
-
-
-@runtime_checkable
-class PinyinResolver(Protocol):
-    """Annotate Chinese tokens with pinyin (numeric-tone form).
-
-    The resolver fills the ``pinyin`` field on tokens; it must not
-    change token boundaries or types. Low-confidence readings should
-    be reported via the context's :class:`WarningCollector`. ``ctx``
-    may be ``None`` for the same reason as :class:`ChineseAnalyzer`.
-    """
-
-    name: str
-
-    def resolve(
-        self, tokens: list[ChineseToken], ctx: FrontendContext | None
-    ) -> list[ChineseToken]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +142,7 @@ class LanguageBackend(Protocol):
     """Translate a language's prose IR nodes to cells.
 
     Three node kinds, one required method each: :class:`Word`,
-    :class:`HanziChar` and :class:`HanziMarker` (the date markers, whose
+    :class:`HanziMarker` (the date markers, whose
     reading *and* number-joiner rule are the language's own — see
     :meth:`translate_date_marker`). All three are required; the registry runs a
     runtime protocol check on first resolution, so an implementation missing
@@ -190,10 +157,6 @@ class LanguageBackend(Protocol):
 
     def translate_word(
         self, node: Word, ctx: BackendContext, profile: BrailleProfile
-    ) -> list[BrailleCell]: ...
-
-    def translate_hanzi_char(
-        self, node: HanziChar, ctx: BackendContext, profile: BrailleProfile
     ) -> list[BrailleCell]: ...
 
     def translate_date_marker(

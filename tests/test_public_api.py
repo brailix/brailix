@@ -90,15 +90,14 @@ _FACADE: dict[str, list[str]] = {
         "TableCell",
         "TableRow",
         # inline
-        "ChineseToken",
         "CodeInline",
         "Connector",
         "Date",
         "GraphicInline",
-        "HanziChar",
+        "Word",
         "HanziMarker",
         "InlineNode",
-        "LatinAcronym",
+        "LatinWord",
         "LatinWord",
         "MathInline",
         "MusicInline",
@@ -123,11 +122,6 @@ _FACADE: dict[str, list[str]] = {
         "GraphicsContext",
         "MathContext",
         "MusicContext",
-        "DEFAULT_NORMALIZER",
-        "DEFAULT_PINYIN_RESOLVER",
-        "DEFAULT_RENDERER",
-        "DEFAULT_SEGMENTER",
-        "DEFAULT_ZH_ANALYZER",
         "BackendContractError",
         "BrailixError",
         "ConfigurationError",
@@ -384,8 +378,6 @@ _EXTENSION_SURFACE: dict[str, list[str]] = {
     "brailix.core.protocols": [
         "Segmenter",
         "Normalizer",
-        "ChineseAnalyzer",
-        "PinyinResolver",
         "LanguageFrontend",
         "LanguageBackend",
         "MathSourceAdapter",
@@ -395,6 +387,15 @@ _EXTENSION_SURFACE: dict[str, list[str]] = {
         "GraphicAssetResolver",
         "Renderer",
     ],
+    # A language's own contracts + intermediate types, under that language.
+    # Symmetrical on purpose: an adapter author learns ONE shape ("look under
+    # the language"), and a third language has a consistent example to copy.
+    # These used to differ — Chinese's protocol sat in ``core.protocols`` and
+    # its token in ``brailix.ir`` while Japanese kept both in its own package.
+    "brailix.frontend.zh.analyzer": ["ChineseAnalyzer", "ChineseToken"],
+    "brailix.frontend.zh.pinyin": ["PinyinResolver"],
+    "brailix.frontend.zh.tokens": ["ChineseToken"],
+    "brailix.frontend.ja.analyzer": ["JapaneseAnalyzer", "JapaneseToken"],
     # The registries, at their own subsystem's path.
     "brailix.frontend.segment": ["segmenter_registry"],
     "brailix.frontend.normalize": ["normalizer_registry"],
@@ -431,8 +432,26 @@ def test_extension_surface_resolves(module: str) -> None:
     )
 
 
+# Modules whose ``__all__`` serves a second audience as well: a language's
+# analyzer / resolver package is the subsystem entry point the orchestrator
+# calls (``tokenize`` / ``annotate`` / ``analyze``) AND the home of that
+# language's contracts. Its ``__all__`` answers the first job; the manifest
+# promises the second. Requiring equality would force one of the two to stop
+# being published.
+_EXTENSION_DUAL_ROLE_MODULES = frozenset(
+    {
+        "brailix.frontend.zh.analyzer",
+        "brailix.frontend.zh.pinyin",
+        "brailix.frontend.ja.analyzer",
+    }
+)
+
+
 @pytest.mark.parametrize(
-    "module", sorted(set(_EXTENSION_SURFACE) - set(_FACADE))
+    "module",
+    sorted(
+        set(_EXTENSION_SURFACE) - set(_FACADE) - _EXTENSION_DUAL_ROLE_MODULES
+    ),
 )
 def test_extension_module_publishes_no_more_than_it_promises(module: str) -> None:
     """The other direction, which presence-only could not give: a module on
@@ -471,11 +490,18 @@ def test_extension_module_publishes_no_more_than_it_promises(module: str) -> Non
 
 
 # The extension-surface entries that promise *types* rather than a place to
-# register: the contracts themselves, and the one core type those contracts
-# name. Everything else in the manifest is a registry, and is checked to still
-# be one.
+# register: the contracts themselves, the one core type those contracts name,
+# and each language's own contracts + token type. Everything else in the
+# manifest is a registry, and is checked to still be one.
 _EXTENSION_TYPE_MODULES = frozenset(
-    {"brailix.core.protocols", "brailix.core.config"}
+    {
+        "brailix.core.protocols",
+        "brailix.core.config",
+        "brailix.frontend.zh.analyzer",
+        "brailix.frontend.zh.pinyin",
+        "brailix.frontend.zh.tokens",
+        "brailix.frontend.ja.analyzer",
+    }
 )
 
 

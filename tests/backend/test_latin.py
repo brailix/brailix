@@ -15,7 +15,6 @@ from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
 from brailix.ir.inline import (
-    LatinAcronym,
     LatinWord,
     Number,
     Punct,
@@ -39,7 +38,7 @@ class TestLatinLetterLookup:
     """V3 Latin (Current Chinese Braille): prefix only on first letter,
     bare cells after.
 
-    LatinWord / LatinAcronym share the same path. Mid-word case info is
+    LatinWord / LatinWord share the same path. Mid-word case info is
     lost (e.g., ``McDonald``'s ``D`` emits as a bare cell, no prefix).
     Non-letter chars fall back to the punctuation table.
     """
@@ -71,7 +70,7 @@ class TestLatinLetterLookup:
         # "CPU" → ⠠⠠ (whole-word capitals doubles the sign) + C + P + U
         # (5 cells total). A single ⠠ now unambiguously means "first
         # letter only is capital", so CPU and Cpu stay distinguishable.
-        cells = translate_latin(LatinAcronym(surface="CPU"), ctx, profile)
+        cells = translate_latin(LatinWord(surface="CPU"), ctx, profile)
         assert len(cells) == 5
         assert cells[0].dots == (6,)          # doubled latin_upper prefix
         assert cells[1].dots == (6,)
@@ -82,7 +81,7 @@ class TestLatinLetterLookup:
 
     def test_all_caps_latin_word_also_doubles_prefix(self, ctx, profile):
         # The doubling keys off the surface being all-capitals, not off
-        # the LatinAcronym node type — an all-caps LatinWord doubles too.
+        # the LatinWord node type — an all-caps LatinWord doubles too.
         cells = translate_latin(
             LatinWord(surface="NVDA", span=Span(0, 4)), ctx, profile
         )
@@ -183,7 +182,7 @@ class TestLatinLetterLookup:
 
     def test_greek_acronym_one_upper_prefix_for_whole_word(self, ctx, profile):
         # ΑΒΓ → one upper prefix + three bare Greek cells (= 4 cells).
-        from brailix.ir.inline import LatinAcronym as _Acronym  # noqa
+        from brailix.ir.inline import LatinWord as _Acronym  # noqa
         cells = translate_latin(_Acronym(surface="ΑΒΓ"), ctx, profile)
         assert len(cells) == 4
         assert cells[0].dots == (4, 5, 6)           # Greek upper-case sign
@@ -266,7 +265,7 @@ class TestRunningEnglish:
     def test_all_caps_word_in_run_keeps_doubled_sign(self, profile):
         # "CPU" mid-run still doubles the capital sign ⠠⠠.
         cells = translate_latin(
-            LatinAcronym(surface="CPU"), self._run_ctx(profile), profile
+            LatinWord(surface="CPU"), self._run_ctx(profile), profile
         )
         assert cells[0].dots == (6,)
         assert cells[1].dots == (6,)
@@ -297,7 +296,7 @@ class TestEnglishRunRole:
 
     def test_latin_nodes_are_letters(self):
         assert english_run_role(LatinWord(surface="x")) == "letter"
-        assert english_run_role(LatinAcronym(surface="X")) == "letter"
+        assert english_run_role(LatinWord(surface="X")) == "letter"
 
     def test_space_punct_digits_carry_the_run(self):
         # These may sit inside an English stretch without ending it.

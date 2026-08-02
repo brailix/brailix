@@ -32,7 +32,7 @@ from brailix.core.errors import MissingExtraError
 from brailix.core.span import Span
 from brailix.frontend.zh.pinyin.adapters._align import resolve_by_char_alignment
 from brailix.frontend.zh.pinyin.registry import resolver_registry
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 # Every registered resolver whose dependency is importable in this
 # environment. ``get`` raises MissingExtraError for an absent extra (e.g.

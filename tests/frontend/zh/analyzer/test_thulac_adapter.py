@@ -102,7 +102,7 @@ class TestWarnings:
 
 class TestProtocolConformance:
     def test_satisfies_protocol(self):
-        from brailix.core.protocols import ChineseAnalyzer
+        from brailix.frontend.zh.analyzer import ChineseAnalyzer
 
         assert isinstance(ThulacChineseAnalyzer(cut_fn=_cut([])), ChineseAnalyzer)
 
@@ -176,7 +176,9 @@ class TestModelPrecheck:
 
 class TestAutoFallbackOnMissingModel:
     """thulac leads the ``auto`` chain; a missing model must fall back, not
-    crash. Mirrors the runtime-failure mode the precheck exists to tame."""
+    crash. Mirrors the runtime-failure mode the precheck exists to tame —
+    and the same skip is what lets a distribution omit the ~100 MB wheel
+    entirely and land on the next engine."""
 
     def test_auto_skips_thulac_when_model_missing(self, monkeypatch):
         import brailix.frontend.zh.analyzer.adapters.thulac as thulac_adapter

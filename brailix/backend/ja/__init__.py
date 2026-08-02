@@ -1,4 +1,4 @@
-"""Translate Japanese inline IR (Word / HanziChar) into braille cells.
+"""Translate Japanese inline IR (Word) into braille cells.
 
 Japanese braille (kana braille, 仮名点字) is fully phonetic: every prose node carries a
 katakana *pronunciation form* in ``node.reading`` (long vowels already as
@@ -34,7 +34,7 @@ from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
-from brailix.ir.inline import HanziChar, HanziMarker, Word
+from brailix.ir.inline import HanziMarker, Word
 
 # Katakana small ya/yu/yo — these glue onto the preceding kana to form a
 # youon mora (キ + ャ -> キャ). Other small kana (ァ ィ ゥ ェ ォ, foreign
@@ -51,14 +51,6 @@ _KANA_SHIFT = 0x60
 
 def translate_word(
     node: Word, ctx: BackendContext, profile: BrailleProfile
-) -> list[BrailleCell]:
-    return _translate_japanese(
-        node.surface, node.reading, node.span, ctx, profile
-    )
-
-
-def translate_hanzi_char(
-    node: HanziChar, ctx: BackendContext, profile: BrailleProfile
 ) -> list[BrailleCell]:
     return _translate_japanese(
         node.surface, node.reading, node.span, ctx, profile
@@ -94,8 +86,8 @@ def translate_date_marker(
             )
         )
     out.extend(
-        translate_hanzi_char(
-            HanziChar(
+        translate_word(
+            Word(
                 surface=marker.surface,
                 span=marker.span,
                 reading=marker.reading,

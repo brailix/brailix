@@ -33,7 +33,7 @@ module that defines it:
   :class:`TranslationResult`, :class:`CompiledBlock`,
   :data:`TreeSubcache`. Re-exported here; these are the API.
 * :mod:`brailix.pipeline._helpers` — the module-level standalone helpers
-  :func:`_resolve_language_adapter`, :func:`_all_prose_types`,
+  :func:`_all_prose_types`,
   :func:`_ensure_block_span`, :func:`_block_surface`, :func:`block_hash`,
   :func:`cache_lookup`, :func:`cache_record`. Only :func:`block_hash` (a
   documented public digest) and the internally-used :func:`_block_surface`
@@ -72,7 +72,7 @@ from __future__ import annotations
 
 import os
 import xml.etree.ElementTree as ET
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
@@ -92,13 +92,6 @@ from brailix.core.context import (
     FrontendContext,
     GraphicsContext,
     MathContext,
-)
-from brailix.core.defaults import (
-    DEFAULT_NORMALIZER,
-    DEFAULT_PINYIN_RESOLVER,
-    DEFAULT_RENDERER,
-    DEFAULT_SEGMENTER,
-    DEFAULT_ZH_ANALYZER,
 )
 from brailix.core.errors import (
     RunMode,
@@ -233,11 +226,10 @@ _FROZEN_CONFIG_FIELDS: frozenset[str] = frozenset(
     {
         "profile",
         "mode",
-        "segmenter",
-        "normalizer",
         "analyzer",
         "resolver",
         "user_pinyin_dict",
+        "user_seg_dict",
         "extra_profile_paths",
     }
 )
@@ -264,8 +256,6 @@ class Pipeline:
       / ``cn_ncb`` / ``ja_current``). Drives table selection and runtime
       features. There is no built-in default — the caller always chooses.
     * ``mode`` — diagnostic policy (see :class:`RunMode`).
-    * ``segmenter`` / ``normalizer`` — segmenter and normalizer adapter
-      names.
     * ``analyzer`` — word-segmentation engine for **the profile's
       language**, not for one fixed language: the driver hands it to the
       ``LanguageFrontend`` selected by the active profile's language
@@ -291,6 +281,14 @@ class Pipeline:
       dictionary). Chinese-specific, as its name says and as ``resolver``
       effectively is: the pinyin post-pass is what consumes it.
       Multi-char surfaces only; empty = no-op.
+    * ``user_seg_dict`` — optional ``surface → pieces`` overrides layered
+      on top of ``analyzer``, the same idea applied to word division:
+      ``{"国家": ("国家",)}`` says *this is one word*, ``{"国家通用":
+      ("国家", "通用")}`` says *cut it here*. Consumed by the tokenizer
+      post-pass. Kept separate from ``user_pinyin_dict`` because separate
+      subsystems read them; a front-end may still show its user one
+      dictionary. Multi-char surfaces whose pieces spell the surface;
+      empty = no-op.
     * ``default_renderer`` — forwarded to every
       :class:`TranslationResult` so :meth:`TranslationResult.render`
       knows what to use when called without arguments.
@@ -321,10 +319,25 @@ class Pipeline:
 
     profile: str
     mode: RunMode | str = RunMode.NORMAL
-    segmenter: str = DEFAULT_SEGMENTER
-    normalizer: str = DEFAULT_NORMALIZER
-    analyzer: str = DEFAULT_ZH_ANALYZER
-    resolver: str = DEFAULT_PINYIN_RESOLVER
+    # The engine families a caller genuinely chooses between, each defaulting
+    # to the ``auto`` adapter — an ordinary registered adapter that picks for
+    # you, not a sentinel this class interprets. Written here as the literal
+    # it is: these declarations ARE the library's defaults, and anything that
+    # needs to know them (the CLI's ``--help``, a front-end's preferences)
+    # reads them off this dataclass rather than keeping a copy that can drift.
+    #
+    # Segmenter and normalizer are deliberately NOT fields. They ship one
+    # implementation per language, and which one applies follows from
+    # ``profile.language`` with nothing left to decide — recognising a
+    # writing system is a property of the language, not a strategy with
+    # trade-offs the way picking jieba over HanLP is. A knob whose value is
+    # determined by another field is not configuration; it is a second place
+    # for the same fact to be wrong. Adding a language still registers them
+    # (ARCHITECTURE#arch-language-slots), and a caller who really wants to
+    # name one can still do it through ``ctx.options`` on the frontend
+    # entry points.
+    analyzer: str = "auto"
+    resolver: str = "auto"
     # Personal pinyin dictionary (user-authored surface→reading map),
     # layered on top of whichever resolver runs: the zh frontend applies
     # it as a post-pass so the user's explicit reading wins for every
@@ -338,7 +351,26 @@ class Pipeline:
     # = r`` would change the braille while the fingerprint — and every
     # ``source_hash`` derived from it — stayed put.
     user_pinyin_dict: Mapping[str, str] = field(default_factory=dict)
-    default_renderer: str = DEFAULT_RENDERER
+    # Personal segmentation dictionary (user-authored surface→pieces map),
+    # layered on top of whichever analyzer runs: the zh frontend applies it
+    # as a post-pass, so a word division the user pinned wins for every
+    # document.  A one-piece value folds tokens into a word (``{"国家":
+    # ("国家",)}``), a multi-piece value cuts one apart (``{"国家通用":
+    # ("国家", "通用")}``) — one mapping for both fixes.  Multi-char keys
+    # whose pieces spell the key; anything else is dropped on read.  Empty
+    # by default → pure no-op.
+    #
+    # Separate from ``user_pinyin_dict`` because separate subsystems consume
+    # them (the analyzer must not import the resolver — ARCHITECTURE#arch-mediators).
+    # A front-end is free to present both as one "my dictionary" to its user.
+    #
+    # Same defensive copy behind a read-only view, for the same reason.
+    user_seg_dict: Mapping[str, Sequence[str]] = field(default_factory=dict)
+    # Unlike the frontend families there is no ``auto`` here, deliberately:
+    # a renderer choice is an OUTPUT FORMAT, and no amount of probing can
+    # tell whether the caller wanted BRF or a PDF. ``unicode`` is the one
+    # format that is readable without a device.
+    default_renderer: str = "unicode"
     # User-folder profile directories injected by the caller so a portable
     # build can ship with its own profile drops.
     # ``load_profile`` searches these first; same-named user profile
@@ -411,6 +443,14 @@ class Pipeline:
         # computed from the contents at *this* moment, so it must hold a
         # snapshot nobody else can reach — and one it cannot edit either.
         self.user_pinyin_dict = MappingProxyType(dict(self.user_pinyin_dict))
+        # Same, plus each value is frozen to a tuple: a ``MappingProxyType``
+        # over a copied dict protects the mapping, not the LISTS inside it,
+        # so a caller who kept ``{"国家通用": ["国家", "通用"]}`` could still
+        # append to that list and change what this pipeline segments — past
+        # a fingerprint computed from the old contents.
+        self.user_seg_dict = MappingProxyType(
+            {k: tuple(v) for k, v in self.user_seg_dict.items()}
+        )
         # Accept ``Path`` objects too — keeping the dataclass field type
         # as ``tuple[str, ...]`` simplifies serialization, but the caller
         # naturally passes :class:`pathlib.Path`.
@@ -432,11 +472,10 @@ class Pipeline:
         self._frontend = _FrontendDriver(
             profile=self.profile,
             profile_obj=self._profile,
-            segmenter=self.segmenter,
-            normalizer=self.normalizer,
             analyzer=self.analyzer,
             resolver=self.resolver,
             user_pinyin_dict=self.user_pinyin_dict,
+            user_seg_dict=self.user_seg_dict,
             asset_resolver=self.asset_resolver,
         )
         # Compilation-configuration identity (see
@@ -446,18 +485,18 @@ class Pipeline:
         # (re-folding only when a runtime ``register`` / ``unregister``
         # moved a generation), and the result is folded into every block's
         # ``source_hash`` and stamped onto the blocks this pipeline's
-        # frontend populates.  Uses the RESOLVED segmenter / normalizer
-        # names (per-language selection applied) so two spellings of the
-        # same effective configuration fingerprint alike.
-        opts = self._frontend.frontend_options()
+        # frontend populates.
+        #
+        # Segmenter / normalizer are absent because they are no longer
+        # configuration: which one runs follows from ``profile.language``,
+        # and the profile's full resolved content is already hashed in.
         self._fingerprint_base = _compilation_fingerprint(
             self._profile,
             mode=normalize_run_mode(self.mode).value,
-            segmenter=opts["segmenter"],
-            normalizer=opts["normalizer"],
             analyzer=self.analyzer,
             resolver=self.resolver,
             user_pinyin_dict=self.user_pinyin_dict,
+            user_seg_dict=self.user_seg_dict,
         )
         self._frontend.fingerprint = self.fingerprint
         # Configuration is complete and hashed: from here on the fields above
@@ -704,9 +743,9 @@ class Pipeline:
         being silently discarded.
 
         The sub-pipeline is derived with :func:`dataclasses.replace` so it
-        **inherits every configured adapter** — segmenter, normalizer,
-        analyzer, resolver, the user's pinyin dictionary, extra profile
-        search paths, asset resolver — and only the braille standard differs.
+        **inherits every configured adapter** — analyzer, resolver, the
+        user's dictionaries, extra profile search paths, asset resolver —
+        and only the braille standard differs.
         Building a bare ``Pipeline(profile=braille_profile)`` here instead
         would silently drop that config, so a label in a non-document braille
         standard would tokenize / read differently from the surrounding body

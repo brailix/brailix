@@ -7,8 +7,8 @@ empty even on a bare install.
 
 from __future__ import annotations
 
-from brailix.core.protocols import ChineseAnalyzer
 from brailix.core.registry import Registry
+from brailix.frontend.zh.analyzer import ChineseAnalyzer
 
 analyzer_registry: Registry[ChineseAnalyzer] = Registry(
     "zh_analyzer", protocol=ChineseAnalyzer

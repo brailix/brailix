@@ -1,10 +1,10 @@
 import pytest
 
-from brailix.backend.zh import translate_hanzi_char, translate_word
+from brailix.backend.zh import translate_word
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
-from brailix.ir.inline import HanziChar, Word
+from brailix.ir.inline import Word
 
 
 @pytest.fixture(scope="module")
@@ -33,14 +33,14 @@ class TestSingleSyllableZeroInitial:
     """我 = wo3 — no initial, final 'uo', tone 3."""
 
     def test_wo3(self, ctx, profile):
-        cells = translate_hanzi_char(
-            HanziChar(surface="我", reading="wo3", span=Span(0, 1)),
+        cells = translate_word(
+            Word(surface="我", reading="wo3", span=Span(0, 1)),
             ctx, profile,
         )
         # Expected: [final("uo"), tone("3")]
         assert _roles(cells) == ["zh_final", "zh_tone"]
-        assert cells[0].dots == profile.finals["uo"]
-        assert cells[1].dots == profile.tones["3"]
+        assert cells[0].dots == profile.lang_table("finals")["uo"][0]
+        assert cells[1].dots == profile.lang_table("tones")["3"][0]
         # Provenance is the same source character for every cell of this syllable.
         assert all(c.source_text == "我" for c in cells)
         assert all(c.source_span == Span(0, 1) for c in cells)
@@ -50,14 +50,14 @@ class TestSingleSyllableWithInitial:
     """在 = zai4 — initial z, final ai, tone 4."""
 
     def test_zai4(self, ctx, profile):
-        cells = translate_hanzi_char(
-            HanziChar(surface="在", reading="zai4", span=Span(0, 1)),
+        cells = translate_word(
+            Word(surface="在", reading="zai4", span=Span(0, 1)),
             ctx, profile,
         )
         assert _roles(cells) == ["zh_initial", "zh_final", "zh_tone"]
-        assert cells[0].dots == profile.initials["z"]
-        assert cells[1].dots == profile.finals["ai"]
-        assert cells[2].dots == profile.tones["4"]
+        assert cells[0].dots == profile.lang_table("initials")["z"][0]
+        assert cells[1].dots == profile.lang_table("finals")["ai"][0]
+        assert cells[2].dots == profile.lang_table("tones")["4"][0]
 
 
 class TestMultiSyllableWord:
@@ -72,12 +72,12 @@ class TestMultiSyllableWord:
         # qing4: q + ing + tone4
         # Total 6 cells.
         assert len(cells) == 6
-        assert cells[0].dots == profile.initials["ch"]
-        assert cells[1].dots == profile.finals["ong"]
-        assert cells[2].dots == profile.tones["2"]
-        assert cells[3].dots == profile.initials["q"]
-        assert cells[4].dots == profile.finals["ing"]
-        assert cells[5].dots == profile.tones["4"]
+        assert cells[0].dots == profile.lang_table("initials")["ch"][0]
+        assert cells[1].dots == profile.lang_table("finals")["ong"][0]
+        assert cells[2].dots == profile.lang_table("tones")["2"][0]
+        assert cells[3].dots == profile.lang_table("initials")["q"][0]
+        assert cells[4].dots == profile.lang_table("finals")["ing"][0]
+        assert cells[5].dots == profile.lang_table("tones")["4"][0]
 
     def test_per_syllable_provenance(self, ctx, profile):
         cells = translate_word(
@@ -93,8 +93,8 @@ class TestMultiSyllableWord:
 class TestToneSuppression:
     def test_neutral_tone_omitted(self, ctx, profile):
         # 了 = le5 — neutral tone, no tone cell emitted.
-        cells = translate_hanzi_char(
-            HanziChar(surface="了", reading="le5", span=Span(0, 1)),
+        cells = translate_word(
+            Word(surface="了", reading="le5", span=Span(0, 1)),
             ctx, profile,
         )
         roles = _roles(cells)
@@ -105,8 +105,8 @@ class TestToneSuppression:
     def test_tone_disabled_via_profile(self, ctx, profile):
         profile.features["tone"] = False
         try:
-            cells = translate_hanzi_char(
-                HanziChar(surface="在", reading="zai4"), ctx, profile,
+            cells = translate_word(
+                Word(surface="在", reading="zai4"), ctx, profile,
             )
             assert "zh_tone" not in _roles(cells)
         finally:
@@ -115,8 +115,8 @@ class TestToneSuppression:
 
 class TestMissingPinyin:
     def test_emits_warning_and_unknown(self, ctx, profile):
-        cells = translate_hanzi_char(
-            HanziChar(surface="我", reading=None, span=Span(0, 1)),
+        cells = translate_word(
+            Word(surface="我", reading=None, span=Span(0, 1)),
             ctx, profile,
         )
         warnings = list(ctx.warnings)
@@ -144,8 +144,8 @@ class TestPinyinLengthMismatch:
 
 class TestBadPinyin:
     def test_invalid_syllable_emits_warning(self, ctx, profile):
-        cells = translate_hanzi_char(
-            HanziChar(surface="X", reading="", span=Span(0, 1)),
+        cells = translate_word(
+            Word(surface="X", reading="", span=Span(0, 1)),
             ctx, profile,
         )
         # Empty pinyin → MISSING_PINYIN (not BAD_PINYIN)
@@ -154,8 +154,8 @@ class TestBadPinyin:
 
     def test_unparseable_syllable(self, ctx, profile):
         # "ma6" has an invalid tone digit.
-        cells = translate_hanzi_char(
-            HanziChar(surface="妈", reading="ma6", span=Span(0, 1)),
+        cells = translate_word(
+            Word(surface="妈", reading="ma6", span=Span(0, 1)),
             ctx, profile,
         )
         assert any(w.code == "BAD_PINYIN" for w in ctx.warnings)
@@ -165,24 +165,24 @@ class TestBadPinyin:
 class TestMissingMappingFallback:
     def test_unknown_initial_emits_warning(self, ctx, profile):
         # If we hack the profile to drop "z", the warning fires.
-        original = profile.initials.pop("z")
+        original = profile.lang_table("initials").pop("z")
         try:
-            cells = translate_hanzi_char(
-                HanziChar(surface="在", reading="zai4"), ctx, profile,
+            cells = translate_word(
+                Word(surface="在", reading="zai4"), ctx, profile,
             )
             assert any(w.code == "MISSING_INITIAL" for w in ctx.warnings)
             # Unknown cell for initial + valid cell for final + tone
             assert cells[0].role == "unknown"
             assert cells[1].role == "zh_final"
         finally:
-            profile.initials["z"] = original
+            profile.lang_table("initials")["z"] = original
 
     def test_unknown_final_emits_warning(self, ctx, profile):
         # Drop the "ai" mapping to exercise the MISSING_FINAL path.
-        original = profile.finals.pop("ai")
+        original = profile.lang_table("finals").pop("ai")
         try:
-            cells = translate_hanzi_char(
-                HanziChar(surface="在", reading="zai4", span=Span(0, 1)),
+            cells = translate_word(
+                Word(surface="在", reading="zai4", span=Span(0, 1)),
                 ctx, profile,
             )
             assert any(w.code == "MISSING_FINAL" for w in ctx.warnings)
@@ -191,7 +191,7 @@ class TestMissingMappingFallback:
             assert cells[1].role == "unknown"
             assert cells[2].role == "zh_tone"
         finally:
-            profile.finals["ai"] = original
+            profile.lang_table("finals")["ai"] = original
 
 
 class TestIaoIangDistinctFinals:
@@ -204,14 +204,14 @@ class TestIaoIangDistinctFinals:
     """
 
     def test_iao_final_is_c_345(self, profile):
-        assert tuple(profile.finals["iao"]) == (3, 4, 5)
+        assert tuple(profile.lang_table("finals")["iao"][0]) == (3, 4, 5)
 
     def test_iang_final_is_c_1346(self, profile):
-        assert tuple(profile.finals["iang"]) == (1, 3, 4, 6)
+        assert tuple(profile.lang_table("finals")["iang"][0]) == (1, 3, 4, 6)
 
     def test_iao_and_iang_have_distinct_dots(self, profile):
         """Guard against a future "let's merge them again" mistake."""
-        assert profile.finals["iao"] != profile.finals["iang"]
+        assert profile.lang_table("finals")["iao"] != profile.lang_table("finals")["iang"]
 
     def test_liao2_emits_l_iao_tone(self, ctx, profile):
         """End-to-end check on 聊 — the syllable from the bug report.
@@ -219,14 +219,14 @@ class TestIaoIangDistinctFinals:
         Expected cells: [l(initial), iao(final), tone(2)].  The final
         cell dots must be (3,4,5), not the old buggy (1,3,4,6).
         """
-        cells = translate_hanzi_char(
-            HanziChar(surface="聊", reading="liao2", span=Span(0, 1)),
+        cells = translate_word(
+            Word(surface="聊", reading="liao2", span=Span(0, 1)),
             ctx, profile,
         )
         assert _roles(cells) == ["zh_initial", "zh_final", "zh_tone"]
-        assert cells[0].dots == profile.initials["l"]
+        assert cells[0].dots == profile.lang_table("initials")["l"][0]
         assert tuple(cells[1].dots) == (3, 4, 5)
-        assert cells[2].dots == profile.tones["2"]
+        assert cells[2].dots == profile.lang_table("tones")["2"][0]
 
 
 class TestUangUengDistinctFinals:
@@ -242,14 +242,14 @@ class TestUangUengDistinctFinals:
     """
 
     def test_uang_final_is_c_2356(self, profile):
-        assert tuple(profile.finals["uang"]) == (2, 3, 5, 6)
+        assert tuple(profile.lang_table("finals")["uang"][0]) == (2, 3, 5, 6)
 
     def test_ueng_final_is_c_256(self, profile):
-        assert tuple(profile.finals["ueng"]) == (2, 5, 6)
+        assert tuple(profile.lang_table("finals")["ueng"][0]) == (2, 5, 6)
 
     def test_uang_and_ueng_have_distinct_dots(self, profile):
         """Guard against a future "let's merge them again" mistake."""
-        assert profile.finals["uang"] != profile.finals["ueng"]
+        assert profile.lang_table("finals")["uang"] != profile.lang_table("finals")["ueng"]
 
     def test_weng1_emits_ueng_tone(self, ctx, profile):
         """End-to-end check on 翁 — the canonical ueng-final character.
@@ -258,13 +258,13 @@ class TestUangUengDistinctFinals:
         Expected cells: [ueng(final), tone(1)].  The final cell dots
         must be (2,5,6), not the old buggy (2,3,5,6).
         """
-        cells = translate_hanzi_char(
-            HanziChar(surface="翁", reading="weng1", span=Span(0, 1)),
+        cells = translate_word(
+            Word(surface="翁", reading="weng1", span=Span(0, 1)),
             ctx, profile,
         )
         assert _roles(cells) == ["zh_final", "zh_tone"]
         assert tuple(cells[0].dots) == (2, 5, 6)
-        assert cells[1].dots == profile.tones["1"]
+        assert cells[1].dots == profile.lang_table("tones")["1"][0]
 
 
 class TestEAndOShareFinal:
@@ -275,32 +275,32 @@ class TestEAndOShareFinal:
     """
 
     def test_o_final_is_c_26(self, profile):
-        assert tuple(profile.finals["o"]) == (2, 6)
+        assert tuple(profile.lang_table("finals")["o"][0]) == (2, 6)
 
     def test_e_and_o_share_final(self, profile):
-        assert profile.finals["o"] == profile.finals["e"]
+        assert profile.lang_table("finals")["o"] == profile.lang_table("finals")["e"]
 
     def test_uo_final_stays_c_135(self, profile):
-        assert tuple(profile.finals["uo"]) == (1, 3, 5)
+        assert tuple(profile.lang_table("finals")["uo"][0]) == (1, 3, 5)
 
     def test_bo1_emits_b_o_tone(self, ctx, profile):
-        cells = translate_hanzi_char(
-            HanziChar(surface="玻", reading="bo1", span=Span(0, 1)),
+        cells = translate_word(
+            Word(surface="玻", reading="bo1", span=Span(0, 1)),
             ctx, profile,
         )
         assert _roles(cells) == ["zh_initial", "zh_final", "zh_tone"]
-        assert cells[0].dots == profile.initials["b"]
+        assert cells[0].dots == profile.lang_table("initials")["b"][0]
         assert tuple(cells[1].dots) == (2, 6)
-        assert cells[2].dots == profile.tones["1"]
+        assert cells[2].dots == profile.lang_table("tones")["1"][0]
 
     def test_wo3_still_emits_uo_tone(self, ctx, profile):
-        cells = translate_hanzi_char(
-            HanziChar(surface="我", reading="wo3", span=Span(0, 1)),
+        cells = translate_word(
+            Word(surface="我", reading="wo3", span=Span(0, 1)),
             ctx, profile,
         )
         assert _roles(cells) == ["zh_final", "zh_tone"]
         assert tuple(cells[0].dots) == (1, 3, 5)
-        assert cells[1].dots == profile.tones["3"]
+        assert cells[1].dots == profile.lang_table("tones")["3"][0]
 
 
 class TestSyllabicNasalInterjections:
@@ -316,45 +316,76 @@ class TestSyllabicNasalInterjections:
 
     def test_en_for_n2(self, ctx, profile):
         # 嗯 ń — conventional braille syllable en, zero initial.
-        cells = translate_hanzi_char(
-            HanziChar(surface="嗯", reading="n2", span=Span(0, 1)),
+        cells = translate_word(
+            Word(surface="嗯", reading="n2", span=Span(0, 1)),
             ctx, profile,
         )
         assert _roles(cells) == ["zh_final", "zh_tone"]
-        assert cells[0].dots == profile.finals["en"]
-        assert cells[1].dots == profile.tones["2"]
+        assert cells[0].dots == profile.lang_table("finals")["en"][0]
+        assert cells[1].dots == profile.lang_table("tones")["2"][0]
         # The rime is no longer dropped, so no missing-final warning fires.
         assert not any(w.code == "MISSING_FINAL" for w in ctx.warnings)
 
     def test_en_for_ng2(self, ctx, profile):
         # 嗯 ńg — same conventional syllable en.
-        cells = translate_hanzi_char(
-            HanziChar(surface="嗯", reading="ng2", span=Span(0, 1)),
+        cells = translate_word(
+            Word(surface="嗯", reading="ng2", span=Span(0, 1)),
             ctx, profile,
         )
         assert _roles(cells) == ["zh_final", "zh_tone"]
-        assert cells[0].dots == profile.finals["en"]
+        assert cells[0].dots == profile.lang_table("finals")["en"][0]
 
     def test_heng_for_hng(self, ctx, profile):
         # 哼 hng — conventional braille syllable heng (h + eng), no tone.
-        cells = translate_hanzi_char(
-            HanziChar(surface="哼", reading="hng", span=Span(0, 1)),
+        cells = translate_word(
+            Word(surface="哼", reading="hng", span=Span(0, 1)),
             ctx, profile,
         )
         assert _roles(cells) == ["zh_initial", "zh_final"]
-        assert cells[0].dots == profile.initials["h"]
-        assert cells[1].dots == profile.finals["eng"]
+        assert cells[0].dots == profile.lang_table("initials")["h"][0]
+        assert cells[1].dots == profile.lang_table("finals")["eng"][0]
         assert not any(w.code == "MISSING_FINAL" for w in ctx.warnings)
 
     def test_m2_warns_instead_of_silent_drop(self, ctx, profile):
         # 呣 (m) has no conventional braille syllable — the empty,
         # non-syllabic final must warn rather than silently disappear.
-        cells = translate_hanzi_char(
-            HanziChar(surface="呣", reading="m2", span=Span(0, 1)),
+        cells = translate_word(
+            Word(surface="呣", reading="m2", span=Span(0, 1)),
             ctx, profile,
         )
         assert any(w.code == "MISSING_FINAL" for w in ctx.warnings)
         # The initial cell still stands in for the syllable; the key
         # property is that the dropped rime is now observable, not silent.
         assert cells[0].role == "zh_initial"
-        assert cells[0].dots == profile.initials["m"]
+        assert cells[0].dots == profile.lang_table("initials")["m"][0]
+
+
+class TestNeutralToneEmitsNoCell:
+    """A neutral-tone syllable adds no tone cell at all.
+
+    Guarding the shape of the tone table rather than its content: entries
+    are cell *sequences* (so every language reads its tables the same way),
+    and the backend emits one cell per entry in the sequence. An empty
+    reading therefore has to be an empty sequence — wrapped as ``((),)`` it
+    would emit a blank cell after every 的 / 我们 in the document, which
+    renders as a spurious gap and is invisible in the table itself.
+    """
+
+    def test_neutral_tone_syllable_has_no_tone_cell(self, ctx, profile):
+        cells = translate_word(Word(surface="的", reading="de5"), ctx, profile)
+        assert [c.role for c in cells if c.role == "zh_tone"] == []
+
+    def test_a_toned_syllable_still_has_one(self, ctx, profile):
+        cells = translate_word(Word(surface="我", reading="wo3"), ctx, profile)
+        tone = [c for c in cells if c.role == "zh_tone"]
+        assert len(tone) == 1
+        assert tone[0].dots
+
+    def test_no_cell_in_a_word_is_dotless(self, ctx, profile):
+        # The symptom as a reader meets it: a blank cell mid-word.
+        cells = translate_word(
+            Word(surface="我们", reading="wo3 men5"), ctx, profile
+        )
+        assert all(c.dots for c in cells), [
+            (c.role, c.dots) for c in cells
+        ]

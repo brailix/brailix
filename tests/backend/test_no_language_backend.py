@@ -15,7 +15,7 @@ from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 from brailix.core.errors import WarningCollector
 from brailix.core.span import Span
-from brailix.ir.inline import Date, HanziChar, HanziMarker, Number, Word
+from brailix.ir.inline import Date, HanziMarker, Number, Word
 
 
 def _profile_without_fr_backend(monkeypatch):
@@ -43,7 +43,7 @@ class TestNoLanguageBackend:
         prof = _profile_without_fr_backend(monkeypatch)
         ctx = _ctx(prof)
         cells = translate_node(
-            HanziChar(surface="字", span=Span(0, 1)), ctx, prof
+            Word(surface="字", span=Span(0, 1)), ctx, prof
         )
         assert cells == []
         assert [w.code for w in ctx.warnings.warnings] == ["NO_LANGUAGE_BACKEND"]

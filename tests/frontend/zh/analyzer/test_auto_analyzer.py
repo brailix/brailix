@@ -34,6 +34,25 @@ def test_auto_falls_back_to_char_when_real_tokenizers_missing(monkeypatch):
     assert [t.surface for t in tokens] == ["我"]
 
 
+def test_auto_lands_on_jieba_when_only_jieba_is_installed(monkeypatch):
+    """A distribution that bundles only jieba gets jieba, with no config.
+
+    This is the mechanism a packaged build relies on: thulac's wheel carries
+    a ~100 MB model, so distributions leave it (and hanlp) out and let the
+    chain step past both. Pinned here because the alternative fix — deleting
+    names from ``preferred`` — would look equivalent while also denying the
+    engine to a caller who *did* install it.
+    """
+    pytest.importorskip("jieba")
+    monkeypatch.setitem(sys.modules, "thulac", None)
+    monkeypatch.setitem(sys.modules, "hanlp", None)
+
+    analyzer = analyzer_registry.get("auto")
+    analyzer.analyze("我")
+    assert analyzer._delegate is not None
+    assert analyzer._delegate.name == "jieba"
+
+
 def test_auto_caches_delegate_across_calls(monkeypatch):
     # First call picks a delegate; second call must reuse the cached
     # one without re-walking the preferred chain (the cache-hit branch

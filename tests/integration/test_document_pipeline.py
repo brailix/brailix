@@ -60,7 +60,7 @@ class TestNoFrontendPollution:
         assert math_blocks[0].text == "x + y = z"
         # Children populated by the *math* frontend (one MathInline
         # carrying the parsed MathML tree), not by the Chinese
-        # tokenizer (which would have spat out HanziChar/Word garbage).
+        # tokenizer (which would have spat out Word/Word garbage).
         children = math_blocks[0].children
         assert len(children) == 1
         assert isinstance(children[0], MathInline)
@@ -447,9 +447,9 @@ class TestPopulateBlockRecursion:
         # got, now uniform for prose (previously the one branch that
         # silently left span=None for a populated text-bearing block).
         from brailix.ir.document import DocumentIR, Paragraph
-        from brailix.ir.inline import HanziChar
+        from brailix.ir.inline import Word
 
-        p = Paragraph(children=[HanziChar(surface="字")], text="字", span=None)
+        p = Paragraph(children=[Word(surface="字")], text="字", span=None)
         assert p.span is None
         doc = DocumentIR(blocks=[p])
         pipe.translate_document(doc)

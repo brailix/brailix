@@ -2,8 +2,8 @@
 
 Pure functions split out of :mod:`brailix.pipeline` so the orchestrator
 module stays focused on the :class:`Pipeline` class.  Re-exported from
-:mod:`brailix.pipeline` so ``brailix.pipeline._resolve_language_adapter``,
-``brailix.pipeline.block_hash`` etc. keep resolving.
+:mod:`brailix.pipeline` so ``brailix.pipeline.block_hash`` etc. keep
+resolving.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 from typing import TYPE_CHECKING, Any
 
-from brailix.core.registry import Registry
 from brailix.core.span import Span
 from brailix.frontend import language_frontend_registry
 from brailix.ir.document import Block
@@ -20,25 +19,6 @@ if TYPE_CHECKING:
     import xml.etree.ElementTree as ET
 
     from brailix.pipeline._results import TreeSubcache
-
-
-def _resolve_language_adapter(
-    registry: Registry[Any], configured: str, default_name: str, lang: str
-) -> str:
-    """Pick a segmenter / normalizer name for the active language.
-
-    Precedence: an explicit, non-default Pipeline override wins; else an
-    adapter registered under the language subtag (so a new language ships
-    its own script-aware segmenter / structural normalizer); else the
-    built-in default. Chinese registers neither, so it resolves to
-    ``"default"`` — the Han-aware segmenter and the date-marker
-    normalizer that ship with the library.
-    """
-    if configured != default_name:
-        return configured
-    if registry.has(lang):
-        return lang
-    return default_name
 
 
 def _all_prose_types() -> frozenset[str]:
@@ -122,7 +102,8 @@ def block_hash(
     ``fingerprint`` is supplied (:attr:`Pipeline.fingerprint`), so does any
     change in the compilation configuration: the resolved profile's actual
     content, the selected segmenter / normalizer / analyzer / resolver, the
-    user pinyin dictionary, the run mode, or the brailix version (see
+    user pinyin and segmentation dictionaries, the run mode, or the brailix
+    version (see
     :func:`brailix.pipeline._fingerprint.compilation_fingerprint` for the exact coverage
     and its limits). :meth:`Pipeline.translate_block` always passes its own
     fingerprint, so :attr:`CompiledBlock.source_hash` is safe to cache on

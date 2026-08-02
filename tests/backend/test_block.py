@@ -34,7 +34,7 @@ from brailix.ir.document import (
     TableCell,
     TableRow,
 )
-from brailix.ir.inline import HanziChar, Word
+from brailix.ir.inline import Word
 
 
 @pytest.fixture(scope="module")
@@ -65,7 +65,7 @@ def pipe():
 
 class TestParagraph:
     def test_single_block_returned(self, ctx, profile):
-        para = Paragraph(children=[HanziChar(surface="我", reading="wo3")])
+        para = Paragraph(children=[Word(surface="我", reading="wo3")])
         out = expand_block(para, ctx, profile)
         assert len(out) == 1
         assert out[0].block_type == "paragraph"
@@ -78,20 +78,20 @@ class TestParagraph:
 
     def test_align_flows_to_braille_block(self, ctx, profile):
         para = Paragraph(
-            align="center", children=[HanziChar(surface="我", reading="wo3")]
+            align="center", children=[Word(surface="我", reading="wo3")]
         )
         out = expand_block(para, ctx, profile)
         assert out[0].align == "center"
 
     def test_no_align_defaults_to_none(self, ctx, profile):
-        para = Paragraph(children=[HanziChar(surface="我", reading="wo3")])
+        para = Paragraph(children=[Word(surface="我", reading="wo3")])
         out = expand_block(para, ctx, profile)
         assert out[0].align is None
 
 
 class TestHeading:
     def test_heading_level_preserved(self, ctx, profile):
-        h = Heading(level=2, children=[HanziChar(surface="题", reading="ti2")])
+        h = Heading(level=2, children=[Word(surface="题", reading="ti2")])
         out = expand_block(h, ctx, profile)
         assert out[0].block_type == "heading"
         assert out[0].heading_level == 2
@@ -196,7 +196,7 @@ class TestList:
     def test_unordered_list_marker_uses_middle_dot(self, ctx, profile):
         lst = List(
             ordered=False,
-            items=[ListItem(children=[HanziChar(surface="项", reading="xiang4")])],
+            items=[ListItem(children=[Word(surface="项", reading="xiang4")])],
         )
         out = expand_block(lst, ctx, profile)
         roles = [c.role for c in out[0].cells]
@@ -206,8 +206,8 @@ class TestList:
         lst = List(
             ordered=True,
             items=[
-                ListItem(children=[HanziChar(surface="一", reading="yi1")]),
-                ListItem(children=[HanziChar(surface="二", reading="er4")]),
+                ListItem(children=[Word(surface="一", reading="yi1")]),
+                ListItem(children=[Word(surface="二", reading="er4")]),
             ],
         )
         out = expand_block(lst, ctx, profile)
@@ -229,12 +229,12 @@ class TestTable:
     def test_table_one_block_per_row(self, ctx, profile):
         t = Table(rows=[
             TableRow(cells=[
-                TableCell(children=[HanziChar(surface="甲", reading="jia3")]),
-                TableCell(children=[HanziChar(surface="乙", reading="yi3")]),
+                TableCell(children=[Word(surface="甲", reading="jia3")]),
+                TableCell(children=[Word(surface="乙", reading="yi3")]),
             ]),
             TableRow(cells=[
-                TableCell(children=[HanziChar(surface="丙", reading="bing3")]),
-                TableCell(children=[HanziChar(surface="丁", reading="ding1")]),
+                TableCell(children=[Word(surface="丙", reading="bing3")]),
+                TableCell(children=[Word(surface="丁", reading="ding1")]),
             ]),
         ])
         out = expand_block(t, ctx, profile)
@@ -244,8 +244,8 @@ class TestTable:
     def test_table_columns_separated_by_blanks(self, ctx, profile):
         t = Table(rows=[
             TableRow(cells=[
-                TableCell(children=[HanziChar(surface="甲", reading="jia3")]),
-                TableCell(children=[HanziChar(surface="乙", reading="yi3")]),
+                TableCell(children=[Word(surface="甲", reading="jia3")]),
+                TableCell(children=[Word(surface="乙", reading="yi3")]),
             ]),
         ])
         out = expand_block(t, ctx, profile)

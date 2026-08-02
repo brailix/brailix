@@ -37,10 +37,8 @@ from brailix.ir.inline import (
     CodeInline,
     Connector,
     Date,
-    HanziChar,
     HanziMarker,
     InlineNode,
-    LatinAcronym,
     LatinWord,
     MathInline,
     MusicInline,
@@ -61,7 +59,7 @@ _Translator = Callable[[Any, BackendContext, BrailleProfile], list[BrailleCell]]
 # :class:`InlineNode` with no subclass hierarchy to resolve — so an O(1)
 # table is both correct and faster than an isinstance ladder, and adding
 # a node type is a one-line entry rather than a new branch.  ``LatinWord``
-# and ``LatinAcronym`` share the single Latin translator.
+# routes to the single Latin translator.
 _DISPATCH: dict[type[InlineNode], _Translator] = {
     Number: number_backend.translate_number,
     Date: number_backend.translate_date,
@@ -71,7 +69,6 @@ _DISPATCH: dict[type[InlineNode], _Translator] = {
     Space: punct_backend.translate_space,
     Connector: punct_backend.translate_connector,
     LatinWord: latin_backend.translate_latin,
-    LatinAcronym: latin_backend.translate_latin,
     CodeInline: punct_backend.translate_code_inline,
     PhoneticInline: phonetic_backend.translate_phonetic,
     MathInline: math_backend.translate,
@@ -88,11 +85,6 @@ class _ZhBackend:
         self, node: Word, ctx: BackendContext, profile: BrailleProfile
     ) -> list[BrailleCell]:
         return zh_backend.translate_word(node, ctx, profile)
-
-    def translate_hanzi_char(
-        self, node: HanziChar, ctx: BackendContext, profile: BrailleProfile
-    ) -> list[BrailleCell]:
-        return zh_backend.translate_hanzi_char(node, ctx, profile)
 
     def translate_date_marker(
         self,
@@ -113,11 +105,6 @@ class _JaBackend:
     ) -> list[BrailleCell]:
         return ja_backend.translate_word(node, ctx, profile)
 
-    def translate_hanzi_char(
-        self, node: HanziChar, ctx: BackendContext, profile: BrailleProfile
-    ) -> list[BrailleCell]:
-        return ja_backend.translate_hanzi_char(node, ctx, profile)
-
     def translate_date_marker(
         self,
         marker: HanziMarker,
@@ -129,7 +116,7 @@ class _JaBackend:
 
 
 # Per-language backend registry — the dispatcher routes prose nodes
-# (Word / HanziChar) to the implementation matching the profile's
+# (Word) to the implementation matching the profile's
 # language. Language-neutral nodes (Number / Punct / Latin / Math /
 # Music) stay on ``_DISPATCH``. Adding a language = register here.
 language_backend_registry: Registry[LanguageBackend] = Registry(
@@ -140,7 +127,7 @@ language_backend_registry.register("ja", _JaBackend)
 
 # Prose node types routed by the profile's language rather than the
 # static dispatch table.
-_LANGUAGE_NODE_TYPES = (Word, HanziChar)
+_LANGUAGE_NODE_TYPES = (Word,)
 
 
 def _enforce_source_spans(
@@ -184,7 +171,7 @@ def translate_node(
 ) -> list[BrailleCell]:
     """Dispatch a single InlineNode to its translator.
 
-    Prose nodes (Word / HanziChar) route to the profile language's
+    Prose nodes (Word) route to the profile language's
     registered :class:`LanguageBackend`; every other (language-neutral)
     node goes through the shared ``_DISPATCH`` table.
 

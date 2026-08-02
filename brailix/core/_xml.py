@@ -111,6 +111,39 @@ def safe_fromstring(text: str | bytes) -> ET.Element:
     return ET.fromstring(text)
 
 
+def strip_xml_prolog(text: str) -> str:
+    """Remove a leading ``<?xml ...?>`` declaration and an optional
+    ``<!DOCTYPE ...>``.
+
+    :func:`safe_fromstring` accepts the XML declaration but trips on a
+    DOCTYPE that references an external DTD — which the exporters real
+    documents come from still emit (older Finale / Sibelius for MusicXML,
+    Inkscape / Illustrator for SVG). Both source families need exactly this,
+    which is why it sits here beside :func:`safe_fromstring` rather than
+    being written out once per format: it is XML plumbing, with nothing in
+    it that knows which format it is cleaning.
+
+    The DOCTYPE scan balances ``[`` / ``]`` so an internal subset (which may
+    contain ``>`` inside its entity declarations) doesn't end the scan early.
+    """
+    out = text
+    if out.startswith("<?xml"):
+        end = out.find("?>")
+        if end != -1:
+            out = out[end + 2:].lstrip()
+    if out.startswith("<!DOCTYPE"):
+        depth = 0
+        for i, ch in enumerate(out):
+            if ch == "[":
+                depth += 1
+            elif ch == "]":
+                depth = max(0, depth - 1)
+            elif ch == ">" and depth == 0:
+                out = out[i + 1:].lstrip()
+                break
+    return out
+
+
 def strip_xml_invalid_chars(text: str) -> str:
     """Drop characters illegal in XML 1.0 from ``text``.
 

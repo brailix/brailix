@@ -21,11 +21,11 @@ import unicodedata
 import pytest
 
 from brailix.backend.dispatch import translate_node
-from brailix.backend.ja import translate_hanzi_char, translate_word
+from brailix.backend.ja import translate_word
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
-from brailix.ir.inline import HanziChar, Word
+from brailix.ir.inline import Word
 
 
 @pytest.fixture(scope="module")
@@ -260,12 +260,12 @@ class TestDispatchRouting:
     def test_hanzi_char_routes_to_ja(self, ctx, profile):
         # 水 -> ミズ : ミ, ズ(dakuon + ス) — the kanji->reading case.
         cells = translate_node(
-            HanziChar(surface="水", reading="ミズ", span=Span(0, 1)), ctx, profile
+            Word(surface="水", reading="ミズ", span=Span(0, 1)), ctx, profile
         )
         assert _dots(cells) == [(1, 2, 3, 5, 6), (5,), (1, 4, 5, 6)]
 
     def test_translate_hanzi_char_entry(self, ctx, profile):
-        cells = translate_hanzi_char(
-            HanziChar(surface="木", reading="キ", span=Span(0, 1)), ctx, profile
+        cells = translate_word(
+            Word(surface="木", reading="キ", span=Span(0, 1)), ctx, profile
         )
         assert _dots(cells) == [(1, 2, 6)]

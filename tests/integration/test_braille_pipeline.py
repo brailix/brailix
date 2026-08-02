@@ -16,7 +16,6 @@ from brailix.core.span import Span
 from brailix.ir.document import DocumentIR, Heading, Paragraph
 from brailix.ir.inline import (
     Date,
-    HanziChar,
     HanziMarker,
     Number,
     Punct,
@@ -160,8 +159,8 @@ class TestHandAnnotatedDocument:
 
         # 我 在 2026 年 5 月 17 日 去 了 重庆 银行 。
         doc = DocumentIR(blocks=[Paragraph(children=[
-            HanziChar(surface="我", reading="wo3", span=Span(0, 1)),
-            HanziChar(surface="在", reading="zai4", span=Span(1, 2)),
+            Word(surface="我", reading="wo3", span=Span(0, 1)),
+            Word(surface="在", reading="zai4", span=Span(1, 2)),
             Date(
                 surface="2026年5月17日",
                 span=Span(2, 12),
@@ -174,8 +173,8 @@ class TestHandAnnotatedDocument:
                     HanziMarker(surface="日", span=Span(11, 12), reading="ri4"),
                 ],
             ),
-            HanziChar(surface="去", reading="qu4", span=Span(12, 13)),
-            HanziChar(surface="了", reading="le5", span=Span(13, 14)),
+            Word(surface="去", reading="qu4", span=Span(12, 13)),
+            Word(surface="了", reading="le5", span=Span(13, 14)),
             Word(surface="重庆", reading="chong2 qing4", span=Span(14, 16)),
             Word(surface="银行", reading="yin2 hang2", span=Span(16, 18)),
             Punct(surface="。", span=Span(18, 19)),
@@ -228,8 +227,8 @@ class TestMultipleBlocks:
         profile = load_profile("cn_current")
         ctx = BackendContext(profile="cn_current")
         doc = DocumentIR(blocks=[
-            Heading(level=1, children=[HanziChar(surface="一", reading="yi1")]),
-            Paragraph(children=[HanziChar(surface="文", reading="wen2")]),
+            Heading(level=1, children=[Word(surface="一", reading="yi1")]),
+            Paragraph(children=[Word(surface="文", reading="wen2")]),
         ])
         rendered = UnicodeBrailleRenderer().render(
             translate_document(doc, ctx, profile)
@@ -247,8 +246,8 @@ class TestProvenance:
         profile = load_profile("cn_current")
         ctx = BackendContext(profile="cn_current")
         doc = DocumentIR(blocks=[Paragraph(children=[
-            HanziChar(surface="我", reading="wo3", span=Span(0, 1)),
-            HanziChar(surface="在", reading="zai4", span=Span(1, 2)),
+            Word(surface="我", reading="wo3", span=Span(0, 1)),
+            Word(surface="在", reading="zai4", span=Span(1, 2)),
             Punct(surface="。", span=Span(2, 3)),
         ])])
         bd = translate_document(doc, ctx, profile)
@@ -296,7 +295,7 @@ class TestProfileFeature:
         profile = load_profile("cn_current")
         ctx = BackendContext(profile="cn_current")
         doc = DocumentIR(blocks=[Paragraph(children=[
-            HanziChar(surface="在", reading="zai4", span=Span(0, 1)),
+            Word(surface="在", reading="zai4", span=Span(0, 1)),
         ])])
 
         rendered_with_tone = UnicodeBrailleRenderer().render(

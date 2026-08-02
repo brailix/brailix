@@ -3,11 +3,19 @@
 Mirrors :mod:`brailix.frontend.zh.pinyin.adapters.auto`: the
 ``zh.tokenize`` entry point picks the best installed tokenizer.
 ``thulac`` leads the chain — it bundles its model in the wheel, so it
-works offline with no download (unlike ``hanlp``, which the Model
-Manager fetches on demand) — making it the shipping default. The chain
-then falls back to ``hanlp``, then the small ``jieba``, and finally the
-dependency-free ``char`` fallback so the pipeline runs even on a bare
-install.
+works offline with no download (unlike ``hanlp``, whose weights are
+fetched on first use). The chain then falls back to ``hanlp``, then the
+small ``jieba``, and finally the dependency-free ``char`` fallback so
+the pipeline runs even on a bare install.
+
+Order is a preference among what is **installed**, never an assumption
+that anything is: each candidate that can't load raises one of
+:data:`~brailix.core.errors.CANDIDATE_UNAVAILABLE_ERRORS` and the chain
+steps past it. A deployment that ships without ``thulac`` and ``hanlp``
+therefore lands on ``jieba`` with no configuration — which is what the
+packaged distributions do, since ``thulac``'s wheel carries a ~100 MB
+model. Dropping a name from this list is a different, stronger act: it
+would deny the engine to a caller who *did* install it.
 
 The delegate is resolved lazily on first call and cached for the
 lifetime of the AutoChineseAnalyzer instance.
@@ -22,8 +30,8 @@ from brailix.core.errors import (
     CANDIDATE_UNAVAILABLE_ERRORS,
     UnknownAdapterError,
 )
-from brailix.core.protocols import ChineseAnalyzer
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.analyzer import ChineseAnalyzer
+from brailix.frontend.zh.tokens import ChineseToken
 
 # The shared list plus one addition this chain owns. OSError: a candidate's
 # loader touched the filesystem (e.g. created its model dir) and failed — a

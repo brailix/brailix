@@ -22,7 +22,7 @@ from brailix.core.errors import MissingExtraError
 from brailix.core.span import Span
 from brailix.frontend.zh.pinyin.adapters.g2pm import G2pmPinyinResolver
 from brailix.frontend.zh.pinyin.registry import resolver_registry
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 
 def test_missing_g2pm_surfaces_missing_extra_error(monkeypatch):

@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from xml.sax.saxutils import escape, quoteattr
 
-from brailix.core._xml import safe_fromstring, strip_xml_invalid_chars
+from brailix.core._xml import safe_fromstring, strip_xml_invalid_chars, strip_xml_prolog
 from brailix.core.context import MusicContext
 
 
@@ -43,38 +43,12 @@ class MusicXMLSourceAdapter:
         text = src.strip()
         if not text:
             return music_error_wrap("", reason="empty input")
-        text = _strip_xml_prolog(text)
+        text = strip_xml_prolog(text)
         try:
             safe_fromstring(text)
         except ET.ParseError as e:
             return music_error_wrap(text, reason=f"parse error: {e}")
         return text
-
-
-def _strip_xml_prolog(text: str) -> str:
-    """Remove a leading ``<?xml ...?>`` declaration and optional
-    ``<!DOCTYPE ...>`` — ElementTree's ``fromstring`` accepts the XML
-    declaration but trips on a DOCTYPE that references an external DTD
-    (common in MusicXML files exported by older Finale/Sibelius)."""
-    out = text
-    if out.startswith("<?xml"):
-        end = out.find("?>")
-        if end != -1:
-            out = out[end + 2:].lstrip()
-    if out.startswith("<!DOCTYPE"):
-        # Scan forward, balancing brackets, to find the matching ``>``.
-        depth = 0
-        for i, ch in enumerate(out):
-            if ch == "[":
-                depth += 1
-            elif ch == "]":
-                depth = max(0, depth - 1)
-            elif ch == ">" and depth == 0:
-                out = out[i + 1:].lstrip()
-                break
-    return out
-
-
 def music_error_wrap(surface: str, *, reason: str) -> str:
     """Build a minimal MusicXML document carrying a single
     ``<music-error>``.

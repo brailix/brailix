@@ -2,7 +2,7 @@ from brailix.core.context import FrontendContext
 from brailix.core.span import Span
 from brailix.frontend.zh.analyzer.adapters.char import CharChineseAnalyzer
 from brailix.frontend.zh.analyzer.registry import analyzer_registry
-from brailix.ir.inline import ChineseToken
+from brailix.frontend.zh.tokens import ChineseToken
 
 
 class TestCharAnalyzer:
