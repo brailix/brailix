@@ -119,6 +119,65 @@ class TestConstructionContract:
         ).fingerprint
 
 
+class TestAMalformedEntryDoesNotStopConstruction:
+    """A personal dictionary is hand-editable, so an entry can be any shape.
+
+    The consuming side has always said an unusable record is skipped rather
+    than raised on — "one bad record cannot stop a document compiling" — but
+    the Pipeline froze the mapping with ``tuple(v)`` before anything looked at
+    it, so ``{"国家": None}`` raised ``TypeError`` out of ``Pipeline(...)``
+    itself. An application whose stored dictionary had one bad line could not
+    build a pipeline at all: not a compile that degrades, a front-end that
+    won't start.
+    """
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            {"国家": None},
+            {"国家": 123},
+            {"国家": ("国", None)},
+            {"国家": ("国", 7)},
+            {"国家": object()},
+            {"国家": "国家"},  # a bare string is ambiguous, see below
+            {123: ("国", "家")},
+            {"国家": [["国"], ["家"]]},
+        ],
+        ids=repr,
+    )
+    def test_the_pipeline_still_builds(self, entry: dict) -> None:
+        pipe = Pipeline(**_BASE, user_seg_dict=entry)
+        assert "国家" not in pipe.user_seg_dict
+        # And it still compiles — the fingerprint is computed from what the
+        # pipeline actually holds, so a dropped entry cannot poison it either.
+        assert pipe.fingerprint == Pipeline(**_BASE).fingerprint
+
+    def test_a_bare_string_value_is_refused_not_iterated(self) -> None:
+        """``{"国家": "国家"}`` reads as *this is one word* and would iterate
+        to ``("国", "家")`` — the opposite instruction. Too ambiguous to
+        guess at, so it is dropped; pieces are written as a sequence."""
+        pipe = Pipeline(**_BASE, user_seg_dict={"国家": "国家"})
+        assert "国家" not in pipe.user_seg_dict
+        assert _BLANK in _cells(pipe, "国家")  # unchanged: still two words
+
+    def test_the_good_entries_beside_a_bad_one_still_apply(self) -> None:
+        pipe = Pipeline(
+            **_BASE,
+            user_seg_dict={"国家": ("国家",), "银行": None},  # type: ignore[dict-item]
+        )
+        assert pipe.user_seg_dict["国家"] == ("国家",)
+        assert "银行" not in pipe.user_seg_dict
+        assert _BLANK not in _cells(pipe, "国家")
+
+    def test_a_semantically_invalid_entry_is_still_dropped_downstream(self) -> None:
+        """Structure is the Pipeline's business; whether the pieces spell
+        their own key is the language's, and stays with the tokenizer
+        post-pass. The entry survives the freeze and changes nothing."""
+        pipe = Pipeline(**_BASE, user_seg_dict={"国家": ("国", "家", "们")})
+        assert pipe.user_seg_dict["国家"] == ("国", "家", "们")
+        assert _cells(pipe, "国家") == _cells(Pipeline(**_BASE), "国家")
+
+
 class TestPopulatedIrIsRebuiltForANewDictionary:
     def test_reused_ir_does_not_keep_the_other_divisions(self) -> None:
         # A DocumentIR populated by one pipeline, translated by another: the

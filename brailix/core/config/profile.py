@@ -7,13 +7,17 @@ which constructs and returns ``BrailleProfile`` instances.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Any
 
 from brailix.core.config._helpers import (
     _feature_keys_to_try,
     _feature_lookup,
+    _feature_merge,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 from brailix.core.config.zh_ncb_tables import NcbExceptions
 
 
@@ -159,6 +163,42 @@ class BrailleProfile:
             if value is not sentinel:
                 return value
         return default
+
+    def with_features(self, overrides: Mapping[str, Any]) -> BrailleProfile:
+        """A copy of this profile with ``overrides`` written into its features.
+
+        Keys are the same dotted paths :meth:`feature` reads
+        (``"zh.tone"``), so a caller overrides a flag by the name the
+        profile documents it under. Everything else — every table, the
+        language, the name — is carried across unchanged: this is the
+        *same standard with one flag set differently*, not a different
+        profile.
+
+        A **copy**, never an in-place edit. The features dict is part of
+        what :func:`~brailix.pipeline._fingerprint.profile_digest` hashes,
+        so a pipeline that has already computed its fingerprint from this
+        profile must not see the value move underneath it; and a caller
+        who loaded the profile for their own use keeps what they loaded.
+
+        Returns ``self`` unchanged when ``overrides`` is empty — the
+        common case, and one that should cost nothing.
+
+        This is the narrow, in-memory sibling of dropping a same-named
+        profile JSON on ``extra_profile_paths``: that replaces the whole
+        file, this changes named flags and nothing else.
+        """
+        if not overrides:
+            return self
+        return replace(
+            self,
+            features=_feature_merge(self.features, overrides),
+            # A fresh memo rather than the original's. ``letter()`` results
+            # depend on the letter / structure tables, not on features, so
+            # sharing would be harmless today — but it would be a mutable
+            # object owned by two profiles, which is a fact nobody reading
+            # either one would expect.
+            _letter_cache={},
+        )
 
     # -- Per-language tables (ARCHITECTURE#arch-language-slots) -------
 

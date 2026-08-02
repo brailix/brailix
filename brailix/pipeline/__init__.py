@@ -230,9 +230,53 @@ _FROZEN_CONFIG_FIELDS: frozenset[str] = frozenset(
         "resolver",
         "user_pinyin_dict",
         "user_seg_dict",
+        "profile_features",
         "extra_profile_paths",
     }
 )
+
+
+def _freeze_seg_dict(
+    raw: Mapping[str, Sequence[str]],
+) -> dict[str, tuple[str, ...]]:
+    """Immutable ``surface → pieces`` snapshot, skipping unusable entries.
+
+    A personal dictionary reaches a Pipeline from a hand-edited file or a
+    front-end's own store, so an entry can be *any* shape, and freezing it
+    used to be written as ``{k: tuple(v) for k, v in raw.items()}`` — which
+    raises ``TypeError`` on ``{"国家": None}`` at ``Pipeline(...)``. That is
+    the wrong failure for this input: one unusable line must not stop an
+    application from constructing a pipeline at all, which is the same
+    "silently skip the record" policy
+    :func:`~brailix.frontend.zh.analyzer._user_dict.normalize_seg_dict`
+    states for the consuming side.
+
+    This is a **structural** filter, and only that: an entry survives if it
+    could describe *some* division (a string surface, a non-string sequence
+    of strings). Whether it describes a division of *its own key* — pieces
+    that spell the surface, a surface long enough to divide — is the
+    language's rule, and stays with the language's tokenizer post-pass. The
+    two are not redundant: this one runs before the fingerprint and decides
+    what a pipeline *holds*, so it can afford to know nothing about Chinese.
+
+    A bare string value is refused rather than read: ``{"国家": "国家"}``
+    would iterate to ``("国", "家")``, i.e. silently mean the exact opposite
+    of what it looks like (*cut it apart* where the author wrote *this is one
+    word*). Pieces are written as a sequence — ``("国家",)`` — and anything
+    else is too ambiguous to guess at.
+    """
+    frozen: dict[str, tuple[str, ...]] = {}
+    for surface, pieces in raw.items():
+        if not isinstance(surface, str) or isinstance(pieces, (str, bytes)):
+            continue
+        try:
+            parts = tuple(pieces)
+        except TypeError:
+            continue
+        if not all(isinstance(p, str) for p in parts):
+            continue
+        frozen[surface] = parts
+    return frozen
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +332,22 @@ class Pipeline:
       post-pass. Kept separate from ``user_pinyin_dict`` because separate
       subsystems read them; a front-end may still show its user one
       dictionary. Multi-char surfaces whose pieces spell the surface;
-      empty = no-op.
+      empty = no-op. An entry too malformed to hold at all — pieces that
+      are not a sequence of strings — is dropped as this pipeline is built
+      (:func:`_freeze_seg_dict`), so a hand-edited dictionary with one bad
+      line still yields a usable pipeline.
+    * ``profile_features`` — optional overrides for the loaded profile's
+      **feature flags**, keyed by the dotted names the profile documents
+      them under (``{"zh.tone": False}`` turns off Chinese tone cells).
+      Everything else about the profile — every table, its language, its
+      name — is untouched: this is *the same standard with a flag set
+      differently*, which is what a front-end offering the choice as a
+      setting needs. The in-memory sibling of dropping a same-named
+      profile JSON on ``extra_profile_paths``, and strictly narrower.
+      Folded into :attr:`fingerprint` like everything else that changes
+      the output (the digest hashes the profile's resolved content, and
+      the override is part of it by the time it is taken). Empty = the
+      profile exactly as it ships.
     * ``default_renderer`` — forwarded to every
       :class:`TranslationResult` so :meth:`TranslationResult.render`
       knows what to use when called without arguments.
@@ -366,6 +425,22 @@ class Pipeline:
     #
     # Same defensive copy behind a read-only view, for the same reason.
     user_seg_dict: Mapping[str, Sequence[str]] = field(default_factory=dict)
+    # Feature-flag overrides applied to the loaded profile, keyed by the
+    # dotted names ``BrailleProfile.feature`` reads (``"zh.tone"``).
+    #
+    # A profile's JSON settles the *standard*; a few of its flags are
+    # genuinely a caller's choice within that standard — whether Current
+    # Chinese Braille marks tone on every syllable or on none is the case
+    # that brought this in, and it is a checkbox in a proofreading
+    # front-end, not a reason to ship a second profile or to make the user
+    # hand-edit JSON. Kept generic (any flag, any language) rather than one
+    # field per knob: the orchestrator has no business knowing which flags
+    # exist, and the profile already documents them.
+    #
+    # Same defensive copy behind a read-only view as the dictionaries above,
+    # for the same reason — the merged result is hashed into the
+    # fingerprint at construction.
+    profile_features: Mapping[str, Any] = field(default_factory=dict)
     # Unlike the frontend families there is no ``auto`` here, deliberately:
     # a renderer choice is an OUTPUT FORMAT, and no amount of probing can
     # tell whether the caller wanted BRF or a PDF. ``unicode`` is the one
@@ -447,10 +522,14 @@ class Pipeline:
         # over a copied dict protects the mapping, not the LISTS inside it,
         # so a caller who kept ``{"国家通用": ["国家", "通用"]}`` could still
         # append to that list and change what this pipeline segments — past
-        # a fingerprint computed from the old contents.
+        # a fingerprint computed from the old contents. Entries too malformed
+        # to freeze are skipped rather than raised on (see
+        # :func:`_freeze_seg_dict`), so what the fingerprint below hashes is
+        # exactly what this pipeline holds.
         self.user_seg_dict = MappingProxyType(
-            {k: tuple(v) for k, v in self.user_seg_dict.items()}
+            _freeze_seg_dict(self.user_seg_dict)
         )
+        self.profile_features = MappingProxyType(dict(self.profile_features))
         # Accept ``Path`` objects too — keeping the dataclass field type
         # as ``tuple[str, ...]`` simplifies serialization, but the caller
         # naturally passes :class:`pathlib.Path`.
@@ -468,7 +547,7 @@ class Pipeline:
             self.profile,
             extra_search_paths=[Path(p) for p in self.extra_profile_paths]
             or None,
-        )
+        ).with_features(self.profile_features)
         self._frontend = _FrontendDriver(
             profile=self.profile,
             profile_obj=self._profile,
@@ -529,8 +608,9 @@ class Pipeline:
 
         A stable digest of everything Pipeline-level that can change the
         compiled output for the same source text: the resolved profile's
-        content, the selected adapter names, the user pinyin dictionary,
-        the run mode and the brailix version — see
+        content, the selected adapter names, the user pinyin and
+        segmentation dictionaries, the run mode and the brailix version —
+        see
         :func:`~brailix.pipeline._fingerprint.compilation_fingerprint` for the exact
         coverage and its limits.  Two pipelines with equal fingerprints
         compile any block identically (within one process); a front-end

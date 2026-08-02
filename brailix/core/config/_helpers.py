@@ -8,9 +8,11 @@ modules.
 
 from __future__ import annotations
 
+import copy
 import html.entities
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -222,3 +224,44 @@ def _feature_lookup(features: dict[str, Any], key: str, default: Any) -> Any:
             return default
         node = node[segment]
     return node
+
+
+def _feature_merge(
+    features: dict[str, Any], overrides: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Return a deep copy of ``features`` with each override key written in.
+
+    The write side of :func:`_feature_lookup`, and keyed the same way: a
+    dotted key walks into sub-dicts (``"zh.tone"`` sets
+    ``features["zh"]["tone"]``), a plain key sets a top-level entry. Missing
+    intermediate dicts are created, so a key can name a group the profile
+    never declared.
+
+    A **deep copy**, not a shallow one: the caller's profile keeps a nested
+    dict per feature group, and mutating one group in place would reach back
+    into the profile the override was derived from — which is exactly the
+    object a caller may still be compiling with.
+
+    Raises :class:`ConfigurationError` when an intermediate segment exists
+    and is not a dict (``"zh.tone.strict"`` where ``zh.tone`` is a bool):
+    silently replacing the scalar with a group would leave the original
+    feature unreadable and the override looking like it took effect.
+    """
+    merged = copy.deepcopy(features)
+    for key, value in overrides.items():
+        *parents, leaf = key.split(".")
+        node = merged
+        for depth, segment in enumerate(parents):
+            child = node.get(segment)
+            if child is None:
+                child = {}
+                node[segment] = child
+            elif not isinstance(child, dict):
+                path = ".".join(parents[: depth + 1])
+                raise ConfigurationError(
+                    f"feature override {key!r}: {path!r} is a "
+                    f"{type(child).__name__}, not a group of features"
+                )
+            node = child
+        node[leaf] = value
+    return merged
