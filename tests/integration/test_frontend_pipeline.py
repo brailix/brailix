@@ -1,90 +1,52 @@
 """End-to-end test of the frontend pipeline.
 
-Walks the canonical demo sentence through:
+Walks the canonical demo sentence through the frontend **the Pipeline runs**,
+by driving that Pipeline's own frontend driver:
 
     Paragraph.text
-      → DefaultSegmenter
-      → DefaultNormalizer
-      → char ChineseAnalyzer (on hanzi Segments)
-      → null PinyinResolver
+      → segmenter (auto → the profile language's)
+      → normalizer (auto → the profile language's)
+      → the LanguageFrontend registered for the profile's language
+        (tokenize → pinyin → tokens_to_inline)
+      → the language's boundary pass
 
-…and asserts the resulting InlineNode list has the expected shape.
-This is the contract every frontend implementation must honor;
-swapping the char/null fallbacks for HanLP/g2pW must not change the
-*structure* of the output, only the pinyin values and word
-boundaries inside hanzi runs.
+…and asserts the resulting InlineNode list has the expected shape. This is the
+contract every frontend implementation must honor; swapping the char/null
+fallbacks for HanLP/g2pW must not change the *structure* of the output, only
+the pinyin values and word boundaries inside hanzi runs.
+
+**Driven, not re-implemented.** This file used to chain ``DefaultSegmenter`` →
+``DefaultNormalizer`` → analyzer → resolver by hand and finish with a
+token→inline converter of its own, which meant it asserted against a copy: the
+copy emitted no word-boundary ``Space`` at all, so every assertion below held
+while describing an output the library does not produce, and the
+``language_frontend_registry`` / ``_ZhFrontend.process`` / boundary-pass /
+auto-adapter path — everything a real caller gets — went untested here. It
+reaches through ``pipe._frontend`` for the same reason the other integration
+tests do: that is the production frontend, stopping short of the backend so the
+warnings assertions stay about the frontend.
 """
 
 from __future__ import annotations
 
 from brailix.core.context import FrontendContext
-from brailix.frontend.normalize import DefaultNormalizer
-from brailix.frontend.segment import DefaultSegmenter
-from brailix.frontend.zh.analyzer.registry import analyzer_registry
 from brailix.frontend.zh.pinyin.registry import resolver_registry
-from brailix.frontend.zh.tokens import ChineseToken
 from brailix.ir.document import Paragraph
-from brailix.ir.inline import (
-    InlineNode,
-    Number,
-    Percent,
-    Punct,
-    Quantity,
-    Segment,
-)
+from brailix.ir.inline import InlineNode, Number, Percent, Punct, Quantity, Space
+from brailix.pipeline import Pipeline
 
 
-def _run_frontend(text: str, *, zh: str = "char", pinyin: str = "null"):
-    """The canonical frontend pipeline. Returns (children, warnings)."""
+def _run_frontend(
+    text: str, *, zh: str = "char", pinyin: str = "null"
+) -> tuple[list[InlineNode], object]:
+    """The production frontend over one paragraph. Returns (children, warnings)."""
+    pipe = Pipeline(profile="cn_current", analyzer=zh, resolver=pinyin)
     block = Paragraph(text=text)
-    ctx = FrontendContext(profile="cn_current")
-
-    segments = DefaultSegmenter().segment(block, ctx)
-    normalized = DefaultNormalizer().normalize(segments, ctx)
-
-    analyzer = analyzer_registry.get(zh)
-    resolver = resolver_registry.get(pinyin)
-
-    children: list[InlineNode] = []
-    for item in normalized:
-        if isinstance(item, Segment) and item.type == "hanzi_text":
-            tokens = analyzer.analyze(item.surface, ctx)
-            tokens = resolver.resolve(tokens, ctx)
-            children.extend(_chinese_tokens_to_inline(tokens, base=item.span.start))
-        elif isinstance(item, Segment):
-            # A residual Segment that isn't hanzi_text means the frontend
-            # left something un-lowered — fail loudly rather than silently
-            # dropping it (the old ``pass`` masked exactly that, and the
-            # comment that claimed it built Unknown placeholders was wrong).
-            raise AssertionError(
-                f"unexpected residual Segment {item.type!r}: {item.surface!r}"
-            )
-        else:
-            children.append(item)
-    return children, ctx.warnings
-
-
-def _chinese_tokens_to_inline(
-    tokens: list[ChineseToken], base: int
-) -> list[InlineNode]:
-    """Wrap ChineseToken in Word InlineNodes with absolute spans.
-
-    In a more complete pipeline we'd build Word vs Word based on
-    token length and pos tag. For the integration test we just need
-    something that conforms to InlineNode.
-    """
-    from brailix.core.span import Span
-    from brailix.ir.inline import Word
-
-    out: list[InlineNode] = []
-    for t in tokens:
-        local_span = t.span if t.span else Span(0, len(t.surface))
-        abs_span = Span(base + local_span.start, base + local_span.end)
-        if len(t.surface) == 1:
-            out.append(Word(surface=t.surface, span=abs_span, reading=t.pinyin))
-        else:
-            out.append(Word(surface=t.surface, span=abs_span, reading=t.pinyin, pos=t.pos))
-    return out
+    ctx = FrontendContext(
+        profile="cn_current", options=pipe._frontend.frontend_options()
+    )
+    pipe._frontend.populate_block(block, ctx)
+    return block.children, ctx.warnings
 
 
 # ---------------------------------------------------------------------------
@@ -98,15 +60,15 @@ class TestCanonicalSentence:
     def test_structure_after_full_pipeline(self):
         children, warnings = _run_frontend(self.TEXT)
 
-        # Expected ordering:
-        # 我, 在, [Date 2026年5月17日], 去, 了, 重, 庆, 银, 行, [Punct 。]
+        # Expected ordering: 我 ⟂ 在 ⟂ [Date 2026年5月17日] ⟂ 去 ⟂ 了 ⟂
+        # 重 ⟂ 庆 ⟂ 银 ⟂ 行 [Punct 。]
         kinds = [type(c).__name__ for c in children]
         assert "Date" in kinds
         assert "Punct" in kinds
-        # Char analyzer breaks 重庆银行 into 4 HanziChars, so we expect
-        # plenty of Word entries.
-        hanzi_chars = [c for c in children if type(c).__name__ == "Word"]
-        assert len(hanzi_chars) == 8  # 我 在 去 了 重 庆 银 行
+        # The char analyzer emits one token per hanzi, so each of 我 在 去 了
+        # 重 庆 银 行 is its own one-character Word.
+        words = [c for c in children if type(c).__name__ == "Word"]
+        assert len(words) == 8
 
         # Date sits where expected.
         date_idx = next(i for i, c in enumerate(children) if type(c).__name__ == "Date")
@@ -114,6 +76,29 @@ class TestCanonicalSentence:
 
         # No warnings under fallback adapters.
         assert len(warnings) == 0
+
+    def test_word_boundaries_are_marked(self):
+        """Chinese braille writes a word together and separates words with a
+        blank cell, so the frontend's own output must already carry a separator
+        between adjacent words — including across the Date, which is a whole
+        word set off from the prose on both sides."""
+        children = _run_frontend(self.TEXT)[0]
+        kinds = [type(c).__name__ for c in children]
+        # 8 words + 1 date = 9 word-level nodes in a row → 8 separators; the
+        # trailing Punct takes none.
+        assert kinds.count("Space") == 8
+        date_idx = kinds.index("Date")
+        assert kinds[date_idx - 1] == "Space"
+        assert kinds[date_idx + 1] == "Space"
+
+    def test_separators_are_zero_width_and_carry_no_surface(self):
+        """A synthesised separator must not claim source text: it renders as a
+        blank cell but stands at a boundary, so proofreading highlights of the
+        words either side stay exact."""
+        children = _run_frontend(self.TEXT)[0]
+        synthetic = [c for c in children if isinstance(c, Space) and c.surface == ""]
+        assert synthetic
+        assert all(c.span is not None and c.span.is_empty() for c in synthetic)
 
     def test_round_trip_surface(self):
         children, _ = _run_frontend(self.TEXT)
@@ -152,6 +137,14 @@ class TestMixedContent:
         p = next(c for c in children if isinstance(c, Percent))
         assert isinstance(p.number, Number)
         assert p.number.surface == "12"
+
+    def test_a_user_typed_space_is_not_doubled(self):
+        """The boundary pass is idempotent: where the source already wrote a
+        space, it stays one node and no synthetic separator joins it."""
+        children, _ = _run_frontend("看 算")
+        kinds = [type(c).__name__ for c in children]
+        assert kinds == ["Word", "Space", "Word"]
+        assert children[1].surface == " "
 
 
 class TestEmptyAndEdgeCases:
