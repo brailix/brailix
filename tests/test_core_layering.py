@@ -86,8 +86,10 @@ design, and each would be a category error to include:
 * ``brailix/cli.py`` — an application entry point, not a layer. Composing the
   library is its job: it names the pipeline, the registries and the renderers
   on purpose, and a matrix row for it would either forbid what it exists to do
-  or allow everything and check nothing. (``test_every_top_level_package_is_classified``
-  keeps *packages* honest, and ``cli.py`` is a module, so it never came up.)
+  or allow everything and check nothing. It is *exempt*, not overlooked:
+  ``test_every_top_level_module_is_classified_or_exempt`` names it and the two
+  other root modules, so the next ``.py`` dropped beside them has to be argued
+  for rather than quietly landing outside every rule.
 * ``scripts/`` — build and export tooling that ships to nobody. It is not
   installed, imports nothing at runtime, and its own guard is
   ``tests/scripts/``.
@@ -901,6 +903,53 @@ def test_every_layer_directory_is_classified() -> None:
     )
 
 
+# The modules that may sit at the root of ``brailix/`` without being a layer,
+# each because it is an *application* rather than a stage of the compiler.
+# Listed rather than pattern-matched: what makes these acceptable is a
+# judgement about what they are for, and the next root module deserves the same
+# judgement instead of inheriting theirs.
+_ROOT_MODULE_EXEMPTIONS: dict[str, str] = {
+    "__init__.py": "the facade — lazy re-exports, no logic",
+    "cli.py": (
+        "an application entry point. Composing the library is its job: it "
+        "names the pipeline, the registries and the renderers on purpose, so "
+        "a matrix row for it would either forbid what it exists to do or "
+        "allow everything and check nothing"
+    ),
+    "__main__.py": "``python -m brailix`` — hands straight to cli",
+}
+
+
+def test_every_top_level_module_is_classified_or_exempt() -> None:
+    """A new module at the root of ``brailix/`` must be a layer or be named.
+
+    :func:`test_every_layer_directory_is_classified` keeps *packages* honest,
+    and the sweep walks layer directories — so a plain ``.py`` dropped beside
+    ``cli.py`` is in neither. It would be unscanned, exactly like an
+    unclassified package, and the difference is that nothing would say so: the
+    suite would keep reporting clean layering for a file it never read. A
+    root-level helper is also the shape most likely to *become* a cross-layer
+    channel, since sitting above every layer is what makes it convenient.
+
+    The answer for a new one is normally to move it into the layer it belongs
+    to (ARCHITECTURE#arch-layers: shared plumbing is ``core``, "what is this
+    input" is ``frontend``, "write it as braille" is ``backend``). Adding a
+    line here is the other answer, and it should have to be argued for.
+    """
+    on_disk = {p.name for p in _PKG.glob("*.py")}
+    unclassified = sorted(on_disk - set(_ROOT_MODULE_EXEMPTIONS))
+    assert not unclassified, (
+        f"unclassified module(s) at the root of brailix/: {unclassified} — "
+        f"no layer rule covers them and the layering sweep never reads them. "
+        f"Move each into the layer it belongs to, or add it to "
+        f"_ROOT_MODULE_EXEMPTIONS with the reason it is not one."
+    )
+    stale = sorted(set(_ROOT_MODULE_EXEMPTIONS) - on_disk)
+    assert not stale, (
+        f"_ROOT_MODULE_EXEMPTIONS names modules that no longer exist: {stale}"
+    )
+
+
 def test_forbidden_edges_are_the_complement_of_the_allowed_ones() -> None:
     """The derivation itself, spot-checked at the two edges that matter.
 
@@ -951,7 +1000,7 @@ class TestGuardCatchesEveryImportForm:
     """
 
     def test_absolute_import(self) -> None:
-        assert _would_flag("import brailix.frontend.normalize")
+        assert _would_flag("import brailix.frontend.normalization")
 
     def test_absolute_from(self) -> None:
         assert _would_flag("from brailix.frontend import normalize")
@@ -1007,13 +1056,13 @@ class TestGuardCatchesEveryImportForm:
         assert not _would_flag("from brailix.ir.document import Paragraph")
 
     def test_the_root_package_import_is_recorded(self) -> None:
-        """``import brailix`` + ``brailix.frontend.normalize(...)`` names no
+        """``import brailix`` + ``brailix.frontend.normalization(...)`` names no
         layer in any import statement — the attribute is where the edge is.
         The layer sweep cannot see it, which is why the root package is banned
         outright (``test_no_guarded_layer_imports_the_root_package``); this
         pins that the scanner at least records the import it bans."""
         assert "brailix" in _imports_in(
-            "import brailix\ndef f():\n    return brailix.frontend.normalize\n",
+            "import brailix\ndef f():\n    return brailix.frontend.normalization\n",
             "brailix.backend",
         )
         assert "brailix" in _imports_in(
@@ -1068,7 +1117,7 @@ class TestGuardCatchesEveryImportForm:
     def test_bare_import_module(self) -> None:
         assert _would_flag(
             "from importlib import import_module\n"
-            "normalize = import_module('brailix.frontend.normalize')\n"
+            "normalize = import_module('brailix.frontend.normalization')\n"
         )
 
     def test_dunder_import(self) -> None:
@@ -1083,19 +1132,19 @@ class TestGuardCatchesEveryImportForm:
         assert _would_flag(
             "import importlib\n"
             "loader = importlib.import_module\n"
-            "normalize = loader('brailix.frontend.normalize')\n"
+            "normalize = loader('brailix.frontend.normalization')\n"
         )
 
     def test_import_module_renamed_at_import(self) -> None:
         assert _would_flag(
             "from importlib import import_module as _load\n"
-            "normalize = _load('brailix.frontend.normalize')\n"
+            "normalize = _load('brailix.frontend.normalization')\n"
         )
 
     def test_import_module_fetched_with_getattr(self) -> None:
         assert _would_flag(
             "import importlib\n"
-            "getattr(importlib, 'import_module')('brailix.frontend.normalize')\n"
+            "getattr(importlib, 'import_module')('brailix.frontend.normalization')\n"
         )
 
     def test_import_module_fetched_with_getattr_then_bound(self) -> None:
@@ -1108,14 +1157,14 @@ class TestGuardCatchesEveryImportForm:
         assert _would_flag(
             "import importlib\n"
             "loader = getattr(importlib, 'import_module')\n"
-            "normalize = loader('brailix.frontend.normalize')\n"
+            "normalize = loader('brailix.frontend.normalization')\n"
         )
 
     def test_dunder_import_fetched_with_getattr_then_bound(self) -> None:
         assert _would_flag(
             "import builtins\n"
             "loader = getattr(builtins, '__import__')\n"
-            "loader('brailix.frontend.normalize')\n"
+            "loader('brailix.frontend.normalization')\n"
         )
 
     def test_a_getattr_of_something_else_does_not_bind_an_importer(self) -> None:
