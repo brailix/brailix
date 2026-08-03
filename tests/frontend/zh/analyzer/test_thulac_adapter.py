@@ -199,3 +199,61 @@ class TestAutoFallbackOnMissingModel:
             assert [t.surface for t in tokens] == ["我"]
         finally:
             analyzer_registry.clear_cache()
+
+
+class TestALeftoverDirectoryIsNotTheEngine:
+    """``import thulac`` succeeding does not mean thulac is installed.
+
+    A directory named ``thulac`` containing only data imports as a namespace
+    package, with ``__file__`` set to ``None``. That is the state an upgraded
+    application install is in after a release stops shipping the engine: the
+    executable is replaced, the model directory is left on disk, and the
+    application's own directory leads ``sys.path``.
+
+    The model lookup locates ``models/`` relative to ``__file__``, so it
+    raised ``TypeError: argument should be a str or an os.PathLike object …
+    not 'NoneType'``. ``TypeError`` is not one of the errors an ``auto`` chain
+    treats as "candidate unavailable", so it came out of ``tokenize``, out of
+    ``translate_block``, and failed every block of every document — the whole
+    document blank, reported as a path-type error rather than a missing
+    engine.
+    """
+
+    @staticmethod
+    def _namespace_thulac(monkeypatch, tmp_path):
+        import sys
+        import types
+
+        module = types.ModuleType("thulac")
+        module.__file__ = None  # what a namespace package looks like
+        module.__path__ = [str(tmp_path)]  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "thulac", module)
+
+    def test_it_reports_a_missing_extra_not_a_type_error(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        from brailix.core.errors import MissingExtraError
+        from brailix.frontend.zh.analyzer.adapters.thulac import _load
+
+        self._namespace_thulac(monkeypatch, tmp_path)
+        with pytest.raises(MissingExtraError) as exc_info:
+            _load()
+        assert "namespace package" in str(exc_info.value)
+
+    def test_the_auto_chain_skips_it_and_the_document_compiles(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        # The behaviour that actually matters: a leftover directory must cost
+        # a fallback, not a document.
+        pytest.importorskip("jieba")
+        from brailix import Pipeline
+        from brailix.frontend.zh.analyzer.registry import analyzer_registry
+
+        self._namespace_thulac(monkeypatch, tmp_path)
+        analyzer_registry.clear_cache()
+        try:
+            pipe = Pipeline(profile="cn_current", resolver="null")
+            result = pipe.translate_text("实数系的连续性")
+            assert result.ir.blocks[0].children, "the block never populated"
+        finally:
+            analyzer_registry.clear_cache()
