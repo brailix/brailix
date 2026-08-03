@@ -133,7 +133,7 @@ def expand_block(
     # Footnote optionally gets a reference marker prepended.
     cells: list[BrailleCell] = []
     if isinstance(block, Footnote) and block.ref:
-        cells.extend(_footnote_ref_cells(block.ref, block.span, profile))
+        cells.extend(_footnote_ref_cells(block.ref, profile))
     cells.extend(_translate_children(block.children, ctx, profile))
     return [
         BrailleBlock(
@@ -341,22 +341,29 @@ def _expand_table(
 # ---- Footnote -------------------------------------------------------------
 
 
-def _footnote_ref_cells(
-    ref: str, span: Span | None, profile: BrailleProfile
-) -> list[BrailleCell]:
+def _footnote_ref_cells(ref: str, profile: BrailleProfile) -> list[BrailleCell]:
     """Render a footnote ref (``"1"``, ``"a"``, ``"*"``) as a marker.
 
     V1 just spells the ref characters out via the profile's punct /
     letter tables and follows them with a blank cell so the body text
     has clear separation. Unknown chars produce an unknown cell.
+
+    Like a list marker (:func:`_list_marker_cells`), the ref is synthesised
+    print structure rather than a character of the footnote's ``text``, so
+    every cell it produces anchors to the body text's LEADING EDGE in
+    leaf-local coordinates: ``Span(0, 0)``. It used to walk
+    ``Footnote.span`` — a *document* coordinate, and one that describes the
+    footnote body, not the ref — so each ref character claimed a body
+    character it never came from, offset by wherever the footnote sat in the
+    source. Giving the ref its own precise positions would need a coordinate
+    contract for ``ref`` itself; ``Block.span`` cannot supply one.
     """
     if not ref:
         return []
-    base = span.start if span else 0
+    edge = Span(0, 0)
 
-    def sp(i: int) -> Span | None:
-        # Each ref char traces to its own position in the footnote's span.
-        return Span(base + i, base + i + 1) if span else None
+    def sp(_i: int) -> Span:
+        return edge
 
     cells: list[BrailleCell] = []
     # Track whether the previous emitted cell was part of a digit run so a
@@ -416,10 +423,10 @@ def _footnote_ref_cells(
             BrailleCell(dots=(), role="unknown", source_span=sp(i), source_text=ch)
         )
         prev_was_digit = False
-    # Trailing separator blank — trace to the ref's trailing edge.
-    cells.append(
-        blank_cell(Span(base + len(ref), base + len(ref)) if span else None)
-    )
+    # Trailing separator blank — the same leading-edge anchor as the rest of
+    # the marker run: it separates the marker from the body, and belongs to
+    # neither.
+    cells.append(blank_cell(edge))
     return cells
 
 

@@ -83,9 +83,13 @@ def parse_cached_tree(
     domain: str,
     source: str,
     text: str,
+    # Leaf-local, like every other span below the block boundary — the
+    # driver's own segment warnings are, and a front-end that compiles block
+    # by block rebases a block's warnings by that block's offset before
+    # showing them, so a document coordinate here would be counted twice.
     # Optional because an inline MathInline can carry no provenance (a
-    # hand-built node); the block paths always synthesise one. It is only ever
-    # passed through to the warning, which accepts None.
+    # hand-built node); the block paths always synthesise one. It is only
+    # ever passed through to the warning, which accepts None.
     span: _Span | None,
     salt: str = "",
     identity: str,
@@ -198,7 +202,7 @@ def populate_prose_block(
     and TableCell alike — which is why the table holds only the exceptions and
     this stays the fallback.
     """
-    text, _span, _ = _ensure_block_span(block)
+    text, _doc_span, _leaf_span = _ensure_block_span(block)
     block.children = driver.run_frontend(
         text, ctx, tree_in=tree_in, tree_out=tree_out
     )
@@ -220,9 +224,13 @@ def populate_code_block(
     :data:`BLOCK_POPULATORS` callable through one uniform signature. The
     backend's punct path emits one cell per source character, keeping code
     byte-exact.
+
+    The carrier's span is the **leaf-local** one — the punct path walks it
+    character by character, so a document-level span would have stamped
+    every cell with an offset the caller is documented to add for itself.
     """
-    text, span, _ = _ensure_block_span(block)
-    block.children = [CodeInline(surface=text, span=span)]
+    text, _doc_span, leaf_span = _ensure_block_span(block)
+    block.children = [CodeInline(surface=text, span=leaf_span)]
 
 
 def populate_music_block(
@@ -253,7 +261,7 @@ def populate_music_block(
     parse + normalise is skipped — the decisive win for proofreading, where the
     score source never changes between override edits.
     """
-    text, span, _had_span = _ensure_block_span(block)
+    text, _doc_span, leaf_span = _ensure_block_span(block)
 
     # A full :class:`ScoreBlock` runs in ``"score"`` mode; a single-passage
     # :class:`MusicBlock` in ``"block"`` mode. Previously both were forced
@@ -273,7 +281,7 @@ def populate_music_block(
         domain="music",
         source=block.source,
         text=text,
-        span=span,
+        span=leaf_span,
         salt=mode,
         identity=driver.parse_identity,
         parser=driver._parse_music_tree,
@@ -293,7 +301,7 @@ def populate_music_block(
     block.children = [
         MusicInline(
             surface=text,
-            span=span,
+            span=leaf_span,
             source=block.source,
             score=tree,
         )
@@ -323,19 +331,14 @@ def populate_math_block(
     parser inline math (:meth:`~brailix.pipeline.frontend_driver.FrontendDriver.attach_math`)
     uses — so a test injects a fault by replacing that attribute on the driver.
     """
-    # Remember whether the caller-supplied block had a span. The
-    # per-char Unknown fallback below matches the legacy behavior
-    # in backend.block._unknown_cells_for: if the source block has
-    # no span, the fallback cells also have no span — the caller
-    # then knows it can't anchor them.
-    text, span, had_original_span = _ensure_block_span(block)
+    text, _doc_span, leaf_span = _ensure_block_span(block)
 
     tree, error = parse_cached_tree(
         ctx,
         domain="math",
         source=block.source,
         text=text,
-        span=span,
+        span=leaf_span,
         # Nothing beyond (source, surface) feeds a math parse, so no salt.
         identity=driver.parse_identity,
         parser=driver._parse_math_tree,
@@ -356,12 +359,17 @@ def populate_math_block(
         # the real estate the formula would have. Each will trigger its own
         # UNKNOWN_NODE warning from the dispatcher — expected, and slightly
         # more precise than one warning for the whole block.
-        base = span.start
+        #
+        # Every character gets its own leaf-local span, unconditionally. It
+        # used to depend on whether the caller supplied a block span, and to
+        # count from that span's start when they had: a formula that failed to
+        # parse was then the one construct in a compiled document whose cells
+        # were untraceable (ARCHITECTURE#arch-traceability), or traceable to
+        # the wrong coordinate system. ``_ensure_block_span`` has already
+        # given the block a span either way, so there is nothing left for the
+        # distinction to protect.
         block.children = [
-            Unknown(
-                surface=ch,
-                span=Span(base + i, base + i + 1) if had_original_span else None,
-            )
+            Unknown(surface=ch, span=Span(i, i + 1))
             for i, ch in enumerate(text)
         ]
         return
@@ -369,7 +377,7 @@ def populate_math_block(
     block.children = [
         MathInline(
             surface=text,
-            span=span,
+            span=leaf_span,
             source=block.source,
             math=tree,
         )
@@ -401,7 +409,7 @@ def populate_graphic_block(
     same two exemptions math and music make.) Shares the ``("graphic", …)`` tree sub-cache domain
     alongside math / music.
     """
-    text, span, _had_span = _ensure_block_span(block)
+    text, _doc_span, leaf_span = _ensure_block_span(block)
 
     # The parse result embeds what the asset resolver returned (an ``image``
     # fence inlines the resolved bytes as a data: URI), so the resolver's
@@ -423,7 +431,7 @@ def populate_graphic_block(
         domain="graphic",
         source=block.source,
         text=text,
-        span=span,
+        span=leaf_span,
         salt=salt,
         identity=identity,
         parser=driver._parse_graphic_tree,
@@ -459,7 +467,7 @@ def populate_graphic_block(
     block.children = [
         GraphicInline(
             surface=text,
-            span=span,
+            span=leaf_span,
             source=block.source,
             svg=tree,
         )

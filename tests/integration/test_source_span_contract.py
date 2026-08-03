@@ -26,8 +26,26 @@ import pytest
 from brailix import Pipeline
 from brailix.core.span import Span
 from brailix.ir.braille import BrailleDocument
-from brailix.ir.document import Block, Footnote, MathBlock
+from brailix.ir.document import (
+    Block,
+    CodeBlock,
+    Footnote,
+    GraphicBlock,
+    MathBlock,
+    MusicBlock,
+)
 from brailix.ir.document import List as ListBlock
+
+MUSICXML_ONE_NOTE = (
+    '<score-partwise version="4.0">'
+    '<part-list><score-part id="P1"><part-name>Voice</part-name></score-part>'
+    "</part-list>"
+    '<part id="P1"><measure number="1">'
+    "<note><pitch><step>C</step><octave>4</octave></pitch>"
+    "<duration>1</duration><type>quarter</type></note>"
+    "</measure></part>"
+    "</score-partwise>"
+)
 
 
 @pytest.fixture(scope="module")
@@ -95,6 +113,42 @@ class TestSourceSpanContract:
             )
             missing = _missing_spans(BrailleDocument(blocks=list(cb.braille_blocks)))
             assert not missing, f"footnote {ref!r} → span-less cells: {missing}"
+
+    def test_footnote_ref_anchors_leaf_local_at_any_offset(
+        self, pipe: Pipeline
+    ) -> None:
+        # Presence is not enough: the ref is synthesised print structure, so
+        # its cells anchor to the body text's leading edge in LEAF-LOCAL
+        # coordinates — the same convention a list marker uses. They used to
+        # walk ``Footnote.span``, a document coordinate describing the body
+        # rather than the ref, so every ref cell claimed a body character it
+        # never came from, displaced by wherever the footnote sat in the
+        # source.
+        body = "脚注内容"
+        for offset in (0, 250):
+            blk = Footnote(
+                ref="1a2", text=body, span=Span(offset, offset + len(body))
+            )
+            cb = pipe.translate_block(blk)
+            marker = [
+                c
+                for c in cb.braille_blocks[0].cells
+                if c.role in ("footnote_ref", "number_sign")
+                or (c.role == "space" and c.source_text == "")
+            ]
+            assert marker, "no marker cells emitted"
+            for cell in cb.braille_blocks[0].cells:
+                assert cell.source_span is not None
+                assert cell.source_span.end <= len(body), (
+                    f"cell {cell.role!r} span {cell.source_span} runs past "
+                    f"the footnote's own text — a document coordinate "
+                    f"leaked into the leaf-local cell sequence"
+                )
+            assert all(
+                c.source_span == Span(0, 0)
+                for c in cb.braille_blocks[0].cells
+                if c.role in ("footnote_ref", "number_sign")
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -223,3 +277,111 @@ class TestSourceSpanAccuracy:
         assert p.text == "第一行 第二行"
         assert (p.span.start, p.span.end) == (0, len(md))
         assert md[p.span.start : p.span.end] != p.text
+
+
+# ---------------------------------------------------------------------------
+# The specialised verticals: math / code / music / graphic carriers
+# ---------------------------------------------------------------------------
+
+
+class TestSpecialBlockLeafLocalSpans:
+    """A math / code / music / graphic block populates ONE carrier inline
+    node, and that node's span — like every inline span — is leaf-local.
+
+    This is the coordinate confusion the class exists to pin. The four
+    populate handlers used to hand their carrier the block's *document*
+    span, which is the value they also need for other purposes, and every
+    single-block test agreed with them because a document's first block
+    starts at 0. From the second block on, a consumer following the
+    documented contract (add ``block.span.start`` to a leaf-local offset)
+    landed at twice the offset.
+    """
+
+    @staticmethod
+    def _carrier_and_cells(pipe: Pipeline, block: Block):
+        cb = pipe.translate_block(block)
+        assert len(block.children) == 1
+        return block.children[0], list(cb.braille_blocks[0].cells)
+
+    @pytest.mark.parametrize("offset", [0, 100])
+    def test_code_block_carrier_is_leaf_local(
+        self, pipe: Pipeline, offset: int
+    ) -> None:
+        text = "x = 1"
+        blk = CodeBlock(
+            language="python", text=text, span=Span(offset, offset + len(text))
+        )
+        carrier, cells = self._carrier_and_cells(pipe, blk)
+        assert carrier.span == Span(0, len(text))
+        # The punct path walks the carrier span one character at a time, so
+        # the document offset would have shown up on every cell.
+        assert [c.source_span for c in cells] == [
+            Span(i, i + 1) for i in range(len(text))
+        ]
+
+    @pytest.mark.parametrize("offset", [0, 100])
+    def test_math_block_carrier_is_leaf_local(
+        self, pipe: Pipeline, offset: int
+    ) -> None:
+        pytest.importorskip("latex2mathml")
+        text = "x + y"
+        blk = MathBlock(
+            source="latex", text=text, span=Span(offset, offset + len(text))
+        )
+        carrier, cells = self._carrier_and_cells(pipe, blk)
+        assert carrier.span == Span(0, len(text))
+        assert cells
+        for cell in cells:
+            assert cell.source_span is not None
+            assert cell.source_span.end <= len(text), (
+                f"cell {cell.role!r} span {cell.source_span} runs past the "
+                f"block's own text ({len(text)} chars) — a document "
+                f"coordinate leaked into the leaf-local cell sequence"
+            )
+
+    @pytest.mark.parametrize("offset", [0, 100])
+    def test_music_block_carrier_is_leaf_local(
+        self, pipe: Pipeline, offset: int
+    ) -> None:
+        text = MUSICXML_ONE_NOTE
+        blk = MusicBlock(
+            source="musicxml", text=text, span=Span(offset, offset + len(text))
+        )
+        carrier, _cells = self._carrier_and_cells(pipe, blk)
+        assert carrier.span == Span(0, len(text))
+
+    @pytest.mark.parametrize("offset", [0, 100])
+    def test_graphic_block_carrier_is_leaf_local(
+        self, pipe: Pipeline, offset: int
+    ) -> None:
+        text = '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+        blk = GraphicBlock(
+            source="svg", text=text, span=Span(offset, offset + len(text))
+        )
+        pipe.translate_block(blk)
+        assert len(blk.children) == 1
+        assert blk.children[0].span == Span(0, len(text))
+
+    def test_markdown_document_second_fence_is_not_double_offset(
+        self, pipe: Pipeline
+    ) -> None:
+        # The end-to-end shape: a fence that is NOT the document's first
+        # block. Its cells must stay inside the fence body's own length.
+        md = (
+            "开头一段话。\n\n"
+            "```python\nx = 1\n```\n\n"
+            "$$\na+b\n$$\n"
+        )
+        doc = pipe.parse_text(md, format="markdown")
+        result = pipe.translate_document(doc)
+        for blk, bb in zip(doc.blocks, result.braille_ir.blocks, strict=True):
+            if not isinstance(blk, (CodeBlock, MathBlock)):
+                continue
+            assert blk.span.start > 0, "fence should not start the document"
+            for cell in bb.cells:
+                assert cell.source_span is not None
+                assert cell.source_span.end <= len(blk.text or ""), (
+                    f"{type(blk).__name__} cell {cell.role!r} span "
+                    f"{cell.source_span} exceeds its own text "
+                    f"{blk.text!r} — the block's document offset leaked in"
+                )
