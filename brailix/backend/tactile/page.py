@@ -31,6 +31,7 @@ single ``dpi`` dial.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from brailix.backend.tactile._labels import LabelStamper
@@ -49,9 +50,93 @@ __all__ = (
     "PageItem",
     "compose_pages",
     "line_width_cells",
+    "resolve_item_gap_mm",
+    "resolve_margin_mm",
 )
 
 _MM_PER_INCH = 25.4
+
+
+def resolve_margin_mm(
+    profile: TactileProfile, margin_mm: float | None
+) -> float:
+    """The page margin to use, defaulted and validated — one interpretation.
+
+    ``None`` resolves to one braille cell advance. Anything else must be a
+    finite number in ``[0, min(page width, page height) / 2)``; outside that
+    it raises :class:`ValueError`, because the two consumers of this number
+    read an out-of-range one *differently* and the page comes out wrong
+    rather than absent:
+
+    * :func:`line_width_cells` subtracts it from the page width, so a
+      **negative** margin wraps text as though the page were wider than it
+      is, while :func:`compose_pages` clamps the same value to zero pixels
+      before stamping — the overflowing right-hand cells simply fell off the
+      page, silently, with the page count unchanged;
+    * a margin at or past **half the page** leaves no usable box at all. Both
+      dimensions bound it, not just the width: an over-tall margin left one
+      usable row, so a two-page document paginated into fifteen mostly-blank
+      pages;
+    * a **non-finite** one reached ``round()`` inside the compositor and came
+      back out as ``ValueError: cannot convert float NaN to integer``, thrown
+      from the middle of a routine documented not to raise, naming nothing.
+
+    Validated *here*, where the default is also decided, so the wrap width
+    and the stamp geometry cannot be normalised differently — the same
+    reason :func:`line_width_cells` is the one definition of "cells per line"
+    rather than a formula each caller copies.
+    """
+    if margin_mm is None:
+        return profile.braille_cell_spacing_mm
+    return _as_page_measure(
+        margin_mm,
+        "margin_mm",
+        upper=min(profile.page_width_mm, profile.page_height_mm) / 2,
+    )
+
+
+def resolve_item_gap_mm(
+    profile: TactileProfile, item_gap_mm: float | None
+) -> float:
+    """The around-figure vertical gap to use, defaulted and validated.
+
+    ``None`` resolves to one interline pitch. A negative gap would pull a
+    figure back over the text above it — overlapping ink on an embossed page,
+    which is unreadable rather than merely ugly — and a non-finite one poisons
+    every subsequent ``y`` in the flow. Bounded above by the page height: a
+    gap taller than the page can never be placed.
+    """
+    if item_gap_mm is None:
+        return profile.braille_line_spacing_mm
+    return _as_page_measure(
+        item_gap_mm, "item_gap_mm", upper=profile.page_height_mm
+    )
+
+
+def _as_page_measure(value: object, what: str, *, upper: float) -> float:
+    """``value`` as a finite float in ``[0, upper)``, or :class:`ValueError`.
+
+    A page-layout length, so zero is meaningful (a flush-left page has no
+    margin) — which is why this is not
+    :func:`brailix.core.measure.as_positive_finite`, whose subject is a
+    physical measurement where zero is as meaningless as ``NaN``. ``bool`` is
+    refused for the reason it is refused there: an ``int`` subclass, so
+    ``margin_mm=True`` would silently mean one millimetre.
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"{what} must be a number, got {value!r}")
+    try:
+        num = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        raise ValueError(f"{what} must be a number, got {value!r}") from None
+    if not math.isfinite(num):
+        raise ValueError(f"{what} must be a finite number, got {num}")
+    if not 0 <= num < upper:
+        raise ValueError(
+            f"{what} must be >= 0 and < {upper} (half the page for a margin, "
+            f"the page height for a gap), got {num}"
+        )
+    return num
 
 
 def line_width_cells(
@@ -62,8 +147,9 @@ def line_width_cells(
     (page width minus two margins) in millimetres, divided by the
     cell-to-cell advance, floored — so a full line never spills past the
     usable box into the right margin. ``margin_mm`` defaults to one cell
-    advance, the same default :func:`compose_pages` applies, so the wrap
-    width and the stamp geometry agree.
+    advance and is validated by :func:`resolve_margin_mm`, the same
+    resolution :func:`compose_pages` applies, so the wrap width and the stamp
+    geometry agree on one number.
 
     The one shared definition of "cells per page line":
     :meth:`brailix.pipeline.Pipeline.translate_document_to_pages` wraps
@@ -71,9 +157,7 @@ def line_width_cells(
     must use it too — a hand-copied formula would silently drift from the
     compositor's margins.
     """
-    margin = (
-        profile.braille_cell_spacing_mm if margin_mm is None else margin_mm
-    )
+    margin = resolve_margin_mm(profile, margin_mm)
     usable_w_mm = profile.page_width_mm - 2 * margin
     return max(1, int(usable_w_mm // profile.braille_cell_spacing_mm))
 
@@ -208,7 +292,15 @@ def compose_pages(
     (:attr:`TactileProfile.braille_cell_spacing_mm`); ``item_gap_mm`` — the
     vertical space placed **around figures** (text runs flow line-to-line; a
     figure gets one gap before and after) — defaults to one interline pitch.
-    Returns one raster per page — empty when ``items`` is empty. Never raises.
+    Both go through :func:`resolve_margin_mm` / :func:`resolve_item_gap_mm`,
+    so an out-of-range one is refused here, in the caller's own terms, rather
+    than turning into a clipped or mostly-blank page nobody can tell from an
+    intended one. Returns one raster per page — empty when ``items`` is empty.
+
+    Never raises **for its content**: a figure that cannot be placed degrades
+    to a warning, not an exception. Its own geometry arguments are a
+    different matter — those are a caller's code, and a page laid out to
+    numbers that cannot describe a page is not a soft failure.
     """
     ppm = profile.dpi / _MM_PER_INCH
     page_w = max(1, round(profile.page_width_mm * ppm))
@@ -225,10 +317,12 @@ def compose_pages(
         ppm = page_w / profile.page_width_mm
         eff_dpi = ppm * _MM_PER_INCH
 
-    margin = profile.braille_cell_spacing_mm if margin_mm is None else margin_mm
-    margin_px = max(0, round(margin * ppm))
-    gap = profile.braille_line_spacing_mm if item_gap_mm is None else item_gap_mm
-    gap_px = max(0.0, gap * ppm)
+    # Resolved and validated up front, by the same functions ``line_width_cells``
+    # uses — the two used to normalise differently (it took the raw millimetres,
+    # this clamped the pixels to >= 0), so a negative margin wrapped for a wider
+    # page than it then drew.
+    margin_px = round(resolve_margin_mm(profile, margin_mm) * ppm)
+    gap_px = resolve_item_gap_mm(profile, item_gap_mm) * ppm
 
     left = margin_px
     top = margin_px
