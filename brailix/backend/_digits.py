@@ -107,7 +107,7 @@ def emit_digit_run(
     # A digit run must begin with a digit or a decimal point — the number
     # sign is meaningless before anything else (a leading thousands separator,
     # or a stray non-digit a malformed <mn> fed in). Prose guarantees this
-    # upstream (segment.py); the math <mn> path does not, so enforce it here
+    # upstream (segmentation.py); the math <mn> path does not, so enforce it here
     # rather than emit a dangling number sign with no digit behind it. A
     # leading fullwidth digit is "clean" only when fold_nonascii is on (prose
     # folds; math treats it as the writing error it is and warns).

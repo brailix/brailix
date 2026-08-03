@@ -24,19 +24,24 @@ this file pins both:
 from __future__ import annotations
 
 import dataclasses
-import sys
 
 import pytest
 
+import brailix.frontend.normalization as normalize_mod
+import brailix.frontend.segmentation as segment_mod
 from brailix import Pipeline
 from brailix.core.context import FrontendContext
 from brailix.core.registry import Registry
-from brailix.frontend.normalize import (
+from brailix.frontend.normalization import (
     AUTO_NORMALIZER,
     normalize,
     normalizer_registry,
 )
-from brailix.frontend.segment import AUTO_SEGMENTER, segment, segmenter_registry
+from brailix.frontend.segmentation import (
+    AUTO_SEGMENTER,
+    segment,
+    segmenter_registry,
+)
 from brailix.frontend.zh import tokenize
 from brailix.frontend.zh.analyzer import registry as zh_analyzer_registry_mod
 from brailix.frontend.zh.pinyin import annotate
@@ -44,15 +49,6 @@ from brailix.frontend.zh.pinyin import registry as pinyin_registry_mod
 from brailix.frontend.zh.tokens import ChineseToken
 from brailix.ir.document import Paragraph
 from brailix.pipeline import TranslationResult
-
-# ``brailix.frontend`` re-exports ``segment`` / ``normalize`` as FUNCTIONS,
-# which shadows the same-named submodules on the package — so neither
-# ``from brailix.frontend import segment`` nor ``import
-# brailix.frontend.segment as m`` yields the module (both resolve the name
-# through the package ``__dict__``). Reach them through ``sys.modules``,
-# which is keyed by the real module path.
-segment_mod = sys.modules["brailix.frontend.segment"]
-normalize_mod = sys.modules["brailix.frontend.normalize"]
 
 PIPELINE_DEFAULTS = {f.name: f.default for f in dataclasses.fields(Pipeline)}
 

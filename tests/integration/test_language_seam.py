@@ -13,7 +13,7 @@ from brailix.core.context import FrontendContext
 from brailix.core.registry import Registry
 from brailix.frontend import language_frontend_registry
 from brailix.frontend._language_pick import LANGUAGE_OPTION, pick_by_language
-from brailix.frontend.segment import (
+from brailix.frontend.segmentation import (
     BUILTIN_SEGMENTER,
     segment,
     segmenter_registry,

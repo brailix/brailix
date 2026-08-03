@@ -38,18 +38,30 @@ legible, not to invite a third party to import them; widening ``__all__`` to
 match the table would publish four more compatibility promises for the sake
 of symmetry.
 
-======================  ==============================================
-Module                  Its subsystem entry point
-----------------------  ----------------------------------------------
-``frontend.segment``    :func:`segment` (selected by ``segmenter``)
-``frontend.normalize``  :func:`normalize` (selected by ``normalizer``)
-``frontend.zh``         :func:`tokenize` (selected by ``zh_analyzer``)
-``frontend.zh.pinyin``  :func:`annotate` (selected by ``pinyin_resolver``)
-``frontend.ja``         :func:`analyze` (selected by ``ja_analyzer``)
-``frontend.math``       :func:`parse_math_tree` (source via :class:`MathContext`)
-``frontend.music``      :func:`parse_music_tree` (source via :class:`MusicContext`)
-``frontend.graphics``   :func:`parse_graphic_tree` (source via :class:`GraphicsContext`)
-======================  ==============================================
+=========================  ===========================================
+Module                     Its subsystem entry point
+-------------------------  -------------------------------------------
+``frontend.segmentation``  :func:`segment` (selected by ``segmenter``)
+``frontend.normalization`` :func:`normalize` (selected by ``normalizer``)
+``frontend.zh``            :func:`tokenize` (selected by ``zh_analyzer``)
+``frontend.zh.pinyin``     :func:`annotate` (selected by ``pinyin_resolver``)
+``frontend.ja``            :func:`analyze` (selected by ``ja_analyzer``)
+``frontend.math``          :func:`parse_math_tree` (source via :class:`MathContext`)
+``frontend.music``         :func:`parse_music_tree` (source via :class:`MusicContext`)
+``frontend.graphics``      :func:`parse_graphic_tree` (source via :class:`GraphicsContext`)
+=========================  ===========================================
+
+The first two modules are named for the *process* rather than the verb because
+the verb is taken: this facade binds :func:`segment` and :func:`normalize` as
+functions, and a package attribute and a submodule cannot both own one name.
+They used to be ``frontend.segment`` / ``frontend.normalize``, and the function
+won every time — ``import brailix.frontend.segment as m`` handed back the
+function, so ``m.segmenter_registry`` (the path the extension guide names)
+raised ``AttributeError``, while ``from brailix.frontend.segment import
+segmenter_registry`` worked, because that form is resolved through
+``sys.modules`` rather than through the package. One documented path, two
+spellings, one of them broken — and the test suite had a ``sys.modules``
+lookup written into it to step around exactly that.
 
 Published *here*, as this facade's ``__all__`` — the names that do carry a
 compatibility promise: :func:`segment`, :func:`normalize`, ``tokenize_zh``,
@@ -84,8 +96,8 @@ from brailix.frontend.ja import ja_boundary as _ja_boundary
 from brailix.frontend.ja import tokens_to_inline as _ja_tokens_to_inline
 from brailix.frontend.ja.analyzer import list_analyzers as _ja_list_analyzers
 from brailix.frontend.math import parse_math_tree
-from brailix.frontend.normalize import normalize
-from brailix.frontend.segment import segment
+from brailix.frontend.normalization import normalize
+from brailix.frontend.segmentation import segment
 from brailix.frontend.zh import (
     insert_cross_kind_boundary_spaces as _zh_boundary_spaces,
 )

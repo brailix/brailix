@@ -12,7 +12,7 @@ imports the math frontend, and inline math defers just like a display
 
 This module is the single definition of the island wire format. It is
 imported by both the writer (:mod:`brailix.input.docx`) and the reader
-(:mod:`brailix.frontend.normalize`); neither imports the other, and the
+(:mod:`brailix.frontend.normalization`); neither imports the other, and the
 ``$...$`` convention is no longer duplicated knowledge spread across the
 two layers.
 
@@ -30,7 +30,7 @@ Two design points make this safe:
 
 * The leading ``$`` keeps a tagged island lexically a ``$...$`` region,
   so the segmenter recognises it through its existing protected-region
-  scan (``frontend.segment._iter_inline_math_spans``) with no new pattern. The
+  scan (``frontend.segmentation._iter_inline_math_spans``) with no new pattern. The
   ``US`` immediately after the ``$`` is the single discriminator between
   a *tagged* island (decoded here) and a plain user-typed ``$x^2$`` /
   ``$<math>...$`` fragment (handled by the normalizer's LaTeX/MathML

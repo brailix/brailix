@@ -449,7 +449,7 @@ AUTO_NORMALIZER = "auto"
 
 # The built-in, language-neutral normalizer's registered name, kept distinct
 # from the name above for the same reason as
-# :data:`~brailix.frontend.segment.BUILTIN_SEGMENTER`.
+# :data:`~brailix.frontend.segmentation.BUILTIN_SEGMENTER`.
 BUILTIN_NORMALIZER = "default"
 
 normalizer_registry.register(BUILTIN_NORMALIZER, DefaultNormalizer)
@@ -459,7 +459,7 @@ normalizer_registry.register(BUILTIN_NORMALIZER, DefaultNormalizer)
 class AutoNormalizer:
     """Delegating normalizer: uses the active language's, else the built-in.
 
-    Counterpart to :class:`~brailix.frontend.segment.AutoSegmenter`; see it
+    Counterpart to :class:`~brailix.frontend.segmentation.AutoSegmenter`; see it
     for why the choice is made per call rather than cached.
     """
 

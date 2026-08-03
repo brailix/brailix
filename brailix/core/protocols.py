@@ -62,7 +62,7 @@ class Segmenter(Protocol):
 
     ``ctx`` may be ``None`` so callers without a fully-built
     :class:`FrontendContext` (e.g. low-level unit tests or the
-    minimal-config code path in :func:`brailix.frontend.segment`)
+    minimal-config code path in :func:`brailix.frontend.segmentation`)
     can still drive a segmenter.
     """
 

@@ -45,7 +45,7 @@ class TestSegmenterContract:
     def test_island_matches_the_segmenter_pattern_whole(self) -> None:
         # Belt-and-braces: the real segmenter scan protects a wrapped island
         # in full, so deferred math is protected exactly like ``$x^2$``.
-        from brailix.frontend.segment import _find_protected_regions
+        from brailix.frontend.segmentation import _find_protected_regions
 
         island = inline_math.wrap("eq_field", r"eq \f(1,2)")
         text = "前 " + island + " 后"

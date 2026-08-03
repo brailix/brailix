@@ -205,7 +205,7 @@ only_mutate = [
     "brailix/core/config/_helpers.py",
     "brailix/core/config/validator.py",
     "brailix/backend/zh/pinyin_parser.py",
-    "brailix/frontend/segment.py",
+    "brailix/frontend/segmentation.py",
     "brailix/frontend/math/normalizer.py",
     "brailix/frontend/zh/pinyin/adapters/_align.py",
     "brailix/renderer/unicode_braille.py",

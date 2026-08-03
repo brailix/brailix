@@ -2,7 +2,7 @@ import pytest
 
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
-from brailix.frontend.segment import (
+from brailix.frontend.segmentation import (
     DefaultSegmenter,
     _segment_text,
     segmenter_registry,

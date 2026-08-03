@@ -452,7 +452,7 @@ class TestRegistryReRegisterInvalidation:
     layer can keep serving the replaced implementation's braille."""
 
     def test_re_register_advances_fingerprint_and_source_hash(self) -> None:
-        from brailix.frontend.segment import DefaultSegmenter, segmenter_registry
+        from brailix.frontend.segmentation import DefaultSegmenter, segmenter_registry
 
         with segmenter_registry.overriding("zh", DefaultSegmenter):
             pipe = Pipeline(profile="cn_current")
@@ -527,7 +527,7 @@ class TestRegistryReRegisterInvalidation:
         straddled two epochs: adapter names resolve on every use, so part of the
         block met the outgoing implementation and part met its replacement. No
         fingerprint describes a blend, so the run says so."""
-        from brailix.frontend.segment import DefaultSegmenter, segmenter_registry
+        from brailix.frontend.segmentation import DefaultSegmenter, segmenter_registry
 
         class _SelfRegistering:
             name = "probe"
@@ -565,7 +565,7 @@ class TestRegistryReRegisterInvalidation:
         key itself is retired to a one-off value, so a caller that ignores the
         flag records a dead entry instead of poisoning a live one.
         """
-        from brailix.frontend.segment import DefaultSegmenter, segmenter_registry
+        from brailix.frontend.segmentation import DefaultSegmenter, segmenter_registry
 
         class _SelfRegistering:
             name = "probe"
@@ -628,7 +628,7 @@ class TestRegistryReRegisterInvalidation:
         same way, so a registration landing mid-run leaves those results just
         as mixed — and they said nothing at all about it.
         """
-        from brailix.frontend.segment import DefaultSegmenter, segmenter_registry
+        from brailix.frontend.segmentation import DefaultSegmenter, segmenter_registry
 
         class _SelfRegistering:
             name = "probe"
@@ -759,8 +759,8 @@ class TestRegistryReRegisterInvalidation:
         from brailix.frontend.graphics.registry import graphic_source_registry
         from brailix.frontend.math.registry import math_source_registry
         from brailix.frontend.music.registry import music_source_registry
-        from brailix.frontend.normalize import normalizer_registry
-        from brailix.frontend.segment import segmenter_registry
+        from brailix.frontend.normalization import normalizer_registry
+        from brailix.frontend.segmentation import segmenter_registry
 
         compile_time = {
             "segmenter_registry": segmenter_registry,
@@ -797,7 +797,7 @@ class TestRegistryReRegisterInvalidation:
         # The sharp edge: the SAME block object was populated before the
         # swap. Its stamp no longer matches, so the re-translate drops the
         # stale children and the NEW implementation observably runs.
-        from brailix.frontend.segment import DefaultSegmenter, segmenter_registry
+        from brailix.frontend.segmentation import DefaultSegmenter, segmenter_registry
 
         with segmenter_registry.overriding("zh", DefaultSegmenter):
             pipe = Pipeline(
