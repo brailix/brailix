@@ -722,3 +722,40 @@ def test_overriding_restores_the_probe_too() -> None:
         assert reg.available("engine") is True  # the stub has no dependency
 
     assert reg.available("engine") is False
+
+
+def test_a_namespace_package_reads_unavailable(tmp_path) -> None:
+    """A directory with no code in it imports fine, and is not the package.
+
+    This is what an application bundle leaves behind when it stops shipping
+    an engine: the executable is replaced, the engine's *data* directory
+    stays, and the application's own directory is the first entry on
+    ``sys.path``. ``import <engine>`` then succeeds with no ``__file__``, and
+    an adapter that locates its data relative to one fails on ``None`` —
+    which is not a "candidate unavailable" error, so an ``auto`` chain
+    propagates it instead of skipping, and every block of every document
+    fails.
+
+    Answering it here means the picker never offers the engine and a stored
+    setting naming it is repaired, before any of that.
+    """
+    import sys
+
+    leftover = tmp_path / "ghostengine"
+    leftover.mkdir()
+    (leftover / "models").mkdir()  # data, but no __init__.py
+    sys.path.insert(0, str(tmp_path))
+    try:
+        import importlib.util
+
+        spec = importlib.util.find_spec("ghostengine")
+        assert spec is not None, "the bare directory should still import"
+        assert spec.origin is None, "…as a namespace package"
+
+        reg: Registry[object] = Registry("probe")
+        reg.register("ghost", lambda: object(), probe="ghostengine")
+        assert reg.available("ghost") is False
+        assert reg.available_names() == []
+    finally:
+        sys.path.remove(str(tmp_path))
+        sys.modules.pop("ghostengine", None)

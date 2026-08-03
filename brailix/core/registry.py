@@ -256,6 +256,15 @@ class Registry[T]:
         the honest answer there is "this registry cannot tell" and the safe
         reading of that is to keep offering it.
 
+        A module that resolves only as a **namespace package** — a directory
+        with no code in it — reads as unavailable. That is not a hypothetical
+        shape: an application bundle that stops shipping an engine leaves the
+        engine's *data* directory behind on an upgraded install, and a bare
+        directory on ``sys.path`` is importable. The import then succeeds, the
+        package has no ``__file__``, and every adapter that locates its data
+        relative to one fails on ``None``. "The directory is there, the code
+        is not" is exactly the question this method exists to ask.
+
         This is availability, not health: a probe that finds the module says
         nothing about whether the loader will succeed (an incompatible
         version, a model that fails to download). The loud failure at
@@ -270,7 +279,12 @@ class Registry[T]:
             return True
         for module in modules:
             try:
-                if importlib.util.find_spec(module) is None:
+                spec = importlib.util.find_spec(module)
+                # ``origin`` is None for a namespace package; a real module —
+                # source, extension, or one Nuitka compiled into the binary
+                # (verified: its loader reports the bundle path) — always has
+                # one.
+                if spec is None or spec.origin is None:
                     return False
             except (ImportError, ValueError):
                 # find_spec imports parent packages to reach a submodule, so
