@@ -255,6 +255,26 @@ def _rewrite_degree_circle(elem: ET.Element) -> None:
     (``°`` -> ⠐⠴) with no superscript marker and no ``MATH_UNKNOWN_SYMBOL`` —
     keeping the "what does this input mean" decision in the frontend instead
     of teaching the backend a second, latex2mathml-specific path.
+
+    The ``<msup>`` being dropped may carry things that are not its tag, and
+    both have to land somewhere or this pass is where they stop existing:
+
+    * its ``data-bk-*`` **provenance** (the module docstring's promise that
+      normalization is attribute-preserving). Each replacement node inherits
+      what it does not already state — ``setdefault``, the same rule
+      :func:`_collapse_singleton_mrows` applies when it drops a wrapper — so
+      the degree sign traces to the exponent that spelled it if that ``<mo>``
+      said where it came from, and to the whole superscript otherwise. Losing
+      it degraded the degree sign to the formula-level span: a proofreader
+      clicking that cell jumped to the start of the formula instead of to the
+      characters that wrote it. LaTeX is the one source that produces this
+      shape *and* the one source that emits no spans, so the loss only
+      surfaces through an adapter that post-processes the tree — which is
+      exactly the documented way to add finer spans.
+    * its ``tail`` — text following the closing tag. Usually empty in MathML
+      and stripped by :func:`strip_whitespace_text` before this runs, so this
+      is a completeness point rather than an observed bug; it moves to the
+      last replacement node, where a tail belongs.
     """
     for child in list(elem):
         _rewrite_degree_circle(child)
@@ -262,9 +282,14 @@ def _rewrite_degree_circle(elem: ET.Element) -> None:
     changed = False
     for child in list(elem):
         if _is_degree_circle_msup(child):
+            base, exponent = child[0], child[1]
             degree = ET.Element("mo")
             degree.text = "°"
-            new_children.append(child[0])  # the numeric base
+            _inherit_provenance(degree, exponent)
+            _inherit_provenance(degree, child)
+            _inherit_provenance(base, child)
+            degree.tail = child.tail
+            new_children.append(base)  # the numeric base
             new_children.append(degree)
             changed = True
         else:
@@ -274,6 +299,19 @@ def _rewrite_degree_circle(elem: ET.Element) -> None:
             elem.remove(c)
         for c in new_children:
             elem.append(c)
+
+
+def _inherit_provenance(target: ET.Element, source: ET.Element) -> None:
+    """Copy ``source``'s ``data-bk-*`` attributes onto ``target``, keeping
+    whatever ``target`` already says.
+
+    Provenance only, not every attribute: the ring operator's presentational
+    attributes describe a ring, and the node they would land on is a degree
+    sign.
+    """
+    for key, value in source.attrib.items():
+        if key.startswith("data-bk-"):
+            target.attrib.setdefault(key, value)
 
 
 def _is_digit_run_mn(node: ET.Element) -> bool:
