@@ -2227,6 +2227,73 @@ class TestArchiveResourceCaps:
         with pytest.raises(ParseError, match="members"):
             _preflight_docx_archive(p.read_bytes(), p)
 
+    def test_member_count_is_rejected_before_the_directory_is_parsed(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The count cap has to bind *before* ``ZipFile`` is constructed.
+
+        Read from ``zf.infolist()``, it measured a cost already paid: the
+        constructor parses the whole central directory and allocates a
+        ``ZipInfo`` per entry, so an archive declaring millions of zero-length
+        members was fully indexed and only then refused. The declared count now
+        comes off the End Of Central Directory record first.
+        """
+        p = tmp_path / "many.docx"
+        self._write_zip(p, {f"part{i}.xml": b"x" for i in range(200)})
+        monkeypatch.setattr(docx_adapter, "_MAX_DOCX_MEMBERS", 8)
+
+        opened = False
+
+        class _Tripwire(zipfile.ZipFile):
+            def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+                nonlocal opened
+                opened = True
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(docx_adapter.zipfile, "ZipFile", _Tripwire)
+        with pytest.raises(ParseError, match="200 members declared"):
+            _preflight_docx_archive(p.read_bytes(), p)
+        assert not opened
+
+    def test_a_zero_length_member_flood_is_cheap_to_refuse(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # The shape the cap is actually for: tens of thousands of empty
+        # entries, a few hundred KB on disk. What is asserted is that the
+        # refusal costs a bounded scan rather than one Python object per entry.
+        p = tmp_path / "flood.docx"
+        self._write_zip(p, {f"p{i}": b"" for i in range(20_000)})
+        assert p.stat().st_size < 2 * 1024 * 1024
+        monkeypatch.setattr(docx_adapter, "_MAX_DOCX_MEMBERS", 8192)
+
+        opened = False
+
+        class _Tripwire(zipfile.ZipFile):
+            def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+                nonlocal opened
+                opened = True
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(docx_adapter.zipfile, "ZipFile", _Tripwire)
+        with pytest.raises(ParseError, match="20000 members declared"):
+            _preflight_docx_archive(p.read_bytes(), p)
+        assert not opened
+
+    def test_the_infolist_count_still_applies(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # The EOCD states a claim, and a claim is not a guarantee: an archive
+        # that under-declares must still be caught by the count taken from the
+        # entries that really turned up.
+        p = tmp_path / "liar.docx"
+        self._write_zip(p, {f"part{i}.xml": b"x" for i in range(5)})
+        monkeypatch.setattr(docx_adapter, "_MAX_DOCX_MEMBERS", 2)
+        monkeypatch.setattr(
+            docx_adapter, "zip_entry_count_exceeds", lambda data, limit: None
+        )
+        with pytest.raises(ParseError, match="5 members"):
+            _preflight_docx_archive(p.read_bytes(), p)
+
     def test_non_zip_falls_through_quietly(self, tmp_path: Path) -> None:
         # Not a ZIP → the gate returns; Document() downstream raises the
         # canonical "not a valid .docx" error instead (one error surface).

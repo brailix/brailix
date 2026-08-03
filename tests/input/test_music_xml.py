@@ -120,10 +120,105 @@ class TestMxlUtf16EntityNotExpanded:
             zf.writestr("META-INF/container.xml", container)
             zf.writestr("plain.musicxml", SIMPLE_XML)  # fallback target (first)
             zf.writestr("via_entity.musicxml", SIMPLE_XML)  # entity-only target
+        from brailix.frontend.music.adapters.mxl import _Budget
+
         with zipfile.ZipFile(io.BytesIO(buf.getvalue())) as zf:
-            root = _find_rootfile(zf)
+            root = _find_rootfile(zf, _Budget())
         assert root == "plain.musicxml"
         assert root != "via_entity.musicxml"
+
+
+class TestMxlArchiveCaps:
+    """``.docx`` has had a member-count cap and a cumulative decompression
+    budget for a while; ``.mxl`` had neither, only the per-member one. A
+    container whose manifest names its own rootfile is attacker-controlled
+    input, so "how many members does this code read" is not something a
+    resource bound should rest on.
+    """
+
+    @staticmethod
+    def _archive(members: dict[str, bytes]) -> bytes:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, data in members.items():
+                zf.writestr(name, data)
+        return buf.getvalue()
+
+    def test_declared_member_count_is_refused_before_the_archive_opens(
+        self, monkeypatch
+    ) -> None:
+        import brailix.frontend.music.adapters.mxl as mxl_mod
+        from brailix.frontend.music.adapters.mxl import MxlSourceAdapter
+
+        payload = self._archive({f"p{i}": b"" for i in range(200)})
+        monkeypatch.setattr(mxl_mod, "_MAX_MEMBERS", 8)
+
+        opened = False
+
+        class _Tripwire(zipfile.ZipFile):
+            def __init__(self, *args, **kwargs):
+                nonlocal opened
+                opened = True
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(mxl_mod.zipfile, "ZipFile", _Tripwire)
+        out = MxlSourceAdapter().to_musicxml(payload)
+        assert "declares 200 members" in out
+        assert not opened
+
+    def test_a_zero_length_member_flood_is_cheap_to_refuse(self) -> None:
+        # Under the real 1024 cap: tens of thousands of empty entries, a few
+        # hundred KB on disk, refused off the central-directory record instead
+        # of one ``ZipInfo`` per entry.
+        from brailix.frontend.music.adapters.mxl import MxlSourceAdapter
+
+        payload = self._archive({f"p{i}": b"" for i in range(20_000)})
+        assert len(payload) < 2 * 1024 * 1024
+        out = MxlSourceAdapter().to_musicxml(payload)
+        assert "declares 20000 members" in out
+
+    def test_cumulative_budget_bounds_the_whole_archive(
+        self, monkeypatch
+    ) -> None:
+        # Each member is comfortably under the per-member cap; together they
+        # are not. Only the cumulative budget catches that.
+        import brailix.frontend.music.adapters.mxl as mxl_mod
+        from brailix.frontend.music.adapters.mxl import MxlSourceAdapter
+
+        monkeypatch.setattr(mxl_mod, "_MAX_MEMBER_BYTES", 4096)
+        monkeypatch.setattr(mxl_mod, "_MAX_TOTAL_BYTES", 1500)
+        payload = _make_mxl_bytes(
+            "<score-partwise><part-list/>"
+            + "<part><measure/></part>" * 80
+            + "</score-partwise>"
+        )
+        out = MxlSourceAdapter().to_musicxml(payload)
+        assert "zip bomb" in out
+
+    def test_the_fallback_scan_is_bounded_too(self, monkeypatch) -> None:
+        # The one walk that would otherwise touch every entry present — the
+        # scan for a plausible rootfile when container.xml is missing.
+        import brailix.frontend.music.adapters.mxl as mxl_mod
+        from brailix.frontend.music.adapters.mxl import (
+            _Budget,
+            _fallback_xml_entry,
+            _find_rootfile,
+        )
+
+        payload = self._archive(
+            {**{f"p{i}.bin": b"" for i in range(50)}, "score.musicxml": b"<a/>"}
+        )
+        monkeypatch.setattr(mxl_mod, "_MAX_MEMBERS", 10)
+        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+            assert _fallback_xml_entry(zf) is None
+            assert _find_rootfile(zf, _Budget()) is None
+
+    def test_a_normal_score_is_unaffected(self) -> None:
+        from brailix.frontend.music.adapters.mxl import MxlSourceAdapter
+
+        out = MxlSourceAdapter().to_musicxml(_make_mxl_bytes(SIMPLE_XML))
+        assert "music-error" not in out
+        assert "score-partwise" in out
 
 
 # ---------------------------------------------------------------------------

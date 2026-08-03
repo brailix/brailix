@@ -16,6 +16,7 @@ import zipfile
 from dataclasses import dataclass
 
 from brailix.core._xml import safe_fromstring
+from brailix.core._zip import zip_entry_count_exceeds
 from brailix.core.context import MusicContext
 from brailix.core.errors import UNREADABLE_ZIP_MEMBER_ERRORS
 from brailix.frontend.music.adapters.musicxml import (
@@ -34,18 +35,58 @@ from brailix.frontend.music.adapters.musicxml import (
 _MAX_MEMBER_BYTES = 64 * 1024 * 1024
 _READ_CHUNK = 1024 * 1024
 
+# ...and cap what the whole archive can cost, which the per-member cap alone
+# does not. Two budgets, both of which ``.docx`` has had and this did not:
+#
+# * the member COUNT, read off the End Of Central Directory record before
+#   ``ZipFile`` is constructed (:func:`~brailix.core._zip.zip_entry_count_exceeds`).
+#   A few hundred KB of archive can declare millions of zero-length entries,
+#   and the whole cost of turning those into ``ZipInfo`` objects lands inside
+#   the constructor — so a count taken from ``infolist()`` afterwards is a
+#   measurement, not a limit. A ``.mxl`` holds a score, a container manifest
+#   and perhaps a handful of images; 1024 is already far past generous.
+# * the CUMULATIVE decompressed bytes across every member this adapter reads.
+#   Only two are read on the happy path (the manifest and the rootfile), so
+#   this is the belt to the per-member cap's braces — but "how many members
+#   does the code read" is not something a resource bound should have to rest
+#   on, since a container manifest is attacker-controlled and names its own
+#   rootfile.
+_MAX_MEMBERS = 1024
+_MAX_TOTAL_BYTES = 128 * 1024 * 1024
+
 
 class _MemberTooLarge(Exception):
-    """An .mxl member's decompressed size exceeds :data:`_MAX_MEMBER_BYTES`."""
+    """An .mxl read exceeded :data:`_MAX_MEMBER_BYTES` for one member or
+    :data:`_MAX_TOTAL_BYTES` across the archive."""
 
 
-def _read_member_capped(zf: zipfile.ZipFile, name: str) -> bytes:
-    """Read one archive member, aborting if it inflates past the cap.
+class _Budget:
+    """The decompressed bytes this adapter may still read from one archive.
+
+    Per-archive rather than module state: two concurrent conversions must not
+    share (or exhaust) one another's allowance.
+    """
+
+    __slots__ = ("remaining",)
+
+    def __init__(self) -> None:
+        self.remaining = _MAX_TOTAL_BYTES
+
+    def spend(self, count: int) -> None:
+        self.remaining -= count
+        if self.remaining < 0:
+            raise _MemberTooLarge("archive total")
+
+
+def _read_member_capped(
+    zf: zipfile.ZipFile, name: str, budget: _Budget
+) -> bytes:
+    """Read one archive member, aborting if it inflates past a cap.
 
     Raises :class:`KeyError` if ``name`` is absent (as ``ZipFile.read``
     would) and :class:`_MemberTooLarge` once the decompressed stream
-    crosses :data:`_MAX_MEMBER_BYTES`, so a zip bomb is stopped mid-
-    inflate instead of after fully materialising in memory.
+    crosses :data:`_MAX_MEMBER_BYTES` or exhausts ``budget``, so a zip bomb is
+    stopped mid-inflate instead of after fully materialising in memory.
     """
     chunks: list[bytes] = []
     total = 0
@@ -55,6 +96,7 @@ def _read_member_capped(zf: zipfile.ZipFile, name: str) -> bytes:
             if not chunk:
                 break
             total += len(chunk)
+            budget.spend(len(chunk))
             if total > _MAX_MEMBER_BYTES:
                 raise _MemberTooLarge(name)
             chunks.append(chunk)
@@ -77,9 +119,21 @@ class MxlSourceAdapter:
             return MusicXMLSourceAdapter().to_musicxml(src, ctx)
         if not src:
             return music_error_wrap("", reason="empty .mxl payload")
+        declared = zip_entry_count_exceeds(src, _MAX_MEMBERS)
+        if declared is not None:
+            # Before ``ZipFile``, deliberately: this is the one check whose
+            # whole value is being cheaper than parsing the central directory.
+            return music_error_wrap(
+                "",
+                reason=(
+                    f".mxl declares {declared} members, over the "
+                    f"{_MAX_MEMBERS} limit (possible zip bomb)"
+                ),
+            )
+        budget = _Budget()
         try:
             with zipfile.ZipFile(io.BytesIO(src)) as zf:
-                inner_name = _find_rootfile(zf)
+                inner_name = _find_rootfile(zf, budget)
                 if inner_name is None:
                     return music_error_wrap(
                         "",
@@ -89,7 +143,7 @@ class MxlSourceAdapter:
                         ),
                     )
                 try:
-                    inner_bytes = _read_member_capped(zf, inner_name)
+                    inner_bytes = _read_member_capped(zf, inner_name, budget)
                 except KeyError:
                     return music_error_wrap(
                         inner_name,
@@ -121,7 +175,7 @@ class MxlSourceAdapter:
         return MusicXMLSourceAdapter().to_musicxml(inner_bytes, ctx)
 
 
-def _find_rootfile(zf: zipfile.ZipFile) -> str | None:
+def _find_rootfile(zf: zipfile.ZipFile, budget: _Budget) -> str | None:
     """Locate the MusicXML rootfile inside an MXL archive.
 
     Per the W3C MusicXML container spec, ``META-INF/container.xml``
@@ -135,7 +189,9 @@ def _find_rootfile(zf: zipfile.ZipFile) -> str | None:
     malformed — some tools (older Dorico exports) skip it.
     """
     try:
-        container_bytes = _read_member_capped(zf, "META-INF/container.xml")
+        container_bytes = _read_member_capped(
+            zf, "META-INF/container.xml", budget
+        )
     except (KeyError, _MemberTooLarge):
         return _fallback_xml_entry(zf)
     try:
@@ -153,8 +209,17 @@ def _find_rootfile(zf: zipfile.ZipFile) -> str | None:
 
 def _fallback_xml_entry(zf: zipfile.ZipFile) -> str | None:
     """Scan the archive for a plausible MusicXML entry when
-    container.xml is missing or malformed."""
-    for info in zf.infolist():
+    container.xml is missing or malformed.
+
+    Bounded by :data:`_MAX_MEMBERS`, like the declared count checked before the
+    archive was opened. The entries really present can be fewer than the count
+    the End Of Central Directory claimed (that is a claim, not a guarantee) but
+    they can also be more, and this walk is the one place that would otherwise
+    touch all of them.
+    """
+    for index, info in enumerate(zf.infolist()):
+        if index >= _MAX_MEMBERS:
+            return None
         name = info.filename
         if name.startswith("META-INF/"):
             continue
