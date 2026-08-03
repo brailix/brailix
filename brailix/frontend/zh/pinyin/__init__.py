@@ -92,6 +92,21 @@ def list_resolvers() -> list[str]:
     return resolver_registry.names()
 
 
+def available_resolvers() -> list[str]:
+    """:func:`list_resolvers` filtered to the ones installed right now.
+
+    See :func:`~brailix.frontend.zh.analyzer.available_analyzers` for why a
+    picker wants this rather than the full roster. It matters more here than
+    it does for segmentation: a segmentation engine that cannot load leaves
+    the ``char`` fallback, which still produces braille, while a pinyin
+    engine that cannot load leaves ``null`` — and a Chinese word with no
+    reading produces no cells at all.
+    """
+    from brailix.frontend.zh.pinyin.registry import resolver_registry
+
+    return resolver_registry.available_names()
+
+
 def _suppress_low_confidence(
     ctx: FrontendContext, user_dict: dict[str, str]
 ) -> None:
@@ -152,4 +167,9 @@ def _apply_user_dict(
 # the extension guide both point). Publishing it from one end as well would put
 # the shared format's compatibility promise at an address that is free to be
 # replaced along with that end.
-__all__ = ("PinyinResolver", "annotate", "list_resolvers")
+__all__ = (
+    "PinyinResolver",
+    "annotate",
+    "available_resolvers",
+    "list_resolvers",
+)

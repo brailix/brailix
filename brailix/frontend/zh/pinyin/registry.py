@@ -28,9 +28,19 @@ def _register_builtin() -> None:
 
     resolver_registry.register("auto", auto._load)
     resolver_registry.register("null", null._load)
-    resolver_registry.register("g2pm", g2pm._load, extra="g2pm")
-    resolver_registry.register("g2pw", g2pw._load, extra="g2pw")
-    resolver_registry.register("pypinyin", pypinyin._load, extra="pypinyin")
+    # The module, not the extra: the ``g2pm`` extra installs ``g2pM``, and a
+    # probe that guessed the module from the extra name would report the
+    # shipping default missing on every platform with a case-sensitive
+    # filesystem. See Registry.register.
+    resolver_registry.register(
+        "g2pm", g2pm._load, extra="g2pm", probe="g2pM"
+    )
+    resolver_registry.register(
+        "g2pw", g2pw._load, extra="g2pw", probe="g2pw"
+    )
+    resolver_registry.register(
+        "pypinyin", pypinyin._load, extra="pypinyin", probe="pypinyin"
+    )
 
 
 _register_builtin()

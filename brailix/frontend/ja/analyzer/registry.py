@@ -28,9 +28,15 @@ def _register_builtin() -> None:
 
     analyzer_registry.register("auto", auto._load)
     analyzer_registry.register("kana", kana._load)
-    analyzer_registry.register("janome", janome._load, extra="janome")
-    analyzer_registry.register("sudachi", sudachi._load, extra="sudachi")
-    analyzer_registry.register("fugashi", fugashi._load, extra="fugashi")
+    analyzer_registry.register(
+        "janome", janome._load, extra="janome", probe="janome"
+    )
+    analyzer_registry.register(
+        "sudachi", sudachi._load, extra="sudachi", probe="sudachipy"
+    )
+    analyzer_registry.register(
+        "fugashi", fugashi._load, extra="fugashi", probe="fugashi"
+    )
 
 
 _register_builtin()

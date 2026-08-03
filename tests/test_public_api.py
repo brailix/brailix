@@ -480,11 +480,18 @@ _SUBSYSTEM_ENTRY_POINTS: dict[str, set[str]] = {
     "brailix.frontend.zh.analyzer": {
         "tokenize",
         "list_analyzers",
+        # The picker counterpart of ``list_analyzers``: what is installed,
+        # not merely what is registered.
+        "available_analyzers",
         "shift_token_spans",
         "tokens_to_inline",
         "insert_cross_kind_boundary_spaces",
     },
-    "brailix.frontend.zh.pinyin": {"annotate", "list_resolvers"},
+    "brailix.frontend.zh.pinyin": {
+        "annotate",
+        "list_resolvers",
+        "available_resolvers",
+    },
 }
 
 

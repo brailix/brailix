@@ -7,6 +7,15 @@ disambiguates polyphones offline with no download (unlike ``g2pw``,
 whose model is downloaded on demand) — making it the shipping
 default. ``auto`` then falls back to ``g2pw``, then ``pypinyin``, and
 finally to ``null``.
+
+``null`` is the last link and it is not a fallback in the sense the others
+are: it resolves nothing, and a Chinese word with no reading produces **no
+cells at all**. Reaching it therefore means "this installation has no pinyin
+engine", not "a slightly weaker reading" — so this adapter says so, once, as
+a ``NO_PINYIN_ENGINE`` warning the first time it resolves. Without that the
+whole document came out blank with nothing but one ``MISSING_PINYIN`` per
+character to explain it, which reads as thousands of small problems rather
+than the single configuration one it is.
 """
 
 from __future__ import annotations
@@ -21,19 +30,44 @@ from brailix.core.errors import (
 from brailix.frontend.zh.pinyin import PinyinResolver
 from brailix.frontend.zh.tokens import ChineseToken
 
+# The chain's last link, and the one that resolves nothing. Named so the
+# check below states what it is testing for rather than matching a bare
+# string that reads like just another engine.
+_NO_ENGINE = "null"
+
 
 @dataclass(slots=True)
 class AutoPinyinResolver:
     name: str = "auto"
-    preferred: tuple[str, ...] = ("g2pm", "g2pw", "pypinyin", "null")
+    preferred: tuple[str, ...] = ("g2pm", "g2pw", "pypinyin", _NO_ENGINE)
     _delegate: PinyinResolver | None = field(default=None, init=False, repr=False)
+    _warned: bool = field(default=False, init=False, repr=False)
 
     def resolve(
         self,
         tokens: list[ChineseToken],
         ctx: FrontendContext | None = None,
     ) -> list[ChineseToken]:
-        return self._load_delegate().resolve(tokens, ctx)
+        delegate = self._load_delegate()
+        if delegate.name == _NO_ENGINE and not self._warned and ctx is not None:
+            # Once per resolver instance, not once per call: the pipeline
+            # holds one of these for its lifetime and resolves per block, so
+            # warning every time would bury the message it is trying to make
+            # visible under one copy per block.
+            self._warned = True
+            ctx.warnings.warn(
+                code="NO_PINYIN_ENGINE",
+                message=(
+                    "no pinyin engine is installed, so Chinese words have no "
+                    "reading and produce no braille cells; install one with "
+                    "`pip install brailix[pypinyin]` (or g2pm / g2pw), or "
+                    "select an installed resolver"
+                ),
+                surface=None,
+                span=None,
+                source="frontend.zh.pinyin",
+            )
+        return delegate.resolve(tokens, ctx)
 
     def _load_delegate(self) -> PinyinResolver:
         if self._delegate is not None:

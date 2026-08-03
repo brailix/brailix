@@ -5,6 +5,7 @@ import types
 
 import pytest
 
+from brailix import Pipeline
 from brailix.core.context import FrontendContext
 from brailix.frontend.zh.pinyin.registry import resolver_registry
 from brailix.frontend.zh.tokens import ChineseToken
@@ -210,3 +211,57 @@ def test_auto_re_raises_last_error_when_all_candidates_fail():
         resolver.resolve([ChineseToken(surface="\u6211")], FrontendContext(profile="cn_current"))
     # The last_error wins \u2014 its message names the missing adapter.
     assert "does_not_exist" in str(ei.value)
+
+
+class TestNoEngineIsSaidOnce:
+    """Landing on ``null`` is not a weaker reading — it is no reading, and a
+    Chinese word without one produces no cells at all.
+
+    So the whole document comes out blank. What explained that was one
+    ``MISSING_PINYIN`` per character — thousands of small problems standing in
+    for the single configuration one — and nothing anywhere saying "there is
+    no pinyin engine installed". The segmentation chain has no equivalent
+    hazard: its last link, ``char``, still produces tokens.
+    """
+
+    @staticmethod
+    def _no_engines(monkeypatch) -> None:
+        # Same shape the tests above use: a ``None`` in sys.modules makes the
+        # import raise, which is what a bundle without the wheel looks like.
+        for module in ("g2pM", "g2pw", "pypinyin"):
+            monkeypatch.setitem(sys.modules, module, None)
+
+    def test_it_warns_when_the_chain_reaches_null(self, monkeypatch) -> None:
+        self._no_engines(monkeypatch)
+        pipe = Pipeline(profile="cn_current", analyzer="char", resolver="auto")
+        result = pipe.translate_text("我在重庆。")
+        codes = [w.code for w in result.warnings]
+        assert "NO_PINYIN_ENGINE" in codes
+
+    def test_it_warns_once_across_a_whole_document(self, monkeypatch) -> None:
+        # One resolver instance serves the pipeline's lifetime and resolves
+        # per block, so a per-call warning would bury the message under one
+        # copy per block — the very shape it exists to replace.
+        self._no_engines(monkeypatch)
+        pipe = Pipeline(profile="cn_current", analyzer="char", resolver="auto")
+        doc = pipe.parse_text("第一段。\n\n第二段。\n\n第三段。", format="plain")
+        result = pipe.translate_document(doc)
+        codes = [w.code for w in result.warnings]
+        assert codes.count("NO_PINYIN_ENGINE") == 1
+        assert len(doc.blocks) == 3
+
+    def test_a_working_engine_does_not_warn(self) -> None:
+        pytest.importorskip("pypinyin")
+        pipe = Pipeline(
+            profile="cn_current", analyzer="char", resolver="pypinyin"
+        )
+        result = pipe.translate_text("我在重庆。")
+        assert "NO_PINYIN_ENGINE" not in [w.code for w in result.warnings]
+
+    def test_selecting_null_outright_does_not_warn(self) -> None:
+        # Asking for ``null`` by name is a deliberate choice (a test harness
+        # pinning readings out of the picture); the warning is about ``auto``
+        # having nothing left to fall back to.
+        pipe = Pipeline(profile="cn_current", analyzer="char", resolver="null")
+        result = pipe.translate_text("我在重庆。")
+        assert "NO_PINYIN_ENGINE" not in [w.code for w in result.warnings]

@@ -16,6 +16,7 @@ who forget required methods.
 
 from __future__ import annotations
 
+import importlib.util
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -63,6 +64,7 @@ class Registry[T]:
         "_loaders",
         "_cache",
         "_extras",
+        "_probes",
         "_generation",
         "_lock",
     )
@@ -77,6 +79,9 @@ class Registry[T]:
         self._loaders: dict[str, Callable[[], T]] = {}
         self._cache: dict[str, T] = {}
         self._extras: dict[str, str] = {}
+        # Third-party module names per adapter, for :meth:`available` — see
+        # :meth:`register`.
+        self._probes: dict[str, tuple[str, ...]] = {}
         # Monotonic count of resolution-surface changes: every ``register``
         # / ``unregister`` / ``clear_cache`` (and an ``overriding`` exit,
         # which restores the entry snapshot) bumps it. What a *name resolves
@@ -107,6 +112,7 @@ class Registry[T]:
         loader: Callable[[], T],
         *,
         extra: str | None = None,
+        probe: str | tuple[str, ...] | None = None,
     ) -> None:
         """Register an adapter under ``name``.
 
@@ -118,6 +124,16 @@ class Registry[T]:
         third-party dependency. If the loader raises ``ImportError``,
         the registry re-raises as :class:`MissingExtraError` pointing
         at ``extra``.
+
+        ``probe`` names the third-party module(s) the loader imports, so
+        :meth:`available` can answer "is this installed?" **without running
+        the loader**. It is separate from ``extra`` because the two are
+        different namespaces and do not always agree — the ``g2pm`` extra
+        installs the ``g2pM`` module — and guessing one from the other is how
+        a probe silently reports every adapter missing. Omit it and
+        :meth:`available` answers ``True``: an adapter that declares nothing
+        is one this registry cannot rule out, and hiding it would be worse
+        than offering it.
 
         Thread-safe: the loader swap, the stale-cache eviction and the
         ``extra`` update land together under the lock, so a concurrent
@@ -132,6 +148,12 @@ class Registry[T]:
                 self._extras[name] = extra
             else:
                 self._extras.pop(name, None)
+            if probe is not None:
+                self._probes[name] = (
+                    (probe,) if isinstance(probe, str) else tuple(probe)
+                )
+            else:
+                self._probes.pop(name, None)
             self._generation += 1
 
     def unregister(self, name: str) -> None:
@@ -139,6 +161,7 @@ class Registry[T]:
             self._loaders.pop(name, None)
             self._cache.pop(name, None)
             self._extras.pop(name, None)
+            self._probes.pop(name, None)
             self._generation += 1
 
     def get(self, name: str) -> T:
@@ -217,6 +240,50 @@ class Registry[T]:
         with self._lock:
             return sorted(self._loaders)
 
+    def available(self, name: str) -> bool:
+        """Whether ``name``'s third-party dependency is importable *now*.
+
+        The cheap counterpart to :meth:`get`: it asks
+        :func:`importlib.util.find_spec` about the modules the registration
+        declared as its ``probe``, so it never runs the loader. That matters
+        because running one is not a neutral question to ask — a segmentation
+        engine's loader reads a hundred-megabyte model, and a front-end
+        populating an engine picker would have loaded *every* engine to find
+        out which ones it could offer.
+
+        Answers ``True`` for an adapter that declares no probe (a built-in
+        with no third-party dependency, or a plugin that did not say), because
+        the honest answer there is "this registry cannot tell" and the safe
+        reading of that is to keep offering it.
+
+        This is availability, not health: a probe that finds the module says
+        nothing about whether the loader will succeed (an incompatible
+        version, a model that fails to download). The loud failure at
+        :meth:`get` is still the authority; this exists so a caller can avoid
+        *offering* a choice it already knows cannot work.
+        """
+        with self._lock:
+            if name not in self._loaders:
+                return False
+            modules = self._probes.get(name)
+        if not modules:
+            return True
+        for module in modules:
+            try:
+                if importlib.util.find_spec(module) is None:
+                    return False
+            except (ImportError, ValueError):
+                # find_spec imports parent packages to reach a submodule, so
+                # a broken parent raises rather than answering — and a module
+                # already in sys.modules with __spec__ unset raises
+                # ValueError. Either way the dependency is not usable.
+                return False
+        return True
+
+    def available_names(self) -> list[str]:
+        """:meth:`names` filtered to the ones :meth:`available` accepts."""
+        return [name for name in self.names() if self.available(name)]
+
     @property
     def generation(self) -> int:
         """Monotonic resolution-surface version (see ``__init__``).
@@ -293,10 +360,16 @@ class Registry[T]:
         registrations.
         """
         with self._lock:
+            # Every per-name dict, ``_probes`` included: ``register`` replaces
+            # a registration WHOLE, so a temporary one declaring no probe
+            # clears the real adapter's. Leaving it out of the snapshot let a
+            # test that swapped an engine for a raising stub hand the next
+            # test a registry where that engine reported itself installed.
             saved = (
                 dict(self._loaders),
                 dict(self._cache),
                 dict(self._extras),
+                dict(self._probes),
             )
         try:
             if name is not None:
@@ -305,11 +378,12 @@ class Registry[T]:
                 self.register(name, loader, extra=extra)
             yield self
         finally:
-            loaders, cache, extras = saved
+            loaders, cache, extras, probes = saved
             with self._lock:
                 self._loaders = loaders
                 self._cache = cache
                 self._extras = extras
+                self._probes = probes
                 # The restore is a registration-surface change like any
                 # other (what a name resolves to may just have flipped
                 # back), so it advances the generation too — conservative

@@ -26,9 +26,20 @@ def _register_builtin() -> None:
 
     analyzer_registry.register("auto", auto._load)
     analyzer_registry.register("char", char._load)
-    analyzer_registry.register("thulac", thulac._load, extra="thulac")
-    analyzer_registry.register("jieba", jieba._load, extra="jieba")
-    analyzer_registry.register("hanlp", hanlp._load, extra="hanlp")
+    # ``probe`` is the MODULE each loader imports, not the extra that
+    # installs it — they differ often enough that deriving one from the other
+    # is a bug waiting (see Registry.register). It is what lets a front-end
+    # offer only the engines that are actually installed instead of listing
+    # every registered name and failing at compile time.
+    analyzer_registry.register(
+        "thulac", thulac._load, extra="thulac", probe="thulac"
+    )
+    analyzer_registry.register(
+        "jieba", jieba._load, extra="jieba", probe="jieba"
+    )
+    analyzer_registry.register(
+        "hanlp", hanlp._load, extra="hanlp", probe="hanlp"
+    )
 
 
 _register_builtin()

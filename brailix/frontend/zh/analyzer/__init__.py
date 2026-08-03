@@ -146,6 +146,27 @@ def list_analyzers() -> list[str]:
     return analyzer_registry.names()
 
 
+def available_analyzers() -> list[str]:
+    """:func:`list_analyzers` filtered to the ones installed right now.
+
+    The picker counterpart. A front-end that offers every *registered* name
+    lets a reader select an engine this installation does not have, and the
+    consequence lands far away and looks nothing like a settings mistake:
+    the selection is stored, every subsequent compile raises
+    :class:`~brailix.core.errors.MissingExtraError` for every block, and what
+    the reader sees is a document that has gone blank. That happened when the
+    desktop bundle stopped shipping one of the engines while a stored setting
+    still named it.
+
+    Uses the registry's cheap probe (:meth:`~brailix.core.registry.Registry.available`),
+    so this costs no adapter loads. An adapter that declares no probe is
+    listed, because "cannot tell" is not "missing".
+    """
+    from brailix.frontend.zh.analyzer.registry import analyzer_registry
+
+    return analyzer_registry.available_names()
+
+
 def shift_token_spans(
     tokens: list[ChineseToken], base: int
 ) -> list[ChineseToken]:
@@ -496,6 +517,7 @@ def _is_letter_hanzi_compound(
 __all__ = (
     "ChineseAnalyzer",
     "tokenize",
+    "available_analyzers",
     "list_analyzers",
     "shift_token_spans",
     "tokens_to_inline",

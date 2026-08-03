@@ -33,8 +33,12 @@ def _register_builtin() -> None:
     # respective pip extras are installed. Registering with ``extra=``
     # lets the registry turn a missing import into a friendly
     # MissingExtraError pointing at the right install command.
-    music_source_registry.register("midi", midi._load, extra="midi")
-    music_source_registry.register("abc", abc._load, extra="abc")
+    music_source_registry.register(
+        "midi", midi._load, extra="midi", probe="partitura"
+    )
+    music_source_registry.register(
+        "abc", abc._load, extra="abc", probe="abc_xml_converter"
+    )
 
 
 _register_builtin()
