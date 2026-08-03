@@ -38,7 +38,9 @@ def _register_builtin() -> None:
     # the registry, reporting "unknown adapter 'plain'" for a name the caller
     # never chose.
     math_source_registry.register("plain", plain._load)
-    math_source_registry.register("latex", latex._load, extra="latex")
+    math_source_registry.register(
+        "latex", latex._load, extra="latex", probe="latex2mathml"
+    )
     # mhchem ``\ce{...}`` → chemistry MathML. Pure-stdlib (no ``extra``),
     # so it works without the ``latex`` package; the ``latex`` adapter also
     # delegates here when it detects a top-level ``\ce``. See
