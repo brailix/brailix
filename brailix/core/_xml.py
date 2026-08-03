@@ -1,13 +1,27 @@
 """Shared ElementTree helpers — generic, format-independent.
 
-These tidy a parsed :class:`~xml.etree.ElementTree.Element` tree at a
-layer boundary: drop XML namespaces so a backend can match bare local
-tags, null out pure-whitespace ``text`` / ``tail`` nodes that confuse
-element iteration, and scrub characters illegal in XML 1.0 before a
-(possibly malformed) vendor string is echoed back into a soft-failure
-document. They depend only on the standard library, so they live in
-:mod:`brailix.core` — the frontend normalizers (MathML / MusicXML) and
-the input layer's docx converters both use them without either layer
+These handle the parts of reading XML that come before any format knows it is
+being read: turn a byte payload into text the way XML's own encoding rules say
+to (:func:`decode_xml_bytes`), walk a document's prologue to find where its
+root element starts (:func:`strip_xml_prolog` / :func:`xml_root_element`), and
+tidy a parsed :class:`~xml.etree.ElementTree.Element` tree at a layer boundary
+— drop XML namespaces so a backend can match bare local tags, null out
+pure-whitespace ``text`` / ``tail`` nodes that confuse element iteration, and
+scrub characters illegal in XML 1.0 before a (possibly malformed) vendor
+string is echoed back into a soft-failure document.
+
+Every one of those is a fact about *XML*, not about MathML, MusicXML, SVG or
+OOXML, and each was implemented more than once before it landed here — which
+is how the byte decode came to reject legal UTF-16 in three adapters and the
+prologue scan came to have a correct implementation in the input layer and a
+broken one here. What stays with each caller is its **policy**: which soft
+failure to build, what to put in the error, whether to degrade at all. Same
+split as :data:`~brailix.core.errors.UNREADABLE_ZIP_MEMBER_ERRORS`, which is
+one shared fact about :mod:`zipfile` under two different reactions to it.
+
+They depend only on the standard library, so they live in :mod:`brailix.core`
+— the frontend normalizers (MathML / MusicXML / SVG) and the input layer's
+docx converters and format sniffing all use them without either layer
 depending on the other.
 """
 
@@ -111,37 +125,268 @@ def safe_fromstring(text: str | bytes) -> ET.Element:
     return ET.fromstring(text)
 
 
-def strip_xml_prolog(text: str) -> str:
-    """Remove a leading ``<?xml ...?>`` declaration and an optional
-    ``<!DOCTYPE ...>``.
+class XmlDecodeError(ValueError):
+    """An XML byte payload that cannot be decoded under XML's own encoding
+    rules — see :func:`decode_xml_bytes`.
 
-    :func:`safe_fromstring` accepts the XML declaration but trips on a
-    DOCTYPE that references an external DTD — which the exporters real
-    documents come from still emit (older Finale / Sibelius for MusicXML,
-    Inkscape / Illustrator for SVG). Both source families need exactly this,
-    which is why it sits here beside :func:`safe_fromstring` rather than
-    being written out once per format: it is XML plumbing, with nothing in
-    it that knows which format it is cleaning.
-
-    The DOCTYPE scan balances ``[`` / ``]`` so an internal subset (which may
-    contain ``>`` inside its entity declarations) doesn't end the scan early.
+    A :class:`ValueError` rather than an
+    :class:`~xml.etree.ElementTree.ParseError` because nothing has been parsed
+    yet: the bytes never became text at all, which is a different diagnosis
+    from "the text is not well-formed" and deserves to read differently in
+    whatever soft failure the caller builds from it.
     """
-    out = text
-    if out.startswith("<?xml"):
-        end = out.find("?>")
-        if end != -1:
-            out = out[end + 2:].lstrip()
-    if out.startswith("<!DOCTYPE"):
-        depth = 0
-        for i, ch in enumerate(out):
-            if ch == "[":
-                depth += 1
-            elif ch == "]":
-                depth = max(0, depth - 1)
-            elif ch == ">" and depth == 0:
-                out = out[i + 1:].lstrip()
-                break
-    return out
+
+
+# XML's own encoding autodetection (XML 1.0 §4.3.3 + Appendix F). A byte
+# stream announces its encoding in one of three ways, checked in this order: a
+# byte order mark; the byte *pattern* of the ``<?xml`` declaration, which
+# reveals UTF-16 / UTF-32 even with no mark; and that declaration's own
+# ``encoding`` pseudo-attribute. UTF-8 is the default when none of them speaks.
+#
+# What this replaces is a plain ``data.decode("utf-8")`` in each pass-through
+# adapter, which refuses a perfectly legal UTF-16 document. The input layer's
+# own file reader already accepts one (``InputLimits.read_bounded_text``), so
+# the same score parsed from disk and soft-failed when the identical bytes
+# were handed to ``to_musicxml`` — and MathML and SVG had the same split.
+
+# Longest mark first: the UTF-32LE mark *begins with* the UTF-16LE mark, so
+# testing UTF-16 first decodes a UTF-32 document into garbage. The ``utf-32`` /
+# ``utf-16`` / ``utf-8-sig`` codecs are the BOM-consuming ones — the mark is
+# metadata, and leaving a U+FEFF at the head of the text puts a stray character
+# before the root element.
+_XML_BOMS: tuple[tuple[bytes, str], ...] = (
+    (b"\x00\x00\xfe\xff", "utf-32"),
+    (b"\xff\xfe\x00\x00", "utf-32"),
+    (b"\xef\xbb\xbf", "utf-8-sig"),
+    (b"\xfe\xff", "utf-16"),
+    (b"\xff\xfe", "utf-16"),
+)
+
+# No mark: the first four bytes of a ``<?xml`` declaration in each multi-byte
+# family, which is the only thing that can identify one. An ASCII-compatible
+# stream (UTF-8, ISO-8859-x, Shift_JIS, ...) shows ``3C 3F 78 6D`` and is
+# decided by the declaration's ``encoding`` instead. A UTF-16 document with
+# neither a mark nor a declaration is not well-formed XML — the spec requires
+# one of the two — so there is nothing left to detect and UTF-8 is the answer.
+_XML_DECL_SIGNATURES: tuple[tuple[bytes, str], ...] = (
+    (b"\x00\x00\x00\x3c", "utf-32-be"),
+    (b"\x3c\x00\x00\x00", "utf-32-le"),
+    (b"\x00\x3c\x00\x3f", "utf-16-be"),
+    (b"\x3c\x00\x3f\x00", "utf-16-le"),
+)
+
+# The ``encoding`` pseudo-attribute, read off the raw bytes of an
+# ASCII-compatible stream. Searched only within the declaration itself: a scan
+# that ran past ``?>`` would happily read an ``encoding=`` attribute out of the
+# document body and decode the whole file by it.
+_XML_DECL_ENCODING = re.compile(
+    rb"""\bencoding\s*=\s*["']([A-Za-z][A-Za-z0-9._-]*)["']"""
+)
+_XML_DECL_SCAN_BYTES = 1024
+
+
+def _decode_as(raw: bytes, codec: str, how: str) -> str:
+    """``raw.decode(codec)``, reporting a failure as an :class:`XmlDecodeError`
+    that says which rule picked the codec (``how``)."""
+    try:
+        return raw.decode(codec)
+    except (UnicodeDecodeError, LookupError) as e:
+        raise XmlDecodeError(f"not decodable as {how}: {e}") from e
+
+
+def _declared_encoding(raw: bytes) -> str | None:
+    """The encoding named by ``raw``'s XML declaration, or ``None``."""
+    if not raw.startswith(b"<?xml"):
+        return None
+    end = raw.find(b"?>", 0, _XML_DECL_SCAN_BYTES)
+    if end < 0:
+        return None
+    match = _XML_DECL_ENCODING.search(raw, 0, end)
+    return match.group(1).decode("ascii") if match else None
+
+
+def decode_xml_bytes(data: bytes | bytearray) -> str:
+    """Decode an XML byte payload to text the way an XML processor would.
+
+    The :class:`~brailix.core.protocols.MathSourceAdapter` /
+    ``MusicSourceAdapter`` / ``GraphicSourceAdapter` contracts all take
+    ``str | bytes``, and *bytes of XML* are self-describing: a BOM, the byte
+    pattern of the ``<?xml`` declaration, or the ``encoding`` that declaration
+    names says what they are, and only in their absence is UTF-8 the answer.
+    Deciding it here means one rule for all three normalized intermediate
+    formats instead of three near-copies of ``decode("utf-8")``.
+
+    Returns the decoded text with any byte order mark consumed. Raises
+    :class:`XmlDecodeError` when the bytes do not decode under the rule that
+    was selected — including an ``encoding`` naming a codec Python does not
+    have. Never raises anything else, so a caller that soft-fails can catch
+    exactly one thing.
+
+    Text handed in as ``str`` needs none of this and does not come here; each
+    caller checks that first, because what it puts in its own error message
+    (the ``repr`` of the undecodable bytes) is the payload it still holds.
+    """
+    raw = bytes(data)
+    for bom, codec in _XML_BOMS:
+        if raw.startswith(bom):
+            return _decode_as(raw, codec, f"{codec} (byte order mark)")
+    for signature, codec in _XML_DECL_SIGNATURES:
+        if raw.startswith(signature):
+            return _decode_as(raw, codec, f"{codec} (XML declaration bytes)")
+    declared = _declared_encoding(raw)
+    if declared is not None:
+        return _decode_as(raw, declared, f"declared encoding {declared!r}")
+    return _decode_as(raw, "utf-8", "UTF-8 (no BOM, no encoding declaration)")
+
+
+def _skip_quoted(text: str, i: int) -> int:
+    """Index just past the string literal opening at ``text[i]`` (a quote),
+    or the end of the text when it is never closed."""
+    end = text.find(text[i], i + 1)
+    return len(text) if end < 0 else end + 1
+
+
+def _skip_internal_subset(text: str, i: int) -> int:
+    """Index just past the ``]`` closing the internal DTD subset that opens at
+    ``text[i] == "["``.
+
+    Not ``text.find("]")``: a subset is markup, and a ``]`` inside one of its
+    declarations closes nothing. It can sit in an attribute default
+    (``<!ATTLIST part id CDATA "a]b">``), in an entity value, or in a comment
+    — and taking the first one for the end of the subset then leaves the scan
+    inside the DOCTYPE, where the next quoted ``>`` reads as the end of the
+    declaration and the root element is never seen. So quotes, comments and
+    processing instructions are skipped whole, and bracket depth is counted
+    (a ``<![INCLUDE[ … ]]>`` conditional section nests one level).
+    """
+    n = len(text)
+    depth = 0
+    while i < n:
+        ch = text[i]
+        if ch in "\"'":
+            i = _skip_quoted(text, i)
+        elif text.startswith("<!--", i):
+            end = text.find("-->", i + 4)
+            i = n if end < 0 else end + 3
+        elif text.startswith("<?", i):
+            end = text.find("?>", i + 2)
+            i = n if end < 0 else end + 2
+        elif ch == "[":
+            depth += 1
+            i += 1
+        elif ch == "]":
+            depth -= 1
+            i += 1
+            if depth == 0:
+                return i
+        else:
+            i += 1
+    return n
+
+
+def _root_element_start(text: str) -> int:
+    """Index of the ``<`` opening ``text``'s first start element, or ``-1``.
+
+    A deliberately small hand-written prologue scanner rather than a real
+    parser. Everything a document may put before its root element is
+    skippable — whitespace, the ``<?xml?>`` declaration and other processing
+    instructions, comments, and a ``<!DOCTYPE …>`` whose internal ``[…]``
+    subset may itself contain ``>`` or ``]`` inside quotes and comments
+    (:func:`_skip_internal_subset`) — and once the first ``<name`` is reached
+    there is nothing left to decide. Feeding the document to :mod:`xml.etree`
+    to find out instead would expand entities declared in that internal subset
+    before this function ever returned, which is a parser to point at
+    untrusted input only deliberately; this reads the head and stops.
+
+    ``-1`` for anything with no start element to find — an empty string,
+    character data before the first ``<``, an unterminated comment or DOCTYPE.
+    Both callers treat that as "leave it alone", which keeps a malformed
+    document intact for whoever diagnoses it.
+    """
+    i, n = 0, len(text)
+    while i < n:
+        while i < n and text[i].isspace():
+            i += 1
+        if i >= n or text[i] != "<":
+            return -1
+        if text.startswith("<!--", i):
+            end = text.find("-->", i + 4)
+            if end < 0:
+                return -1
+            i = end + 3
+        elif text.startswith("<?", i):
+            end = text.find("?>", i + 2)
+            if end < 0:
+                return -1
+            i = end + 2
+        elif text.startswith("<!", i):
+            # DOCTYPE (or any other markup declaration): find its closing
+            # ``>``, skipping over quoted strings — a public identifier can
+            # contain one — and over a whole internal subset if present.
+            i += 2
+            while i < n and text[i] != ">":
+                if text[i] in "\"'":
+                    i = _skip_quoted(text, i)
+                elif text[i] == "[":
+                    i = _skip_internal_subset(text, i)
+                else:
+                    i += 1
+            i += 1
+        else:
+            return i
+    return -1
+
+
+def strip_xml_prolog(text: str) -> str:
+    """Return ``text`` from its root element on, dropping the prologue.
+
+    Its whole job is to *locate the root element* (:func:`_root_element_start`)
+    — not to guess where a DOCTYPE ends with a rule of its own. The rule it
+    used to have counted ``[`` / ``]`` and nothing else, so a legal
+    ``<!ATTLIST part id CDATA "a]b>c">`` inside an internal subset ended the
+    scan at the quoted ``]`` and the caller was handed the fragment ``c">]>…``
+    — a document ElementTree parses fine, soft-failing as a parse error.
+
+    What the strip is *for*, given :func:`safe_fromstring` parses a DOCTYPE
+    perfectly well (external identifier and all — expat does not fetch
+    external DTDs, so there is nothing there to refuse): it is the
+    ``<!ENTITY`` refusal that needs it. A DOCTYPE with an internal subset is
+    turned away wholesale by that guard, and real exporters ship one —
+    Illustrator writes ``[<!ENTITY ns_extend "http://ns.adobe.com/…">]`` into
+    every SVG it saves. Dropping the prologue drops the declarations with it,
+    so such a document parses; an entity *reference* left behind in the body
+    is then simply undefined and fails as an ordinary parse error, which is
+    the one outcome the guard exists to guarantee (nothing expands).
+
+    That is also why the scan skips comments rather than stopping at the first
+    one: Illustrator's ``<!-- Generator: Adobe Illustrator … -->`` sits between
+    the declaration and the DOCTYPE, and the old "declaration then DOCTYPE, in
+    that order or not at all" walk stopped dead at it, leaving the ``<!ENTITY``
+    in place for the guard to reject. Every Illustrator SVG soft-failed.
+    """
+    start = _root_element_start(text)
+    return text if start < 0 else text[start:]
+
+
+def xml_root_element(text: str) -> str:
+    """The name of ``text``'s first start element, or ``""``.
+
+    Reads the name at :func:`_root_element_start`, so "where does the prologue
+    end" is answered once for both this and :func:`strip_xml_prolog`. Used to
+    sniff what an ambiguous container actually holds (a generic ``.xml`` that
+    may or may not be a score) without parsing it.
+
+    A namespace prefix is dropped (``<mx:score-partwise>`` reports
+    ``score-partwise``).
+    """
+    start = _root_element_start(text)
+    if start < 0:
+        return ""
+    n = len(text)
+    j = start + 1
+    while j < n and not (text[j].isspace() or text[j] in "/>"):
+        j += 1
+    return text[start + 1:j].rsplit(":", 1)[-1]
 
 
 def strip_xml_invalid_chars(text: str) -> str:

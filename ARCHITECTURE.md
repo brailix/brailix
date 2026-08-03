@@ -165,7 +165,7 @@ brailix/
 │   │   ├── span.py           # Span utilities, source-position tracking for IR nodes
 │   │   ├── registry.py       # generic name→loader registry (lazy load + MissingExtraError)
 │   │   ├── protocols.py      # Segmenter / Normalizer / Adapter / LanguageFrontend / LanguageBackend / Renderer
-│   │   ├── _xml.py           # shared XML helper (safe_fromstring: parsing with entity expansion off)
+│   │   ├── _xml.py           # shared XML helpers (safe_fromstring: parsing with entity expansion off; byte decoding by XML's own encoding rules; prologue scan to the root element)
 │   │   ├── chars.py          # irregular-character sets (one authority, consumed by the backend and by front-ends)
 │   │   ├── paths.py          # a configured *name* is not a path (one validator, shared by every resource loader)
 │   │   ├── measure.py        # positive-finite check for physical measurements (shared by the raster IR and the tactile profile; each keeps its own error type)
