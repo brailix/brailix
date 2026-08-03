@@ -3,6 +3,14 @@
 This module holds nothing but the data type and its lookup methods.
 The actual loading machinery lives in :mod:`brailix.core.config.loader`,
 which constructs and returns ``BrailleProfile`` instances.
+
+It names **no** braille standard. That is the point of the type: every
+language and every standard is compiled through this one profile, so a field
+(or an import) that knows about one of them makes the shared model a place
+each new standard has to be added to. The per-language slots
+(:attr:`~BrailleProfile.lang_tables` for cells,
+:attr:`~BrailleProfile.lang_specs` for everything else) are what a standard's
+own data arrives through instead, and its own backend is what interprets it.
 """
 
 from __future__ import annotations
@@ -18,7 +26,6 @@ from brailix.core.config._helpers import (
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-from brailix.core.config.zh_ncb_tables import NcbExceptions
 
 
 @dataclass(slots=True)
@@ -95,12 +102,6 @@ class BrailleProfile:
     # Two sub-keys: "lower" and "upper", each maps char → dot tuple.
     latin_letters: dict[str, dict[str, tuple[int, ...]]] = field(default_factory=dict)
     greek_letters: dict[str, dict[str, tuple[int, ...]]] = field(default_factory=dict)
-    # NCB (National Common Braille / GF0019-2018) — all standard-specific data lives
-    # in a single :class:`NcbExceptions` container, loaded from one
-    # ``tables.zh.exceptions`` resource (every NCB-specific difference
-    # consolidated in one place).  cn_current leaves it None and the
-    # backend's NCB call sites all no-op.
-    zh_exceptions: NcbExceptions | None = None
     # Music (BANA 2015 Music Braille Code) — nested by topic:
     # ``music["notes"]["whole_or_16th_C"]`` -> ``((1,3,4,5,6),)``.
     # An empty cell (BANA prints two cell groups with an internal space)
@@ -132,6 +133,28 @@ class BrailleProfile:
     lang_tables: dict[
         str, dict[str, dict[str, tuple[tuple[int, ...], ...]]]
     ] = field(default_factory=dict)
+    # The same generic slot for a language's **non-cell** rules: subtag ->
+    # spec name -> whatever that language's backend loaded, e.g.
+    # ``lang_specs["zh"]["ncb_exceptions"]`` (the tone-omission,
+    # character-override and word-override records of GF0019-2018, loaded from
+    # one ``tables.zh.exceptions`` resource; a profile that doesn't declare it
+    # simply has no entry and the NCB call sites all no-op).
+    #
+    # Read via :meth:`lang_spec`. The value is deliberately ``Any``: this class
+    # is the profile type EVERY language plugs into, so it must not know what
+    # any one standard's rules look like. ``zh_exceptions: NcbExceptions``
+    # used to be a field right here — a shared model naming one concrete
+    # Chinese standard, and importing its type, while the comment above said
+    # new languages arrive through the generic slot rather than by growing
+    # this dataclass. The next standard would have added ``ja_exceptions``
+    # beside it, and the one after that ``ko_exceptions``. What the type
+    # actually is stays the owning backend's business: the Chinese backend
+    # knows it reads an ``NcbExceptions``, and nothing between here and there
+    # has to.
+    #
+    # Distinct from :attr:`music_specs`, which is the same idea scoped to a
+    # music topic rather than to a language.
+    lang_specs: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Per-instance lazy cache for letter() results. Excluded from
     # ``__eq__`` / ``__repr__``: it's runtime-populated memoization, so two
     # profiles built from identical tables must stay equal (and hashable as
@@ -213,6 +236,22 @@ class BrailleProfile:
         (``ja-JP`` -> ``ja``)."""
         lang = self.language.split("-")[0]
         return self.lang_tables.get(lang, {}).get(name, {})
+
+    def lang_spec(self, name: str, default: Any = None) -> Any:
+        """Per-language **non-cell** rule record ``name``, or ``default``.
+
+        :meth:`lang_table`'s counterpart for the rules that are not a
+        char-to-cells mapping — the Chinese backend's
+        ``lang_spec("ncb_exceptions")``. Keyed by the same language subtag, so
+        a profile for another standard simply has no entry and its backend's
+        call sites no-op on the default.
+
+        Untyped by design: what the record *is* belongs to the backend that
+        loaded it and reads it, not to the profile type every language shares
+        (see :attr:`lang_specs`).
+        """
+        lang = self.language.split("-")[0]
+        return self.lang_specs.get(lang, {}).get(name, default)
 
     # -- Math symbol lookups -----------------------------------------
 

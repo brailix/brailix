@@ -1,11 +1,14 @@
-"""Tests for the unified NCB exceptions resource (`profile.zh_exceptions`).
+"""Tests for the unified NCB exceptions resource
+(``profile.lang_spec("ncb_exceptions")``).
 
 Two layers:
 
 * Unit tests on :class:`NcbCharOverrides` / :class:`NcbWordOverrides`
-  lookups directly, with the loaded ``cn_ncb.zh_exceptions``
-  table.  Data lives on the profile (filled by the profile loader at
-  load time); there's no backend-side factory.
+  lookups directly, with the record ``cn_ncb`` loads.  Data lives on the
+  profile (filled by the profile loader at load time) in the generic
+  per-language spec slot, read back through the Chinese backend's own
+  ``ncb_exceptions`` accessor — the one place that knows the slot name
+  and the type; there's no backend-side factory.
 * Integration tests through :func:`translate_word` checking exact
   cell sequences match the documented worked examples.
 
@@ -23,6 +26,7 @@ from __future__ import annotations
 import pytest
 
 from brailix.backend.zh import translate_word
+from brailix.backend.zh._ncb import ncb_exceptions
 from brailix.core.config import load_profile
 from brailix.core.config.zh_ncb_tables import (
     NcbCharOverrides,
@@ -49,7 +53,7 @@ def cn_ncb():
 
 @pytest.fixture(scope="module")
 def char_overrides(cn_ncb):
-    exc = cn_ncb.zh_exceptions
+    exc = ncb_exceptions(cn_ncb)
     assert exc is not None
     assert exc.char_overrides is not None
     return exc.char_overrides
@@ -57,7 +61,7 @@ def char_overrides(cn_ncb):
 
 @pytest.fixture(scope="module")
 def word_overrides(cn_ncb):
-    exc = cn_ncb.zh_exceptions
+    exc = ncb_exceptions(cn_ncb)
     assert exc is not None
     assert exc.word_overrides is not None
     return exc.word_overrides
@@ -83,16 +87,41 @@ def _dots(cells):
 
 class TestLoader:
     def test_profile_carries_exceptions_for_cn_ncb(self, cn_ncb):
-        assert isinstance(cn_ncb.zh_exceptions, NcbExceptions)
+        assert isinstance(ncb_exceptions(cn_ncb), NcbExceptions)
 
     def test_profile_has_no_exceptions_for_cn_current(self, cn_current):
-        assert cn_current.zh_exceptions is None
+        assert ncb_exceptions(cn_current) is None
 
     def test_char_overrides_present(self, cn_ncb):
-        assert isinstance(cn_ncb.zh_exceptions.char_overrides, NcbCharOverrides)
+        assert isinstance(
+            ncb_exceptions(cn_ncb).char_overrides, NcbCharOverrides
+        )
 
     def test_word_overrides_present(self, cn_ncb):
-        assert isinstance(cn_ncb.zh_exceptions.word_overrides, NcbWordOverrides)
+        assert isinstance(
+            ncb_exceptions(cn_ncb).word_overrides, NcbWordOverrides
+        )
+
+    def test_the_record_lives_in_the_generic_per_language_slot(
+        self, cn_ncb, cn_current
+    ):
+        # The shared BrailleProfile carries no field naming this standard —
+        # it arrives through the same slot any language's non-cell rules use,
+        # filed under the profile's own language subtag.
+        assert not hasattr(cn_ncb, "zh_exceptions")
+        assert isinstance(
+            cn_ncb.lang_specs["zh"]["ncb_exceptions"], NcbExceptions
+        )
+        assert cn_current.lang_specs.get("zh", {}) == {}
+
+    def test_the_accessor_refuses_a_record_of_the_wrong_type(self, cn_ncb):
+        # The slot is typed ``Any`` so the core need not know this type,
+        # which means the accessor is what keeps a wrong one out of the call
+        # sites that read attributes off it.
+        from dataclasses import replace
+
+        wrong = replace(cn_ncb, lang_specs={"zh": {"ncb_exceptions": "nope"}})
+        assert ncb_exceptions(wrong) is None
 
     def test_all_six_shorthand_chars_loaded(self, char_overrides):
         # 的 / 么 / 你 / 他 / 她 / 它 — all have a shorthand sub-record.
@@ -395,7 +424,7 @@ class TestCnDefaultUnaffected:
         assert _has_tone(cells)
 
     def test_cn_current_carries_no_exceptions(self, cn_current):
-        assert cn_current.zh_exceptions is None
+        assert ncb_exceptions(cn_current) is None
 
 
 # ---------------------------------------------------------------------------

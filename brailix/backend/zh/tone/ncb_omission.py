@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from brailix.backend.zh._ncb import ncb_exceptions
 from brailix.backend.zh.pinyin_parser import (
     ParsedPinyin,
     normalize_syllable_spelling,
@@ -104,11 +105,11 @@ def _build(profile: BrailleProfile) -> NcbOmissionPolicy:
 
     Profiles selecting ``ncb_omission`` must also declare the
     ``tone_omission`` sub-section inside ``tables.zh.exceptions`` —
-    without it ``profile.zh_exceptions.tone_omission`` is ``None``
-    and this strategy has no table to consult.  Loud failure here
-    beats silent wrong behavior on the first syllable.
+    without it the loaded record has no ``tone_omission`` and this
+    strategy has no table to consult.  Loud failure here beats silent
+    wrong behavior on the first syllable.
     """
-    exc = profile.zh_exceptions
+    exc = ncb_exceptions(profile)
     if exc is None or exc.tone_omission is None:
         raise ConfigurationError(
             f"profile {profile.name!r}: tone_strategy='ncb_omission' "
