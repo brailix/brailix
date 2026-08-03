@@ -107,11 +107,42 @@ def _load() -> ThulacChineseAnalyzer:
     """Lazy-import THULAC and build a seg-only segmenter."""
     import thulac  # noqa: WPS433 — lazy by design
 
+    # An import that succeeds does not mean the package is there. A directory
+    # named ``thulac`` with no code in it imports fine as a **namespace
+    # package**, and one exists on exactly the installs this matters for: an
+    # application bundle that stops shipping the engine replaces its
+    # executable but leaves the engine's data directory behind, and the
+    # application's own directory is the first entry on ``sys.path``. The
+    # package then has ``__file__ is None``, and the model lookup below —
+    # which locates ``models/`` relative to it — raised ``TypeError: argument
+    # should be a str or an os.PathLike object ... not 'NoneType'``. That is
+    # not one of the errors the ``auto`` chain skips, so instead of falling
+    # through to the next tokenizer it came out of ``tokenize``, out of
+    # ``translate_block``, and failed **every block of every document** —
+    # a whole document blank, with an error naming a path type rather than a
+    # missing engine.
+    #
+    # So the shape is answered here, where it can still be named: no
+    # ``__file__`` means the code is not installed, which is exactly what
+    # MissingExtraError says and what ``auto`` knows to skip.
+    package_file = getattr(thulac, "__file__", None)
+    if package_file is None:
+        raise MissingExtraError(
+            adapter="thulac",
+            extra="thulac",
+            hint=(
+                "a directory named 'thulac' is importable but contains no "
+                "code (a namespace package) — usually the data directory an "
+                "older install left behind. Delete it, or reinstall the "
+                "extra to restore the package."
+            ),
+        )
+
     # Verify the seg models are on disk before constructing the segmenter,
     # so a missing/quarantined model degrades to the next ``auto`` candidate
     # instead of a FileNotFoundError raised mid-tokenize (which ``auto``
     # can't catch). thulac.__file__ points at the package's __init__.py.
-    _ensure_cws_models_present(Path(thulac.__file__).parent / "models")
+    _ensure_cws_models_present(Path(package_file).parent / "models")
 
     # ``seg_only=True`` loads only the CWS model (no POS), which is both
     # smaller and faster and is all the pinyin path needs.
