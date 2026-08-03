@@ -48,10 +48,15 @@ plus its ``parse_*`` adapter, not a new branch.
 
 from __future__ import annotations
 
-import os
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from pathlib import Path
+# Aliased private, like every brailix name this module re-imports below: a
+# facade's namespace is a promise as much as its ``__all__`` is, and
+# ``from brailix.input import Path`` resolving made the standard library part
+# of this package's surface by accident.
+import os as _os
+from collections.abc import Callable as _Callable
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from pathlib import Path as _Path
 
 from brailix.input.docx import parse_doc, parse_docx
 from brailix.input.limits import (
@@ -228,7 +233,7 @@ def _looks_like_musicxml(text: str) -> bool:
     return _xml_root_element(text) in _MUSICXML_ROOTS
 
 
-@dataclass
+@_dataclass
 class _FileCtx:
     """Everything a route handler needs to parse one file.
 
@@ -237,7 +242,7 @@ class _FileCtx:
     / ...) — never decodes the file as UTF-8. Text formats read it once.
     """
 
-    path: Path
+    path: _Path
     language: str
     profile: str
     mathtype_fallback: str
@@ -247,7 +252,7 @@ class _FileCtx:
     # reading under ``DEFAULT_INPUT_LIMITS`` instead of the caller's ceiling.
     # ``parse_file`` is the only constructor and always passes its own.
     limits: InputLimits
-    _text: str | None = field(default=None, init=False, repr=False)
+    _text: str | None = _field(default=None, init=False, repr=False)
 
     @property
     def text(self) -> str:
@@ -379,7 +384,7 @@ def _route_plain(ctx: _FileCtx) -> _DocumentIR:
     return parse_plain(ctx.text, language=ctx.language, profile=ctx.profile)
 
 
-_Handler = Callable[[_FileCtx], _DocumentIR]
+_Handler = _Callable[[_FileCtx], _DocumentIR]
 
 # Suffix → handler routing table — the data that replaces a chain of
 # ``if suffix in ...`` branches. Adding a built-in format is one more row plus
@@ -401,7 +406,7 @@ _SUFFIX_ROUTES: dict[str, _Handler] = {
 
 
 def parse_file(
-    path: str | os.PathLike[str],
+    path: str | _os.PathLike[str],
     *,
     language: str,
     profile: str,
@@ -481,7 +486,7 @@ def parse_file(
     # raises FileNotFoundError here exactly as the read below would.
     limits.check_file_size(path)
     ctx = _FileCtx(
-        path=Path(path),
+        path=_Path(path),
         language=language,
         profile=profile,
         mathtype_fallback=mathtype_fallback,

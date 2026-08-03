@@ -74,7 +74,7 @@ or word-boundary separators on the assembled stream).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.errors import MissingExtraError as _MissingExtraError
 from brailix.core.protocols import LanguageFrontend as _LanguageFrontend
@@ -102,7 +102,7 @@ from brailix.frontend.zh.analyzer import list_analyzers as _zh_list_analyzers
 from brailix.frontend.zh.pinyin import annotate as annotate_pinyin
 from brailix.frontend.zh.pinyin import list_resolvers as _zh_list_resolvers
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from collections.abc import Callable
 
     from brailix.core.config import BrailleProfile

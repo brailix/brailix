@@ -115,13 +115,16 @@ from __future__ import annotations
 
 # Bound under private names on purpose: this is the namespace the whole
 # library is read through, and every plain binding here tab-completes beside
-# ``Pipeline`` as if it were part of the surface.
+# ``Pipeline`` as if it were part of the surface. ``TYPE_CHECKING`` was the
+# one that got away — ``from brailix import TYPE_CHECKING`` resolved, and
+# ``__dir__`` below lists this module's globals, so it was offered by
+# completion right next to the published names.
 from importlib import import_module as _import_module
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 __version__ = "0.1.0"
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     # For type checkers and IDEs only. At runtime these names arrive through
     # ``__getattr__`` below, from the very same modules — the table under
     # ``_EXPORTS`` is what makes the two spellings one fact.
