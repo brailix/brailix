@@ -253,7 +253,7 @@ brailix/
 
 ## 5. The intermediate representations
 
-Four IRs, from coarse to fine. The first three describe the document; the last is the braille result.
+Five IRs in two groups. Three describe the document, coarse to fine: block-level `DocumentIR`, inline `InlineIR`, and the normalized tree each of the math / music / graphics verticals uses directly as its own IR. Two are **output-domain IR** — the backend's product, one per output path: `BrailleIR` (a cell sequence) for braille and `TactileRaster` (a dot grid, §8) for tactile graphics. The two output domains are peers, not braille plus an appendix.
 
 ### 5.1 DocumentIR (block level)
 

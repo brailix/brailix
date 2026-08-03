@@ -489,3 +489,73 @@ class TestDeserializeGuard:
         # The guard sits after the real branches: span / parts still deserialize.
         assert _deserialize_value("span", [0, 2]) == Span(0, 2)
         assert _deserialize_value("parts", []) == []
+
+
+class TestTheHierarchyDiagramMatchesTheClasses:
+    """The module docstring draws the node hierarchy, and a reader takes it
+    for the class layout — it is the only place the shape is stated.
+
+    It had drifted into saying something false: ``Number`` was drawn indented
+    under ``Word``, as though a numeric literal were a kind of prose word,
+    while both subclass ``InlineNode`` directly. ``HanziMarker`` was missing
+    from it entirely. Prose in general cannot be checked, but "this list is
+    the set of node types, all at one level" is a claim with a fact behind
+    it, so it is checked here rather than re-read.
+    """
+
+    @staticmethod
+    def _diagram_names() -> list[str]:
+        import re
+
+        import brailix.ir.inline as mod
+
+        doc = mod.__doc__ or ""
+        start = doc.index("InlineNode (abstract)")
+        end = doc.index("Also defined here:")
+        return [
+            m.group(2)
+            for line in doc[start:end].splitlines()
+            if (m := re.match(r"^(\s*)[├└]── (\w+)", line))
+        ]
+
+    @staticmethod
+    def _diagram_indents() -> set[int]:
+        import re
+
+        import brailix.ir.inline as mod
+
+        doc = mod.__doc__ or ""
+        start = doc.index("InlineNode (abstract)")
+        end = doc.index("Also defined here:")
+        return {
+            len(m.group(1))
+            for line in doc[start:end].splitlines()
+            if (m := re.match(r"^(\s*)[├└]── \w+", line))
+        }
+
+    def test_it_lists_exactly_the_registered_node_classes(self) -> None:
+        from brailix.ir.inline import _INLINE_REGISTRY
+
+        drawn = set(self._diagram_names())
+        registered = {cls.__name__ for cls in _INLINE_REGISTRY.values()}
+        assert drawn == registered, (
+            f"hierarchy diagram and registry disagree — "
+            f"only drawn: {sorted(drawn - registered)}; "
+            f"only registered: {sorted(registered - drawn)}"
+        )
+
+    def test_every_drawn_node_is_a_direct_subclass(self) -> None:
+        from brailix.ir import inline as mod
+        from brailix.ir.inline import InlineNode
+
+        for name in self._diagram_names():
+            cls = getattr(mod, name)
+            assert cls.__bases__ == (InlineNode,), (
+                f"{name} is drawn as a direct child of InlineNode but its "
+                f"bases are {cls.__bases__}"
+            )
+
+    def test_the_diagram_is_drawn_flat(self) -> None:
+        # One indent level, because there is one level. An indented entry is
+        # how the diagram claimed Number was a kind of Word.
+        assert len(self._diagram_indents()) == 1

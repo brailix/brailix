@@ -2,13 +2,15 @@
 
 brailix is built around one pattern: each pluggable subsystem defines a **normalized mediator format** and plugs external tools in through **adapters** chosen by name from a registry. Adding a capability almost never means editing core code — you write an adapter (or a profile, or a set of resources) and register it. See [Architecture](../ARCHITECTURE.md) for the full rationale; this page is the practical how-to.
 
-Every extension point shares the same three pieces:
+Every **registry-selected** adapter family shares the same three pieces:
 
 1. A **protocol** (a structural interface in `brailix.core.protocols`) your implementation satisfies.
 2. A **registry** you register a loader with, under a name.
 3. An optional **extra** (a `pip` dependency group) so a missing third-party package surfaces as a clear `MissingExtraError` instead of an `ImportError`.
 
 The loader is a zero-argument callable that imports any heavy dependency and returns your implementation. Registering a loader (rather than an instance) is what keeps imports lazy: a user who never selects your adapter never imports its dependency.
+
+One extension point is deliberately not registry-selected: an **input format** is chosen by file suffix or MIME type rather than by a name a user configures, so the input layer keeps no registry and you call your parser directly. It still has a protocol-shaped contract and an optional extra; see [Add an input format](#add-an-input-format) below.
 
 ## Add a Chinese segmentation engine
 
