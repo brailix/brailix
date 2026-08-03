@@ -593,3 +593,132 @@ class TestGeneration:
         with reg.overriding("tmp", GoodGreeter):
             assert reg.generation == g + 1  # the block's own register
         assert reg.generation == g + 2  # ...plus the restore
+
+
+class TestAvailabilityProbe:
+    """``available`` answers "is this adapter's dependency installed?" without
+    running the loader.
+
+    It exists because the only previous way to find out was to *load* the
+    adapter, and loading is not a neutral question to ask: a segmentation
+    engine's loader reads a hundred-megabyte model, so a front-end populating
+    an engine picker would have loaded every engine to decide which ones to
+    offer. Not offering an engine that cannot work is what stops a stored
+    setting from naming one, which is how a document ends up compiling to
+    nothing with only a wall of per-block errors to explain it.
+    """
+
+    def test_a_declared_probe_that_is_missing_reads_unavailable(self) -> None:
+        reg: Registry[object] = Registry("probe")
+        reg.register(
+            "ghost",
+            lambda: object(),
+            extra="ghost",
+            probe="a_module_that_is_not_installed_anywhere",
+        )
+        assert reg.has("ghost")
+        assert reg.available("ghost") is False
+        assert reg.available_names() == []
+
+    def test_a_declared_probe_that_resolves_reads_available(self) -> None:
+        reg: Registry[object] = Registry("probe")
+        reg.register("real", lambda: object(), extra="json", probe="json")
+        assert reg.available("real") is True
+        assert reg.available_names() == ["real"]
+
+    def test_an_undeclared_probe_reads_available(self) -> None:
+        # "Cannot tell" is not "missing": a built-in with no third-party
+        # dependency, or a plugin that declared nothing, must stay offered.
+        reg: Registry[object] = Registry("probe")
+        reg.register("builtin", lambda: object())
+        assert reg.available("builtin") is True
+
+    def test_an_unregistered_name_reads_unavailable(self) -> None:
+        reg: Registry[object] = Registry("probe")
+        assert reg.available("nobody") is False
+
+    def test_every_module_of_a_multi_probe_must_resolve(self) -> None:
+        reg: Registry[object] = Registry("probe")
+        reg.register(
+            "pair", lambda: object(), probe=("json", "not_installed_at_all")
+        )
+        assert reg.available("pair") is False
+
+    def test_the_probe_never_runs_the_loader(self) -> None:
+        # The whole point: asking must not pay the import it is asking about.
+        calls: list[int] = []
+
+        def loader() -> object:
+            calls.append(1)
+            return object()
+
+        reg: Registry[object] = Registry("probe")
+        reg.register("heavy", loader, probe="json")
+        assert reg.available("heavy") is True
+        assert reg.available_names() == ["heavy"]
+        assert calls == []
+
+    def test_unregister_forgets_the_probe(self) -> None:
+        reg: Registry[object] = Registry("probe")
+        reg.register("x", lambda: object(), probe="nope_not_here")
+        reg.unregister("x")
+        reg.register("x", lambda: object())
+        assert reg.available("x") is True
+
+    def test_re_registering_without_a_probe_clears_the_old_one(self) -> None:
+        # register() replaces a registration whole; a stale probe would keep
+        # reporting the new adapter missing.
+        reg: Registry[object] = Registry("probe")
+        reg.register("x", lambda: object(), probe="nope_not_here")
+        assert reg.available("x") is False
+        reg.register("x", lambda: object())
+        assert reg.available("x") is True
+
+
+class TestShippedAdaptersDeclareUsableProbes:
+    """A probe naming the wrong module is worse than none: it reports a
+    working engine missing, and a front-end then hides it (or a stored
+    setting is reset off it) for no reason. The ``g2pm`` extra installs the
+    ``g2pM`` module, so guessing the module from the extra is exactly the
+    mistake available to make here."""
+
+    def test_a_probe_agrees_with_actually_loading_the_adapter(self) -> None:
+        from brailix.core.errors import CANDIDATE_UNAVAILABLE_ERRORS
+        from brailix.frontend.zh.analyzer.registry import analyzer_registry
+        from brailix.frontend.zh.pinyin.registry import resolver_registry
+
+        for reg in (analyzer_registry, resolver_registry):
+            for name in reg.names():
+                if name == "auto":
+                    continue  # resolves by delegation, not by its own import
+                try:
+                    reg.get(name)
+                except CANDIDATE_UNAVAILABLE_ERRORS:
+                    loadable = False
+                else:
+                    loadable = True
+                assert reg.available(name) is loadable, (
+                    f"{reg.subsystem}:{name} probe says "
+                    f"{reg.available(name)} but loading says {loadable} — "
+                    f"the declared probe module is wrong"
+                )
+
+
+def test_overriding_restores_the_probe_too() -> None:
+    """``overriding`` snapshots every per-name dict, probes included.
+
+    ``register`` replaces a registration whole, so a temporary stub that
+    declares no probe clears the real one's. Without the probe in the
+    snapshot the clear survived the block, and the next caller was told an
+    engine was installed because nothing was left to say otherwise — which is
+    the failure this whole mechanism exists to prevent, arriving through the
+    test-support helper.
+    """
+    reg: Registry[object] = Registry("probe")
+    reg.register("engine", lambda: object(), probe="not_installed_anywhere")
+    assert reg.available("engine") is False
+
+    with reg.overriding("engine", lambda: object()):
+        assert reg.available("engine") is True  # the stub has no dependency
+
+    assert reg.available("engine") is False
