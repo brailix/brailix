@@ -244,6 +244,56 @@ class TestDegreeCircle:
         assert [c.tag for c in root] == ["mi", "mo", "mi"]
         assert root[1].text == "∘"
 
+    def test_the_exponent_span_travels_to_the_degree_sign(self):
+        # The rewrite drops the <msup> wrapper, and the module promises
+        # normalization is attribute-preserving. The new <mo>°</mo> is the
+        # node that now stands for the ring, so it takes the ring's own span:
+        # without this the degree sign fell back to the whole formula and a
+        # click on that cell jumped to the formula's first character.
+        root = normalize(
+            '<math><msup data-bk-span="0,8">'
+            '<mn data-bk-span="0,3">144</mn>'
+            '<mo data-bk-span="3,8">∘</mo></msup></math>'
+        )
+        assert [c.tag for c in root] == ["mn", "mo"]
+        assert root[0].get("data-bk-span") == "0,3"
+        assert root[1].get("data-bk-span") == "3,8"
+
+    def test_the_wrapper_span_is_inherited_when_the_parts_have_none(self):
+        # Only the msup is tagged: both replacement nodes fall back to it
+        # rather than losing provenance entirely — the same setdefault rule
+        # the singleton-mrow collapse uses when it drops a wrapper.
+        root = normalize(
+            '<math><msup data-bk-span="4,9"><mn>90</mn><mo>∘</mo></msup></math>'
+        )
+        assert root[0].get("data-bk-span") == "4,9"
+        assert root[1].get("data-bk-span") == "4,9"
+
+    def test_other_provenance_attributes_travel_too(self):
+        # data-bk-* as a family, not data-bk-span as a special case: the chem
+        # frontend marks nodes the same way.
+        root = normalize(
+            '<math><msup data-bk-chem="1"><mn>1</mn><mo>∘</mo></msup></math>'
+        )
+        assert root[1].get("data-bk-chem") == "1"
+
+    def test_presentational_attributes_of_the_ring_do_not_travel(self):
+        # The ring's own presentation describes a ring; the node it would
+        # land on is a degree sign.
+        root = normalize(
+            '<math><msup><mn>1</mn>'
+            '<mo stretchy="false">∘</mo></msup></math>'
+        )
+        assert root[1].get("stretchy") is None
+
+    def test_the_dropped_wrapper_tail_is_kept(self):
+        # A tail is text that follows the closing tag; the msup goes away, so
+        # it moves to the last node that replaced it. (Whitespace tails are
+        # already stripped before this pass, so only a meaningful one shows.)
+        root = normalize("<math><msup><mn>1</mn><mo>∘</mo></msup>C</math>")
+        assert [c.tag for c in root] == ["mn", "mo"]
+        assert root[1].tail == "C"
+
 
 class TestSoftFailures:
     def test_malformed_xml_yields_merror_tree(self):

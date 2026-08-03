@@ -523,18 +523,16 @@ class DocumentIR:
         below would catch a bad version too, but checking here keeps the
         refusal ahead of reading every block of a document that cannot load.
         """
-        doc_type = payload.get("type")
-        if doc_type != "document":
-            raise ValueError(
-                f"document payload must carry type 'document', got "
-                f"{doc_type!r}"
-            )
+        _serde.require_payload_type(payload, "document", "document")
         version = payload.get("version", _DEFAULT_IR_VERSION)
         _check_ir_version(version, "loads")
         return cls(
             version=version,
-            metadata=dict(payload.get("metadata", {})),
-            blocks=[block_from_dict(b) for b in payload.get("blocks", [])],
+            metadata=_serde.payload_mapping(payload, "metadata", "document"),
+            blocks=[
+                block_from_dict(b)
+                for b in _serde.payload_list(payload, "blocks", "document")
+            ],
         )
 
 
@@ -573,6 +571,7 @@ def block_for(type_name: str) -> type[Block]:
 
 
 def block_from_dict(payload: dict[str, Any]) -> Block:
+    _serde.require_payload_object(payload, "block")
     type_name = payload.get("type")
     if type_name is None:
         raise ValueError("missing 'type' in block payload")
@@ -584,7 +583,19 @@ def block_from_dict(payload: dict[str, Any]) -> Block:
             continue
         if key not in valid:
             continue
-        kwargs[key] = _deserialize_block_value(cls, key, value)
+        # Convert first, then hold the CONVERTED value to the field's own
+        # declared type: a payload is arbitrary decoded JSON, so a field's
+        # presence says nothing about its shape. Without this a
+        # ``{"type": "math_block", "source": []}`` built cleanly and raised
+        # ``unhashable type: 'list'`` at the adapter registry much later, and
+        # ``{"type": "list", "ordered": "false"}`` built a list that was
+        # ordered because a non-empty string is truthy.
+        kwargs[key] = _serde.check_wire_value(
+            cls,
+            key,
+            _deserialize_block_value(cls, key, value),
+            f"{cls.__name__} block",
+        )
     return cls(**kwargs)
 
 

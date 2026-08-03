@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from brailix.core.span import Span
+from brailix.ir import _serde
 
 # ---------------------------------------------------------------------------
 # BrailleCell
@@ -101,13 +102,25 @@ class BrailleCell:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> BrailleCell:
+        # A cell is a value object: unlike the three containers below it
+        # carries no ``type`` tag in the wire form, so there is nothing to
+        # check beyond the field shapes. ``dots`` is the one that used to
+        # leak — ``tuple(None)`` and ``tuple(5)`` raise a ``TypeError`` naming
+        # neither the field nor the cell. Dot *values* are already validated
+        # in ``__post_init__``, and ``Span.from_tuple`` validates the span.
+        what = "braille cell"
+        _serde.require_payload_object(payload, what)
+        dots = _serde.payload_list(payload, "dots", what)
         span = payload.get("source_span")
-        return cls(
-            dots=tuple(payload.get("dots", [])),
+        built = cls(
+            dots=tuple(dots),
             role=payload.get("role"),
             source_span=Span.from_tuple(span) if span is not None else None,
             source_text=payload.get("source_text"),
         )
+        for key in ("role", "source_text"):
+            _serde.check_wire_value(cls, key, getattr(built, key), what)
+        return built
 
 
 # A sentinel space cell (no dots) — backends and renderers use it
@@ -254,7 +267,13 @@ class BrailleSequence:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> BrailleSequence:
-        return cls(cells=[BrailleCell.from_dict(c) for c in payload.get("cells", [])])
+        _serde.require_payload_type(payload, "braille_sequence", "braille sequence")
+        return cls(
+            cells=[
+                BrailleCell.from_dict(c)
+                for c in _serde.payload_list(payload, "cells", "braille sequence")
+            ]
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -299,13 +318,21 @@ class BrailleBlock:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> BrailleBlock:
-        return cls(
+        what = "braille block"
+        _serde.require_payload_type(payload, "braille_block", what)
+        built = cls(
             block_type=payload.get("block_type", "paragraph"),
-            cells=[BrailleCell.from_dict(c) for c in payload.get("cells", [])],
+            cells=[
+                BrailleCell.from_dict(c)
+                for c in _serde.payload_list(payload, "cells", what)
+            ],
             id=payload.get("id"),
             heading_level=payload.get("heading_level"),
             align=payload.get("align"),
         )
+        for key in ("block_type", "id", "heading_level", "align"):
+            _serde.check_wire_value(cls, key, getattr(built, key), what)
+        return built
 
 
 @dataclass(slots=True)
@@ -324,9 +351,14 @@ class BrailleDocument:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> BrailleDocument:
+        what = "braille document"
+        _serde.require_payload_type(payload, "braille_document", what)
         return cls(
-            metadata=dict(payload.get("metadata", {})),
-            blocks=[BrailleBlock.from_dict(b) for b in payload.get("blocks", [])],
+            metadata=_serde.payload_mapping(payload, "metadata", what),
+            blocks=[
+                BrailleBlock.from_dict(b)
+                for b in _serde.payload_list(payload, "blocks", what)
+            ],
         )
 
     def all_cells(self) -> list[BrailleCell]:

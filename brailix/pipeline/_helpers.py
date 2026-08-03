@@ -36,27 +36,38 @@ def _all_prose_types() -> frozenset[str]:
     )
 
 
-def _ensure_block_span(block: Any) -> tuple[str, Span, bool]:
+def _ensure_block_span(block: Any) -> tuple[str, Span, Span]:
     """Read ``block.text`` and guarantee ``block.span`` is non-None.
 
-    Returns ``(text, span, had_original_span)``:
+    Returns ``(text, document_span, leaf_span)`` — the two coordinate
+    systems a populated leaf block lives in
+    (ARCHITECTURE#arch-spans), handed back separately so a call site has
+    to *name* which one it means:
 
-    * ``text``  — ``block.text`` coerced to "" when missing.
-    * ``span``  — ``block.span`` after the call (never None).
-    * ``had_original_span`` — True iff the caller-supplied block already
-      had a span; lets fallback paths decide whether per-char synthesised
-      cells inherit a span or stay un-anchored.
+    * ``text``          — ``block.text`` coerced to "" when missing.
+    * ``document_span`` — ``block.span`` after the call (never None): where
+      the block sits in the **source document**.
+    * ``leaf_span``     — ``Span(0, len(text))``: the whole of ``text`` in
+      **leaf-local** coordinates, which is the system every
+      :class:`~brailix.ir.inline.InlineNode` span and every cell
+      ``source_span`` under this block is in.
+
+    Handing back one span for both was the bug this shape exists to
+    prevent: the specialised populates below wrote the *document* span
+    onto the carrier inline node they built, so a consumer that follows
+    the documented contract and adds ``block.span.start`` to a leaf-local
+    offset landed at twice the block's offset — every math / code / music
+    / graphic block past the first one in a document.
 
     Mutates ``block.span`` when it was None (single source of truth for
-    "every populated block ends up with a span"). Shared by
-    :meth:`_populate.populate_math_block` and
-    :meth:`_populate.populate_music_block` — see those for context.
+    "every populated block ends up with a span"), which is also why the
+    fallback paths no longer ask whether the caller supplied one: after
+    this call the leaf coordinates are well-defined either way.
     """
     text = block.text or ""
-    had_span = block.span is not None
-    if not had_span:
+    if block.span is None:
         block.span = Span(0, len(text))
-    return text, block.span, had_span
+    return text, block.span, Span(0, len(text))
 
 
 def _block_surface(block: Any) -> str:

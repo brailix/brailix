@@ -143,8 +143,8 @@ def load_profile(
     # NCB exceptions — one optional resource per profile that contains
     # all NCB-specific data (tone omission rules, char overrides, word
     # overrides).  Profile loader is the only entry point for JSON I/O;
-    # backend just reads ``profile.zh_exceptions``.  cn_current
-    # doesn't declare it → field stays None → all NCB call sites no-op.
+    # backend just reads ``profile.lang_spec("ncb_exceptions")``.  cn_current
+    # doesn't declare it → no entry → all NCB call sites no-op.
     zh_exceptions = _load_zh_exceptions(
         base, _table_ref(tables, "zh", "exceptions"), cells_pool
     )
@@ -157,6 +157,15 @@ def load_profile(
         zh_cells = _load_zh_cell_tables(base, t, cells_pool)
         if zh_cells:
             lang_tables.setdefault("zh", {}).update(zh_cells)
+
+    # The non-cell counterpart of the slot above: a standard's declarative
+    # rules go in under its own language subtag rather than onto a field of
+    # the shared profile type. Keyed by the profile's declared language, so
+    # loading an NCB resource under a non-zh profile is not a shape this can
+    # produce.
+    lang_specs: dict[str, dict[str, Any]] = {}
+    if zh_exceptions is not None:
+        lang_specs.setdefault("zh", {})["ncb_exceptions"] = zh_exceptions
 
     features = dict(payload.get("features", {}))
 
@@ -187,11 +196,11 @@ def load_profile(
         math_function_script_prefix_flags=math["function_script_prefix"],
         latin_letters=latin_letters,
         greek_letters=greek_letters,
-        zh_exceptions=zh_exceptions,
         music=music,
         music_specs=music_specs,
         phonetic=phonetic,
         lang_tables=lang_tables,
+        lang_specs=lang_specs,
     )
     validate_profile(profile, payload, base, str(profile_path))
     return profile

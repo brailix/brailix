@@ -164,3 +164,71 @@ class TestAuthoredFigureToPage:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+class TestPageGeometryArguments:
+    """``margin_mm`` / ``item_gap_mm`` are read by two consumers — the line
+    wrapper and the compositor — and the two used to disagree about what an
+    out-of-range value meant. Neither reported anything; the page just came
+    out wrong in a way an embossed sheet cannot be checked against.
+    """
+
+    @pytest.mark.parametrize(
+        ("margin", "why"),
+        [
+            (-50.0, "wrapped as if the page were wider, drew at zero margin"),
+            (float("nan"), "reached round() inside the compositor"),
+            (float("inf"), "reached round() inside the compositor"),
+            (1e9, "no usable box left"),
+            (120.0, "past half of a 210 mm page"),
+            (105.0, "exactly half — zero usable width"),
+        ],
+    )
+    def test_an_unusable_margin_is_refused(
+        self, pipe: Pipeline, margin: float, why: str
+    ) -> None:
+        doc = DocumentIR(blocks=[Paragraph(text="Page one")])
+        with pytest.raises(ValueError, match="margin_mm"):
+            pipe.translate_document_to_pages(doc, margin_mm=margin)
+
+    @pytest.mark.parametrize("gap", [-1.0, float("nan"), float("inf"), 1e9])
+    def test_an_unusable_item_gap_is_refused(
+        self, pipe: Pipeline, gap: float
+    ) -> None:
+        doc = DocumentIR(blocks=[Paragraph(text="Page one")])
+        with pytest.raises(ValueError, match="item_gap_mm"):
+            pipe.translate_document_to_pages(doc, item_gap_mm=gap)
+
+    @pytest.mark.parametrize("margin", [0.0, 5.0, 30.0])
+    def test_usable_margins_still_work(
+        self, pipe: Pipeline, margin: float
+    ) -> None:
+        # The other half: tightening the guard must not narrow the range that
+        # was always legal. Zero is a real choice (a flush page), which is why
+        # this is not a "must be positive" check.
+        doc = DocumentIR(blocks=[Paragraph(text="Page one")])
+        res = pipe.translate_document_to_pages(doc, margin_mm=margin)
+        assert res.page_count >= 1
+        assert _raised(res.pages[0]) > 0
+
+    def test_the_wrapper_and_the_compositor_resolve_one_number(self) -> None:
+        # The drift this guards: ``line_width_cells`` and ``compose_pages``
+        # each defaulted and normalised the margin themselves. They now share
+        # one resolver, so there is no second interpretation to disagree with.
+        from brailix.backend.tactile.page import (
+            line_width_cells,
+            resolve_margin_mm,
+        )
+
+        prof = load_tactile_profile("generic")
+        assert resolve_margin_mm(prof, None) == prof.braille_cell_spacing_mm
+        assert line_width_cells(prof) == line_width_cells(
+            prof, margin_mm=resolve_margin_mm(prof, None)
+        )
+
+    def test_a_bool_margin_is_not_one_millimetre(self) -> None:
+        from brailix.backend.tactile.page import resolve_margin_mm
+
+        prof = load_tactile_profile("generic")
+        with pytest.raises(ValueError, match="must be a number"):
+            resolve_margin_mm(prof, True)  # type: ignore[arg-type]

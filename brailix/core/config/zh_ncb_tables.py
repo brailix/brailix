@@ -197,14 +197,18 @@ class NcbWordOverrides:
 class NcbExceptions:
     """All NCB-specific data — loaded from one ``exceptions.json``.
 
-    Lives on :attr:`BrailleProfile.zh_exceptions`.  Profiles that
-    don't opt into NCB (cn_current) leave it at ``None``; the
-    backend's NCB call sites check for ``None`` first and no-op.
+    Filed in the profile's generic per-language spec slot as
+    ``lang_specs["zh"]["ncb_exceptions"]``, and read back through the Chinese
+    backend's own :func:`~brailix.backend.zh._ncb.ncb_exceptions`.  Profiles
+    that don't opt into NCB (cn_current) simply have no entry; the backend's
+    NCB call sites check for ``None`` first and no-op.
 
     "Three sub-records in one container" follows the design principle:
     *all NCB-specific difference in one consolidated resource* so the
     backend doesn't sprout one new module per quirk and the profile
-    doesn't sprout one new field per quirk either.
+    doesn't sprout one new field per quirk either — and the container
+    itself now reaches the profile through a slot rather than a field, so
+    the standard after this one has nowhere to add a second.
     """
 
     tone_omission: NcbToneOmission | None = None

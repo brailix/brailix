@@ -209,8 +209,14 @@ def translate_date(node: Date, ctx: BackendContext, profile: BrailleProfile) -> 
     """
     # Local import to avoid the dispatch ↔ number import cycle; the marker
     # translator is resolved by the profile's language, never hard-wired
-    # to one language backend.
-    from brailix.backend.dispatch import language_backend_registry
+    # to one language backend. The traceability post-condition comes from
+    # there too, rather than being re-implemented here: this is the second
+    # boundary a third-party LanguageBackend is called across, and it has to
+    # be held to the same contract as the first.
+    from brailix.backend.dispatch import (
+        _enforce_source_spans,
+        language_backend_registry,
+    )
 
     lang = profile.language.split("-")[0]
     backend = (
@@ -243,8 +249,12 @@ def translate_date(node: Date, ctx: BackendContext, profile: BrailleProfile) -> 
                 )
             else:
                 out.extend(
-                    backend.translate_date_marker(
-                        part, isinstance(prev, Number), ctx, profile
+                    _enforce_source_spans(
+                        backend.translate_date_marker(
+                            part, isinstance(prev, Number), ctx, profile
+                        ),
+                        part,
+                        f"language backend {lang!r} (translate_date_marker)",
                     )
                 )
         prev = part

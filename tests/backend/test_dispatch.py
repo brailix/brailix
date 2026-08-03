@@ -102,6 +102,92 @@ class TestTraceabilityContractAtDispatch:
         assert len(cells) == 1 and cells[0].source_span is None
 
 
+class _SpanlessDateMarkerBackend:
+    """A LanguageBackend whose ``translate_word`` is impeccable and whose
+    ``translate_date_marker`` returns the span-less sentinel.
+
+    The shape the second enforcement point exists for: a plugin can satisfy
+    every check the dispatcher makes and still break traceability, because
+    ``translate_date`` resolves the very same registry through its own call
+    path."""
+
+    def translate_word(self, node, ctx, profile):
+        from brailix.ir.braille import BrailleCell
+
+        return [
+            BrailleCell(dots=(1,), role="zh_final", source_span=node.span)
+        ]
+
+    def translate_date_marker(self, marker, follows_number, ctx, profile):
+        from brailix.ir.braille import BLANK_CELL
+
+        return [BLANK_CELL]
+
+
+class TestTraceabilityContractAtDateMarker:
+    """The date path resolves the same open registry, so it is held to the
+    same post-condition — the marker translator is the second (and only
+    other) boundary a third-party ``LanguageBackend`` is called across."""
+
+    def test_spanless_date_marker_cells_raise(self, ctx, profile):
+        from brailix.backend.dispatch import language_backend_registry
+        from brailix.backend.number import translate_date
+        from brailix.core.errors import BackendContractError
+        from brailix.ir.inline import Date, HanziMarker
+
+        date = Date(
+            surface="5月",
+            span=Span(0, 2),
+            parts=[
+                Number(surface="5", span=Span(0, 1)),
+                HanziMarker(surface="月", reading="yue4", span=Span(1, 2)),
+            ],
+        )
+        with language_backend_registry.overriding(
+            "zh", _SpanlessDateMarkerBackend
+        ):
+            with pytest.raises(BackendContractError) as exc_info:
+                translate_date(date, ctx, profile)
+        message = str(exc_info.value)
+        assert "translate_date_marker" in message
+        assert "HanziMarker" in message
+
+    def test_word_path_alone_would_have_passed(self, ctx, profile):
+        # Pins why this needed its own enforcement: the identical plugin
+        # sails through the dispatcher's check.
+        from brailix.backend.dispatch import language_backend_registry
+
+        with language_backend_registry.overriding(
+            "zh", _SpanlessDateMarkerBackend
+        ):
+            cells = translate_node(
+                Word(surface="我", reading="wo3", span=Span(0, 1)),
+                ctx,
+                profile,
+            )
+        assert all(c.source_span is not None for c in cells)
+
+    def test_spanless_marker_node_is_exempt(self, ctx, profile):
+        # Same exemption as the dispatcher's: a marker carrying no span
+        # promises nothing about the cells built from it.
+        from brailix.backend.dispatch import language_backend_registry
+        from brailix.backend.number import translate_date
+        from brailix.ir.inline import Date, HanziMarker
+
+        date = Date(
+            surface="5月",
+            parts=[
+                Number(surface="5"),
+                HanziMarker(surface="月", reading="yue4"),
+            ],
+        )
+        with language_backend_registry.overriding(
+            "zh", _SpanlessDateMarkerBackend
+        ):
+            cells = translate_date(date, ctx, profile)
+        assert cells
+
+
 class TestDispatchPerNodeType:
     def test_word(self, ctx, profile):
         cells = translate_node(Word(surface="我", reading="wo3"), ctx, profile)

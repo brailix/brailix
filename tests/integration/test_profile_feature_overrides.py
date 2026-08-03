@@ -145,6 +145,44 @@ class TestConstructionContract:
         caller["zh.tone"] = True
         assert pipe.profile_features["zh.tone"] is False
 
+    @pytest.mark.parametrize(
+        "value",
+        [
+            {"enabled": False},
+            ["a", "b"],
+            {"nested": {"deep": 1}},
+            set(),
+            bytearray(b"x"),
+        ],
+    )
+    def test_a_container_value_is_refused(self, value: object) -> None:
+        """The hole the previous test could not see.
+
+        Freezing the mapping protects the mapping, not the objects inside
+        it: a container value stayed shared with the caller, who could edit
+        it after construction and change what this pipeline compiles — while
+        ``fingerprint``, computed once from the old contents, stayed put. Two
+        different outputs then wore one ``source_hash``, which is a cache
+        serving the wrong braille rather than an error anyone would see.
+        """
+        with pytest.raises(ConfigurationError, match="a feature flag is a scalar"):
+            Pipeline(**_BASE, profile_features={"plugin.option": value})
+
+    @pytest.mark.parametrize("value", [True, False, None, 7, 1.5, "ncb_omission"])
+    def test_every_scalar_shape_is_accepted(self, value: object) -> None:
+        # The other half: restricting the value type must not narrow the
+        # flags a profile can actually declare. The shipped profiles use
+        # bool and str; int / float / None round out the JSON scalars.
+        pipe = Pipeline(**_BASE, profile_features={"plugin.option": value})
+        assert pipe._profile.feature("plugin.option") == value
+
+    def test_a_container_is_refused_through_the_profile_api_too(self) -> None:
+        # Both entry points share one write point, so neither can be the one
+        # that forgot to check.
+        base = load_profile("cn_current")
+        with pytest.raises(ConfigurationError, match="a feature flag is a scalar"):
+            base.with_features({"plugin.option": {"enabled": False}})
+
     def test_replace_carries_the_override(self) -> None:
         from dataclasses import replace
 

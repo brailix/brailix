@@ -21,6 +21,7 @@ warning + unknown cell. The pipeline never crashes on data gaps.
 
 from __future__ import annotations
 
+from brailix.backend.zh._ncb import ncb_exceptions as _ncb_exceptions
 from brailix.backend.zh.pinyin_parser import ParsedPinyin, parse_pinyin
 from brailix.backend.zh.tone import tone_policy_for
 from brailix.core.config import BrailleProfile
@@ -151,10 +152,11 @@ def _translate_chinese(
             for i, ch in enumerate(surface)
         ]
 
-    # NCB definite-word shorthand — look up shorthand via the
-    # unified zh_exceptions container.  None when the profile didn't opt in
+    # NCB definite-word shorthand — look up shorthand via the unified
+    # exceptions container this language's profiles carry in the generic
+    # per-language spec slot.  None when the profile didn't opt in
     # (cn_current) or no char_overrides section was defined.
-    exceptions = profile.zh_exceptions
+    exceptions = _ncb_exceptions(profile)
     char_overrides = (
         exceptions.char_overrides if exceptions is not None else None
     )
@@ -403,7 +405,7 @@ def _emit_parsed(
     # features.zh.tone_strategy.
     #
     # The NCB profile also ships char- and word-level disambiguation
-    # overrides inside its zh_exceptions resource.
+    # overrides inside its ``tables.zh.exceptions`` resource.
     # When such an override fires for this character, we short-circuit
     # past the policy's tone-omission decision — but only if the policy
     # wasn't already going to emit.  The policy's neutral-tone
@@ -416,7 +418,7 @@ def _emit_parsed(
         next_parsed=next_parsed,
     )
     if not should_emit and parsed.tone and parsed.tone != "5":
-        exc = profile.zh_exceptions
+        exc = _ncb_exceptions(profile)
         if exc is not None:
             if exc.char_overrides is not None and exc.char_overrides.should_force_keep_tone(ch):
                 should_emit = True

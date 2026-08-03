@@ -136,7 +136,7 @@ _LANGUAGE_NODE_TYPE = Word
 def _enforce_source_spans(
     cells: list[BrailleCell], node: InlineNode, origin: str
 ) -> list[BrailleCell]:
-    """Post-condition at the dispatch boundary: a node that carries a
+    """Post-condition at a translator boundary: a node that carries a
     ``span`` must come back as cells that ALL carry a ``source_span``.
 
     "Every cell maps to a source span" (ARCHITECTURE#arch-traceability) is what
@@ -149,6 +149,15 @@ def _enforce_source_spans(
     surfacing later as a proofread jump to nowhere. A node with **no** span
     (hand-built IR) promises nothing, so its cells are exempt — that is the
     documented soft spot of hand-built documents, not a backend defect.
+
+    Applied at **every** boundary a ``LanguageBackend`` is called across, not
+    just :func:`translate_node`: the second one is
+    :func:`brailix.backend.number.translate_date`, which resolves the same
+    registry to translate a date's markers. It used to call straight through,
+    so a plugin whose ``translate_word`` was checked could return span-less
+    cells from ``translate_date_marker`` and break traceability with every
+    contract test still green. A new call site that resolves the registry
+    must come through here too.
 
     Raises :class:`BackendContractError` unconditionally — this is a code
     defect, not user input, so no run mode may swallow it.

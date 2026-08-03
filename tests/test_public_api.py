@@ -590,8 +590,14 @@ def test_every_brailix_type_a_protocol_names_has_a_supported_import() -> None:
     ``brailix.core`` when the graphics vertical landed — caught by the earlier
     version of this test, which matched ``\\w+Context`` and so could only ever
     find contexts. ``BrailleProfile`` is the one that shape could not see: it
-    is named by all three ``LanguageBackend`` methods, and lives in
+    is named by every ``LanguageBackend`` method, and lives in
     ``brailix.core.config``, which no manifest mentioned.
+
+    Counted rather than written out, because the count drifted: this said
+    "all three" until the protocol lost ``translate_hanzi_char`` and became
+    two. The number was never what mattered — that the type is named at all
+    is — and the check itself reads the protocol, so only the prose could go
+    stale.
 
     Read from the **imports** rather than from the annotation strings. A
     Protocol can only name a brailix type it imported, so the import block is
@@ -1229,4 +1235,109 @@ def test_facade_namespace_at_runtime_holds_nothing_unpublished(
         f"Bind them under an underscore alias, add them to __all__ (and to "
         f"_FACADE) as a deliberate promise, or record a documented exception "
         f"in _NAMESPACE_ALLOWLIST."
+    )
+
+
+# A binding a module cannot avoid, whatever it publishes. ``annotations`` is
+# what ``from __future__ import annotations`` leaves behind — the one import in
+# Python that cannot be aliased — so a facade carries it no matter what.
+_UNAVOIDABLE_BINDINGS = frozenset({"annotations"})
+
+
+def _foreign_bindings(module: str) -> list[str]:
+    """Non-underscore module-level names a facade holds that are NOT its API.
+
+    Everything the two ``brailix``-scoped checks above skip: standard-library
+    and third-party objects bound under their plain names. ``os``, ``Path``,
+    ``Callable``, ``dataclass``, ``field`` and ``TYPE_CHECKING`` all resolved
+    at a facade path, and ``dir()`` offered them beside the published names.
+
+    Submodules are exempt under their own name, for the same reason the
+    runtime check exempts them: importing ``brailix.input.markdown`` sets
+    ``markdown`` on ``brailix.input`` whether anyone wanted it or not.
+    """
+    import types
+
+    mod = importlib.import_module(module)
+    published = set(getattr(mod, "__all__", ()))
+    allowed = _NAMESPACE_ALLOWLIST.get(module, set())
+
+    out: list[str] = []
+    for name, value in vars(mod).items():
+        if (
+            name.startswith("_")
+            or name in published
+            or name in allowed
+            or name in _UNAVOIDABLE_BINDINGS
+        ):
+            continue
+        if isinstance(value, types.ModuleType):
+            if value.__name__.rsplit(".", 1)[-1] == name:
+                continue  # a submodule under its own name
+        owner = getattr(value, "__module__", None) or getattr(
+            type(value), "__module__", ""
+        )
+        out.append(f"{name} (from {owner})")
+    return out
+
+
+@pytest.mark.parametrize("module", sorted(_FACADE))
+def test_a_facade_namespace_holds_no_foreign_plain_binding(
+    module: str,
+) -> None:
+    """A facade's namespace is a promise as much as its ``__all__`` is, and
+    the promise is about **everything** that resolves there.
+
+    The two checks above ask only about ``brailix``-owned names, on the
+    reasoning that nobody mistakes ``pathlib.Path`` for our API. True of
+    ``Path`` in isolation; not true of the namespace as a whole. ``from
+    brailix import TYPE_CHECKING`` worked, and the root package's own
+    ``__dir__`` listed it among the published names, so completion offered it
+    in the same breath as ``Pipeline`` — in a package whose docstring says a
+    name which merely *resolves* at a facade is what this suite exists to
+    prevent. ``brailix.input`` carried ``os``, ``Path``, ``Callable``,
+    ``dataclass`` and ``field`` the same way, right beside the brailix names
+    it had carefully aliased.
+
+    **Facades only, and that is a decision rather than an omission.** An
+    extension-surface module (:data:`_EXTENSION_SURFACE`) is an ordinary
+    implementation module that a documented address happens to point *into*:
+    the guide sends an adapter author there to import one protocol or one
+    registry, and the manifest promises those names keep resolving. It does
+    not promise the module's namespace is nothing but them, and holding it to
+    that would mean writing ``class Segmenter(_Protocol)`` throughout the
+    module extenders are pointed at to read. A facade is the opposite: it
+    exists only to be a surface, so everything in it is surface.
+
+    The fix, where it applies, is the one the library already uses
+    everywhere: bind it as ``import x as _x``.
+    """
+    leaked = _foreign_bindings(module)
+    assert not leaked, (
+        f"{module} holds non-brailix names under plain bindings: {leaked}\n"
+        f"They resolve at a published address and appear in dir(), which is "
+        f"the whole of what 'published' means to a caller. Import them as "
+        f"``import x as _x`` / ``from y import x as _x``, or record a "
+        f"documented exception in _NAMESPACE_ALLOWLIST."
+    )
+
+
+@pytest.mark.parametrize("module", sorted(_EXTENSION_SURFACE))
+def test_an_extension_module_still_resolves_everything_it_promises(
+    module: str,
+) -> None:
+    """The narrower promise the extension surface actually makes.
+
+    Its namespace is not claimed to be exhaustive (see the facade check above
+    for why), so what is left to check is the half that IS promised: every
+    manifest name resolves at that address, under that spelling, without a
+    leading underscore — and is re-exported deliberately rather than by
+    accident of a submodule import.
+    """
+    mod = importlib.import_module(module)
+    missing = [
+        name for name in _EXTENSION_SURFACE[module] if not hasattr(mod, name)
+    ]
+    assert not missing, (
+        f"{module} no longer resolves promised extension names: {missing}"
     )

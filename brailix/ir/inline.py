@@ -14,11 +14,15 @@ click-to-source jump — navigates to the wrong place in every block but the
 first, and formats like ``.docx`` have no document-wide character coordinate
 for it to be right about in the first place.
 
-Hierarchy:
+Hierarchy — one level, every type a direct subclass. There is no inline node
+that specialises another; a composite (:class:`Date`, :class:`Quantity`)
+*contains* nodes rather than inheriting from one, which is why the backend can
+dispatch on the exact type through a flat table:
 
     InlineNode (abstract)
       ├── Word              # prose word (any length), with its reading
-        ├── Number            # numeric literal
+      ├── Number            # numeric literal
+      ├── HanziMarker       # structural hanzi inside a composite (年/月/日 in a Date)
       ├── Date              # holds an internal ``parts`` structure
       ├── Quantity          # number + unit
       ├── Percent
@@ -376,6 +380,7 @@ def from_dict(payload: dict[str, Any]) -> InlineNode:
     Composite types like :class:`Date` recursively deserialize their
     ``parts`` / ``number`` children.
     """
+    _serde.require_payload_object(payload, "inline")
     type_name = payload.get("type")
     if type_name is None:
         raise ValueError("missing 'type' in inline payload")
@@ -387,7 +392,14 @@ def from_dict(payload: dict[str, Any]) -> InlineNode:
             continue
         if key not in valid_field_names:
             continue
-        kwargs[key] = _deserialize_value(key, value)
+        # Convert, then hold the converted value to the field's declared type
+        # — the same wire-shape guard the block side applies, for the same
+        # reason: ``{"type": "word", "reading": []}`` used to build a Word
+        # whose reading was a list, and every consumer downstream believes
+        # the annotation.
+        kwargs[key] = _serde.check_wire_value(
+            cls, key, _deserialize_value(key, value), f"{cls.__name__} node"
+        )
     return cls(**kwargs)
 
 

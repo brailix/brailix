@@ -313,11 +313,16 @@ class TestMathBlock:
         codes = [w.code for w in out.warnings]
         assert "MATH_BLOCK_PARSE_FAILED" in codes
 
-    def test_parse_exception_without_span_skips_span_attribution(
+    def test_parse_exception_without_span_still_traces_leaf_local(
         self, pipe, monkeypatch
     ):
-        # When the source block has no span, fallback Unknown nodes
-        # also have no span — preserved through to per-cell source_span.
+        # A block that arrives without a span still gets leaf-local spans on
+        # its fallback cells: populate synthesises ``Span(0, len(text))`` for
+        # the block itself, so cell offsets into that text are well-defined
+        # whether or not the caller said where the block sits in a document.
+        # (It used to leave them un-anchored, which made a failed formula the
+        # one construct in a compiled document that broke "every cell maps to
+        # a source span".)
         def _boom(*_a, **_kw):
             raise RuntimeError("boom")
 
@@ -325,7 +330,27 @@ class TestMathBlock:
 
         mb = MathBlock(source="latex", text="xy", span=None)
         out = pipe.translate_block(mb)
-        assert [c.source_span for c in out.braille_blocks[0].cells] == [None, None]
+        assert [c.source_span for c in out.braille_blocks[0].cells] == [
+            Span(0, 1), Span(1, 2),
+        ]
+
+    def test_parse_exception_at_document_offset_stays_leaf_local(
+        self, pipe, monkeypatch
+    ):
+        # The fallback counts from 0 inside the block's own text, NOT from
+        # the block's document offset: a consumer following the documented
+        # contract adds ``block.span.start`` itself, and counting from it
+        # here would double the offset.
+        def _boom(*_a, **_kw):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(pipe._frontend, "_parse_math_tree", _boom)
+
+        mb = MathBlock(source="latex", text="abc", span=Span(100, 103))
+        out = pipe.translate_block(mb)
+        assert [c.source_span for c in out.braille_blocks[0].cells] == [
+            Span(0, 1), Span(1, 2), Span(2, 3),
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -341,16 +366,15 @@ class TestFootnoteRefEdges:
         # so we lock that behaviour too.
         from brailix.backend.block import _footnote_ref_cells
 
-        assert _footnote_ref_cells("", None, profile) == []
+        assert _footnote_ref_cells("", profile) == []
 
     def test_digit_after_letter_re_emits_number_sign(self, profile):
         # A ref like ``1a2`` must re-emit the number sign before the
         # trailing ``2`` so it isn't read as a letter; deduping on "any
         # number_sign already present" dropped it.
         from brailix.backend.block import _footnote_ref_cells
-        from brailix.core.span import Span
 
-        cells = _footnote_ref_cells("1a2", Span(0, 3), profile)
+        cells = _footnote_ref_cells("1a2", profile)
         roles = [c.role for c in cells]
         assert roles.count("number_sign") == 2  # two separate digit runs
         twos = [i for i, c in enumerate(cells) if c.source_text == "2"]
@@ -367,9 +391,8 @@ class TestFootnoteRefEdges:
         # letter must carry its letter-sign prefix so it's unambiguously
         # a letter (and the digit run is broken).
         from brailix.backend.block import _footnote_ref_cells
-        from brailix.core.span import Span
 
-        cells = _footnote_ref_cells("1a", Span(0, 2), profile)
+        cells = _footnote_ref_cells("1a", profile)
         a_cells = [c for c in cells if c.source_text == "a"]
         assert len(a_cells) == 2  # letter-sign prefix + the bare letter
         assert a_cells[-1].dots == profile.bare_letter("a")

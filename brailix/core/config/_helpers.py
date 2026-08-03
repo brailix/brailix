@@ -226,6 +226,31 @@ def _feature_lookup(features: dict[str, Any], key: str, default: Any) -> Any:
     return node
 
 
+# What a feature override may be set to. A flag is a **scalar**: the shipped
+# profiles' feature leaves are all ``bool`` or ``str``, and the nesting a
+# features dict has is *grouping* — which is exactly what the dotted key
+# addresses. Two things follow from admitting only these, and both are the
+# point:
+#
+# * A container value would be ambiguous by construction. ``_feature_lookup``
+#   walks into a dict, so ``{"plugin.opt": {"enabled": False}}`` does not set
+#   one flag to a structured value — it replaces the whole ``plugin.opt``
+#   *group*, and ``feature("plugin.opt.enabled")`` then answers from it. An
+#   override is documented as "the same standard with a named flag set
+#   differently", not as a way to graft a subtree.
+# * Scalars are immutable, which closes the aliasing hole. A ``dict`` or
+#   ``list`` value stayed shared with whoever passed it: ``MappingProxyType``
+#   freezes the mapping, not the objects inside it, and the merge below wrote
+#   the value straight through. The caller could then mutate it after
+#   construction and change what a built pipeline compiles — past a
+#   fingerprint computed from the old contents, so the same ``source_hash``
+#   now stood for two different outputs. That is the same hole
+#   ``_freeze_seg_dict`` exists to close for the segmentation dictionary; here
+#   there is no legitimate container to freeze, so the value is refused
+#   instead.
+_FEATURE_VALUE_TYPES = (str, int, float, bool, type(None))
+
+
 def _feature_merge(
     features: dict[str, Any], overrides: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -242,13 +267,29 @@ def _feature_merge(
     into the profile the override was derived from — which is exactly the
     object a caller may still be compiling with.
 
-    Raises :class:`ConfigurationError` when an intermediate segment exists
-    and is not a dict (``"zh.tone.strict"`` where ``zh.tone`` is a bool):
-    silently replacing the scalar with a group would leave the original
-    feature unreadable and the override looking like it took effect.
+    Raises :class:`ConfigurationError` for either malformed override:
+
+    * an intermediate segment that exists and is not a dict
+      (``"zh.tone.strict"`` where ``zh.tone`` is a bool): silently replacing
+      the scalar with a group would leave the original feature unreadable and
+      the override looking like it took effect;
+    * a value that is not a JSON scalar (see :data:`_FEATURE_VALUE_TYPES`).
+
+    The single write point for feature overrides, which is why both checks
+    live here rather than at one of the two entry points
+    (:meth:`BrailleProfile.with_features` and the ``profile_features``
+    pipeline field) — a check on one of those is a check the other is missing.
     """
     merged = copy.deepcopy(features)
     for key, value in overrides.items():
+        if not isinstance(value, _FEATURE_VALUE_TYPES):
+            raise ConfigurationError(
+                f"feature override {key!r}: a feature flag is a scalar "
+                f"(str / int / float / bool / None), got "
+                f"{type(value).__name__}. A dotted key already addresses a "
+                f"nested flag — write {key + '.<flag>'!r} for each one "
+                f"instead of handing over a container"
+            )
         *parents, leaf = key.split(".")
         node = merged
         for depth, segment in enumerate(parents):

@@ -347,7 +347,10 @@ class Pipeline:
       Folded into :attr:`fingerprint` like everything else that changes
       the output (the digest hashes the profile's resolved content, and
       the override is part of it by the time it is taken). Empty = the
-      profile exactly as it ships.
+      profile exactly as it ships. A value must be a JSON **scalar** —
+      a container is refused with :class:`~brailix.core.ConfigurationError`,
+      since the dotted key already addresses a nested flag (see
+      :func:`~brailix.core.config._helpers._feature_merge`).
     * ``default_renderer`` — forwarded to every
       :class:`TranslationResult` so :meth:`TranslationResult.render`
       knows what to use when called without arguments.
@@ -440,6 +443,13 @@ class Pipeline:
     # Same defensive copy behind a read-only view as the dictionaries above,
     # for the same reason — the merged result is hashed into the
     # fingerprint at construction.
+    #
+    # That copy is shallow, and a shallow copy is enough here only because a
+    # flag's value is required to be a scalar: ``_feature_merge`` refuses a
+    # container, so there is nothing inside the mapping left for the caller
+    # to reach back into and edit after the fingerprint was taken. (The
+    # neighbouring ``user_seg_dict`` answers the same hazard the other way —
+    # its values are legitimately sequences, so it freezes them.)
     profile_features: Mapping[str, Any] = field(default_factory=dict)
     # Unlike the frontend families there is no ``auto`` here, deliberately:
     # a renderer choice is an OUTPUT FORMAT, and no amount of probing can
