@@ -11,11 +11,14 @@ char carry their own offsets and don't use this.)
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
 from brailix.frontend.zh.tokens import ChineseToken
+
+if _TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 def recover_spans_by_cursor(

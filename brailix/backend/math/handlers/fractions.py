@@ -11,7 +11,7 @@ submodules.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.dispatch import _emit_element
@@ -22,6 +22,9 @@ from brailix.backend.math.utils import (
     _last_is_blank,
 )
 from brailix.ir.braille import BrailleCell, blank_cell
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 
 def _emit_mfrac(

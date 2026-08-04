@@ -18,12 +18,15 @@ density from those same millimetres
 
 from __future__ import annotations
 
-import zlib
-from collections.abc import Sequence
-from dataclasses import dataclass
+import zlib as _zlib
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.ir.tactile import TactileRaster
 from brailix.renderer._raster_encoding import INVERT_LEVELS
+
+if _TYPE_CHECKING:
+    from collections.abc import Sequence
 
 _MM_PER_INCH = 25.4
 _PT_PER_INCH = 72.0
@@ -68,7 +71,7 @@ def rasters_to_pdf(rasters: Sequence[TactileRaster]) -> bytes:
         # top, then the content-stream ``cm`` scales it to the page — so the
         # raster's row-major top-to-bottom data needs no flip, just the
         # raised→dark invert.
-        image_data = zlib.compress(bytes(raster.data).translate(INVERT_LEVELS), 9)
+        image_data = _zlib.compress(bytes(raster.data).translate(INVERT_LEVELS), 9)
         w_pt = _mm_to_pt(raster.page_width_mm)
         h_pt = _mm_to_pt(raster.page_height_mm)
         content = f"q {_num(w_pt)} 0 0 {_num(h_pt)} 0 0 cm /Im0 Do Q".encode("ascii")
@@ -128,7 +131,7 @@ def raster_to_pdf(raster: TactileRaster) -> bytes:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class PdfRenderer:
     """Encode a tactile raster as a one-page grayscale PDF (sighted ref)."""
 

@@ -19,13 +19,16 @@ side effect of creating directories in the wrong cwd.
 
 from __future__ import annotations
 
-import threading
-from collections.abc import Callable
-from dataclasses import dataclass
-from pathlib import Path
+import threading as _threading
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+
+if _TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
 
 
-@dataclass(frozen=True)
+@_dataclass(frozen=True)
 class ModelAsset:
     """Description of a downloadable model owned by an adapter.
 
@@ -90,7 +93,7 @@ _managed_download = False
 #
 # Reentrant to match ``Registry``: an ``install_dir_factory`` is caller-supplied
 # and could reach back into this module.
-_lock = threading.RLock()
+_lock = _threading.RLock()
 
 
 def register_asset(asset: ModelAsset) -> None:

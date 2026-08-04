@@ -44,9 +44,12 @@ Also defined here:
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field, fields
-from typing import Any, ClassVar
+import xml.etree.ElementTree as _ET
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from dataclasses import fields as _fields
+from typing import Any as _Any
+from typing import ClassVar as _ClassVar
 
 from brailix.core._xml import safe_fromstring, strip_namespace
 from brailix.core.span import Span
@@ -57,7 +60,7 @@ from brailix.ir import _serde
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class InlineNode:
     """Abstract base for every inline token type.
 
@@ -66,15 +69,15 @@ class InlineNode:
     helpers preserve the tag so a round-trip is lossless.
     """
 
-    type: ClassVar[str] = "inline"
+    type: _ClassVar[str] = "inline"
     surface: str = ""
     span: Span | None = None
 
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {"type": self.type, "surface": self.surface}
+    def to_dict(self) -> dict[str, _Any]:
+        d: dict[str, _Any] = {"type": self.type, "surface": self.surface}
         if self.span is not None:
             d["span"] = list(self.span.to_tuple())
-        for f in fields(self):
+        for f in _fields(self):
             if f.name in ("surface", "span"):
                 continue
             value = getattr(self, f.name)
@@ -89,7 +92,7 @@ class InlineNode:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Word(InlineNode):
     """A prose word, of any length, in whichever language produced it.
 
@@ -111,72 +114,72 @@ class Word(InlineNode):
     forgetting half of it silently skipped single characters.
     """
 
-    type: ClassVar[str] = "word"
+    type: _ClassVar[str] = "word"
     reading: str | None = None
     pos: str | None = None
     confidence: float | None = None
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Number(InlineNode):
     """A bare numeric literal. ``role`` is set by structural parents
     (e.g. ``"year"`` inside a :class:`Date`)."""
 
-    type: ClassVar[str] = "number"
+    type: _ClassVar[str] = "number"
     role: str | None = None
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class HanziMarker(InlineNode):
     """A single hanzi that plays a structural role inside a composite
     token, e.g. 年/月/日 (year/month/day) inside a :class:`Date`."""
 
-    type: ClassVar[str] = "hanzi_marker"
+    type: _ClassVar[str] = "hanzi_marker"
     reading: str | None = None
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Date(InlineNode):
     """A date expression like ``2026年5月17日``."""
 
-    type: ClassVar[str] = "date"
-    parts: list[InlineNode] = field(default_factory=list)
+    type: _ClassVar[str] = "date"
+    parts: list[InlineNode] = _field(default_factory=list)
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Quantity(InlineNode):
     """A number paired with a unit, e.g. ``3.5kg``."""
 
-    type: ClassVar[str] = "quantity"
+    type: _ClassVar[str] = "quantity"
     number: Number | None = None
     unit: str | None = None
     unit_canonical: str | None = None
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Percent(InlineNode):
     """A percentage, e.g. ``12%``."""
 
-    type: ClassVar[str] = "percent"
+    type: _ClassVar[str] = "percent"
     number: Number | None = None
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Punct(InlineNode):
-    type: ClassVar[str] = "punct"
+    type: _ClassVar[str] = "punct"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class LatinWord(InlineNode):
-    type: ClassVar[str] = "latin_word"
+    type: _ClassVar[str] = "latin_word"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class CodeInline(InlineNode):
-    type: ClassVar[str] = "code_inline"
+    type: _ClassVar[str] = "code_inline"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class PhoneticInline(InlineNode):
     """An IPA phonetic transcription region (English pronunciation).
 
@@ -189,10 +192,10 @@ class PhoneticInline(InlineNode):
     (longest first, so ``tʃ`` and ``eɪ`` win over ``t`` / ``e``).
     """
 
-    type: ClassVar[str] = "phonetic_inline"
+    type: _ClassVar[str] = "phonetic_inline"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class MathInline(InlineNode):
     """Inline math.
 
@@ -204,12 +207,12 @@ class MathInline(InlineNode):
     dataclass.
     """
 
-    type: ClassVar[str] = "math_inline"
+    type: _ClassVar[str] = "math_inline"
     source: str = "plain"  # latex / mathml / plain
-    math: ET.Element | None = None
+    math: _ET.Element | None = None
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class MusicInline(InlineNode):
     """Inline music. Also the in-children carrier of :class:`ScoreBlock`
     / :class:`MusicBlock` — the
@@ -224,12 +227,12 @@ class MusicInline(InlineNode):
     dataclass.
     """
 
-    type: ClassVar[str] = "music_inline"
+    type: _ClassVar[str] = "music_inline"
     source: str = "plain"  # musicxml / mxl / midi / abc / plain
-    score: ET.Element | None = None
+    score: _ET.Element | None = None
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class GraphicInline(InlineNode):
     """In-children carrier of :class:`~brailix.ir.document.GraphicBlock`,
     mirroring how :class:`MathInline` carries a :class:`MathBlock`'s tree
@@ -249,17 +252,17 @@ class GraphicInline(InlineNode):
     backend.
     """
 
-    type: ClassVar[str] = "graphic_inline"
+    type: _ClassVar[str] = "graphic_inline"
     source: str = "svg"  # svg / primitives / figure / image
-    svg: ET.Element | None = None
+    svg: _ET.Element | None = None
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Space(InlineNode):
-    type: ClassVar[str] = "space"
+    type: _ClassVar[str] = "space"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Connector(InlineNode):
     """Synthetic connector (hyphen sign ⠤) joining a Latin/Greek letter
     to an adjacent hanzi when the two form a single compound word
@@ -277,15 +280,15 @@ class Connector(InlineNode):
     boundary so proofread tooling treats the two synthetic separators
     uniformly."""
 
-    type: ClassVar[str] = "connector"
+    type: _ClassVar[str] = "connector"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Unknown(InlineNode):
     """Last-resort fallback so the pipeline never crashes on unrecognized
     input."""
 
-    type: ClassVar[str] = "unknown"
+    type: _ClassVar[str] = "unknown"
     reason: str | None = None
 
 
@@ -294,7 +297,7 @@ class Unknown(InlineNode):
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Segment:
     """A coarse region produced by a :class:`~brailix.core.protocols.Segmenter`.
 
@@ -307,8 +310,8 @@ class Segment:
     surface: str
     span: Span | None = None
 
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {"type": self.type, "surface": self.surface}
+    def to_dict(self) -> dict[str, _Any]:
+        d: dict[str, _Any] = {"type": self.type, "surface": self.surface}
         if self.span is not None:
             d["span"] = list(self.span.to_tuple())
         return d
@@ -374,7 +377,7 @@ def inline_node_for(type_name: str) -> type[InlineNode]:
         raise KeyError(f"unknown inline node type: {type_name!r}") from e
 
 
-def from_dict(payload: dict[str, Any]) -> InlineNode:
+def from_dict(payload: dict[str, _Any]) -> InlineNode:
     """Reconstruct an :class:`InlineNode` from its dict representation.
 
     Composite types like :class:`Date` recursively deserialize their
@@ -385,8 +388,8 @@ def from_dict(payload: dict[str, Any]) -> InlineNode:
     if type_name is None:
         raise ValueError("missing 'type' in inline payload")
     cls = inline_node_for(type_name)
-    kwargs: dict[str, Any] = {}
-    valid_field_names = {f.name for f in fields(cls)}
+    kwargs: dict[str, _Any] = {}
+    valid_field_names = {f.name for f in _fields(cls)}
     for key, value in payload.items():
         if key == "type":
             continue
@@ -406,7 +409,7 @@ def from_dict(payload: dict[str, Any]) -> InlineNode:
 # --- helpers ---------------------------------------------------------
 
 
-def _strip_xml_namespace(elem: ET.Element) -> ET.Element:
+def _strip_xml_namespace(elem: _ET.Element) -> _ET.Element:
     """Drop ``{namespace}`` Clark-notation prefixes (in place) and return
     ``elem`` for chaining.
 
@@ -427,7 +430,7 @@ def _strip_xml_namespace(elem: ET.Element) -> ET.Element:
     return elem
 
 
-def _serialize_value(value: Any) -> Any:
+def _serialize_value(value: _Any) -> _Any:
     if isinstance(value, InlineNode):
         return value.to_dict()
     if isinstance(value, list):
@@ -437,8 +440,8 @@ def _serialize_value(value: Any) -> Any:
     # MathInline.math is an ``ET.Element`` — serialize as a MathML
     # string. JSON consumers see a plain string; reading code goes
     # through :func:`ET.fromstring` (see ``_deserialize_value``).
-    if isinstance(value, ET.Element):
-        return ET.tostring(value, encoding="unicode")
+    if isinstance(value, _ET.Element):
+        return _ET.tostring(value, encoding="unicode")
     return value
 
 
@@ -451,7 +454,7 @@ _XML_TREE_FIELDS: dict[str, tuple[str, str]] = {
 }
 
 
-def _deserialize_xml_tree(key: str, value: Any) -> ET.Element | None:
+def _deserialize_xml_tree(key: str, value: _Any) -> _ET.Element | None:
     """Deserialize a MathML / MusicXML tree field (``math`` / ``score``).
 
     Accepts ``None`` (kept), a serialized XML string (re-parsed with the safe
@@ -481,10 +484,10 @@ def _deserialize_xml_tree(key: str, value: Any) -> ET.Element | None:
     if isinstance(value, str):
         try:
             parsed = safe_fromstring(value)
-        except ET.ParseError as e:
+        except _ET.ParseError as e:
             raise ValueError(f"{field_label} is not well-formed {fmt}: {e}") from e
         return _strip_xml_namespace(parsed)
-    if isinstance(value, ET.Element):
+    if isinstance(value, _ET.Element):
         return _strip_xml_namespace(value)
     raise ValueError(
         f"{field_label} must be None, a {fmt} string, or an ET.Element; "
@@ -493,7 +496,7 @@ def _deserialize_xml_tree(key: str, value: Any) -> ET.Element | None:
 
 
 def _typed_inline_child(
-    field_name: str, payload: Any, expected: type[InlineNode]
+    field_name: str, payload: _Any, expected: type[InlineNode]
 ) -> InlineNode:
     """Deserialize ``payload`` and verify it is an instance of ``expected``.
 
@@ -514,7 +517,7 @@ def _typed_inline_child(
     )
 
 
-def _deserialize_value(key: str, value: Any) -> Any:
+def _deserialize_value(key: str, value: _Any) -> _Any:
     if key == "span":
         return None if value is None else Span.from_tuple(value)
     if key == "parts" and isinstance(value, list):

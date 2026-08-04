@@ -17,8 +17,8 @@ the leaf module :mod:`brailix.frontend.ja._chars` (avoids an import cycle).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.span import Span
 from brailix.frontend.ja._chars import _is_kana as _is_kana  # re-export
@@ -27,14 +27,14 @@ from brailix.frontend.ja.analyzer import analyze, tokens_to_inline
 from brailix.frontend.segmentation import _segment_text, segmenter_registry
 from brailix.ir.inline import Connector, Number, Word
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from brailix.core.config import BrailleProfile
     from brailix.core.context import FrontendContext
     from brailix.ir.document import Block
     from brailix.ir.inline import InlineNode, Segment
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class JapaneseSegmenter:
     """Segmenter that groups Japanese script (kana + kanji) into one
     ``ja_text`` run, reusing the built-in chunking for everything else."""

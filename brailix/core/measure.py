@@ -28,9 +28,12 @@ measured; only the arithmetic is shared.
 
 from __future__ import annotations
 
-import math
-from collections.abc import Callable
-from typing import Any
+import math as _math
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+
+if _TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
 
 
 def as_positive_finite(
@@ -69,7 +72,7 @@ def as_positive_finite(
         num = float(value)
     except (TypeError, ValueError):
         raise error(f"{what} must be a number, got {value!r}") from None
-    if not math.isfinite(num):
+    if not _math.isfinite(num):
         raise error(f"{what} must be a finite number, got {num}")
     if num <= 0:
         raise error(f"{what} must be > 0, got {num}")

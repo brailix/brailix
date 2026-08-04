@@ -10,7 +10,7 @@ conversion (は stays ハ) — install janome / fugashi / sudachi for that.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
 
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
@@ -18,7 +18,7 @@ from brailix.frontend.ja._chars import _is_kana
 from brailix.frontend.ja.analyzer import JapaneseToken
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class KanaJapaneseAnalyzer:
     name: str = "kana"
 

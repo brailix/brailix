@@ -38,9 +38,9 @@ rendering yet (only the reaction connectors consume it).
 
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass
-from xml.sax.saxutils import escape
+import re as _re
+from dataclasses import dataclass as _dataclass
+from xml.sax.saxutils import escape as _escape
 
 from brailix.core.context import MathContext
 from brailix.frontend.math.utils import (
@@ -59,7 +59,7 @@ _MAX_DEPTH = 64
 # An element symbol: a capital letter optionally followed by lowercase
 # letters (H, He, Na, Si). This same rule tells the backend whether the
 # whole formula is "all single-letter" (one <mi> per element).
-_ELEMENT_RE = re.compile(r"[A-Z][a-z]*")
+_ELEMENT_RE = _re.compile(r"[A-Z][a-z]*")
 
 # Physical-state labels written in parentheses after a species: solid /
 # liquid / gas / aqueous. They are English abbreviations, not chemical
@@ -82,7 +82,7 @@ class _ChemParseError(ValueError):
     formula never breaks the surrounding document."""
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class ChemMathSourceAdapter:
     """``\\ce{...}`` (or bare formula text) → chemistry MathML string."""
 
@@ -334,7 +334,7 @@ def _condition_mathml(text: str) -> str:
     try:
         body = _emit_formula(text)
     except _ChemParseError:
-        return f"<mtext>{escape(text)}</mtext>"
+        return f"<mtext>{_escape(text)}</mtext>"
     if "data-bk-soft" in body:
         # The condition held non-formula characters (e.g. Chinese 点燃, which
         # now localises to soft <merror>s instead of raising). Render the whole
@@ -343,7 +343,7 @@ def _condition_mathml(text: str) -> str:
         # fragile): ``data-bk-soft`` is a private attribute only _emit_formula
         # writes, and user content reaches the output only through escape(), so
         # it can never inject that literal substring.
-        return f"<mtext>{escape(text)}</mtext>"
+        return f"<mtext>{_escape(text)}</mtext>"
     return f"<mrow>{body}</mrow>"
 
 
@@ -368,7 +368,7 @@ def _equals_is_yields(inner: str) -> bool:
         return False
     # Reuse the species/charge discriminator so a group- or bracket-led
     # reactant (``+(NH4)2SO4`` / ``+[Fe(CN)6]``) counts as addition too.
-    return any(_species_follows(inner, m.end()) for m in re.finditer(r"\+", inner))
+    return any(_species_follows(inner, m.end()) for m in _re.finditer(r"\+", inner))
 
 
 def _soft_unknown_mathml(ch: str) -> str:
@@ -380,7 +380,7 @@ def _soft_unknown_mathml(ch: str) -> str:
     place instead of degrading the whole equation. The character is carried
     verbatim (not folded): the backend classifies it for the message, and
     no original Unicode is silently rewritten."""
-    return f'<merror data-bk-soft="1">{escape(ch)}</merror>'
+    return f'<merror data-bk-soft="1">{_escape(ch)}</merror>'
 
 
 def _emit_formula(inner: str, _depth: int = 0) -> str:
@@ -414,7 +414,7 @@ def _emit_formula(inner: str, _depth: int = 0) -> str:
         # Over-nested: localize the degradation to this subtree (flat text)
         # rather than let the recursion overflow the stack and sink the whole
         # formula to <merror>.
-        return f"<mtext>{escape(inner)}</mtext>"
+        return f"<mtext>{_escape(inner)}</mtext>"
     parts: list[str] = []
     i = 0
     n = len(inner)

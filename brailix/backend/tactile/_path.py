@@ -24,19 +24,19 @@ disambiguated — tool-exported paths separate them and parse correctly.
 
 from __future__ import annotations
 
-import math
-import re
-from typing import NamedTuple
+import math as _math
+import re as _re
+from typing import NamedTuple as _NamedTuple
 
 
-class Subpath(NamedTuple):
+class Subpath(_NamedTuple):
     """A flattened subpath: a run of user-space points + whether it closes."""
 
     points: list[tuple[float, float]]
     closed: bool
 
 
-_TOKEN_RE = re.compile(
+_TOKEN_RE = _re.compile(
     r"([MmLlHhVvCcSsQqTtAaZz])|"
     r"([-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?)"
 )
@@ -65,7 +65,7 @@ def _seg_count(span: float) -> int:
     the magnitude of the author's coordinates (a curve drawn in a tiny viewBox
     or under a large ``scale`` transform gets the same density as its
     equivalent drawn at full size)."""
-    if not math.isfinite(span):
+    if not _math.isfinite(span):
         # A NaN / inf span (a "1e999" control point) would raise in int();
         # fall back to the minimum subdivision instead of crashing.
         return 4
@@ -82,7 +82,7 @@ def _flatten_cubic(
 ) -> None:
     xs = (p0[0], p1[0], p2[0], p3[0])
     ys = (p0[1], p1[1], p2[1], p3[1])
-    n = _seg_count(math.hypot(max(xs) - min(xs), max(ys) - min(ys)) * scale)
+    n = _seg_count(_math.hypot(max(xs) - min(xs), max(ys) - min(ys)) * scale)
     for i in range(1, n + 1):
         t = i / n
         mt = 1.0 - t
@@ -100,7 +100,7 @@ def _flatten_quad(
 ) -> None:
     xs = (p0[0], p1[0], p2[0])
     ys = (p0[1], p1[1], p2[1])
-    n = _seg_count(math.hypot(max(xs) - min(xs), max(ys) - min(ys)) * scale)
+    n = _seg_count(_math.hypot(max(xs) - min(xs), max(ys) - min(ys)) * scale)
     for i in range(1, n + 1):
         t = i / n
         mt = 1.0 - t
@@ -111,12 +111,12 @@ def _flatten_quad(
 
 def _arc_angle(ux: float, uy: float, vx: float, vy: float) -> float:
     """Signed angle from vector u to vector v (radians)."""
-    n1 = math.hypot(ux, uy)
-    n2 = math.hypot(vx, vy)
+    n1 = _math.hypot(ux, uy)
+    n2 = _math.hypot(vx, vy)
     if n1 == 0.0 or n2 == 0.0:
         return 0.0
     cosv = max(-1.0, min(1.0, (ux * vx + uy * vy) / (n1 * n2)))
-    a = math.acos(cosv)
+    a = _math.acos(cosv)
     return -a if (ux * vy - uy * vx) < 0 else a
 
 
@@ -139,21 +139,21 @@ def _flatten_arc(
     if rx == 0.0 or ry == 0.0:
         out.append((x2, y2))  # zero radius: straight line
         return
-    phi = math.radians(rot_deg)
-    cos_p, sin_p = math.cos(phi), math.sin(phi)
+    phi = _math.radians(rot_deg)
+    cos_p, sin_p = _math.cos(phi), _math.sin(phi)
     dx, dy = (x1 - x2) / 2.0, (y1 - y2) / 2.0
     x1p = cos_p * dx + sin_p * dy
     y1p = -sin_p * dx + cos_p * dy
     lam = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry)
     if lam > 1.0:
-        s = math.sqrt(lam)
+        s = _math.sqrt(lam)
         rx *= s
         ry *= s
     rx2, ry2 = rx * rx, ry * ry
     x1p2, y1p2 = x1p * x1p, y1p * y1p
     denom = rx2 * y1p2 + ry2 * x1p2
     num = rx2 * ry2 - rx2 * y1p2 - ry2 * x1p2
-    coef = math.sqrt(max(0.0, num / denom)) if denom != 0.0 else 0.0
+    coef = _math.sqrt(max(0.0, num / denom)) if denom != 0.0 else 0.0
     if (large_arc != 0.0) == (sweep != 0.0):
         coef = -coef
     cxp = coef * (rx * y1p / ry)
@@ -165,13 +165,13 @@ def _flatten_arc(
     theta1 = _arc_angle(1.0, 0.0, ux, uy)
     dtheta = _arc_angle(ux, uy, vx, vy)
     if sweep == 0.0 and dtheta > 0.0:
-        dtheta -= 2.0 * math.pi
+        dtheta -= 2.0 * _math.pi
     elif sweep != 0.0 and dtheta < 0.0:
-        dtheta += 2.0 * math.pi
-    n = max(2, min(64, int(abs(dtheta) / (math.pi / 16.0)) + 1))
+        dtheta += 2.0 * _math.pi
+    n = max(2, min(64, int(abs(dtheta) / (_math.pi / 16.0)) + 1))
     for i in range(1, n + 1):
         th = theta1 + dtheta * i / n
-        ex, ey = math.cos(th) * rx, math.sin(th) * ry
+        ex, ey = _math.cos(th) * rx, _math.sin(th) * ry
         out.append((cos_p * ex - sin_p * ey + cx, sin_p * ex + cos_p * ey + cy))
 
 

@@ -9,15 +9,18 @@ the dictionary (は → ワ, へ → エ, を → ヲ), no special-casing needed
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
 from brailix.frontend.ja.analyzer import JapaneseToken
 
+if _TYPE_CHECKING:
+    from typing import Any
 
-@dataclass(slots=True)
+
+@_dataclass(slots=True)
 class JanomeJapaneseAnalyzer:
     tokenizer: Any
     name: str = "janome"

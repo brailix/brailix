@@ -84,15 +84,13 @@ Subpackage layout
 
 from __future__ import annotations
 
-import io
-import os
-import shutil
-import subprocess
-import tempfile
-import zipfile
-from collections.abc import Iterable, Iterator
-from pathlib import Path
-from typing import Any
+import io as _io
+import shutil as _shutil
+import subprocess as _subprocess
+import tempfile as _tempfile
+import zipfile as _zipfile
+from pathlib import Path as _Path
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core._zip import zip_entry_count_exceeds
 from brailix.core.errors import (
@@ -106,6 +104,11 @@ from brailix.input.docx._ole import _build_ole_blob_map, _is_equation_ole
 from brailix.input.docx._xml import _INLINE_MATH_CLOSE, _INLINE_MATH_OPEN
 from brailix.input.limits import DEFAULT_INPUT_LIMITS, InputLimits
 from brailix.ir.document import Block, DocumentIR
+
+if _TYPE_CHECKING:
+    import os
+    from collections.abc import Iterable, Iterator
+    from typing import Any
 
 __all__ = (
     "parse_docx",
@@ -134,7 +137,7 @@ _MAX_DOCX_TOTAL_BYTES = 512 * 1024 * 1024  # all parts, decompressed
 _DOCX_READ_CHUNK = 1024 * 1024
 
 
-def _read_docx_bytes(p: Path, limits: InputLimits) -> bytes:
+def _read_docx_bytes(p: _Path, limits: InputLimits) -> bytes:
     """Read a ``.docx`` archive whole, under both ceilings that bound it.
 
     The bytes returned here are the **only** copy the rest of the parse sees:
@@ -170,7 +173,7 @@ def _read_docx_bytes(p: Path, limits: InputLimits) -> bytes:
     return data
 
 
-def _preflight_docx_archive(data: bytes, p: Path) -> None:
+def _preflight_docx_archive(data: bytes, p: _Path) -> None:
     """Reject a bomb-like ``.docx`` before python-docx reads it.
 
     The member *count* is read first, off the End Of Central Directory record
@@ -215,7 +218,7 @@ def _preflight_docx_archive(data: bytes, p: Path) -> None:
             f"over the {_MAX_DOCX_MEMBERS} limit)"
         )
     try:
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        with _zipfile.ZipFile(_io.BytesIO(data)) as zf:
             members = [i for i in zf.infolist() if not i.is_dir()]
             if len(members) > _MAX_DOCX_MEMBERS:
                 raise ParseError(
@@ -241,7 +244,7 @@ def _preflight_docx_archive(data: bytes, p: Path) -> None:
                                 f"past the {_MAX_DOCX_TOTAL_BYTES}-byte total "
                                 f"limit)"
                             )
-    except zipfile.BadZipFile:
+    except _zipfile.BadZipFile:
         return  # not a zip → Document() raises the canonical ParseError
     except UNREADABLE_ZIP_MEMBER_ERRORS as e:
         # A ParseError raised by the caps above is not caught here: it is a
@@ -334,7 +337,7 @@ def parse_docx(
             f"got {mathtype_fallback!r}"
         )
 
-    p = Path(path)
+    p = _Path(path)
     if not p.exists():
         raise FileNotFoundError(p)
 
@@ -364,7 +367,7 @@ def parse_docx(
     # The tuple is typed as a generic exception tuple, so it type-checks the
     # same whether or not python-docx is installed (the import resolves to the
     # real class with the extra, or to ``Any`` without it).
-    bad_docx: tuple[type[BaseException], ...] = (zipfile.BadZipFile, KeyError)
+    bad_docx: tuple[type[BaseException], ...] = (_zipfile.BadZipFile, KeyError)
     try:
         from docx.opc.exceptions import PackageNotFoundError
     except ImportError:  # pragma: no cover — defensive
@@ -383,7 +386,7 @@ def parse_docx(
         # archive be replaced between the preflight and the parse, so the
         # object that passed the caps and the object python-docx reads could
         # be two different files.
-        document = Document(io.BytesIO(data))
+        document = Document(_io.BytesIO(data))
     except bad_docx as e:
         raise ParseError(f"not a valid .docx file: {p} ({e})") from e
 
@@ -441,7 +444,7 @@ def parse_docx(
 
 
 def _convert_via_libreoffice_and_parse(
-    p: Path,
+    p: _Path,
     exe: str,
     *,
     language: str,
@@ -475,30 +478,30 @@ def _convert_via_libreoffice_and_parse(
     ``limits``, so the converted document is bounded too (LibreOffice's output
     is not bounded by its input's size).
     """
-    with tempfile.TemporaryDirectory(prefix=prefix) as work:
+    with _tempfile.TemporaryDirectory(prefix=prefix) as work:
         # Separate in / out directories: LibreOffice names its output after
         # the input's stem, which would collide with the copy if they shared
         # one directory.
-        in_dir = Path(work) / "in"
-        out_dir = Path(work) / "out"
+        in_dir = _Path(work) / "in"
+        out_dir = _Path(work) / "out"
         in_dir.mkdir()
         out_dir.mkdir()
         source = in_dir / p.name
         source.write_bytes(limits.read_bounded(p))
         try:
-            subprocess.run(
+            _subprocess.run(
                 [exe, "--headless", "--convert-to", "docx",
                  "--outdir", str(out_dir), str(source)],
                 check=True,
                 capture_output=True,
                 timeout=60,
             )
-        except subprocess.CalledProcessError as e:
+        except _subprocess.CalledProcessError as e:
             raise ParseError(
                 f"LibreOffice failed to convert {p.name!r}: "
                 f"{e.stderr.decode('utf-8', 'replace').strip() or e}"
             ) from e
-        except subprocess.TimeoutExpired as e:
+        except _subprocess.TimeoutExpired as e:
             raise ParseError(
                 f"LibreOffice timed out converting {p.name!r} (60s){timeout_hint}."
             ) from e
@@ -518,7 +521,7 @@ def _convert_via_libreoffice_and_parse(
 
 
 def _parse_docx_via_libreoffice(
-    p: Path,
+    p: _Path,
     *,
     language: str,
     profile: str,
@@ -670,7 +673,7 @@ def parse_doc(
     InputTooLargeError
         If the ``.doc`` exceeds ``limits.max_file_bytes``.
     """
-    p = Path(path)
+    p = _Path(path)
     if not p.exists():
         raise FileNotFoundError(p)
 
@@ -699,9 +702,9 @@ def _resolve_doc_converter(override: str | None) -> str | None:
         # old ``... if Path(override).exists() else None`` bound looser than
         # ``or`` and so skipped the PATH search entirely for a command name
         # (the common case), always yielding None.
-        return shutil.which(override)
+        return _shutil.which(override)
     for candidate in ("soffice", "libreoffice"):
-        path = shutil.which(candidate)
+        path = _shutil.which(candidate)
         if path is not None:
             return path
     return None

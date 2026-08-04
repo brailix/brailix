@@ -9,8 +9,7 @@ when the backend first reaches for the table.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.config._helpers import _read_json
 from brailix.core.config.loader._refs import _resolve_cell_refs
@@ -23,6 +22,10 @@ from brailix.core.config.zh_ncb_tables import (
     _Shorthand,
 )
 from brailix.core.errors import ConfigurationError
+
+if _TYPE_CHECKING:
+    from pathlib import Path
+    from typing import Any
 
 
 def _load_compounds(base: Path, relative: str | None) -> frozenset[str]:

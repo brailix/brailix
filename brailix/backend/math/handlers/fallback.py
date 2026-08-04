@@ -13,7 +13,7 @@ submodules.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as _ET
 
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.utils import _describe_nonstandard_char, _unknown_cell
@@ -26,7 +26,7 @@ _SURFACE_MAX = 200
 
 
 def _emit_merror(
-    cells: list[BrailleCell], mctx: MathBrailleContext, elem: ET.Element
+    cells: list[BrailleCell], mctx: MathBrailleContext, elem: _ET.Element
 ) -> None:
     if list(elem):
         # Concatenate text from any direct children (mtext, etc.).
@@ -59,9 +59,9 @@ def _emit_merror(
 
 
 def _emit_unsupported(
-    cells: list[BrailleCell], mctx: MathBrailleContext, elem: ET.Element
+    cells: list[BrailleCell], mctx: MathBrailleContext, elem: _ET.Element
 ) -> None:
-    serialized = ET.tostring(elem, encoding="unicode")
+    serialized = _ET.tostring(elem, encoding="unicode")
     if len(serialized) > _SURFACE_MAX:
         # Truncate large subtrees (e.g. a whole <mtable>) so the warning
         # surface stays bounded; the tag is already in the message.

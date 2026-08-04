@@ -20,9 +20,9 @@ fall through to :class:`Unknown`.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
-from collections.abc import Iterable
-from dataclasses import dataclass
+import xml.etree.ElementTree as _ET
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core import inline_math
 from brailix.core.chars import PERCENT_CHARS
@@ -46,6 +46,9 @@ from brailix.ir.inline import (
     Space,
     Unknown,
 )
+
+if _TYPE_CHECKING:
+    from collections.abc import Iterable
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -98,7 +101,7 @@ NormalizedItem = InlineNode | Segment
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class DefaultNormalizer:
     """Built-in normalizer with no third-party dependencies."""
 
@@ -377,8 +380,8 @@ def _try_atomic(seg: Segment) -> InlineNode | None:
         # must stay namespace-free or the reparse Clark-notates every tag
         # and dispatch falls through.  Adapter-sourced trees are likewise
         # namespace-stripped, so math_op stays consistent with them.
-        math = ET.Element("math")
-        mo = ET.SubElement(math, "mo")
+        math = _ET.Element("math")
+        mo = _ET.SubElement(math, "mo")
         mo.text = _MATH_OP_CANONICAL.get(seg.surface, seg.surface)
         return MathInline(
             surface=seg.surface, span=seg.span, source="mathml", math=math
@@ -455,7 +458,7 @@ BUILTIN_NORMALIZER = "default"
 normalizer_registry.register(BUILTIN_NORMALIZER, DefaultNormalizer)
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class AutoNormalizer:
     """Delegating normalizer: uses the active language's, else the built-in.
 

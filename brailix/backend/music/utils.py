@@ -7,12 +7,15 @@ unknown-cell fallback all live here so handler files stay narrow.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
-from collections.abc import Sequence
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.music.context import MusicBrailleContext
 from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
+    from collections.abc import Sequence
 
 # ---------------------------------------------------------------------------
 # Pitch / duration mapping

@@ -17,12 +17,12 @@ effects are out of scope for tactile output.
 
 from __future__ import annotations
 
-import math
-import re
-from typing import NamedTuple
+import math as _math
+import re as _re
+from typing import NamedTuple as _NamedTuple
 
 
-class Affine(NamedTuple):
+class Affine(_NamedTuple):
     """A 2x3 affine transform — SVG's ``matrix(a b c d e f)`` model.
 
     Maps ``(x, y)`` to ``(a*x + c*y + e, b*x + d*y + f)``.
@@ -63,7 +63,7 @@ class Affine(NamedTuple):
         approximation under non-uniform scaling or skew (used to scale
         stroke widths and radii, which lack a single correct value once
         the transform is anisotropic)."""
-        return math.sqrt(abs(self.a * self.d - self.b * self.c))
+        return _math.sqrt(abs(self.a * self.d - self.b * self.c))
 
     def inverse(self) -> Affine | None:
         """The inverse transform, or ``None`` when this matrix is singular
@@ -90,8 +90,8 @@ class Affine(NamedTuple):
 IDENTITY = Affine()
 
 # One transform function call: a name + a parenthesised number list.
-_FUNC_RE = re.compile(r"([a-zA-Z]+)\s*\(([^)]*)\)")
-_NUM_RE = re.compile(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")
+_FUNC_RE = _re.compile(r"([a-zA-Z]+)\s*\(([^)]*)\)")
+_NUM_RE = _re.compile(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")
 
 
 def _nums(arg_str: str) -> list[float]:
@@ -123,8 +123,8 @@ def _function_matrix(name: str, args: list[float]) -> Affine | None:
     if name == "rotate":
         if n == 0:
             return None
-        th = math.radians(args[0])
-        cos, sin = math.cos(th), math.sin(th)
+        th = _math.radians(args[0])
+        cos, sin = _math.cos(th), _math.sin(th)
         rot = Affine(cos, sin, -sin, cos, 0.0, 0.0)
         if n >= 3:
             cx, cy = args[1], args[2]
@@ -137,11 +137,11 @@ def _function_matrix(name: str, args: list[float]) -> Affine | None:
     if name == "skewX":
         if n == 0:
             return None
-        return Affine(1.0, 0.0, math.tan(math.radians(args[0])), 1.0, 0.0, 0.0)
+        return Affine(1.0, 0.0, _math.tan(_math.radians(args[0])), 1.0, 0.0, 0.0)
     if name == "skewY":
         if n == 0:
             return None
-        return Affine(1.0, math.tan(math.radians(args[0])), 0.0, 1.0, 0.0, 0.0)
+        return Affine(1.0, _math.tan(_math.radians(args[0])), 0.0, 1.0, 0.0, 0.0)
     return None
 
 

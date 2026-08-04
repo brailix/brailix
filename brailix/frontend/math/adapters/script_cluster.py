@@ -29,9 +29,9 @@ like every other math source adapter.
 
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass
-from xml.sax.saxutils import escape
+import re as _re
+from dataclasses import dataclass as _dataclass
+from xml.sax.saxutils import escape as _escape
 
 from brailix.core.context import MathContext
 from brailix.frontend.math.adapters.chem import convert_ce, find_elements
@@ -135,8 +135,8 @@ def _read_base_atom(run: list[tuple[str, str | None]], i: int) -> tuple[str, int
         digits = "".join(c for c, _ in run[i:j])
         return f"<mn>{digits}</mn>", j
     if ch.isalpha():
-        return f"<mi>{escape(ch)}</mi>", i + 1
-    return f"<mo>{escape(_CLUSTER_OP_CANON.get(ch, ch))}</mo>", i + 1
+        return f"<mi>{_escape(ch)}</mi>", i + 1
+    return f"<mo>{_escape(_CLUSTER_OP_CANON.get(ch, ch))}</mo>", i + 1
 
 
 def _read_script_run(
@@ -186,7 +186,7 @@ def _linearise_for_chem(run: list[tuple[str, str | None]]) -> str | None:
                 return None
             parts.append(chunk)
         else:  # super → must be a charge, not an exponent
-            if not re.fullmatch(r"\d*[+-]", chunk):
+            if not _re.fullmatch(r"\d*[+-]", chunk):
                 return None
             parts.append("^{" + chunk + "}")
         i = j
@@ -212,7 +212,7 @@ def _has_chem_signature(linear: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@_dataclass
 class ScriptClusterMathSourceAdapter:
     """Linearised Word script cluster → MathML string.
 

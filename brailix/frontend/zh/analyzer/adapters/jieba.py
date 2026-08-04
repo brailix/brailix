@@ -10,16 +10,20 @@ the pypinyin path; if you want POS, switch to the HanLP adapter.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
 from brailix.frontend.zh.tokens import ChineseToken
 
+if _TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
 
-@dataclass(slots=True)
+
+@_dataclass(slots=True)
 class JiebaChineseAnalyzer:
     """Wraps :func:`jieba.tokenize`.
 
@@ -29,7 +33,7 @@ class JiebaChineseAnalyzer:
     """
 
     name: str = "jieba"
-    tokenize_fn: Callable[[str], Any] = field(default=None)  # type: ignore[assignment]
+    tokenize_fn: Callable[[str], Any] = _field(default=None)  # type: ignore[assignment]
 
     def analyze(
         self, text: str, ctx: FrontendContext | None = None

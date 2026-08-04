@@ -7,16 +7,21 @@ mode promotes warnings to :class:`StrictModeError`.
 
 from __future__ import annotations
 
-import zlib
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field, replace
-from enum import Enum
-from typing import NoReturn
+import zlib as _zlib
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from dataclasses import replace as _replace
+from enum import Enum as _Enum
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.span import Span
 
+if _TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+    from typing import NoReturn
 
-class RunMode(str, Enum):  # noqa: UP042 — keep (str, Enum) __str__/serialization semantics
+
+class RunMode(str, _Enum):  # noqa: UP042 — keep (str, Enum) __str__/serialization semantics
     """How aggressively the pipeline tolerates malformed input."""
 
     STRICT = "strict"
@@ -31,7 +36,7 @@ def normalize_run_mode(mode: RunMode | str) -> RunMode:
     return RunMode(mode.lower())
 
 
-class WarningLevel(str, Enum):  # noqa: UP042 — keep (str, Enum) __str__/serialization semantics
+class WarningLevel(str, _Enum):  # noqa: UP042 — keep (str, Enum) __str__/serialization semantics
     INFO = "info"
     WARN = "warn"
     ERROR = "error"
@@ -332,7 +337,7 @@ CANDIDATE_UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (
 # relabelled "unreadable archive" (:data:`PROGRAMMING_ERRORS`).
 UNREADABLE_ZIP_MEMBER_ERRORS: tuple[type[Exception], ...] = (
     # A corrupt deflate stream.
-    zlib.error,
+    _zlib.error,
     # An encrypted member, with no password supplied.
     RuntimeError,
     # A compression method zipfile does not implement.
@@ -445,7 +450,7 @@ class _FrozenAnchor(dict):  # type: ignore[type-arg]
         return (self.__class__, (dict(self),))
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class Warning:
     """A non-fatal diagnostic recorded during translation."""
 
@@ -499,7 +504,7 @@ class Warning:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class WarningCollector:
     """Accumulates warnings during a pipeline run.
 
@@ -512,11 +517,11 @@ class WarningCollector:
     """
 
     mode: RunMode | str = RunMode.NORMAL
-    warnings: list[Warning] = field(default_factory=list)
+    warnings: list[Warning] = _field(default_factory=list)
     # Set once a context has adopted this collector via :meth:`bind_mode`.
     # Kept off ``__eq__`` / ``__repr__`` so it stays an internal latch and two
     # collectors with the same warnings compare equal regardless of binding.
-    _mode_bound: bool = field(default=False, compare=False, repr=False)
+    _mode_bound: bool = _field(default=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         self.mode = normalize_run_mode(self.mode)
@@ -561,7 +566,7 @@ class WarningCollector:
             # field-by-field copy silently dropped any field added to Warning
             # later (surface / span / candidates / source / anchor each had to
             # be remembered here), losing diagnostics in LENIENT mode.
-            warning = replace(warning, level=WarningLevel.WARN)
+            warning = _replace(warning, level=WarningLevel.WARN)
         self.warnings.append(warning)
 
     def warn(

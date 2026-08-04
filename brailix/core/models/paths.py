@@ -38,10 +38,10 @@ download.
 
 from __future__ import annotations
 
-import os
-import sys
-import tempfile
-from pathlib import Path
+import os as _os
+import sys as _sys
+import tempfile as _tempfile
+from pathlib import Path as _Path
 
 from brailix.core.errors import ConfigurationError
 from brailix.core.paths import validate_resource_component
@@ -55,32 +55,32 @@ def _is_frozen() -> bool:
     Nuitka doesn't set ``sys.frozen`` (only PyInstaller does); it sets a
     module-level ``__compiled__``.  Check both.
     """
-    return bool(getattr(sys, "frozen", False)) or "__compiled__" in globals()
+    return bool(getattr(_sys, "frozen", False)) or "__compiled__" in globals()
 
 
-def _portable_root() -> Path:
+def _portable_root() -> _Path:
     if _is_frozen():
-        return Path(sys.executable).resolve().parent
-    return Path.cwd()
+        return _Path(_sys.executable).resolve().parent
+    return _Path.cwd()
 
 
-def _user_data_root() -> Path:
+def _user_data_root() -> _Path:
     """Per-user, writable base directory for brailix assets.
 
     Used as the fallback when the portable root isn't writable. Honors
     ``LOCALAPPDATA`` / ``APPDATA`` (Windows) then ``XDG_DATA_HOME``,
     finally ``~/.local/share``.
     """
-    win = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+    win = _os.environ.get("LOCALAPPDATA") or _os.environ.get("APPDATA")
     if win:
-        return Path(win) / "brailix"
-    xdg = os.environ.get("XDG_DATA_HOME")
+        return _Path(win) / "brailix"
+    xdg = _os.environ.get("XDG_DATA_HOME")
     if xdg:
-        return Path(xdg) / "brailix"
-    return Path.home() / ".local" / "share" / "brailix"
+        return _Path(xdg) / "brailix"
+    return _Path.home() / ".local" / "share" / "brailix"
 
 
-def _make_usable_dir(path: Path) -> bool:
+def _make_usable_dir(path: _Path) -> bool:
     """Create ``path`` (with parents) and report whether a model can be
     written into it.
 
@@ -111,14 +111,14 @@ def _make_usable_dir(path: Path) -> bool:
     except OSError:
         return False
     try:
-        with tempfile.NamedTemporaryFile(dir=path, prefix=".brailix-probe-"):
+        with _tempfile.NamedTemporaryFile(dir=path, prefix=".brailix-probe-"):
             pass
     except OSError:
         return False
     return True
 
 
-def get_models_root() -> Path:
+def get_models_root() -> _Path:
     """Return a writable ``models/`` directory, creating it on first call.
 
     Prefers the portable bundle root (next to the executable when frozen,
@@ -155,7 +155,7 @@ def get_models_root() -> Path:
     )
 
 
-def get_model_dir(name: str) -> Path:
+def get_model_dir(name: str) -> _Path:
     """Return ``models/<name>/`` for a registered model, creating it.
 
     ``name`` is the registry key (e.g. ``"hanlp"``, ``"g2pw"``); the

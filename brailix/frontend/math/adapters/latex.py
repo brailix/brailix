@@ -17,8 +17,9 @@ honour those per-element.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import MathContext
 from brailix.frontend.math.adapters import chem
@@ -27,8 +28,11 @@ from brailix.frontend.math.utils import (
 )
 from brailix.frontend.math.utils import merror_wrap
 
+if _TYPE_CHECKING:
+    from collections.abc import Callable
 
-@dataclass(slots=True)
+
+@_dataclass(slots=True)
 class LatexMathSourceAdapter:
     """Wraps a ``latex → MathML`` converter callable.
 
@@ -38,7 +42,7 @@ class LatexMathSourceAdapter:
     """
 
     source: str = "latex"
-    converter: Callable[[str], str] = field(default=None)  # type: ignore[assignment]
+    converter: Callable[[str], str] = _field(default=None)  # type: ignore[assignment]
 
     def to_mathml(self, formula: str | bytes, ctx: MathContext | None = None) -> str:
         if isinstance(formula, bytes):

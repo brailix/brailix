@@ -7,14 +7,14 @@ fresh context per math node so state never leaks across formulas.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
 
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class MathBrailleContext:
     """Mutable per-formula state for the math backend.
 

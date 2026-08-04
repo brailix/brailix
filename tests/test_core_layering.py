@@ -180,17 +180,41 @@ def _typing_aliases(tree: ast.Module) -> set[str]:
     return names
 
 
-def _is_type_checking_test(test: ast.expr, aliases: set[str]) -> bool:
+def _type_checking_flag_names(tree: ast.Module) -> set[str]:
+    """Every name bound to ``typing.TYPE_CHECKING`` itself in this file.
+
+    The package imports it as ``TYPE_CHECKING as _TYPE_CHECKING`` — no module
+    may hold a name from outside brailix under its plain spelling
+    (``tests/test_public_api.py``) — so the guard is written
+    ``if _TYPE_CHECKING:``. Reading the binding rather than accepting any
+    name that *looks* like the flag keeps this as narrow as the attribute
+    form below: a local ``_TYPE_CHECKING = False`` in some other file cannot
+    open a type-only block it never imported.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "typing":
+            names.update(
+                (a.asname or a.name) for a in node.names if a.name == "TYPE_CHECKING"
+            )
+    return names
+
+
+def _is_type_checking_test(
+    test: ast.expr, aliases: set[str], flags: set[str] = frozenset({"TYPE_CHECKING"})
+) -> bool:
     """True for ``TYPE_CHECKING`` / ``typing.TYPE_CHECKING`` guard tests.
 
-    Deliberately narrow on the attribute form: accepting *any* expression
-    whose attribute happens to be named ``TYPE_CHECKING`` would let a stray
-    ``config.TYPE_CHECKING`` mark a block type-only and hide the real runtime
-    imports inside it. Only the ``typing`` module — under whatever name this
-    file imported it as — can open that block.
+    Deliberately narrow in both forms, and for the same reason: accepting any
+    expression whose attribute happens to be named ``TYPE_CHECKING``, or any
+    bare name that looks like the flag, would let a stray
+    ``config.TYPE_CHECKING`` (or a local ``_TYPE_CHECKING = False``) mark a
+    block type-only and hide the real runtime imports inside it. Only the
+    ``typing`` module — and only under a name *this file* imported it as —
+    can open that block, which is what ``aliases`` / ``flags`` carry.
     """
     if isinstance(test, ast.Name):
-        return test.id == "TYPE_CHECKING"
+        return test.id in flags
     if isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING":
         return isinstance(test.value, ast.Name) and test.value.id in aliases
     return False
@@ -406,9 +430,10 @@ def _imports_in(
     skip: set[int] = set()
     if runtime_only:
         typing_aliases = _typing_aliases(tree)
+        flag_names = _type_checking_flag_names(tree)
         for node in ast.walk(tree):
             if isinstance(node, ast.If) and _is_type_checking_test(
-                node.test, typing_aliases
+                node.test, typing_aliases, flag_names
             ):
                 # ``node.body`` ONLY — not ``ast.walk(node)``. Walking the whole
                 # ``If`` also swallows ``orelse``, which is the ``else`` branch

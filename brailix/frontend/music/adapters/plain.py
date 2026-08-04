@@ -17,13 +17,13 @@ This keeps a clean two-tier contract for music input:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
 
 from brailix.core.context import MusicContext
 from brailix.frontend.music.adapters.musicxml import music_error_wrap
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class PlainMusicSourceAdapter:
     """Surface any plain-text music input as a soft failure."""
 

@@ -7,15 +7,19 @@ for environments where the g2pW model can't be downloaded.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import FrontendContext
 from brailix.frontend.zh.pinyin.adapters._align import resolve_by_char_alignment
 from brailix.frontend.zh.tokens import ChineseToken
 
+if _TYPE_CHECKING:
+    from collections.abc import Callable
 
-@dataclass(slots=True)
+
+@_dataclass(slots=True)
 class PypinyinResolver:
     """Wraps :func:`pypinyin.lazy_pinyin` (with style=Style.TONE3).
 
@@ -24,7 +28,7 @@ class PypinyinResolver:
     """
 
     name: str = "pypinyin"
-    converter: Callable[[str], list[str]] = field(default=None)  # type: ignore[assignment]
+    converter: Callable[[str], list[str]] = _field(default=None)  # type: ignore[assignment]
 
     def resolve(
         self,

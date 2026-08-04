@@ -10,8 +10,9 @@ don't reverse-import into one specific adapter module.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
-from xml.sax.saxutils import escape, quoteattr
+import xml.etree.ElementTree as _ET
+from xml.sax.saxutils import escape as _escape
+from xml.sax.saxutils import quoteattr as _quoteattr
 
 from brailix.core._xml import strip_xml_invalid_chars
 
@@ -42,8 +43,8 @@ def merror_wrap(surface: str, *, reason: str) -> str:
     Shared by every adapter — and the normalizer's parse-error path — that
     needs to report a soft failure.
     """
-    escaped = escape(strip_xml_invalid_chars(surface))
-    escaped_reason = quoteattr(strip_xml_invalid_chars(reason))
+    escaped = _escape(strip_xml_invalid_chars(surface))
+    escaped_reason = _quoteattr(strip_xml_invalid_chars(reason))
     return (
         f'<math xmlns="{_MATHML_NS}">'
         f"<merror data-reason={escaped_reason}><mtext>{escaped}</mtext></merror>"
@@ -51,17 +52,17 @@ def merror_wrap(surface: str, *, reason: str) -> str:
     )
 
 
-def mtext(text: str) -> ET.Element:
+def mtext(text: str) -> _ET.Element:
     """Build a single ``<mtext>`` element carrying ``text``.
 
     Shared by the OMML / EQ-field / MTEF MathML builders.
     """
-    el = ET.Element("mtext")
+    el = _ET.Element("mtext")
     el.text = text
     return el
 
 
-def mrow_wrap(children: list[ET.Element]) -> ET.Element:
+def mrow_wrap(children: list[_ET.Element]) -> _ET.Element:
     """Return ``children`` as one MathML element: a lone child is unwrapped,
     otherwise they are wrapped in an ``<mrow>``.
 
@@ -71,7 +72,7 @@ def mrow_wrap(children: list[ET.Element]) -> ET.Element:
     """
     if len(children) == 1:
         return children[0]
-    mrow = ET.Element("mrow")
+    mrow = _ET.Element("mrow")
     for c in children:
         mrow.append(c)
     return mrow

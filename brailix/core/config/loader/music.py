@@ -15,12 +15,15 @@ file inside is loaded under the ``<prefix>.<filename>`` topic key.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.config._helpers import _is_metadata_key, _read_json
 from brailix.core.config.loader._refs import _resolve_cell_refs
 from brailix.core.errors import ConfigurationError
+
+if _TYPE_CHECKING:
+    from pathlib import Path
+    from typing import Any
 
 
 def _load_music_tables(

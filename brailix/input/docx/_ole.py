@@ -20,7 +20,7 @@ without the ``docx`` extra installed.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.input.docx._xml import (
     _R_PREFIX,
@@ -29,6 +29,9 @@ from brailix.input.docx._xml import (
     _ns_attr,
     _wrap_inline_math,
 )
+
+if _TYPE_CHECKING:
+    from typing import Any
 
 # Hard ceiling on a single ``Equation Native`` stream. A real MathType /
 # Equation 3.0 formula is KB-scale; anything past this in an untrusted embed is

@@ -24,14 +24,14 @@ axis so larger values sit higher on the page.
 
 from __future__ import annotations
 
-import math
-from collections.abc import Callable
-from typing import Any
+import math as _math
+from collections.abc import Callable as _Callable
+from typing import Any as _Any
 
 from brailix.frontend.graphics._numbers import as_finite
 
 # A generator turns a figure spec into a primitives spec.
-FigureGenerator = Callable[[dict[str, Any]], dict[str, Any]]
+FigureGenerator = _Callable[[dict[str, _Any]], dict[str, _Any]]
 
 _GENERATORS: dict[str, FigureGenerator] = {}
 
@@ -76,7 +76,7 @@ def generator_kinds() -> tuple[str, ...]:
 # ---------------------------------------------------------------------------
 
 
-def _num(value: Any, default: float = 0.0) -> float:
+def _num(value: _Any, default: float = 0.0) -> float:
     """A spec field as a drawable number, or ``default``.
 
     Non-finite counts as unreadable, not as a number: it used to convert
@@ -95,30 +95,30 @@ def _fmt(value: float) -> str:
     return str(int(value)) if float(value).is_integer() else f"{value:g}"
 
 
-def _canvas(spec: dict[str, Any]) -> tuple[float, float, float]:
+def _canvas(spec: dict[str, _Any]) -> tuple[float, float, float]:
     w = _num(spec.get("width"), _W) or _W
     h = _num(spec.get("height"), _H) or _H
     m = _num(spec.get("margin"), _MARGIN) or _MARGIN
     return w, h, m
 
 
-def _line(x1: float, y1: float, x2: float, y2: float) -> dict[str, Any]:
+def _line(x1: float, y1: float, x2: float, y2: float) -> dict[str, _Any]:
     return {"type": "line", "x1": x1, "y1": y1, "x2": x2, "y2": y2}
 
 
-def _rect(x: float, y: float, w: float, h: float, **kw: Any) -> dict[str, Any]:
+def _rect(x: float, y: float, w: float, h: float, **kw: _Any) -> dict[str, _Any]:
     return {"type": "rect", "x": x, "y": y, "width": w, "height": h, **kw}
 
 
-def _circle(cx: float, cy: float, r: float, **kw: Any) -> dict[str, Any]:
+def _circle(cx: float, cy: float, r: float, **kw: _Any) -> dict[str, _Any]:
     return {"type": "circle", "cx": cx, "cy": cy, "r": r, **kw}
 
 
-def _polyline(points: list[list[float]]) -> dict[str, Any]:
+def _polyline(points: list[list[float]]) -> dict[str, _Any]:
     return {"type": "polyline", "points": points}
 
 
-def _label(x: float, y: float, text: Any) -> dict[str, Any]:
+def _label(x: float, y: float, text: _Any) -> dict[str, _Any]:
     return {"type": "label", "x": x, "y": y, "text": str(text)}
 
 
@@ -176,7 +176,7 @@ def _ticks(lo: float, hi: float, step: float) -> list[float]:
     Degenerate arguments — a non-positive step, an empty or inverted range,
     a non-finite bound — are not errors, just an axis with no ticks on it.
     """
-    if not (math.isfinite(lo) and math.isfinite(hi) and math.isfinite(step)):
+    if not (_math.isfinite(lo) and _math.isfinite(hi) and _math.isfinite(step)):
         return []
     if step <= 0 or hi <= lo:
         return []
@@ -184,7 +184,7 @@ def _ticks(lo: float, hi: float, step: float) -> list[float]:
     # that overflows. ``steps`` is the count of *intervals*, so the tick count
     # is one more than its floor.
     steps = (hi - lo) / step
-    if not math.isfinite(steps) or steps > _MAX_TICKS - 1:
+    if not _math.isfinite(steps) or steps > _MAX_TICKS - 1:
         raise FigureSpecError(
             f"an axis from {lo:g} to {hi:g} by {step:g} would need more than "
             f"{_MAX_TICKS} tick marks — widen the step or narrow the range"
@@ -192,12 +192,12 @@ def _ticks(lo: float, hi: float, step: float) -> list[float]:
     limit = hi + _TICK_EPS * max(abs(lo), abs(hi), abs(step))
     return [
         value
-        for i in range(math.floor(steps * (1.0 + _TICK_EPS)) + 1)
+        for i in range(_math.floor(steps * (1.0 + _TICK_EPS)) + 1)
         if (value := lo + i * step) <= limit
     ]
 
 
-def _title(shapes: list[dict[str, Any]], spec: dict[str, Any], m: float) -> None:
+def _title(shapes: list[dict[str, _Any]], spec: dict[str, _Any], m: float) -> None:
     title = spec.get("title")
     if title:
         shapes.insert(0, _label(m, max(0.0, m - 8.0), title))
@@ -208,7 +208,7 @@ def _title(shapes: list[dict[str, Any]], spec: dict[str, Any], m: float) -> None
 # ---------------------------------------------------------------------------
 
 
-def _gen_bar(spec: dict[str, Any]) -> dict[str, Any]:
+def _gen_bar(spec: dict[str, _Any]) -> dict[str, _Any]:
     """Bar chart from ``data: [{"label", "value"}, ...]`` (values ≥ 0)."""
     w, h, m = _canvas(spec)
     items = [
@@ -216,7 +216,7 @@ def _gen_bar(spec: dict[str, Any]) -> dict[str, Any]:
         for d in (spec.get("data") or [])
         if isinstance(d, dict)
     ]
-    shapes: list[dict[str, Any]] = [
+    shapes: list[dict[str, _Any]] = [
         _line(m, h - m, w - m, h - m),  # x axis
         _line(m, m, m, h - m),  # y axis
     ]
@@ -235,7 +235,7 @@ def _gen_bar(spec: dict[str, Any]) -> dict[str, Any]:
     return {"width": w, "height": h, "shapes": shapes}
 
 
-def _gen_line(spec: dict[str, Any]) -> dict[str, Any]:
+def _gen_line(spec: dict[str, _Any]) -> dict[str, _Any]:
     """Line chart from ``points: [[x, y], ...]`` or evenly-spaced
     ``values: [y, ...]``."""
     w, h, m = _canvas(spec)
@@ -247,7 +247,7 @@ def _gen_line(spec: dict[str, Any]) -> dict[str, Any]:
         for p in raw
         if isinstance(p, (list, tuple)) and len(p) >= 2
     ]
-    shapes: list[dict[str, Any]] = [
+    shapes: list[dict[str, _Any]] = [
         _line(m, h - m, w - m, h - m),
         _line(m, m, m, h - m),
     ]
@@ -270,7 +270,7 @@ def _gen_line(spec: dict[str, Any]) -> dict[str, Any]:
     return {"width": w, "height": h, "shapes": shapes}
 
 
-def _gen_number_line(spec: dict[str, Any]) -> dict[str, Any]:
+def _gen_number_line(spec: dict[str, _Any]) -> dict[str, _Any]:
     """Number line ``min``..``max`` by ``step``, with optional marked
     ``points``."""
     w, h, m = _canvas(spec)
@@ -286,7 +286,7 @@ def _gen_number_line(spec: dict[str, Any]) -> dict[str, Any]:
         return m + (v - lo) / span * (w - 2 * m)
 
     a = 3.0
-    shapes: list[dict[str, Any]] = [
+    shapes: list[dict[str, _Any]] = [
         _line(m, y, w - m, y),
         _line(m, y, m + a, y - a),  # left arrowhead
         _line(m, y, m + a, y + a),
@@ -303,7 +303,7 @@ def _gen_number_line(spec: dict[str, Any]) -> dict[str, Any]:
     return {"width": w, "height": h, "shapes": shapes}
 
 
-def _gen_axes(spec: dict[str, Any]) -> dict[str, Any]:
+def _gen_axes(spec: dict[str, _Any]) -> dict[str, _Any]:
     """Coordinate axes / grid over ``xmin..xmax`` × ``ymin..ymax``."""
     w, h, m = _canvas(spec)
     xmin, xmax = _num(spec.get("xmin"), -5.0), _num(spec.get("xmax"), 5.0)
@@ -321,7 +321,7 @@ def _gen_axes(spec: dict[str, Any]) -> dict[str, Any]:
     def y_of(y: float) -> float:
         return (h - m) - (y - ymin) / (ymax - ymin) * (h - 2 * m)
 
-    shapes: list[dict[str, Any]] = []
+    shapes: list[dict[str, _Any]] = []
     if spec.get("grid"):
         for xv in _ticks(xmin, xmax, xstep):
             shapes.append(_line(x_of(xv), m, x_of(xv), h - m))
@@ -346,7 +346,7 @@ def _gen_axes(spec: dict[str, Any]) -> dict[str, Any]:
     return {"width": w, "height": h, "shapes": shapes}
 
 
-def _gen_table(spec: dict[str, Any]) -> dict[str, Any]:
+def _gen_table(spec: dict[str, _Any]) -> dict[str, _Any]:
     """Table grid from ``rows: [[cell, ...], ...]`` with cell labels."""
     w, h, m = _canvas(spec)
     rows = [r for r in (spec.get("rows") or []) if isinstance(r, (list, tuple))]
@@ -356,7 +356,7 @@ def _gen_table(spec: dict[str, Any]) -> dict[str, Any]:
         return {"width": w, "height": h, "shapes": []}
     x0, y0, x1, y1 = m, m, w - m, h - m
     cw, ch = (x1 - x0) / ncols, (y1 - y0) / nrows
-    shapes: list[dict[str, Any]] = []
+    shapes: list[dict[str, _Any]] = []
     for c in range(ncols + 1):
         shapes.append(_line(x0 + c * cw, y0, x0 + c * cw, y1))
     for r in range(nrows + 1):

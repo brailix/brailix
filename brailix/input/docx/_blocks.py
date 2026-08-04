@@ -18,7 +18,7 @@ package ``__init__`` and call into here.
 
 from __future__ import annotations
 
-import re
+import re as _re
 
 from brailix.core import inline_math
 from brailix.input.docx._media import _convert_drawing, _convert_pict
@@ -51,7 +51,7 @@ from brailix.ir.document import (
     TableRow,
 )
 
-_HEADING_STYLE_RE = re.compile(r"^heading\s*(\d+)$", re.IGNORECASE)
+_HEADING_STYLE_RE = _re.compile(r"^heading\s*(\d+)$", _re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------

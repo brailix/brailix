@@ -8,7 +8,7 @@ pipeline in :mod:`._blocks` and can be read (and tested) on their own.
 
 from __future__ import annotations
 
-import re
+import re as _re
 
 from brailix.input.docx._xml import (
     _W_PREFIX,
@@ -25,9 +25,9 @@ from brailix.input.docx._xml import (
 # below matches the bullet / number / dash / continuation variants
 # Word ships out of the box plus their numbered siblings (``ListNumber``,
 # ``ListNumber2``, ...).
-_LIST_STYLE_RE = re.compile(
+_LIST_STYLE_RE = _re.compile(
     r"^list\s*(bullet|number|dash|paragraph|continue)(\d*)$",
-    re.IGNORECASE,
+    _re.IGNORECASE,
 )
 
 

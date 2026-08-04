@@ -34,8 +34,8 @@ The output type is ``bytes`` — BMP files are written in binary mode.
 
 from __future__ import annotations
 
-import struct
-from dataclasses import dataclass
+import struct as _struct
+from dataclasses import dataclass as _dataclass
 
 from brailix.ir.tactile import SUPPORTED_BIT_DEPTHS, TactileRaster
 from brailix.renderer._raster_encoding import INVERT_LEVELS, pixels_per_metre
@@ -92,7 +92,7 @@ def raster_to_bmp(
 
 def _file_header(file_size: int, pixel_offset: int) -> bytes:
     # "BM" + file size + 2 reserved words + offset to pixel data.
-    return b"BM" + struct.pack("<IHHI", file_size, 0, 0, pixel_offset)
+    return b"BM" + _struct.pack("<IHHI", file_size, 0, 0, pixel_offset)
 
 
 def _info_header(
@@ -105,7 +105,7 @@ def _info_header(
 ) -> bytes:
     # BITMAPINFOHEADER (40 bytes). Positive height = bottom-up rows.
     ppm_x, ppm_y = ppm
-    return struct.pack(
+    return _struct.pack(
         "<IiiHHIIiiII",
         40,          # biSize
         width,       # biWidth
@@ -171,7 +171,7 @@ def _bmp_1bit(raster: TactileRaster, threshold: int) -> bytes:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class BmpRenderer:
     """Encode a tactile raster as BMP bytes.
 

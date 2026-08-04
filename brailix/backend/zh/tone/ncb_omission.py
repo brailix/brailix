@@ -35,7 +35,7 @@ it'd be a much noisier silent-fall-through bug).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
 
 from brailix.backend.zh._ncb import ncb_exceptions
 from brailix.backend.zh.pinyin_parser import (
@@ -48,7 +48,7 @@ from brailix.core.config.zh_ncb_tables import NcbToneOmission
 from brailix.core.errors import ConfigurationError
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class NcbOmissionPolicy:
     """National Common Braille tone-omission decision wrapper (grouped by initial)."""
 

@@ -16,9 +16,11 @@ orchestrator has to load a profile to find out what it is translating.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
+    from typing import Any
+
     from brailix.core.context import FrontendContext
     from brailix.core.registry import Registry
 

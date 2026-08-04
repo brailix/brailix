@@ -25,7 +25,7 @@ joined block of braille characters: one line per cell row.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
 
 from brailix.ir.tactile import TactileRaster
 from brailix.renderer.unicode_braille import dots_to_char
@@ -122,7 +122,7 @@ def raster_to_braille(
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class TactilePreviewRenderer:
     """Encode a tactile raster as a Unicode braille preview string."""
 

@@ -17,7 +17,7 @@ stream, so the seam has one place that owns the coordinate contract.
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import replace as _replace
 
 from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
@@ -40,9 +40,9 @@ def rebase_translated_cells(
     out: list[BrailleCell] = []
     for cell in cells:
         if role is None:
-            out.append(replace(cell, source_span=span))
+            out.append(_replace(cell, source_span=span))
         else:
-            out.append(replace(cell, source_span=span, role=role))
+            out.append(_replace(cell, source_span=span, role=role))
     return out
 
 

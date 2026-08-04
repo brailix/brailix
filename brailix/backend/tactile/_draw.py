@@ -19,10 +19,13 @@ strokes only ever add height.
 
 from __future__ import annotations
 
-import math
-from collections.abc import Iterator, Sequence
+import math as _math
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.ir.tactile import TactileRaster
+
+if _TYPE_CHECKING:
+    from collections.abc import Iterator, Sequence
 
 
 def stamp_disk(
@@ -217,11 +220,11 @@ def draw_ellipse(
         and cy - ry >= lo_y
         and cy + ry <= hi_y
     ):
-        steps = max(16, int(2 * math.pi * max(rx, ry)) + 1)
+        steps = max(16, int(2 * _math.pi * max(rx, ry)) + 1)
         for i in range(steps):
-            t = 2 * math.pi * i / steps
-            x = round(cx + rx * math.cos(t))
-            y = round(cy + ry * math.sin(t))
+            t = 2 * _math.pi * i / steps
+            x = round(cx + rx * _math.cos(t))
+            y = round(cy + ry * _math.sin(t))
             stamp_disk(raster, x, y, radius, level)
         return
     # Windowed path: the outline leaves the page. A point at angle ``t`` is
@@ -247,28 +250,28 @@ def draw_ellipse(
         v1 = min(1.0, (hi_y - cy) / ry)
         if v0 > v1:
             return
-    two_pi = 2 * math.pi
+    two_pi = 2 * _math.pi
     events = [0.0, two_pi]
     for c in (u0, u1):
-        a = math.acos(c)
+        a = _math.acos(c)
         events.append(a)
         events.append(two_pi - a)
     for s in (v0, v1):
-        a = math.asin(s)
+        a = _math.asin(s)
         events.append(a % two_pi)
-        events.append((math.pi - a) % two_pi)
+        events.append((_math.pi - a) % two_pi)
     events = sorted(set(events))
     max_r = max(rx, ry)
     for a, b in zip(events, events[1:], strict=False):
         if b <= a:
             continue
         mid = 0.5 * (a + b)
-        if u0 <= math.cos(mid) <= u1 and v0 <= math.sin(mid) <= v1:
+        if u0 <= _math.cos(mid) <= u1 and v0 <= _math.sin(mid) <= v1:
             n = max(1, int((b - a) * max_r) + 1)
             for k in range(n + 1):
                 t = a + (b - a) * k / n
-                x = round(cx + rx * math.cos(t))
-                y = round(cy + ry * math.sin(t))
+                x = round(cx + rx * _math.cos(t))
+                y = round(cy + ry * _math.sin(t))
                 stamp_disk(raster, x, y, radius, level)
 
 

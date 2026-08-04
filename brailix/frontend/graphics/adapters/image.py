@@ -32,25 +32,27 @@ the other source adapters.
 
 from __future__ import annotations
 
-import base64
-import json
-import re
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass
-from io import BytesIO
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+import base64 as _base64
+import json as _json
+import re as _re
+import xml.etree.ElementTree as _ET
+from dataclasses import dataclass as _dataclass
+from io import BytesIO as _BytesIO
+from pathlib import Path as _Path
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import GraphicsContext
 from brailix.frontend.graphics.adapters.svg import svg_error_wrap
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
+    from typing import Any
+
     from brailix.core.protocols import GraphicAssetResolver
 
 # The opening ``<svg …>`` tag, for reading an external SVG's intrinsic size
 # from its viewBox / width / height without a full parse (avoids DOCTYPE /
 # prolog pitfalls) and without Pillow (which can't read SVG).
-_SVG_OPEN_TAG = re.compile(r"<svg\b[^>]*>", re.IGNORECASE | re.DOTALL)
+_SVG_OPEN_TAG = _re.compile(r"<svg\b[^>]*>", _re.IGNORECASE | _re.DOTALL)
 
 # Physical size (mm) for the image's longest side when the caller gives no
 # explicit ``width_mm`` / ``height_mm`` — a sub-A4 default that stays
@@ -104,7 +106,7 @@ def _svg_dimensions(path: str) -> tuple[int, int]:
     """Intrinsic ``(width, height)`` of the SVG file at ``path`` from its
     viewBox (preferred) or width/height, or ``(0, 0)`` if unreadable."""
     try:
-        text = Path(path).read_text(encoding="utf-8", errors="replace")
+        text = _Path(path).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return (0, 0)
     return _svg_dimensions_from_text(text)
@@ -132,7 +134,7 @@ def _svg_dimensions_from_text(text: str) -> tuple[int, int]:
 
 
 def _svg_attr(tag: str, name: str) -> str | None:
-    m = re.search(rf'\b{name}\s*=\s*"([^"]*)"', tag, re.IGNORECASE)
+    m = _re.search(rf'\b{name}\s*=\s*"([^"]*)"', tag, _re.IGNORECASE)
     return m.group(1) if m else None
 
 
@@ -182,7 +184,7 @@ def _read_dimensions_from_bytes(raw: bytes) -> tuple[int, int] | None:
     from PIL import Image  # surfaced via the registry's extra= when missing
 
     try:
-        with Image.open(BytesIO(raw)) as im:
+        with Image.open(_BytesIO(raw)) as im:
             if im.width > 0 and im.height > 0:
                 return (im.width, im.height)
     except Exception:  # noqa: BLE001 — Pillow raises many open / decode types
@@ -208,7 +210,7 @@ def _data_uri(raw: bytes) -> str:
     rides into the SVG ``<image href>`` without an external file. The backend
     (:func:`brailix.backend.tactile._image._resolve_href`) decodes it back to
     bytes at rasterize time."""
-    return f"data:{_guess_image_mime(raw)};base64," + base64.b64encode(
+    return f"data:{_guess_image_mime(raw)};base64," + _base64.b64encode(
         raw
     ).decode("ascii")
 
@@ -279,8 +281,8 @@ def image_to_svg(
     title: Any = None
     if text.startswith("{"):
         try:
-            spec = json.loads(text)
-        except json.JSONDecodeError as e:
+            spec = _json.loads(text)
+        except _json.JSONDecodeError as e:
             return svg_error_wrap(text, reason=f"invalid JSON: {e}")
         if not isinstance(spec, dict):
             return svg_error_wrap(
@@ -320,7 +322,7 @@ def image_to_svg(
 
     pw_mm, ph_mm = _physical_size(px_w, px_h, width_mm, height_mm)
 
-    svg = ET.Element("svg")
+    svg = _ET.Element("svg")
     # viewBox in source pixels (1 user unit = 1 source pixel); physical size
     # in mm so the backend rasterizes at the right touch scale.
     svg.set("viewBox", f"0 0 {px_w} {px_h}")
@@ -330,8 +332,8 @@ def image_to_svg(
     # reader — which takes the first direct <title> — finds it, and the tactile
     # backend treats it as non-drawing metadata (not a shape to rasterize).
     if isinstance(title, str) and title.strip():
-        ET.SubElement(svg, "title").text = title.strip()
-    img = ET.SubElement(svg, "image")
+        _ET.SubElement(svg, "title").text = title.strip()
+    img = _ET.SubElement(svg, "image")
     img.set("href", href)
     img.set("x", "0")
     img.set("y", "0")
@@ -344,10 +346,10 @@ def image_to_svg(
     img.set("data-bk-threshold", str(_clamp_threshold(threshold)))
     if invert:
         img.set("data-bk-invert", "1")
-    return ET.tostring(svg, encoding="unicode")
+    return _ET.tostring(svg, encoding="unicode")
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class ImageSourceAdapter:
     """Adapter: a raster image path / JSON spec → an SVG ``<image>``."""
 

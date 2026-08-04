@@ -8,7 +8,7 @@ for BANA Par. 11.1 in-accord).
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as _ET
 
 from brailix.backend.music.context import MusicBrailleContext
 from brailix.backend.music.dispatch import _emit_element
@@ -20,7 +20,7 @@ from brailix.ir.braille import BrailleCell
 def _emit_note_sequence(
     cells: list[BrailleCell],
     mctx: MusicBrailleContext,
-    children: list[ET.Element],
+    children: list[_ET.Element],
 ) -> None:
     """Dispatch a measure / voice child sequence, batching chord runs.
 
@@ -51,7 +51,7 @@ def _emit_note_sequence(
             and child.find("chord") is None
         ):
             members = [child]
-            inserts: list[ET.Element] = []
+            inserts: list[_ET.Element] = []
             j = i + 1
             while j < n:
                 nxt = children[j]
@@ -73,7 +73,7 @@ def _emit_note_sequence(
 
 
 def _emit_score_partwise(
-    cells: list[BrailleCell], mctx: MusicBrailleContext, elem: ET.Element
+    cells: list[BrailleCell], mctx: MusicBrailleContext, elem: _ET.Element
 ) -> None:
     """Walk every ``<part>`` in declaration order.
 
@@ -99,18 +99,18 @@ def _emit_score_partwise(
         _emit_element(cells, mctx, child)
 
 
-def _staff_of_note(note: ET.Element) -> str:
+def _staff_of_note(note: _ET.Element) -> str:
     """The note's ``<staff>`` text — default ``"1"`` when absent."""
     return first_child_text(note, "staff") or "1"
 
 
-def _staff_of_direction(direction: ET.Element) -> str:
+def _staff_of_direction(direction: _ET.Element) -> str:
     """The direction's ``<staff>`` text — default ``"1"`` when absent, matching
     the unnumbered-clef convention in :func:`_attributes_for_staff`."""
     return first_child_text(direction, "staff") or "1"
 
 
-def _part_staves(part: ET.Element) -> list[str]:
+def _part_staves(part: _ET.Element) -> list[str]:
     """Distinct staff numbers used by the part's notes, sorted.
 
     Returns ``[]`` for a single-staff part (every note on the default
@@ -125,12 +125,12 @@ def _part_staves(part: ET.Element) -> list[str]:
     return sorted(seen) if len(seen) > 1 else []
 
 
-def _attributes_for_staff(attrs: ET.Element, staff: str) -> ET.Element:
+def _attributes_for_staff(attrs: _ET.Element, staff: str) -> _ET.Element:
     """Copy ``<attributes>`` keeping only ``staff``'s clef (matched by
     ``number``; an unnumbered clef belongs to staff 1) plus the shared
     context (divisions / key / time / …).  The ``<staves>`` hint is
     dropped from the per-staff view."""
-    out = ET.Element(attrs.tag, attrs.attrib)
+    out = _ET.Element(attrs.tag, attrs.attrib)
     for child in attrs:
         if child.tag == "clef":
             num = child.attrib.get("number")
@@ -143,7 +143,7 @@ def _attributes_for_staff(attrs: ET.Element, staff: str) -> ET.Element:
     return out
 
 
-def _measure_for_staff(measure: ET.Element, staff: str) -> ET.Element:
+def _measure_for_staff(measure: _ET.Element, staff: str) -> _ET.Element:
     """A per-staff view of ``measure``: only that staff's notes, clef and
     directions, with the shared key / time / barline copied through so the
     staff's stream keeps full accidental + metre context.  A ``<direction>``
@@ -151,7 +151,7 @@ def _measure_for_staff(measure: ET.Element, staff: str) -> ET.Element:
     unnumbered direction belongs to staff 1 — instead of copied to every
     staff (which sounded a one-hand dynamic on both hands and re-fired a
     single hairpin once per staff)."""
-    out = ET.Element(measure.tag, measure.attrib)
+    out = _ET.Element(measure.tag, measure.attrib)
     for child in measure:
         if child.tag == "note":
             if _staff_of_note(child) == staff:
@@ -169,7 +169,7 @@ def _measure_for_staff(measure: ET.Element, staff: str) -> ET.Element:
 def _emit_measures(
     cells: list[BrailleCell],
     mctx: MusicBrailleContext,
-    children: list[ET.Element],
+    children: list[_ET.Element],
     separator: str,
 ) -> None:
     """Walk a measure sequence, spacing consecutive measures with a
@@ -209,7 +209,7 @@ def _reset_part_reading_state(mctx: MusicBrailleContext) -> None:
 
 
 def _emit_part(
-    cells: list[BrailleCell], mctx: MusicBrailleContext, elem: ET.Element
+    cells: list[BrailleCell], mctx: MusicBrailleContext, elem: _ET.Element
 ) -> None:
     """Walk a part's measures.
 
@@ -262,7 +262,7 @@ def _emit_part(
 
 
 def _emit_measure(
-    cells: list[BrailleCell], mctx: MusicBrailleContext, elem: ET.Element
+    cells: list[BrailleCell], mctx: MusicBrailleContext, elem: _ET.Element
 ) -> None:
     """Walk a measure's children.
 
@@ -307,7 +307,7 @@ def _emit_measure(
         mctx.current_measure_number = saved_measure
 
 
-def _voice_of(note: ET.Element) -> str:
+def _voice_of(note: _ET.Element) -> str:
     """The note's ``<voice>`` value, defaulting an unvoiced note to ``"1"``
     (MusicXML's implicit voice).  Shared by :func:`_scan_voices` and
     :func:`_emit_multi_voice` so the two can't drift on the default — a
@@ -317,7 +317,7 @@ def _voice_of(note: ET.Element) -> str:
     return first_child_text(note, "voice") or "1"
 
 
-def _scan_voices(measure: ET.Element) -> list[str]:
+def _scan_voices(measure: _ET.Element) -> list[str]:
     """Return the distinct ``<voice>`` strings present on ``<note>``
     children, preserved in first-encountered order.
 
@@ -342,7 +342,7 @@ def _scan_voices(measure: ET.Element) -> list[str]:
 def _emit_multi_voice(
     cells: list[BrailleCell],
     mctx: MusicBrailleContext,
-    measure: ET.Element,
+    measure: _ET.Element,
     voices: list[str],
 ) -> None:
     """BANA Par. 11.1: full-measure in-accord emission.
@@ -396,9 +396,9 @@ def _emit_multi_voice(
     first_cursor_idx = cursor_indices[0] if cursor_indices else len(children)
     last_cursor_idx = cursor_indices[-1] if cursor_indices else -1
 
-    voice_notes: dict[str, list[ET.Element]] = {v: [] for v in voices}
-    pre_globals: list[ET.Element] = []
-    post_globals: list[ET.Element] = []
+    voice_notes: dict[str, list[_ET.Element]] = {v: [] for v in voices}
+    pre_globals: list[_ET.Element] = []
+    post_globals: list[_ET.Element] = []
     current_voice: str | None = None
     # Inter-note cursor-zone elements (a <direction> etc.) are BUFFERED, not
     # appended immediately, so one landing between a chord root and its
@@ -406,7 +406,7 @@ def _emit_multi_voice(
     # _emit_note_sequence only groups a member that *immediately* follows the
     # root). They flush to the voice they followed when the next non-chord note
     # arrives — i.e. after the chord is complete — or at measure end.
-    pending_inserts: list[ET.Element] = []
+    pending_inserts: list[_ET.Element] = []
     for i, child in enumerate(children):
         if child.tag == "note":
             v = _voice_of(child)

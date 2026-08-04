@@ -30,9 +30,9 @@ convention, which is what makes it shared rather than duplicated.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from brailix.ir.tactile import TactileRaster
 
 # Raise level (0..255) → grayscale sample, inverted so raised = dark.

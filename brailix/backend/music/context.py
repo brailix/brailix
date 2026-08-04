@@ -8,15 +8,19 @@ context per node so state never leaks across scores.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Literal
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
 
+if _TYPE_CHECKING:
+    from typing import Literal
 
-@dataclass(slots=True)
+
+@_dataclass(slots=True)
 class MusicBrailleContext:
     """Mutable per-score state for the music backend.
 
@@ -46,7 +50,7 @@ class MusicBrailleContext:
     # (step, octave) line don't re-print when
     # ``features.music.accidental_persist_in_measure`` is true (default).
     # Reset at every measure boundary by ``_emit_measure``.
-    measure_accidentals: set[tuple[tuple[str, int], str]] = field(
+    measure_accidentals: set[tuple[tuple[str, int], str]] = _field(
         default_factory=set
     )
     # M3.4 (BANA Table 22): which kind of hairpin is currently active

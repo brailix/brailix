@@ -27,7 +27,7 @@ for this first increment.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as _ET
 
 from brailix.core._xml import (
     safe_fromstring,
@@ -44,15 +44,15 @@ from brailix.core._xml import (
 _MAX_SVG_DEPTH = 200
 
 
-def _error_svg(reason: str) -> ET.Element:
+def _error_svg(reason: str) -> _ET.Element:
     """An empty ``<svg>`` carrying a soft-failure marker (rasterizes to a
     blank page)."""
-    root = ET.Element("svg")
+    root = _ET.Element("svg")
     root.set("data-bk-error", reason)
     return root
 
 
-def _assign_gids(root: ET.Element) -> None:
+def _assign_gids(root: _ET.Element) -> None:
     """Tag every element with a stable pre-order id ``data-bk-gid``.
 
     The backend's raster provenance keys pixels by this id and the editor's
@@ -65,7 +65,7 @@ def _assign_gids(root: ET.Element) -> None:
             elem.set("data-bk-gid", str(i))
 
 
-def normalize(svg: str) -> ET.Element:
+def normalize(svg: str) -> _ET.Element:
     """Parse an SVG string and return a normalized :class:`Element` tree
     with the SVG namespace stripped.
 
@@ -75,7 +75,7 @@ def normalize(svg: str) -> ET.Element:
     """
     try:
         root = safe_fromstring(svg)
-    except ET.ParseError as e:
+    except _ET.ParseError as e:
         return _error_svg(f"parse error: {e}")
     if tree_depth_exceeds(root, _MAX_SVG_DEPTH):
         return _error_svg(f"drawing nested deeper than {_MAX_SVG_DEPTH} levels")

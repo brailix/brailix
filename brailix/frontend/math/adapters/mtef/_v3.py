@@ -9,7 +9,7 @@ This module owns the v3 reader walk and delegates MathML construction to
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as _ET
 
 from brailix.frontend.math.adapters.mtef._mathml import (
     _attach_preceding_base,
@@ -40,12 +40,12 @@ from brailix.frontend.math.adapters.mtef._reader import (
 def _convert_v3(data: bytes) -> str:
     r = _Reader(data)
     _read_v3_prelude(r)
-    children: list[ET.Element] = []
+    children: list[_ET.Element] = []
     _read_object_list_v3(r, children, depth=0)
-    math = ET.Element("math", {"xmlns": _MATHML_NS})
+    math = _ET.Element("math", {"xmlns": _MATHML_NS})
     for c in children:
         math.append(c)
-    return ET.tostring(math, encoding="unicode")
+    return _ET.tostring(math, encoding="unicode")
 
 
 def _read_v3_prelude(r: _Reader) -> None:
@@ -59,7 +59,7 @@ def _read_v3_prelude(r: _Reader) -> None:
 
 
 def _read_object_list_v3(
-    r: _Reader, sink: list[ET.Element], *, depth: int
+    r: _Reader, sink: list[_ET.Element], *, depth: int
 ) -> None:
     if depth > 64:
         raise _MtefParseError("MTEF nesting too deep")
@@ -102,7 +102,7 @@ def _read_object_list_v3(
 
 def _read_line_v3(
     r: _Reader, opts: int, depth: int
-) -> list[ET.Element]:
+) -> list[_ET.Element]:
     """v3 LINE — flags bit 0x1=null, 0x2=ruler, 0x4=lspace, 0x8=nudge."""
     if opts & 0x08:
         _read_nudge_v3(r)
@@ -113,14 +113,14 @@ def _read_line_v3(
         _skip_ruler(r)
     if opts & 0x01:
         return []
-    children: list[ET.Element] = []
+    children: list[_ET.Element] = []
     _read_object_list_v3(r, children, depth=depth)
     return children
 
 
 def _read_char_v3(
     r: _Reader, opts: int, depth: int
-) -> list[ET.Element]:
+) -> list[_ET.Element]:
     """v3 CHAR — typeface + 16-bit char value + optional embell list."""
     if opts & 0x08:
         _read_nudge_v3(r)
@@ -164,21 +164,21 @@ def _collect_embell_v3(
 
 def _read_tmpl_v3(
     r: _Reader, opts: int, depth: int
-) -> list[ET.Element]:
+) -> list[_ET.Element]:
     """v3 TMPL — selector + variation + options + slot LINE records."""
     if opts & 0x08:
         _read_nudge_v3(r)
     selector = r.u8()
     variation = r.u8()
     r.u8()  # template-specific options
-    slots: list[list[ET.Element]] = []
+    slots: list[list[_ET.Element]] = []
     _read_tmpl_slots_v3(r, slots, depth + 1)
     return _build_tmpl(selector, variation, slots, version=3)
 
 
 def _read_tmpl_slots_v3(
     r: _Reader,
-    slots: list[list[ET.Element]],
+    slots: list[list[_ET.Element]],
     depth: int,
 ) -> None:
     if depth > 64:
@@ -213,7 +213,7 @@ def _read_tmpl_slots_v3(
             )
 
 
-def _read_pile_v3(r: _Reader, opts: int, depth: int) -> ET.Element:
+def _read_pile_v3(r: _Reader, opts: int, depth: int) -> _ET.Element:
     if opts & 0x08:
         _read_nudge_v3(r)
     r.u8()  # halign
@@ -221,7 +221,7 @@ def _read_pile_v3(r: _Reader, opts: int, depth: int) -> ET.Element:
     if opts & 0x02:
         _expect_v3(r, _REC_RULER)
         _skip_ruler(r)
-    mtable = ET.Element("mtable")
+    mtable = _ET.Element("mtable")
     while r.remaining() > 0:
         tag = r.u8()
         rec = tag & 0x0F
@@ -230,8 +230,8 @@ def _read_pile_v3(r: _Reader, opts: int, depth: int) -> ET.Element:
             break
         if rec == _REC_LINE:
             row_children = _read_line_v3(r, opts2, depth + 1)
-            mtr = ET.Element("mtr")
-            mtd = ET.Element("mtd")
+            mtr = _ET.Element("mtr")
+            mtd = _ET.Element("mtd")
             for c in row_children:
                 mtd.append(c)
             mtr.append(mtd)
@@ -243,7 +243,7 @@ def _read_pile_v3(r: _Reader, opts: int, depth: int) -> ET.Element:
     return mtable
 
 
-def _read_matrix_v3(r: _Reader, opts: int, depth: int) -> ET.Element:
+def _read_matrix_v3(r: _Reader, opts: int, depth: int) -> _ET.Element:
     if opts & 0x08:
         _read_nudge_v3(r)
     r.u8()  # valign
@@ -253,15 +253,15 @@ def _read_matrix_v3(r: _Reader, opts: int, depth: int) -> ET.Element:
     cols = r.u8()
     _skip_partitions(r, rows + 1)
     _skip_partitions(r, cols + 1)
-    mtable = ET.Element("mtable")
+    mtable = _ET.Element("mtable")
     for _row in range(rows):
-        mtr = ET.Element("mtr")
+        mtr = _ET.Element("mtr")
         for _col in range(cols):
             tag = r.u8()
             rec = tag & 0x0F
             opts2 = (tag >> 4) & 0x0F
             if rec == _REC_END:
-                mtd = ET.Element("mtd")
+                mtd = _ET.Element("mtd")
                 mtr.append(mtd)
                 continue
             if rec != _REC_LINE:
@@ -269,7 +269,7 @@ def _read_matrix_v3(r: _Reader, opts: int, depth: int) -> ET.Element:
                     f"expected LINE in v3 matrix cell, got 0x{rec:02x}"
                 )
             cell_children = _read_line_v3(r, opts2, depth + 1)
-            mtd = ET.Element("mtd")
+            mtd = _ET.Element("mtd")
             for c in cell_children:
                 mtd.append(c)
             mtr.append(mtd)

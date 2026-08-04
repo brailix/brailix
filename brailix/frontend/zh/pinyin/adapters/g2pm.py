@@ -30,16 +30,20 @@ feature).
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import FrontendContext
 from brailix.core.errors import PROGRAMMING_ERRORS, MissingExtraError
 from brailix.frontend.zh.pinyin.adapters._align import resolve_by_char_alignment
 from brailix.frontend.zh.tokens import ChineseToken
 
+if _TYPE_CHECKING:
+    from collections.abc import Callable
 
-@dataclass(slots=True)
+
+@_dataclass(slots=True)
 class G2pmPinyinResolver:
     """Wraps a g2pM model.
 
@@ -51,7 +55,7 @@ class G2pmPinyinResolver:
     """
 
     name: str = "g2pm"
-    converter: Callable[[str], list[str]] = field(default=None)  # type: ignore[assignment]
+    converter: Callable[[str], list[str]] = _field(default=None)  # type: ignore[assignment]
 
     def resolve(
         self,

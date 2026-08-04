@@ -54,8 +54,8 @@ ChineseAnalyzer):
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.chars import fold_fullwidth, is_math_symbol
 from brailix.core.context import FrontendContext
@@ -65,6 +65,9 @@ from brailix.core.span import Span
 from brailix.frontend._language_pick import pick_by_language
 from brailix.ir.document import Block
 from brailix.ir.inline import Segment
+
+if _TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
 
 # ---------------------------------------------------------------------------
 # Protected-region patterns
@@ -197,7 +200,7 @@ def _category(ch: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class DefaultSegmenter:
     """Built-in segmenter with no third-party dependencies."""
 
@@ -467,7 +470,7 @@ BUILTIN_SEGMENTER = "default"
 segmenter_registry.register(BUILTIN_SEGMENTER, DefaultSegmenter)
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class AutoSegmenter:
     """Delegating segmenter: uses the active language's, else the built-in.
 

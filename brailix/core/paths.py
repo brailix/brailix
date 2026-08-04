@@ -32,9 +32,13 @@ defect*, independently, because each wrote the join itself.
 
 from __future__ import annotations
 
-from pathlib import Path, PureWindowsPath
+from pathlib import PureWindowsPath as _PureWindowsPath
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.errors import ConfigurationError
+
+if _TYPE_CHECKING:
+    from pathlib import Path
 
 # Names Windows resolves to a *device* rather than a file, with or without an
 # extension: opening ``NUL.json`` opens the null device and reads empty, and
@@ -101,7 +105,7 @@ def validate_resource_component(name: str, kind: str) -> str:
     process, and refusing them would break the ordinary deployment that links
     a profile in from a config-management directory.
     """
-    if not name or PureWindowsPath(name).name != name:
+    if not name or _PureWindowsPath(name).name != name:
         raise ConfigurationError(
             f"{kind} name must be a single file name, not a path: {name!r}"
         )

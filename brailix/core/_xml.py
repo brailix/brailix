@@ -27,8 +27,8 @@ depending on the other.
 
 from __future__ import annotations
 
-import re
-import xml.etree.ElementTree as ET
+import re as _re
+import xml.etree.ElementTree as _ET
 
 # Code points illegal in XML 1.0 even after entity-escaping: the C0
 # controls except tab / newline / carriage-return, the lone surrogates, and
@@ -41,7 +41,7 @@ import xml.etree.ElementTree as ET
 # document would otherwise make the downstream ``ET.fromstring`` re-parse
 # raise — breaking the "normalizer never raises" contract, which is exactly
 # what a stray U+FFFE did. See :func:`strip_xml_invalid_chars`.
-_XML_INVALID_CHARS = re.compile(
+_XML_INVALID_CHARS = _re.compile(
     "[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]"
 )
 
@@ -62,8 +62,8 @@ _XML_INVALID_CHARS = re.compile(
 # surfaced this). Both are kept deliberately: the overlap breaks exactly when
 # the keyword has no NUL-adjacent neighbour (stream boundary), and two anchored
 # spellings are cheaper than proving that edge unreachable forever.
-_ENTITY_DECL_RE = re.compile(r"<!ENTITY")
-_ENTITY_DECL_RE_BYTES = re.compile(rb"<!ENTITY")
+_ENTITY_DECL_RE = _re.compile(r"<!ENTITY")
+_ENTITY_DECL_RE_BYTES = _re.compile(rb"<!ENTITY")
 # ...but the raw-byte scan only sees ``<!ENTITY`` when the source is a single-
 # byte encoding (UTF-8 / ISO-8859-1 / US-ASCII — the ASCII bytes appear
 # verbatim). UTF-16 encodes each ASCII character of the keyword as a two-byte
@@ -75,8 +75,8 @@ _ENTITY_DECL_RE_BYTES = re.compile(rb"<!ENTITY")
 # one). Match the two interleaved forms directly. UTF-32 needs no pattern: expat
 # cannot decode it at all, so such a document fails as not-well-formed before any
 # entity can expand.
-_ENTITY_DECL_RE_UTF16LE = re.compile(rb"<\x00!\x00E\x00N\x00T\x00I\x00T\x00Y\x00")
-_ENTITY_DECL_RE_UTF16BE = re.compile(rb"\x00<\x00!\x00E\x00N\x00T\x00I\x00T\x00Y")
+_ENTITY_DECL_RE_UTF16LE = _re.compile(rb"<\x00!\x00E\x00N\x00T\x00I\x00T\x00Y\x00")
+_ENTITY_DECL_RE_UTF16BE = _re.compile(rb"\x00<\x00!\x00E\x00N\x00T\x00I\x00T\x00Y")
 
 
 def _declares_entity_bytes(data: bytes | bytearray) -> bool:
@@ -92,7 +92,7 @@ def _declares_entity_bytes(data: bytes | bytearray) -> bool:
     )
 
 
-def safe_fromstring(text: str | bytes) -> ET.Element:
+def safe_fromstring(text: str | bytes) -> _ET.Element:
     """Parse untrusted XML, refusing entity-declaration expansion bombs.
 
     A drop-in for :func:`xml.etree.ElementTree.fromstring` at every
@@ -118,11 +118,11 @@ def safe_fromstring(text: str | bytes) -> ET.Element:
     else:
         has_entity_decl = _ENTITY_DECL_RE.search(text) is not None
     if has_entity_decl:
-        raise ET.ParseError(
+        raise _ET.ParseError(
             "XML entity declarations are not allowed "
             "(possible billion-laughs expansion bomb)"
         )
-    return ET.fromstring(text)
+    return _ET.fromstring(text)
 
 
 class XmlDecodeError(ValueError):
@@ -179,7 +179,7 @@ _XML_DECL_SIGNATURES: tuple[tuple[bytes, str], ...] = (
 # ASCII-compatible stream. Searched only within the declaration itself: a scan
 # that ran past ``?>`` would happily read an ``encoding=`` attribute out of the
 # document body and decode the whole file by it.
-_XML_DECL_ENCODING = re.compile(
+_XML_DECL_ENCODING = _re.compile(
     rb"""\bencoding\s*=\s*["']([A-Za-z][A-Za-z0-9._-]*)["']"""
 )
 _XML_DECL_SCAN_BYTES = 1024
@@ -423,7 +423,7 @@ def strip_xml_invalid_chars(text: str) -> str:
 # below read as redundant to a type checker; they are the runtime truth.
 
 
-def strip_namespace(elem: ET.Element) -> None:
+def strip_namespace(elem: _ET.Element) -> None:
     """Drop any ``{namespace}local`` Clark-notation prefix from every
     element tag, leaving the bare local name.
 
@@ -441,7 +441,7 @@ def strip_namespace(elem: ET.Element) -> None:
     Comment and processing-instruction nodes are walked past untouched —
     see the note above on why a tag is not always a string.
     """
-    stack: list[ET.Element] = [elem]
+    stack: list[_ET.Element] = [elem]
     while stack:
         node = stack.pop()
         tag = node.tag
@@ -452,7 +452,7 @@ def strip_namespace(elem: ET.Element) -> None:
         stack.extend(node)
 
 
-def strip_whitespace_text(elem: ET.Element) -> None:
+def strip_whitespace_text(elem: _ET.Element) -> None:
     """Null out pure-whitespace ``text`` / ``tail`` strings, which
     otherwise confuse children iteration in the IR builders.
 
@@ -464,7 +464,7 @@ def strip_whitespace_text(elem: ET.Element) -> None:
     beside one is ordinary inter-element whitespace and is nulled like any
     other.
     """
-    stack: list[ET.Element] = [elem]
+    stack: list[_ET.Element] = [elem]
     while stack:
         node = stack.pop()
         if (
@@ -479,7 +479,7 @@ def strip_whitespace_text(elem: ET.Element) -> None:
             stack.append(child)
 
 
-def tree_depth_exceeds(elem: ET.Element, limit: int) -> bool:
+def tree_depth_exceeds(elem: _ET.Element, limit: int) -> bool:
     """Whether ``elem``'s element-nesting depth exceeds ``limit`` levels
     (``elem`` itself is depth 1).
 
@@ -490,7 +490,7 @@ def tree_depth_exceeds(elem: ET.Element, limit: int) -> bool:
     normalizer's passes): a tree past the cap degrades to a soft failure
     instead of overflowing the stack and crashing the pipeline.
     """
-    stack: list[tuple[ET.Element, int]] = [(elem, 1)]
+    stack: list[tuple[_ET.Element, int]] = [(elem, 1)]
     while stack:
         node, depth = stack.pop()
         if depth > limit:

@@ -37,8 +37,8 @@ attributes set by adapters survive.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
-from typing import TYPE_CHECKING
+import xml.etree.ElementTree as _ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core._xml import (
     safe_fromstring,
@@ -47,13 +47,13 @@ from brailix.core._xml import (
 )
 from brailix.frontend.music.adapters.musicxml import music_error_wrap
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from brailix.core.context import MusicContext
 
 
 def normalize(
     musicxml: str, ctx: MusicContext | None = None
-) -> ET.Element:
+) -> _ET.Element:
     """Parse a MusicXML string and return a normalised
     :class:`Element` tree with namespaces stripped.
 
@@ -65,8 +65,8 @@ def normalize(
     """
     try:
         root = safe_fromstring(musicxml)
-    except ET.ParseError as e:
-        root = ET.fromstring(
+    except _ET.ParseError as e:
+        root = _ET.fromstring(
             music_error_wrap(musicxml, reason=f"parse error: {e}")
         )
     strip_namespace(root)
@@ -77,7 +77,7 @@ def normalize(
     return root
 
 
-def _normalize_voice_numbers(root: ET.Element) -> None:
+def _normalize_voice_numbers(root: _ET.Element) -> None:
     """Remap each ``<part>``'s ``<voice>`` numbers to a dense ``1..N``
     sequence, per the vendor-dialect table.
 
@@ -118,7 +118,7 @@ def _normalize_voice_numbers(root: ET.Element) -> None:
                 v.text = remap[key]
 
 
-def _note_part_text(note: ET.Element, tag: str) -> str | None:
+def _note_part_text(note: _ET.Element, tag: str) -> str | None:
     """Stripped text of ``note``'s direct ``<tag>`` child, or ``None`` when
     the child is absent or empty."""
     el = note.find(tag)
@@ -128,7 +128,7 @@ def _note_part_text(note: ET.Element, tag: str) -> str | None:
     return text or None
 
 
-def _inherit_chord_member_staff_voice(root: ET.Element) -> None:
+def _inherit_chord_member_staff_voice(root: _ET.Element) -> None:
     """Backfill a chord member's missing ``<staff>`` / ``<voice>`` from its
     chord root, per the vendor-dialect table.
 
@@ -156,9 +156,9 @@ def _inherit_chord_member_staff_voice(root: ET.Element) -> None:
                     root_voice = _note_part_text(note, "voice")
                     continue
                 if root_staff is not None and note.find("staff") is None:
-                    ET.SubElement(note, "staff").text = root_staff
+                    _ET.SubElement(note, "staff").text = root_staff
                 if root_voice is not None and note.find("voice") is None:
-                    ET.SubElement(note, "voice").text = root_voice
+                    _ET.SubElement(note, "voice").text = root_voice
 
 
 # MusicXML ``<type>`` → its quarter-note ratio as (numerator, denominator):
@@ -196,7 +196,7 @@ def _duration_to_type(duration: int, divisions: int) -> str | None:
 
 
 def _infer_missing_note_types(
-    root: ET.Element, ctx: MusicContext | None = None
+    root: _ET.Element, ctx: MusicContext | None = None
 ) -> None:
     """Fill a ``<note>``'s missing ``<type>`` from its ``<duration>``
     and the prevailing ``<divisions>``.
@@ -255,4 +255,4 @@ def _infer_missing_note_types(
                             source="frontend.music",
                         )
                     continue
-                ET.SubElement(note, "type").text = type_name
+                _ET.SubElement(note, "type").text = type_name

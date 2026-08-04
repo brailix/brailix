@@ -17,7 +17,7 @@ calls into this subsystem through", not "published API".
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import MathContext
 from brailix.core.errors import (
@@ -27,6 +27,9 @@ from brailix.core.errors import (
 )
 from brailix.frontend.math.normalizer import normalize
 from brailix.frontend.math.utils import merror_wrap
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 
 def parse_math_tree(

@@ -13,14 +13,14 @@ should select ``hanlp`` or another real tokenizer.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
 
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
 from brailix.frontend.zh.tokens import ChineseToken
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class CharChineseAnalyzer:
     name: str = "char"
 

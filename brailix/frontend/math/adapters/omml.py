@@ -22,11 +22,10 @@ downstream normalizer sees the ``<merror>`` wrapper.
 
 from __future__ import annotations
 
-import contextvars
-import xml.etree.ElementTree as ET
-from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any
+import contextvars as _contextvars
+import xml.etree.ElementTree as _ET
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core._xml import local_name, safe_fromstring
 from brailix.core.context import MathContext
@@ -38,6 +37,10 @@ from brailix.frontend.math.utils import (
     mtext,
 )
 
+if _TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
+
 # OMML elements live under this namespace. We accept both the Clark-
 # notation form (``{ns}tag``) that ElementTree emits and the bare local
 # name so callers can hand us either.
@@ -45,7 +48,7 @@ _OMML_NS: str = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 _OMML_PREFIX: str = "{" + _OMML_NS + "}"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class OmmlMathSourceAdapter:
     """Convert an OMML XML fragment into MathML.
 
@@ -67,7 +70,7 @@ class OmmlMathSourceAdapter:
             return merror_wrap("", reason="empty input")
         try:
             root = safe_fromstring(text)
-        except ET.ParseError as e:
+        except _ET.ParseError as e:
             return merror_wrap(text, reason=f"omml parse error: {e}")
         try:
             mathml_root = _convert_root(root)
@@ -77,7 +80,7 @@ class OmmlMathSourceAdapter:
         # ``ns0:`` prefixes if we hand it our own namespace; instead we
         # write ``xmlns`` manually on the root and keep children prefix-
         # free so the downstream normaliser sees clean local tags.
-        return ET.tostring(mathml_root, encoding="unicode")
+        return _ET.tostring(mathml_root, encoding="unicode")
 
 
 def _load() -> OmmlMathSourceAdapter:
@@ -96,20 +99,20 @@ def _local(tag: str) -> str:
     return local_name(tag)
 
 
-def _children_with(elem: ET.Element, name: str) -> list[ET.Element]:
+def _children_with(elem: _ET.Element, name: str) -> list[_ET.Element]:
     return [c for c in elem if _local(c.tag) == name]
 
 
-def _first_child(elem: ET.Element, name: str) -> ET.Element | None:
+def _first_child(elem: _ET.Element, name: str) -> _ET.Element | None:
     for c in elem:
         if _local(c.tag) == name:
             return c
     return None
 
 
-def _convert_root(root: ET.Element) -> ET.Element:
+def _convert_root(root: _ET.Element) -> _ET.Element:
     """Wrap converted children in a ``<math>`` element."""
-    math = ET.Element("math", {"xmlns": _MATHML_NS})
+    math = _ET.Element("math", {"xmlns": _MATHML_NS})
     # Common Word patterns: top-level can be ``<m:oMath>`` or
     # ``<m:oMathPara>``. ``oMathPara`` holds one or more ``oMath``
     # entries with paragraph-level formatting; we flatten that here.
@@ -127,7 +130,7 @@ def _convert_root(root: ET.Element) -> ET.Element:
     return math
 
 
-def _append_converted(parent: ET.Element, node: ET.Element) -> None:
+def _append_converted(parent: _ET.Element, node: _ET.Element) -> None:
     """Convert ``node`` and append result(s) to ``parent``.
 
     Some OMML constructs (``m:r`` runs holding multiple tokens) expand
@@ -149,12 +152,12 @@ _MAX_CONVERT_DEPTH = 64
 
 # Per-context (hence per-thread-safe) nesting counter, set/reset around every
 # dispatch so it never leaks between formulas or across concurrent conversions.
-_convert_depth: contextvars.ContextVar[int] = contextvars.ContextVar(
+_convert_depth: _contextvars.ContextVar[int] = _contextvars.ContextVar(
     "_omml_convert_depth", default=0
 )
 
 
-def _convert(node: ET.Element) -> list[ET.Element]:
+def _convert(node: _ET.Element) -> list[_ET.Element]:
     """Translate a single OMML node into MathML elements."""
     depth = _convert_depth.get()
     if depth > _MAX_CONVERT_DEPTH:
@@ -182,15 +185,15 @@ def _convert(node: ET.Element) -> list[ET.Element]:
 # ---------------------------------------------------------------------------
 
 
-def _wrap_children(node: ET.Element) -> list[ET.Element]:
+def _wrap_children(node: _ET.Element) -> list[_ET.Element]:
     """Convert all children sequentially, no wrapper added."""
-    out: list[ET.Element] = []
+    out: list[_ET.Element] = []
     for child in node:
         out.extend(_convert(child))
     return out
 
 
-def _mrow_of(node: ET.Element) -> ET.Element:
+def _mrow_of(node: _ET.Element) -> _ET.Element:
     """Convert ``node``'s children and return them inside an ``<mrow>``.
 
     Used for sub-expressions like fraction numerators where MathML
@@ -199,11 +202,11 @@ def _mrow_of(node: ET.Element) -> ET.Element:
     return mrow_wrap(_wrap_children(node))
 
 
-def _convert_run(node: ET.Element) -> list[ET.Element]:
+def _convert_run(node: _ET.Element) -> list[_ET.Element]:
     """OMML ``<m:r>`` — a text run. Contains ``<m:t>`` plus formatting
     properties we ignore here (the braille backend is style-agnostic).
     """
-    out: list[ET.Element] = []
+    out: list[_ET.Element] = []
     for t in _children_with(node, "t"):
         text = (t.text or "").strip()
         if not text:
@@ -212,7 +215,7 @@ def _convert_run(node: ET.Element) -> list[ET.Element]:
     return out
 
 
-def _convert_fraction(node: ET.Element) -> list[ET.Element]:
+def _convert_fraction(node: _ET.Element) -> list[_ET.Element]:
     """OMML ``<m:f>`` → MathML ``<mfrac>``.
 
     The OMML ``<m:fPr>/<m:type>`` attribute distinguishes ``bar`` /
@@ -224,7 +227,7 @@ def _convert_fraction(node: ET.Element) -> list[ET.Element]:
     den = _first_child(node, "den")
     if num is None or den is None:
         return [mtext("(invalid fraction)")]
-    mfrac = ET.Element("mfrac")
+    mfrac = _ET.Element("mfrac")
     mfrac.append(_mrow_of(num))
     mfrac.append(_mrow_of(den))
     f_type = _math_property(node, "fPr", "type")
@@ -233,42 +236,42 @@ def _convert_fraction(node: ET.Element) -> list[ET.Element]:
     return [mfrac]
 
 
-def _convert_ssub(node: ET.Element) -> list[ET.Element]:
+def _convert_ssub(node: _ET.Element) -> list[_ET.Element]:
     base = _first_child(node, "e")
     sub = _first_child(node, "sub")
     if base is None or sub is None:
         return [mtext("(invalid sub)")]
-    elem = ET.Element("msub")
+    elem = _ET.Element("msub")
     elem.append(_mrow_of(base))
     elem.append(_mrow_of(sub))
     return [elem]
 
 
-def _convert_ssup(node: ET.Element) -> list[ET.Element]:
+def _convert_ssup(node: _ET.Element) -> list[_ET.Element]:
     base = _first_child(node, "e")
     sup = _first_child(node, "sup")
     if base is None or sup is None:
         return [mtext("(invalid sup)")]
-    elem = ET.Element("msup")
+    elem = _ET.Element("msup")
     elem.append(_mrow_of(base))
     elem.append(_mrow_of(sup))
     return [elem]
 
 
-def _convert_ssubsup(node: ET.Element) -> list[ET.Element]:
+def _convert_ssubsup(node: _ET.Element) -> list[_ET.Element]:
     base = _first_child(node, "e")
     sub = _first_child(node, "sub")
     sup = _first_child(node, "sup")
     if base is None or sub is None or sup is None:
         return [mtext("(invalid subsup)")]
-    elem = ET.Element("msubsup")
+    elem = _ET.Element("msubsup")
     elem.append(_mrow_of(base))
     elem.append(_mrow_of(sub))
     elem.append(_mrow_of(sup))
     return [elem]
 
 
-def _convert_spre(node: ET.Element) -> list[ET.Element]:
+def _convert_spre(node: _ET.Element) -> list[_ET.Element]:
     """OMML ``<m:sPre>`` — pre-subscript/superscript (Word's left-side
     sub/sup). MathML lacks a single mapping; closest is ``<mmultiscripts>``."""
     base = _first_child(node, "e")
@@ -276,21 +279,21 @@ def _convert_spre(node: ET.Element) -> list[ET.Element]:
     sup = _first_child(node, "sup")
     if base is None or sub is None or sup is None:
         return [mtext("(invalid sPre)")]
-    elem = ET.Element("mmultiscripts")
+    elem = _ET.Element("mmultiscripts")
     elem.append(_mrow_of(base))
     # Trailing (post) scripts: none.
-    none1 = ET.Element("none")
-    none2 = ET.Element("none")
+    none1 = _ET.Element("none")
+    none2 = _ET.Element("none")
     elem.append(none1)
     elem.append(none2)
     # Pre-scripts marker.
-    elem.append(ET.Element("mprescripts"))
+    elem.append(_ET.Element("mprescripts"))
     elem.append(_mrow_of(sub))
     elem.append(_mrow_of(sup))
     return [elem]
 
 
-def _convert_radical(node: ET.Element) -> list[ET.Element]:
+def _convert_radical(node: _ET.Element) -> list[_ET.Element]:
     """OMML ``<m:rad>`` → ``<msqrt>`` (no degree) or ``<mroot>`` (with).
 
     Word's ``hideDeg=on`` attribute means "degree present but hidden";
@@ -302,16 +305,16 @@ def _convert_radical(node: ET.Element) -> list[ET.Element]:
         return [mtext("(invalid radical)")]
     hide_deg = _math_property(node, "radPr", "degHide") == "on"
     if deg is None or hide_deg or not list(deg):
-        msqrt = ET.Element("msqrt")
+        msqrt = _ET.Element("msqrt")
         msqrt.append(_mrow_of(radicand))
         return [msqrt]
-    mroot = ET.Element("mroot")
+    mroot = _ET.Element("mroot")
     mroot.append(_mrow_of(radicand))
     mroot.append(_mrow_of(deg))
     return [mroot]
 
 
-def _convert_nary(node: ET.Element) -> list[ET.Element]:
+def _convert_nary(node: _ET.Element) -> list[_ET.Element]:
     """OMML ``<m:nary>`` — n-ary operator (sum, product, integral, ...).
 
     Becomes ``<msubsup><mo>op</mo>sub sup</msubsup>`` only when the
@@ -331,7 +334,7 @@ def _convert_nary(node: ET.Element) -> list[ET.Element]:
     sub = _first_child(node, "sub")
     sup = _first_child(node, "sup")
 
-    op = ET.Element("mo")
+    op = _ET.Element("mo")
     op.text = op_char
 
     # Decide which sub/sup script container to use.
@@ -353,23 +356,23 @@ def _convert_nary(node: ET.Element) -> list[ET.Element]:
         use_underover = lim_loc != "subSup"
         container_tag = "munderover" if use_underover else "msubsup"
         if sub_elem is not None and sup_elem is not None:
-            scripted = ET.Element(container_tag)
+            scripted = _ET.Element(container_tag)
             scripted.append(op)
             scripted.append(sub_elem)
             scripted.append(sup_elem)
         elif sub_elem is not None:
             tag = "munder" if use_underover else "msub"
-            scripted = ET.Element(tag)
+            scripted = _ET.Element(tag)
             scripted.append(op)
             scripted.append(sub_elem)
         else:
             assert sup_elem is not None
             tag = "mover" if use_underover else "msup"
-            scripted = ET.Element(tag)
+            scripted = _ET.Element(tag)
             scripted.append(op)
             scripted.append(sup_elem)
 
-    mrow = ET.Element("mrow")
+    mrow = _ET.Element("mrow")
     mrow.append(scripted)
     if base is not None:
         # The integrand / summand follows the operator.
@@ -378,19 +381,19 @@ def _convert_nary(node: ET.Element) -> list[ET.Element]:
     return [mrow]
 
 
-def _convert_func(node: ET.Element) -> list[ET.Element]:
+def _convert_func(node: _ET.Element) -> list[_ET.Element]:
     """OMML ``<m:func>`` → ``<mrow><name><argument></mrow>``."""
     fname = _first_child(node, "fName")
     arg = _first_child(node, "e")
     if fname is None or arg is None:
         return [mtext("(invalid func)")]
-    mrow = ET.Element("mrow")
+    mrow = _ET.Element("mrow")
     for c in _wrap_children(fname):
         mrow.append(c)
     # Apply-function operator U+2061 keeps the name semantically distinct
     # from the argument; the normalizer drops it (invisible operator)
     # before the backend sees the tree.
-    apply_op = ET.Element("mo")
+    apply_op = _ET.Element("mo")
     apply_op.text = "⁡"
     mrow.append(apply_op)
     for c in _wrap_children(arg):
@@ -398,7 +401,7 @@ def _convert_func(node: ET.Element) -> list[ET.Element]:
     return [mrow]
 
 
-def _convert_delim(node: ET.Element) -> list[ET.Element]:
+def _convert_delim(node: _ET.Element) -> list[_ET.Element]:
     """OMML ``<m:d>`` — delimited expression (parens, brackets, braces)."""
     pr = _first_child(node, "dPr")
     beg = _math_property_of(pr, "begChr") if pr is not None else None
@@ -408,36 +411,36 @@ def _convert_delim(node: ET.Element) -> list[ET.Element]:
     end = end if end is not None else ")"
     sep = sep if sep is not None else "|"
 
-    mrow = ET.Element("mrow")
+    mrow = _ET.Element("mrow")
     if beg:
-        op = ET.Element("mo")
+        op = _ET.Element("mo")
         op.text = beg
         op.set("fence", "true")
         mrow.append(op)
     entries = _children_with(node, "e")
     for i, e in enumerate(entries):
         if i > 0 and sep:
-            op = ET.Element("mo")
+            op = _ET.Element("mo")
             op.text = sep
             op.set("separator", "true")
             mrow.append(op)
         for c in _wrap_children(e):
             mrow.append(c)
     if end:
-        op = ET.Element("mo")
+        op = _ET.Element("mo")
         op.text = end
         op.set("fence", "true")
         mrow.append(op)
     return [mrow]
 
 
-def _convert_matrix(node: ET.Element) -> list[ET.Element]:
+def _convert_matrix(node: _ET.Element) -> list[_ET.Element]:
     """OMML ``<m:m>`` → ``<mtable>`` of ``<mtr>``/``<mtd>``."""
-    mtable = ET.Element("mtable")
+    mtable = _ET.Element("mtable")
     for mr in _children_with(node, "mr"):
-        mtr = ET.Element("mtr")
+        mtr = _ET.Element("mtr")
         for cell in _children_with(mr, "e"):
-            mtd = ET.Element("mtd")
+            mtd = _ET.Element("mtd")
             for c in _wrap_children(cell):
                 mtd.append(c)
             mtr.append(mtd)
@@ -445,12 +448,12 @@ def _convert_matrix(node: ET.Element) -> list[ET.Element]:
     return [mtable]
 
 
-def _convert_eqarr(node: ET.Element) -> list[ET.Element]:
+def _convert_eqarr(node: _ET.Element) -> list[_ET.Element]:
     """OMML ``<m:eqArr>`` — equation array (one column, many rows)."""
-    mtable = ET.Element("mtable")
+    mtable = _ET.Element("mtable")
     for row in _children_with(node, "e"):
-        mtr = ET.Element("mtr")
-        mtd = ET.Element("mtd")
+        mtr = _ET.Element("mtr")
+        mtd = _ET.Element("mtd")
         for c in _wrap_children(row):
             mtd.append(c)
         mtr.append(mtd)
@@ -458,26 +461,26 @@ def _convert_eqarr(node: ET.Element) -> list[ET.Element]:
     return [mtable]
 
 
-def _convert_lim_low(node: ET.Element) -> list[ET.Element]:
+def _convert_lim_low(node: _ET.Element) -> list[_ET.Element]:
     return _convert_limit(node, "munder")
 
 
-def _convert_lim_upp(node: ET.Element) -> list[ET.Element]:
+def _convert_lim_upp(node: _ET.Element) -> list[_ET.Element]:
     return _convert_limit(node, "mover")
 
 
-def _convert_limit(node: ET.Element, mathml_tag: str) -> list[ET.Element]:
+def _convert_limit(node: _ET.Element, mathml_tag: str) -> list[_ET.Element]:
     base = _first_child(node, "e")
     lim = _first_child(node, "lim")
     if base is None or lim is None:
         return [mtext("(invalid limit)")]
-    elem = ET.Element(mathml_tag)
+    elem = _ET.Element(mathml_tag)
     elem.append(_mrow_of(base))
     elem.append(_mrow_of(lim))
     return [elem]
 
 
-def _convert_group_chr(node: ET.Element) -> list[ET.Element]:
+def _convert_group_chr(node: _ET.Element) -> list[_ET.Element]:
     """OMML ``<m:groupChr>`` — grouping character (brace etc.) under/over."""
     pr = _first_child(node, "groupChrPr")
     chr_val = _math_property_of(pr, "chr") if pr is not None else None
@@ -487,29 +490,29 @@ def _convert_group_chr(node: ET.Element) -> list[ET.Element]:
     base = _first_child(node, "e")
     if base is None:
         return [mtext("(invalid groupChr)")]
-    container = ET.Element("mover" if pos == "top" else "munder")
+    container = _ET.Element("mover" if pos == "top" else "munder")
     container.append(_mrow_of(base))
-    op = ET.Element("mo")
+    op = _ET.Element("mo")
     op.text = chr_val
     container.append(op)
     return [container]
 
 
-def _convert_bar(node: ET.Element) -> list[ET.Element]:
+def _convert_bar(node: _ET.Element) -> list[_ET.Element]:
     pr = _first_child(node, "barPr")
     pos = _math_property_of(pr, "pos") if pr is not None else None
     base = _first_child(node, "e")
     if base is None:
         return [mtext("(invalid bar)")]
-    container = ET.Element("munder" if pos == "bot" else "mover")
+    container = _ET.Element("munder" if pos == "bot" else "mover")
     container.append(_mrow_of(base))
-    op = ET.Element("mo")
+    op = _ET.Element("mo")
     op.text = "¯"  # macron / overbar
     container.append(op)
     return [container]
 
 
-def _convert_acc(node: ET.Element) -> list[ET.Element]:
+def _convert_acc(node: _ET.Element) -> list[_ET.Element]:
     pr = _first_child(node, "accPr")
     chr_val = _math_property_of(pr, "chr") if pr is not None else None
     if not chr_val:  # absent OR explicit empty → default (as _convert_nary);
@@ -517,15 +520,15 @@ def _convert_acc(node: ET.Element) -> list[ET.Element]:
     base = _first_child(node, "e")
     if base is None:
         return [mtext("(invalid acc)")]
-    container = ET.Element("mover")
+    container = _ET.Element("mover")
     container.append(_mrow_of(base))
-    op = ET.Element("mo")
+    op = _ET.Element("mo")
     op.text = chr_val
     container.append(op)
     return [container]
 
 
-def _convert_box(node: ET.Element) -> list[ET.Element]:
+def _convert_box(node: _ET.Element) -> list[_ET.Element]:
     """OMML ``<m:box>`` / ``<m:borderBox>`` — wrapper boxes. We pass the
     contents through; visual box-drawing isn't representable in braille."""
     base = _first_child(node, "e")
@@ -534,19 +537,19 @@ def _convert_box(node: ET.Element) -> list[ET.Element]:
     return _wrap_children(base)
 
 
-def _convert_phant(node: ET.Element) -> list[ET.Element]:
+def _convert_phant(node: _ET.Element) -> list[_ET.Element]:
     """OMML ``<m:phant>`` — invisible. The braille backend renders
     ``<mphantom>`` as nothing, which is what Word means by ``phant``."""
     base = _first_child(node, "e")
     if base is None:
         return []
-    mphantom = ET.Element("mphantom")
+    mphantom = _ET.Element("mphantom")
     for c in _wrap_children(base):
         mphantom.append(c)
     return [mphantom]
 
 
-def _passthrough_child(node: ET.Element) -> list[ET.Element]:
+def _passthrough_child(node: _ET.Element) -> list[_ET.Element]:
     """For wrapper elements (``m:e``, ``m:num``, ...) used as direct
     converter targets, just convert their children."""
     return _wrap_children(node)
@@ -557,7 +560,7 @@ def _passthrough_child(node: ET.Element) -> list[ET.Element]:
 # ---------------------------------------------------------------------------
 
 
-def _math_property(node: ET.Element, pr_name: str, child_name: str) -> str | None:
+def _math_property(node: _ET.Element, pr_name: str, child_name: str) -> str | None:
     """Read ``node/<m:{pr_name}>/<m:{child_name}>``'s ``m:val`` attribute.
 
     OMML stores most settings as ``<m:type m:val="..."/>``-style child
@@ -570,7 +573,7 @@ def _math_property(node: ET.Element, pr_name: str, child_name: str) -> str | Non
     return _math_property_of(pr, child_name)
 
 
-def _math_property_of(pr: ET.Element, child_name: str) -> str | None:
+def _math_property_of(pr: _ET.Element, child_name: str) -> str | None:
     child = _first_child(pr, child_name)
     if child is None:
         return None

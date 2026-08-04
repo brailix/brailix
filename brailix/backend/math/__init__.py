@@ -44,7 +44,7 @@ a plain name reads as an offer.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 # Import handlers so the dispatch table is populated before the first
 # translate() call. Handlers is intentionally imported for its side
@@ -64,6 +64,9 @@ from brailix.core.context import BackendContext
 from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
 from brailix.ir.inline import MathInline
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 # A MathML tree deeper than this overflows the recursive descent through
 # _emit_element / handlers / _coalesce_identifier_runs (empirically ~470

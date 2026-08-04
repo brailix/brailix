@@ -43,11 +43,11 @@ maps each to its own skip warning.
 
 from __future__ import annotations
 
-import base64
-import io
-import urllib.parse
-from dataclasses import dataclass
-from pathlib import Path
+import base64 as _base64
+import io as _io
+import urllib.parse as _urllib_parse
+from dataclasses import dataclass as _dataclass
+from pathlib import Path as _Path
 
 # Modes the rasterizer accepts on a ``data-bk-mode`` attribute; an
 # unrecognized value falls back to ``threshold``.
@@ -72,7 +72,7 @@ class SvgRasterizerMissing(Exception):
     ``graphics``), so it gets its own warning."""
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class ImageSampler:
     """A decoded, mode-applied raise-level buffer sampled by normalized
     ``(u, v)`` image coordinates in ``[0, 1)``.
@@ -117,12 +117,12 @@ def _resolve_href(href: str) -> bytes:
         try:
             if ";base64" in head.lower():
                 # b64decode raises binascii.Error, a ValueError subclass.
-                return base64.b64decode(payload)
-            return urllib.parse.unquote_to_bytes(payload)
+                return _base64.b64decode(payload)
+            return _urllib_parse.unquote_to_bytes(payload)
         except ValueError as exc:
             raise TactileImageError(f"bad data URI: {exc}") from exc
     try:
-        return Path(href).read_bytes()
+        return _Path(href).read_bytes()
     except OSError as exc:
         raise TactileImageError(f"cannot read {href!r}: {exc}") from exc
 
@@ -233,7 +233,7 @@ def load_tactile_image(
         raw = _render_svg(raw, target_w)
     resample = getattr(Image, "Resampling", Image).LANCZOS
     try:
-        with Image.open(io.BytesIO(raw)) as im:
+        with Image.open(_io.BytesIO(raw)) as im:
             gray = _flatten_to_gray(im)
     except TactileImageError:
         raise

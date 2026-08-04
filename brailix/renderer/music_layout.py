@@ -34,16 +34,17 @@ use by BANA" and are intentionally not offered.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Protocol as _Protocol
 
 from brailix.ir.braille import BLANK_CELL, BrailleCell
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from brailix.renderer.layout import LayoutOptions
 
 
-class MusicLayoutScheme(Protocol):
+class MusicLayoutScheme(_Protocol):
     """A BANA layout format: turn a music block's cell stream into
     laid-out display lines (lists of cells)."""
 
@@ -176,7 +177,7 @@ _SINGLE_LINE_FIRST_INDENT = 0
 _SINGLE_LINE_RUNOVER_INDENT = 2
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class SingleLineScheme:
     """BANA §24.1 single-line format for a single melodic part."""
 
@@ -214,7 +215,7 @@ def _split_on_role(
     return segments
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class BarOverBarScheme:
     """BANA §28.1 bar-over-bar: stack parts into measure-aligned parallels.
 

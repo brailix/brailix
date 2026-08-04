@@ -23,8 +23,8 @@ Provides:
 
 from __future__ import annotations
 
-import re
-from typing import Any
+import re as _re
+from typing import Any as _Any
 
 from brailix.core import inline_math
 from brailix.core._xml import local_name
@@ -36,7 +36,7 @@ from brailix.core._xml import local_name
 # python-docx availability check in :func:`parse_docx`; this module
 # may be imported without python-docx as long as no one calls
 # :func:`parse_docx`. ``Element`` is therefore aliased to ``Any``.
-Element = Any
+Element = _Any
 
 # ---------------------------------------------------------------------------
 # Namespace constants
@@ -167,4 +167,4 @@ def _flatten_xml(xml: str) -> str:
     ``itertext()`` fallback for unknown constructs, and braille ignores
     such whitespace, so the MathML parse is unaffected in practice.
     """
-    return re.sub(r"\s+", " ", xml).strip()
+    return _re.sub(r"\s+", " ", xml).strip()

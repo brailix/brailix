@@ -10,8 +10,9 @@ lazily prefers ``g2pm`` → ``g2pw`` → ``pypinyin`` → ``null``).
 
 from __future__ import annotations
 
-from dataclasses import replace
-from typing import Protocol, runtime_checkable
+from dataclasses import replace as _replace
+from typing import Protocol as _Protocol
+from typing import runtime_checkable as _runtime_checkable
 
 from brailix.core.context import FrontendContext
 from brailix.frontend.zh.tokens import ChineseToken
@@ -24,8 +25,8 @@ from brailix.frontend.zh.tokens import ChineseToken
 _AUTO = "auto"
 
 
-@runtime_checkable
-class PinyinResolver(Protocol):
+@_runtime_checkable
+class PinyinResolver(_Protocol):
     """Annotate Chinese tokens with pinyin (numeric-tone form).
 
     The resolver fills the ``pinyin`` field on tokens; it must not
@@ -156,7 +157,7 @@ def _apply_user_dict(
             # certain — clear the resolver's stale confidence so a low value
             # doesn't serialize onto a now-definite reading (matches the
             # withdrawn LOW_CONFIDENCE_PINYIN warning's semantics).
-            tokens[i] = replace(tok, pinyin=reading, confidence=None)
+            tokens[i] = _replace(tok, pinyin=reading, confidence=None)
 
 
 # This subsystem publishes its own contract and its own two entry points.

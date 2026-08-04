@@ -25,7 +25,7 @@ a bounded read at a known offset and is what the ZIP format put it there for.
 
 from __future__ import annotations
 
-import struct
+import struct as _struct
 
 # End Of Central Directory record: a fixed 22-byte header ending in a variable
 # comment, so it is found by scanning back from the end of the file for its
@@ -70,8 +70,8 @@ def zip_entry_count(data: bytes) -> int | None:
         return None
     try:
         # <sig:4> disk:2 cd_disk:2 entries_this_disk:2 entries_total:2 ...
-        entries = struct.unpack_from("<H", data, start + 10)[0]
-    except struct.error:  # pragma: no cover — bounds already checked above
+        entries = _struct.unpack_from("<H", data, start + 10)[0]
+    except _struct.error:  # pragma: no cover — bounds already checked above
         return None
     if entries != _UINT16_MAX:
         return entries
@@ -91,16 +91,16 @@ def _zip64_entry_count(data: bytes, eocd_start: int) -> int | None:
         return _UINT16_MAX
     try:
         # <sig:4> disk:4 zip64_eocd_offset:8 disks:4
-        offset = struct.unpack_from("<Q", data, locator + 8)[0]
-    except struct.error:  # pragma: no cover — 20 bytes verified above
+        offset = _struct.unpack_from("<Q", data, locator + 8)[0]
+    except _struct.error:  # pragma: no cover — 20 bytes verified above
         return _UINT16_MAX
     if offset + 40 > len(data) or data[offset:offset + 4] != _ZIP64_EOCD_SIGNATURE:
         return _UINT16_MAX
     try:
         # <sig:4> size:8 made_by:2 needed:2 disk:4 cd_disk:4
         # entries_this_disk:8 entries_total:8 ...
-        return int(struct.unpack_from("<Q", data, offset + 32)[0])
-    except struct.error:  # pragma: no cover — 40 bytes verified above
+        return int(_struct.unpack_from("<Q", data, offset + 32)[0])
+    except _struct.error:  # pragma: no cover — 40 bytes verified above
         return _UINT16_MAX
 
 

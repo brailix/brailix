@@ -7,12 +7,15 @@ attached to the note element rather than appearing as siblings.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend._inline import rebase_translated_cells
 from brailix.backend.music.context import MusicBrailleContext
 from brailix.backend.music.utils import emit_cells_for_entity
 from brailix.ir.braille import BrailleCell
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 
 def _emit_lyrics(

@@ -25,16 +25,19 @@ reads through ``layout.py``.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from functools import lru_cache
-from types import MappingProxyType
+from functools import lru_cache as _lru_cache
+from types import MappingProxyType as _MappingProxyType
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.config import load_builtin_numbers_table
 from brailix.renderer.brf import dots_to_brf
 from brailix.renderer.unicode_braille import dots_to_char
 
+if _TYPE_CHECKING:
+    from collections.abc import Mapping
 
-@lru_cache(maxsize=1)
+
+@_lru_cache(maxsize=1)
 def _page_cells() -> tuple[tuple[int, ...], Mapping[str, tuple[int, ...]]]:
     """``(number_sign_dots, digit_dots_by_char)`` from the builtin
     numbers resource, loaded once.
@@ -48,7 +51,7 @@ def _page_cells() -> tuple[tuple[int, ...], Mapping[str, tuple[int, ...]]]:
     digits: dict[str, tuple[int, ...]] = {
         ch: tuple(dots) for ch, dots in table["digits"].items()
     }
-    return sign, MappingProxyType(digits)
+    return sign, _MappingProxyType(digits)
 
 
 def page_number_chars(page_num: int) -> str:

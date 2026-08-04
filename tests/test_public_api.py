@@ -1391,18 +1391,17 @@ def test_a_facade_namespace_holds_no_foreign_plain_binding(
     ``dataclass`` and ``field`` the same way, right beside the brailix names
     it had carefully aliased.
 
-    **Facades only, and that is a decision rather than an omission.** An
-    extension-surface module (:data:`_EXTENSION_SURFACE`) is an ordinary
-    implementation module that a documented address happens to point *into*:
-    the guide sends an adapter author there to import one protocol or one
-    registry, and the manifest promises those names keep resolving. It does
-    not promise the module's namespace is nothing but them, and holding it to
-    that would mean writing ``class Segmenter(_Protocol)`` throughout the
-    module extenders are pointed at to read. A facade is the opposite: it
-    exists only to be a surface, so everything in it is surface.
+    This is the **runtime** half of the rule, and it runs on facades because
+    they are the namespaces worth checking by import rather than by reading:
+    a facade is assembled from re-exports, so a name can arrive there in ways
+    no import statement shows (an alias assignment, a submodule import as a
+    side effect). Every module in the package — facade or not — is held to the
+    same rule at the source level by
+    :func:`test_no_module_binds_a_foreign_name_under_a_plain_name`.
 
-    The fix, where it applies, is the one the library already uses
-    everywhere: bind it as ``import x as _x``.
+    The fix is the one the library uses everywhere: bind it as
+    ``import x as _x``, or, if the name is only ever written in an annotation,
+    move the import under ``if _TYPE_CHECKING:``.
     """
     leaked = _foreign_bindings(module)
     assert not leaked, (
@@ -1411,6 +1410,174 @@ def test_a_facade_namespace_holds_no_foreign_plain_binding(
         f"the whole of what 'published' means to a caller. Import them as "
         f"``import x as _x`` / ``from y import x as _x``, or record a "
         f"documented exception in _NAMESPACE_ALLOWLIST."
+    )
+
+
+# ---------------------------------------------------------------------------
+# The same rule, for every module in the package
+# ---------------------------------------------------------------------------
+
+# Documented exceptions to the tree-wide rule below, ``module path: {names}``.
+# Empty, and that is the point: an entry here is a name a third party can
+# import from a brailix module and be handed somebody else's object, so it
+# should cost an argument in review rather than a moment's convenience.
+_FOREIGN_BINDING_EXCEPTIONS: dict[str, set[str]] = {}
+
+
+def _plain_foreign_imports(source: str) -> list[str]:
+    """Module-level imports that bind a **non-brailix** name plainly.
+
+    Read from the source rather than from ``vars(module)`` for two reasons.
+    An adapter module whose optional extra is not installed cannot be
+    imported at all, and those are exactly the modules a contributor adds
+    without the extra in their environment. And a constant has no
+    ``__module__`` to trace — ``INVERT_LEVELS`` (a ``bytes``) and
+    ``MUSIC_SUFFIXES`` (a ``frozenset``) are brailix's own, but a runtime
+    check sees ``builtins`` and would report the package's own names as
+    foreign. The import statement says where a name came from; the object
+    often cannot.
+    """
+    tree = ast.parse(source)
+    published: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
+        ):
+            published = {
+                el.value
+                for el in ast.walk(node.value)
+                if isinstance(el, ast.Constant) and isinstance(el.value, str)
+            }
+
+    offenders: list[str] = []
+    for node in tree.body:  # module level only: an ``if TYPE_CHECKING:`` body
+        # binds nothing at runtime, which is the other half of the fix
+        if isinstance(node, ast.ImportFrom):
+            if node.level or not node.module:
+                continue  # relative: a brailix module by construction
+            if node.module.split(".")[0] in ("brailix", "__future__"):
+                continue
+            for alias in node.names:
+                bound = alias.asname or alias.name
+                if not bound.startswith("_") and bound not in published:
+                    offenders.append(f"{bound} (from {node.module})")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] == "brailix":
+                    continue
+                bound = alias.asname or alias.name.split(".")[0]
+                if not bound.startswith("_") and bound not in published:
+                    offenders.append(f"{bound} (import {alias.name})")
+    return offenders
+
+
+class TestTheForeignImportDetector:
+    """The scan runs on real files, so a clean tree and a detector that stopped
+    detecting look the same. These pin each shape it must judge."""
+
+    def test_a_plain_stdlib_import_is_reported(self) -> None:
+        assert _plain_foreign_imports("import os")
+
+    def test_an_aliased_one_is_accepted(self) -> None:
+        assert _plain_foreign_imports("import os as _os") == []
+
+    def test_a_plain_from_import_is_reported(self) -> None:
+        assert _plain_foreign_imports("from pathlib import Path")
+
+    def test_a_dotted_import_reports_the_name_it_actually_binds(self) -> None:
+        # ``import xml.etree.ElementTree`` binds ``xml``, not ``ElementTree``.
+        assert _plain_foreign_imports("import xml.etree.ElementTree") == [
+            "xml (import xml.etree.ElementTree)"
+        ]
+
+    def test_a_brailix_import_is_a_different_rules_business(self) -> None:
+        # Covered by the facade / pipeline checks above, which ask whether the
+        # name is *published* somewhere rather than whether it is ours.
+        assert _plain_foreign_imports("from brailix.core.span import Span") == []
+        assert _plain_foreign_imports("from ._helpers import block_hash") == []
+
+    def test_the_future_import_is_exempt(self) -> None:
+        assert _plain_foreign_imports("from __future__ import annotations") == []
+
+    def test_an_import_under_type_checking_binds_nothing(self) -> None:
+        assert (
+            _plain_foreign_imports("if _TYPE_CHECKING:\n    from typing import Any\n")
+            == []
+        )
+
+    def test_a_function_level_import_is_not_a_module_binding(self) -> None:
+        assert _plain_foreign_imports("def f():\n    import os\n") == []
+
+    def test_a_published_name_is_accepted(self) -> None:
+        assert (
+            _plain_foreign_imports('__all__ = ("Path",)\nfrom pathlib import Path\n')
+            == []
+        )
+
+
+def _package_sources() -> list[tuple[str, Path]]:
+    spec = importlib.util.find_spec("brailix")
+    assert spec is not None and spec.origin is not None
+    root = Path(spec.origin).resolve().parent
+    return [
+        (p.relative_to(root.parent).as_posix(), p) for p in sorted(root.rglob("*.py"))
+    ]
+
+
+@pytest.mark.parametrize(
+    ("rel", "path"), _package_sources(), ids=[r for r, _ in _package_sources()]
+)
+def test_no_module_binds_a_foreign_name_under_a_plain_name(
+    rel: str, path: Path
+) -> None:
+    """No module in the package offers a name that is not the package's.
+
+    The rule used to hold for the seven facades only, on the reasoning that a
+    facade is the address the documentation sends people to while an
+    implementation module is not. True of where people are *sent*; not true of
+    where they *arrive*. "Go to definition" on ``Pipeline`` lands in
+    ``brailix.pipeline``, a traceback names the module that raised, and an
+    editor completes whatever resolves at either. ``from brailix.pipeline
+    import Path`` worked, and nothing about that address said it was not ours
+    to promise.
+
+    So the default is inverted: **every** module is checked, and an exemption
+    has to be written down (:data:`_FOREIGN_BINDING_EXCEPTIONS`). The cost is
+    an underscore on imports the module uses at runtime; annotations pay
+    nothing, because the package is ``from __future__ import annotations``
+    throughout and a type-only import belongs under ``if _TYPE_CHECKING:``
+    where it never becomes a binding at all.
+
+    Two families deliberately stay *bound* (aliased, not moved), because
+    something resolves those annotations at runtime and a name that is not
+    there resolves to nothing:
+
+    * ``ClassVar`` / ``InitVar`` / ``KW_ONLY`` anywhere — :mod:`dataclasses`
+      matches a string annotation by looking the identifier up in the defining
+      module's globals, so moving ``ClassVar`` under ``TYPE_CHECKING`` turns a
+      class variable into a **field** silently, with no error anywhere;
+    * everything in ``brailix/ir/`` — its wire-type checking resolves each
+      dataclass's annotations with :func:`typing.get_type_hints`
+      (:mod:`brailix.ir._serde`), which evaluates them against the module
+      namespace. ``tests/ir/test_wire_types.py`` is the check that would catch
+      a regression here.
+
+    This is the *source* half of the rule; facades additionally get the
+    runtime half above, which sees names an import statement cannot show.
+    """
+    offenders = [
+        name
+        for name in _plain_foreign_imports(path.read_text(encoding="utf-8"))
+        if name.split(" ")[0] not in _FOREIGN_BINDING_EXCEPTIONS.get(rel, set())
+    ]
+    assert not offenders, (
+        f"{rel} binds names from outside brailix under plain names: "
+        f"{offenders}\nThey resolve at that module's address and appear in "
+        f"dir(), which is the whole of what 'published' means to a caller. "
+        f"Import them as ``import x as _x`` / ``from y import x as _x``, or — "
+        f"if the name only ever appears in an annotation — move the import "
+        f"under ``if _TYPE_CHECKING:`` (but NOT for ClassVar / InitVar, nor "
+        f"anywhere in brailix/ir/; see this test's docstring)."
     )
 
 

@@ -36,13 +36,16 @@ spaces, no sentinels) sets ``include_blanks=False``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.ir.braille import BrailleCell, BrailleDocument, BrailleSequence
 
+if _TYPE_CHECKING:
+    from typing import Any
 
-@dataclass(slots=True)
+
+@_dataclass(slots=True)
 class CellsRenderer:
     """Emit each cell as a plain dict, plus block / document metadata.
 

@@ -8,15 +8,16 @@ resolving.
 
 from __future__ import annotations
 
-import hashlib
-from typing import TYPE_CHECKING, Any
+import hashlib as _hashlib
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.span import Span
 from brailix.frontend import language_frontend_registry
 from brailix.ir.document import Block
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     import xml.etree.ElementTree as ET
+    from typing import Any
 
     from brailix.pipeline._results import TreeSubcache
 
@@ -145,7 +146,7 @@ def block_hash(
     ``block_hash(block, profile) + "|" + "|".join(override_ids)``. They no
     longer fold ``structure_key`` themselves; it is already accounted for here.
     """
-    h = hashlib.sha256()
+    h = _hashlib.sha256()
     h.update(_BLOCK_HASH_VERSION.encode("utf-8"))
     h.update(b"|")
     h.update(_block_surface(block).encode("utf-8"))

@@ -7,7 +7,7 @@ stay with their owning handler.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as _ET
 
 from brailix.backend.music.context import MusicBrailleContext
 from brailix.backend.music.utils import unknown_cell
@@ -32,7 +32,7 @@ def warn_and_fallback(
     cells.append(unknown_cell(mctx, role="music_unknown", source_text=source_text))
 
 
-def serialise_short(elem: ET.Element) -> str:
+def serialise_short(elem: _ET.Element) -> str:
     """A short XML serialisation for warning messages."""
-    s = ET.tostring(elem, encoding="unicode")
+    s = _ET.tostring(elem, encoding="unicode")
     return s if len(s) < 120 else s[:117] + "..."

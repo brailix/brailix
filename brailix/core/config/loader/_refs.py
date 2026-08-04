@@ -26,8 +26,7 @@ Grouped by responsibility:
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.config._helpers import (
     _entity_to_char,
@@ -36,6 +35,10 @@ from brailix.core.config._helpers import (
     _to_dots,
 )
 from brailix.core.errors import ConfigurationError
+
+if _TYPE_CHECKING:
+    from pathlib import Path
+    from typing import Any
 
 # ---------------------------------------------------------------------------
 # Table indexing

@@ -13,13 +13,16 @@ for cells without the spacing dict and vice versa.
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.config._helpers import _read_json
 from brailix.core.config.loader._refs import (
     _resolve_table,
     _symbol_spacing_dict,
 )
+
+if _TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _load_punct_spacing(base: Path, relative: str | None) -> dict[str, tuple[bool, bool]]:

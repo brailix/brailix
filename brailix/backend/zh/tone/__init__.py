@@ -34,19 +34,22 @@ in lockstep with the registry module — the lazy import in
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Protocol
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Protocol as _Protocol
 
 from brailix.backend.zh.pinyin_parser import ParsedPinyin
 from brailix.core.config import BrailleProfile
 from brailix.core.errors import ConfigurationError
+
+if _TYPE_CHECKING:
+    from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # Protocol
 # ---------------------------------------------------------------------------
 
 
-class TonePolicy(Protocol):
+class TonePolicy(_Protocol):
     """Decide whether a syllable's tone cell should be emitted.
 
     Implementations are pure functions of the (syllable, parsed,

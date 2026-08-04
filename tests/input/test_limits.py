@@ -484,7 +484,7 @@ class TestWordRoutesOwnTheirInput:
         monkeypatch.setattr(
             docx_adapter, "_resolve_doc_converter", lambda override: "soffice"
         )
-        monkeypatch.setattr(docx_adapter.subprocess, "run", fake_run)
+        monkeypatch.setattr(docx_adapter._subprocess, "run", fake_run)
 
         doc = parse_file(original, profile="cn_current", language="zh-CN")
         assert len(converted_from) == 1
@@ -509,7 +509,7 @@ class TestWordRoutesOwnTheirInput:
         def never(*args, **kwargs):  # noqa: ANN002, ANN003
             raise AssertionError("LibreOffice must not see an oversized input")
 
-        monkeypatch.setattr(docx_adapter.subprocess, "run", never)
+        monkeypatch.setattr(docx_adapter._subprocess, "run", never)
         with pytest.raises(InputTooLargeError):
             parse_file(
                 original,

@@ -16,12 +16,15 @@ who forget required methods.
 
 from __future__ import annotations
 
-import importlib.util
-import threading
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+import importlib.util as _importlib_util
+import threading as _threading
+from contextlib import contextmanager as _contextmanager
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.errors import MissingExtraError, UnknownAdapterError
+
+if _TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
 
 
 def _is_internal_import_error(exc: ImportError) -> bool:
@@ -144,7 +147,7 @@ class Registry[T]:
         # Only the ``get`` FAST path stays lock-free (a single atomic
         # ``dict.get``). Reentrant so a loader that resolves another adapter on
         # the same registry can't self-deadlock.
-        self._lock = threading.RLock()
+        self._lock = _threading.RLock()
 
     def register(
         self,
@@ -356,7 +359,7 @@ class Registry[T]:
             return True
         for module in modules:
             try:
-                spec = importlib.util.find_spec(module)
+                spec = _importlib_util.find_spec(module)
                 # ``origin`` is None for a namespace package; a real module —
                 # source, extension, or one Nuitka compiled into the binary
                 # (verified: its loader reports the bundle path) — always has
@@ -411,7 +414,7 @@ class Registry[T]:
             self._cache.clear()
             self._generation += 1
 
-    @contextmanager
+    @_contextmanager
     def overriding(
         self,
         name: str | None = None,

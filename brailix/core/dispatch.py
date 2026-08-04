@@ -17,14 +17,15 @@ replaceable — only the cache boilerplate is shared, not the rules.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable as _Callable
+from collections.abc import Mapping as _Mapping
 
 # A handler takes ``(cells, context, element)`` and appends cells in
 # place.  Kept loose (``...``) because each subsystem's context type
 # differs; the concrete signature is enforced inside each handler table.
-Handler = Callable[..., None]
+Handler = _Callable[..., None]
 
-_Loader = Callable[[], tuple[Mapping[str, Handler], Handler]]
+_Loader = _Callable[[], tuple[_Mapping[str, Handler], Handler]]
 
 
 class LazyTagDispatcher:
@@ -41,7 +42,7 @@ class LazyTagDispatcher:
 
     def __init__(self, loader: _Loader) -> None:
         self._loader = loader
-        self._table: Mapping[str, Handler] | None = None
+        self._table: _Mapping[str, Handler] | None = None
         self._fallback: Handler | None = None
 
     def resolve(self, tag: str) -> Handler:

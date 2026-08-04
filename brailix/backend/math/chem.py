@@ -31,7 +31,7 @@ backend, the only layer allowed to own braille output decisions.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.utils import (
@@ -40,6 +40,9 @@ from brailix.backend.math.utils import (
     _unknown_cell,
 )
 from brailix.ir.braille import BrailleCell, blank_cell
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 # Gas / precipitate arrows attach to the formula with no leading space —
 # unlike ``+`` / ``=`` / ⇌, which keep ordinary maths operator spacing.

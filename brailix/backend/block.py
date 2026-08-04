@@ -29,7 +29,7 @@ them like any other inline children.
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import replace as _replace
 
 from brailix.backend import number as number_backend
 from brailix.backend.dispatch import translate_node
@@ -268,7 +268,7 @@ def _list_marker_cells(
         # No profile bullet → silently fall through; the layout still
         # produces a usable line with just the content.
     edge = Span(0, 0)
-    return [replace(c, source_span=edge) for c in cells]
+    return [_replace(c, source_span=edge) for c in cells]
 
 
 def _marker_punct_cells(

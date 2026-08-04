@@ -22,13 +22,16 @@ types live under that language, not on a shared layer.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.span import Span
 
+if _TYPE_CHECKING:
+    from typing import Any
 
-@dataclass(slots=True)
+
+@_dataclass(slots=True)
 class ChineseToken:
     """A single token emitted by a
     :class:`~brailix.frontend.zh.analyzer.ChineseAnalyzer`.

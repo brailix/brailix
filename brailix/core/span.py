@@ -7,12 +7,15 @@ back to its source characters.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+
+if _TYPE_CHECKING:
+    from collections.abc import Iterable
+    from typing import Any
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class Span:
     """Half-open character range ``[start, end)`` into a source string.
 

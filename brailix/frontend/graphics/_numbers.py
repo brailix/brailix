@@ -36,8 +36,11 @@ with a flag deciding which of two unrelated questions it is being asked.
 
 from __future__ import annotations
 
-import math
-from typing import Any
+import math as _math
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+
+if _TYPE_CHECKING:
+    from typing import Any
 
 
 def as_finite(value: Any, default: float | None = 0.0) -> float | None:
@@ -60,7 +63,7 @@ def as_finite(value: Any, default: float | None = 0.0) -> float | None:
         num = float(value)
     except (TypeError, ValueError):
         return default
-    return num if math.isfinite(num) else default
+    return num if _math.isfinite(num) else default
 
 
 def non_finite_paths(spec: Any, *, limit: int = 5) -> list[str]:
@@ -87,7 +90,7 @@ def non_finite_paths(spec: Any, *, limit: int = 5) -> list[str]:
         if isinstance(node, bool):
             continue
         if isinstance(node, float):
-            if not math.isfinite(node):
+            if not _math.isfinite(node):
                 found.append(f"{path or '<spec>'}={node}")
             continue
         if isinstance(node, dict):

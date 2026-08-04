@@ -62,14 +62,14 @@ collapsing them.
 
 from __future__ import annotations
 
-import re
+import re as _re
 
 # ASCII Unit Separator — delimits the ``$<US>source<US>payload$`` fields.
 _TAG = "\x1d"
 # ASCII Record Separator — stands in for a literal ``$`` inside the payload
 # so the island carries no inner ``$`` (which would end the segmenter's span).
 _DOLLAR = "\x1e"
-_WS_RE = re.compile(r"\s+")
+_WS_RE = _re.compile(r"\s+")
 
 
 def wrap(source: str, payload: str) -> str:

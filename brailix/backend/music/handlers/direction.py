@@ -7,7 +7,7 @@ gated by per-marker features (``show_dynamics`` / ``show_words``).
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend._inline import rebase_translated_cells
 from brailix.backend.music.context import MusicBrailleContext
@@ -17,6 +17,9 @@ from brailix.backend.music.utils import (
     emit_synthesized_word,
 )
 from brailix.ir.braille import BrailleCell
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 
 def _emit_direction(

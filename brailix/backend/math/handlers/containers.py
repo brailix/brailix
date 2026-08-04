@@ -11,13 +11,16 @@ Cross-imports :func:`_emit_children_with_matrix` from :mod:`.matrices` and
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.handlers.fractions import _emit_typed_slash_fraction
 from brailix.backend.math.handlers.matrices import _emit_children_with_matrix
 from brailix.backend.math.utils import _is_typed_slash_mrow
 from brailix.ir.braille import BrailleCell
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 
 def _emit_chem_children(

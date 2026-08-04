@@ -76,8 +76,9 @@ content lines + 1) — never sharing or shrinking a content line.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Literal
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from typing import Literal as _Literal
 
 from brailix.core.span import Span
 from brailix.ir.braille import (
@@ -91,8 +92,8 @@ from brailix.renderer.brf import cell_to_brf
 from brailix.renderer.music_layout import get_scheme
 from brailix.renderer.unicode_braille import cell_to_char, dots_to_char
 
-OutputFormat = Literal["unicode", "brf"]
-PageNumberPosition = Literal[
+OutputFormat = _Literal["unicode", "brf"]
+PageNumberPosition = _Literal[
     "top-right", "top-left", "bottom-right", "bottom-left"
 ]
 """Where the page number sits on a paginated page.
@@ -126,7 +127,7 @@ _REGION_SENTINEL_ROLES = frozenset(
 )
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _CasesRegion:
     """One open equation-system region during wrapping.
 
@@ -141,7 +142,7 @@ class _CasesRegion:
     """
 
     gutter: int
-    palette: list[BrailleCell] = field(default_factory=list)
+    palette: list[BrailleCell] = _field(default_factory=list)
     first_line: int = 0
 
 
@@ -150,7 +151,7 @@ class _CasesRegion:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class LayoutOptions:
     """Per-block indent + blank-line rules.
 
@@ -210,7 +211,7 @@ class LayoutOptions:
     # (:mod:`brailix.renderer.music_layout`), which breaks only at
     # measure-separator cells so an in-accord / repeat sequence never
     # splits mid-measure (BANA Pars. 11 / 17).
-    verbatim_block_types: frozenset[str] = field(
+    verbatim_block_types: frozenset[str] = _field(
         default_factory=lambda: frozenset({
             "code_block", "table_row", "table",
         })
@@ -225,7 +226,7 @@ class LayoutOptions:
     # a profile / future backend can rebind the contract in one place.
     # (``bar_over_bar`` reads the two roles directly to build parallels,
     # so it doesn't consult this set.)
-    measure_break_roles: frozenset[str] = field(
+    measure_break_roles: frozenset[str] = _field(
         default_factory=lambda: frozenset(
             {"music_measure_sep", "music_part_sep"}
         )
@@ -253,7 +254,7 @@ class LayoutOptions:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class LayoutRenderer:
     """Word-wrap a :class:`BrailleDocument` into laid-out output.
 
@@ -263,7 +264,7 @@ class LayoutRenderer:
     """
 
     name: str = "layout"
-    options: LayoutOptions = field(default_factory=LayoutOptions)
+    options: LayoutOptions = _field(default_factory=LayoutOptions)
     format: OutputFormat = "unicode"
 
     def render(self, source: BrailleDocument | BrailleSequence) -> str | bytes:

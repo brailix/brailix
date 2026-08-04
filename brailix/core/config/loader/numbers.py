@@ -8,14 +8,17 @@ same digit cells that zh's :class:`Number` translator uses.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.config._helpers import _read_json
 from brailix.core.config.loader._refs import (
     _resolve_dots_table,
     _resolve_single,
 )
+
+if _TYPE_CHECKING:
+    from pathlib import Path
+    from typing import Any
 
 
 def _load_numbers_table(

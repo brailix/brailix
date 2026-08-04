@@ -12,8 +12,8 @@ submodules.
 
 from __future__ import annotations
 
-import unicodedata
-import xml.etree.ElementTree as ET
+import unicodedata as _unicodedata
+import xml.etree.ElementTree as _ET
 
 from brailix.backend._digits import (
     DigitRoles,
@@ -83,7 +83,7 @@ def _warn_unknown_char(
 _BOLD_PREFIX = "MATHEMATICAL BOLD "
 
 
-def _bold_letter_base(text: str, elem: ET.Element) -> str | None:
+def _bold_letter_base(text: str, elem: _ET.Element) -> str | None:
     """Return the plain-letter base of an UPRIGHT-BOLD ``<mi>``, or
     ``None`` when it isn't one.
 
@@ -103,13 +103,13 @@ def _bold_letter_base(text: str, elem: ET.Element) -> str | None:
         return text or None
     decoded: list[str] = []
     for ch in text:
-        name = unicodedata.name(ch, "")
+        name = _unicodedata.name(ch, "")
         if not name.startswith(_BOLD_PREFIX):
             return None
         rest = name[len(_BOLD_PREFIX) :]
         if not (rest.startswith("CAPITAL ") or rest.startswith("SMALL ")):
             return None
-        decoded.append(unicodedata.normalize("NFKD", ch))
+        decoded.append(_unicodedata.normalize("NFKD", ch))
     return "".join(decoded) or None
 
 
@@ -167,7 +167,7 @@ def _emit_bold_letters(
 
 
 def _emit_mi(
-    cells: list[BrailleCell], mctx: MathBrailleContext, elem: ET.Element
+    cells: list[BrailleCell], mctx: MathBrailleContext, elem: _ET.Element
 ) -> None:
     """Identifier.
 
@@ -371,7 +371,7 @@ def _emit_function_name(
 
 
 def _emit_mn(
-    cells: list[BrailleCell], mctx: MathBrailleContext, elem: ET.Element
+    cells: list[BrailleCell], mctx: MathBrailleContext, elem: _ET.Element
 ) -> None:
     text = (elem.text or "").strip()
     if not text:
@@ -407,13 +407,13 @@ def _emit_as_mo(
     runs). Building a tiny ``ET.Element`` keeps a single source of truth
     in :func:`_emit_mo` for spacing / role / number-sign behaviour.
     """
-    elem = ET.Element("mo")
+    elem = _ET.Element("mo")
     elem.text = text
     _emit_mo(cells, mctx, elem)
 
 
 def _emit_mo(
-    cells: list[BrailleCell], mctx: MathBrailleContext, elem: ET.Element
+    cells: list[BrailleCell], mctx: MathBrailleContext, elem: _ET.Element
 ) -> None:
     """Operator / relation / delim / punct / shape / big-op symbol.
 
@@ -585,7 +585,7 @@ def _emit_mo(
 
 
 def _emit_mspace(
-    cells: list[BrailleCell], mctx: MathBrailleContext, elem: ET.Element
+    cells: list[BrailleCell], mctx: MathBrailleContext, elem: _ET.Element
 ) -> None:
     """``<mspace linebreak="newline">`` — a forced line break (bare
     ``\\\\`` outside a table environment).
@@ -605,7 +605,7 @@ def _emit_mspace(
 
 
 def _emit_mtext(
-    cells: list[BrailleCell], mctx: MathBrailleContext, elem: ET.Element
+    cells: list[BrailleCell], mctx: MathBrailleContext, elem: _ET.Element
 ) -> None:
     """Literal text inside math (``\\text{...}`` / ``<mtext>``).
 

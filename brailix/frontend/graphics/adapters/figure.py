@@ -16,8 +16,8 @@ the chosen generator cannot draw does the same with ``GRAPHICS_INVALID_SPEC``.
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass
+import json as _json
+from dataclasses import dataclass as _dataclass
 
 from brailix.core.context import GraphicsContext
 from brailix.core.errors import WarningCollector
@@ -33,7 +33,7 @@ from brailix.frontend.graphics.generate import (
 )
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class FigureSourceAdapter:
     """Adapter: a JSON figure spec (``{"kind": ..., ...}``) → SVG."""
 
@@ -51,8 +51,8 @@ class FigureSourceAdapter:
         if not text:
             return svg_error_wrap("", reason="empty figure spec")
         try:
-            spec = json.loads(text)
-        except json.JSONDecodeError as e:
+            spec = _json.loads(text)
+        except _json.JSONDecodeError as e:
             return svg_error_wrap(text, reason=f"invalid JSON: {e}")
         if not isinstance(spec, dict):
             return svg_error_wrap(

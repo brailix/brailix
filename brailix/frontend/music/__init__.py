@@ -15,7 +15,7 @@ a compatibility promise.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import MusicContext
 from brailix.core.errors import (
@@ -25,6 +25,9 @@ from brailix.core.errors import (
 )
 from brailix.frontend.music.adapters.musicxml import music_error_wrap
 from brailix.frontend.music.normalizer import normalize
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 
 def parse_music_tree(

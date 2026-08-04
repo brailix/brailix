@@ -21,8 +21,9 @@ Nothing here is public API: construct sessions through
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import (
     INLINE_TEXT_TRANSLATOR_KEY,
@@ -34,7 +35,7 @@ from brailix.core.span import Span
 from brailix.pipeline._fingerprint import registries_generation
 from brailix.pipeline._results import TreeSubcache
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from brailix.ir.braille import BrailleCell
     from brailix.pipeline import Pipeline
 
@@ -59,7 +60,7 @@ def warn_epoch_changed(warnings: WarningCollector) -> None:
     )
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class CompilationSession:
     """The state of one translate run.
 
@@ -89,8 +90,8 @@ class CompilationSession:
     # can tell whether the registration surface moved underneath it (see
     # :meth:`epoch_drifted`).
     generation: tuple[int, ...] = ()
-    tree_in: TreeSubcache = field(default_factory=dict)
-    tree_out: TreeSubcache = field(default_factory=dict)
+    tree_in: TreeSubcache = _field(default_factory=dict)
+    tree_out: TreeSubcache = _field(default_factory=dict)
 
     def epoch_drifted(self) -> bool:
         """True if an adapter registration landed while this run was compiling.
@@ -196,7 +197,7 @@ class CompilationSession:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True, frozen=True)
+@_dataclass(slots=True, frozen=True)
 class _InlineTextTranslator:
     """The Pipeline-built :class:`~brailix.core.protocols.InlineTextTranslator`.
 
