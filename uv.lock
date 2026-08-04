@@ -113,6 +113,7 @@ g2pm = [
 ]
 g2pw = [
     { name = "g2pw" },
+    { name = "requests" },
     { name = "torch" },
 ]
 graphics = [
@@ -227,6 +228,7 @@ requires-dist = [
     { name = "pypinyin", marker = "extra == 'zh'" },
     { name = "python-docx", marker = "extra == 'all'" },
     { name = "python-docx", marker = "extra == 'docx'" },
+    { name = "requests", marker = "extra == 'g2pw'" },
     { name = "resvg-py", marker = "extra == 'all'" },
     { name = "resvg-py", marker = "extra == 'graphics-svg-raster'" },
     { name = "sudachidict-core", marker = "extra == 'sudachi'" },
