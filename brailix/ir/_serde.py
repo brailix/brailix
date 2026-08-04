@@ -34,19 +34,20 @@ existence — it holds no IR types, only the plumbing the type modules share.
 
 from __future__ import annotations
 
-import functools
-import sys
-import types
-import typing
-import warnings
-from dataclasses import fields
-from typing import TYPE_CHECKING, Any
+import functools as _functools
+import sys as _sys
+import types as _types
+import typing as _typing
+import warnings as _warnings
+from dataclasses import fields as _fields
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Any as _Any
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
 
 
-def is_omittable(value: Any, default: Any) -> bool:
+def is_omittable(value: _Any, default: _Any) -> bool:
     """True if ``value`` should be omitted from a ``to_dict`` payload: it is
     ``None``, equal to its field ``default``, or an empty sequence.
 
@@ -61,7 +62,7 @@ def is_omittable(value: Any, default: Any) -> bool:
     )
 
 
-def reject_unhandled_nested_payload(key: str, value: Any) -> None:
+def reject_unhandled_nested_payload(key: str, value: _Any) -> None:
     """Guard a deserializer's fall-through against an IR payload nobody rebuilt.
 
     Serialization is type-driven — a serializer recurses into any IR node
@@ -90,10 +91,10 @@ def reject_unhandled_nested_payload(key: str, value: Any) -> None:
 
 
 def typed_child[NodeT](
-    payload: Any,
+    payload: _Any,
     *,
     expected: type[NodeT],
-    factory: Callable[[dict[str, Any]], Any],
+    factory: Callable[[dict[str, _Any]], _Any],
     label: str,
     kind: str,
 ) -> NodeT:
@@ -134,7 +135,7 @@ def typed_child[NodeT](
 # ---------------------------------------------------------------------------
 
 
-def require_payload_object(payload: Any, what: str) -> dict[str, Any]:
+def require_payload_object(payload: _Any, what: str) -> dict[str, _Any]:
     """Check a payload is a mapping at all, and return it.
 
     Every loader's first move is ``payload.get(...)``, so a payload that is a
@@ -154,7 +155,7 @@ def require_payload_object(payload: Any, what: str) -> dict[str, Any]:
     return payload
 
 
-def require_payload_type(payload: Any, expected: str, what: str) -> dict[str, Any]:
+def require_payload_type(payload: _Any, expected: str, what: str) -> dict[str, _Any]:
     """Check a payload is a mapping tagged ``expected``, and return it.
 
     Every IR root writes a ``"type"`` constant and every schema declares it,
@@ -175,7 +176,7 @@ def require_payload_type(payload: Any, expected: str, what: str) -> dict[str, An
     return mapping
 
 
-def payload_list(payload: Mapping[str, Any], key: str, what: str) -> Sequence[Any]:
+def payload_list(payload: Mapping[str, _Any], key: str, what: str) -> Sequence[_Any]:
     """``payload[key]`` as a list, defaulting to empty when absent.
 
     ``None`` is refused rather than treated as absent: a payload that spells a
@@ -195,7 +196,7 @@ def payload_list(payload: Mapping[str, Any], key: str, what: str) -> Sequence[An
     return value
 
 
-def payload_mapping(payload: Mapping[str, Any], key: str, what: str) -> dict[str, Any]:
+def payload_mapping(payload: Mapping[str, _Any], key: str, what: str) -> dict[str, _Any]:
     """``payload[key]`` as a fresh dict, defaulting to empty when absent.
 
     The mapping counterpart of :func:`payload_list`, and it existed for the
@@ -221,7 +222,7 @@ def payload_mapping(payload: Mapping[str, Any], key: str, what: str) -> dict[str
 _UNCHECKED_ANNOTATIONS = frozenset({"Any", "typing.Any"})
 
 
-def _runtime_types(annotation: Any) -> tuple[type, ...] | None:
+def _runtime_types(annotation: _Any) -> tuple[type, ...] | None:
     """Runtime-checkable types for one resolved annotation, or None.
 
     Handles the shapes the IR dataclasses actually declare: a plain class, an
@@ -231,12 +232,12 @@ def _runtime_types(annotation: Any) -> tuple[type, ...] | None:
     returns None and is left unchecked, because a guard that guesses is worse
     than one that declines.
     """
-    if annotation is Any:
+    if annotation is _Any:
         return None
-    origin = typing.get_origin(annotation)
-    if origin in (typing.Union, types.UnionType):
+    origin = _typing.get_origin(annotation)
+    if origin in (_typing.Union, _types.UnionType):
         out: list[type] = []
-        for arg in typing.get_args(annotation):
+        for arg in _typing.get_args(annotation):
             resolved = _runtime_types(arg)
             if resolved is None:
                 return None
@@ -249,7 +250,7 @@ def _runtime_types(annotation: Any) -> tuple[type, ...] | None:
     return (annotation,) if isinstance(annotation, type) else None
 
 
-def _resolve_hints(cls: type) -> dict[str, Any]:
+def _resolve_hints(cls: type) -> dict[str, _Any]:
     """``cls``'s annotations resolved to runtime objects, per field.
 
     ``typing.get_type_hints`` resolves a class **all at once**: one annotation
@@ -276,21 +277,21 @@ def _resolve_hints(cls: type) -> dict[str, Any]:
     field's check. Which is the bug this whole function is about, one level in.)
     """
     try:
-        return typing.get_type_hints(cls)
+        return _typing.get_type_hints(cls)
     except Exception as exc:  # noqa: BLE001 — degrade per field, see below
         _report_unresolved_annotations(cls, exc)
-    module = sys.modules.get(cls.__module__)
+    module = _sys.modules.get(cls.__module__)
     globalns = getattr(module, "__dict__", {})
     localns = dict(vars(cls))
-    hints: dict[str, Any] = {}
-    for f in fields(cls):
+    hints: dict[str, _Any] = {}
+    for f in _fields(cls):
         probe = type(
             "_OneField",
             (),
             {"__annotations__": {f.name: f.type}, "__module__": cls.__module__},
         )
         try:
-            hints.update(typing.get_type_hints(probe, globalns, localns))
+            hints.update(_typing.get_type_hints(probe, globalns, localns))
         except Exception:  # noqa: BLE001, S112 — this one field goes unchecked
             continue
     return hints
@@ -311,7 +312,7 @@ def _report_unresolved_annotations(cls: type, exc: Exception) -> None:
     it. ``tests/ir/test_wire_types.py`` asserts every IR dataclass resolves
     cleanly, which is the check that should catch it before then.
     """
-    warnings.warn(
+    _warnings.warn(
         f"{cls.__module__}.{cls.__qualname__}: type annotations could not be "
         f"resolved ({exc!r}); per-field wire-type validation degrades to "
         f"whatever still resolves. This is a declaration bug in the IR, not "
@@ -321,7 +322,7 @@ def _report_unresolved_annotations(cls: type, exc: Exception) -> None:
     )
 
 
-@functools.cache
+@_functools.cache
 def _wire_types(cls: type) -> dict[str, tuple[type, ...]]:
     """Per-field runtime types for ``cls``, derived from its annotations.
 
@@ -337,16 +338,16 @@ def _wire_types(cls: type) -> dict[str, tuple[type, ...]]:
     """
     hints = _resolve_hints(cls)
     out: dict[str, tuple[type, ...]] = {}
-    for f in fields(cls):
+    for f in _fields(cls):
         if str(f.type) in _UNCHECKED_ANNOTATIONS:
             continue
-        resolved = _runtime_types(hints.get(f.name, Any))
+        resolved = _runtime_types(hints.get(f.name, _Any))
         if resolved:
             out[f.name] = resolved
     return out
 
 
-def check_wire_value(cls: type, key: str, value: Any, what: str) -> Any:
+def check_wire_value(cls: type, key: str, value: _Any, what: str) -> _Any:
     """Verify ``value`` matches the declared type of ``cls.key``; return it.
 
     Runs on the value the deserializer has already *converted* (a span is a

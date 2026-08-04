@@ -15,12 +15,12 @@ Not public API: callers go through
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.errors import WarningCollector
 from brailix.pipeline._results import TactilePageResult
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from brailix.backend.tactile.profile import TactileProfile
     from brailix.ir.document import DocumentIR
     from brailix.pipeline import Pipeline

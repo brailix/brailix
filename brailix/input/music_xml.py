@@ -48,12 +48,15 @@ score suffix can never become a hole in a service's character budget.
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
+from pathlib import Path as _Path
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import MusicContext
 from brailix.input.limits import DEFAULT_INPUT_LIMITS, InputLimits
 from brailix.ir.document import DocumentIR, ScoreBlock
+
+if _TYPE_CHECKING:
+    import os
 
 _MUSICXML_TEXT_SUFFIXES = frozenset({".musicxml", ".xml"})
 _MXL_SUFFIXES = frozenset({".mxl"})
@@ -114,7 +117,7 @@ def parse_musicxml(
     :class:`~brailix.input.limits.InputTooLargeError` when the resolved text
     exceeds ``limits``.
     """
-    p = Path(path)
+    p = _Path(path)
     suffix = p.suffix.lower()
     if suffix in _MXL_SUFFIXES:
         text = _unzip_mxl(limits.read_bounded(p), profile=profile)
@@ -196,7 +199,7 @@ def parse_score_file(
     """
     from brailix.frontend.music.registry import music_source_registry
 
-    p = Path(path)
+    p = _Path(path)
     suffix = p.suffix.lower()
     source = _BINARY_SCORE_SOURCES.get(suffix)
     if source is None:
@@ -258,7 +261,7 @@ def parse_deferred_score(
     :class:`~brailix.core.errors.MissingExtraError`: no adapter is touched
     here, so reading a ``.abc`` needs no optional dependency installed.
     """
-    p = Path(path)
+    p = _Path(path)
     suffix = p.suffix.lower()
     source = _DEFERRED_SCORE_SOURCES.get(suffix)
     if source is None:

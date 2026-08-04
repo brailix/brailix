@@ -29,11 +29,11 @@ even known.
 
 from __future__ import annotations
 
-import os
-import stat
-import sys
-from dataclasses import dataclass
-from pathlib import Path
+import os as _os
+import stat as _stat
+import sys as _sys
+from dataclasses import dataclass as _dataclass
+from pathlib import Path as _Path
 
 from brailix.core.errors import BrailixError
 
@@ -75,7 +75,7 @@ class InputTooLargeError(BrailixError):
         self.limit = limit
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class InputLimits:
     """A whole-file size budget for the input layer.
 
@@ -152,9 +152,9 @@ class InputLimits:
         pre-limit behaviour. Implemented with ``sys.maxsize`` sentinels so the
         gates are plain comparisons with no special-casing.
         """
-        return cls(max_file_bytes=sys.maxsize, max_text_chars=sys.maxsize)
+        return cls(max_file_bytes=_sys.maxsize, max_text_chars=_sys.maxsize)
 
-    def check_file_size(self, path: str | os.PathLike[str]) -> None:
+    def check_file_size(self, path: str | _os.PathLike[str]) -> None:
         """Reject ``path`` if it is larger than ``max_file_bytes``.
 
         The cheap pre-read gate: one ``stat()``, no bytes read, so an
@@ -170,7 +170,7 @@ class InputLimits:
         :meth:`read_bounded`, which is what every whole-file read in the input
         layer goes through.
         """
-        size = Path(path).stat().st_size
+        size = _Path(path).stat().st_size
         if size > self.max_file_bytes:
             raise InputTooLargeError(
                 "file_bytes",
@@ -179,7 +179,7 @@ class InputLimits:
                 detail=str(path),
             )
 
-    def read_bounded(self, path: str | os.PathLike[str]) -> bytes:
+    def read_bounded(self, path: str | _os.PathLike[str]) -> bytes:
         """Read ``path`` whole, consuming at most ``max_file_bytes``.
 
         The gate that actually holds. :meth:`check_file_size` checks the path;
@@ -204,9 +204,9 @@ class InputLimits:
         content exceeds the ceiling, and propagates :class:`OSError` /
         :class:`FileNotFoundError` as an ordinary read would.
         """
-        with Path(path).open("rb") as fp:
-            info = os.fstat(fp.fileno())
-            if not stat.S_ISREG(info.st_mode):
+        with _Path(path).open("rb") as fp:
+            info = _os.fstat(fp.fileno())
+            if not _stat.S_ISREG(info.st_mode):
                 raise InputTooLargeError(
                     "file_bytes",
                     0,
@@ -225,7 +225,7 @@ class InputLimits:
             # spells its ceiling ``sys.maxsize``, and ``read(maxsize + 1)``
             # overflows the index-sized argument — there is nothing to bound
             # there anyway, so read straight through.
-            if self.max_file_bytes >= sys.maxsize:
+            if self.max_file_bytes >= _sys.maxsize:
                 data = fp.read()
             else:
                 data = fp.read(self.max_file_bytes + 1)
@@ -239,7 +239,7 @@ class InputLimits:
         return data
 
     def read_bounded_text(
-        self, path: str | os.PathLike[str], *, normalize_newlines: bool = False
+        self, path: str | _os.PathLike[str], *, normalize_newlines: bool = False
     ) -> str:
         """Read ``path`` whole through :meth:`read_bounded` and decode it,
         tolerating the UTF-16 BOM Windows tools write.

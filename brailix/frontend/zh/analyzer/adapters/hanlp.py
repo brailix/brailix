@@ -21,11 +21,12 @@ instead of letting HanLP fetch it.
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass, field
+import os as _os
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
 from importlib import metadata as _metadata
-from pathlib import Path
-from typing import Any
+from pathlib import Path as _Path
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import FrontendContext
 from brailix.core.errors import (
@@ -42,11 +43,14 @@ from brailix.core.models.paths import get_model_dir
 from brailix.frontend.zh.analyzer.adapters._spans import recover_spans_by_cursor
 from brailix.frontend.zh.tokens import ChineseToken
 
+if _TYPE_CHECKING:
+    from typing import Any
+
 # Pinned MTL model id. Update _MTL_DIR in lockstep when bumping the
 # constant to a newer HanLP release — the directory name is the URL's
 # zip stem and changes with each model revision (see HanLP's
 # ``hanlp.pretrained.mtl.CLOSE_TOK_POS_NER_SRL_DEP_SDP_CON_ELECTRA_SMALL_ZH``).
-_MTL_DIR = Path("mtl") / "close_tok_pos_ner_srl_dep_sdp_con_electra_small_20210111_124159"
+_MTL_DIR = _Path("mtl") / "close_tok_pos_ner_srl_dep_sdp_con_electra_small_20210111_124159"
 _MODEL_ID = "hanlp_mtl_electra_small_zh"
 
 # HanLP calls ``BertTokenizer.encode_plus`` at inference time, and
@@ -105,7 +109,7 @@ def _check_transformers_compatibility() -> None:
         )
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class HanLPChineseAnalyzer:
     """Wraps a HanLP tok/pos pipeline.
 
@@ -116,7 +120,7 @@ class HanLPChineseAnalyzer:
     """
 
     name: str = "hanlp"
-    pipeline: Any = field(default=None)
+    pipeline: Any = _field(default=None)
 
     def analyze(
         self, text: str, ctx: FrontendContext | None = None
@@ -184,7 +188,7 @@ def _load() -> HanLPChineseAnalyzer:
     _check_transformers_compatibility()
 
     hanlp_home = get_model_dir("hanlp")
-    os.environ["HANLP_HOME"] = str(hanlp_home)
+    _os.environ["HANLP_HOME"] = str(hanlp_home)
 
     import hanlp  # noqa: WPS433 — lazy by design
 
@@ -226,7 +230,7 @@ def _load() -> HanLPChineseAnalyzer:
     return HanLPChineseAnalyzer(pipeline=pipeline)
 
 
-def _ensure_model_installed(hanlp_home: Path) -> None:
+def _ensure_model_installed(hanlp_home: _Path) -> None:
     """Raise :class:`ModelNotInstalledError` if the MTL model is absent.
 
     Used under managed download to defer the fetch to a front-end's

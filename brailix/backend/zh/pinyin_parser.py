@@ -25,7 +25,7 @@ context — so it can be tested exhaustively.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
 
 # Longest-first so "zh" matches before "z", etc.
 _INITIALS_LONGEST_FIRST: tuple[str, ...] = (
@@ -64,7 +64,7 @@ _SYLLABIC_NASAL_ALIASES: dict[str, str] = {
 }
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class ParsedPinyin:
     """A syllable broken into phonological pieces.
 

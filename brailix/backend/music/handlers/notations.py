@@ -16,7 +16,7 @@ all called from within :func:`brailix.backend.music.handlers.notes._emit_note`.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.music.context import MusicBrailleContext
 from brailix.backend.music.utils import (
@@ -25,6 +25,9 @@ from brailix.backend.music.utils import (
     first_child_text,
 )
 from brailix.ir.braille import BrailleCell
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 # Hand-built N-tuplet → BANA Table 8 entity. Triplet (N=3) is selected
 # inside _emit_tuplet_marker so the tuplet_form feature can flip between

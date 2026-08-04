@@ -10,8 +10,8 @@ construction to :mod:`brailix.frontend.math.adapters.mtef._mathml`.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
-from collections.abc import Callable
+import xml.etree.ElementTree as _ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.frontend.math.adapters.mtef._mathml import (
     _attach_preceding_base,
@@ -43,16 +43,19 @@ from brailix.frontend.math.adapters.mtef._reader import (
     _skip_ruler,
 )
 
+if _TYPE_CHECKING:
+    from collections.abc import Callable
+
 
 def _convert_v5(data: bytes) -> str:
     r = _Reader(data)
     _read_v5_prelude(r)
-    children: list[ET.Element] = []
+    children: list[_ET.Element] = []
     _read_object_list_v5(r, children, depth=0)
-    math = ET.Element("math", {"xmlns": _MATHML_NS})
+    math = _ET.Element("math", {"xmlns": _MATHML_NS})
     for c in children:
         math.append(c)
-    return ET.tostring(math, encoding="unicode")
+    return _ET.tostring(math, encoding="unicode")
 
 
 def _read_v5_prelude(r: _Reader) -> None:
@@ -68,7 +71,7 @@ def _read_v5_prelude(r: _Reader) -> None:
 
 
 def _read_object_list_v5(
-    r: _Reader, sink: list[ET.Element], *, depth: int
+    r: _Reader, sink: list[_ET.Element], *, depth: int
 ) -> None:
     """Read records until END or EOF, appending MathML children to ``sink``.
 
@@ -135,7 +138,7 @@ def _read_object_list_v5(
 
 def _read_line_v5(
     r: _Reader, opts: int, depth: int
-) -> list[ET.Element]:
+) -> list[_ET.Element]:
     """v5 LINE — flags bit 0x01=null, 0x02=ruler, 0x04=lspace, 0x08=nudge."""
     if opts & 0x08:
         _read_nudge_v5(r)
@@ -147,8 +150,8 @@ def _read_line_v5(
             _consume_ruler_v5(r)
         return []
 
-    def _body() -> list[ET.Element]:
-        children: list[ET.Element] = []
+    def _body() -> list[_ET.Element]:
+        children: list[_ET.Element] = []
         _read_object_list_v5(r, children, depth=depth)
         return children
 
@@ -157,7 +160,7 @@ def _read_line_v5(
     return _body()
 
 
-def _read_char_v5(r: _Reader, opts: int, depth: int) -> list[ET.Element]:
+def _read_char_v5(r: _Reader, opts: int, depth: int) -> list[_ET.Element]:
     """v5 CHAR — typeface + MTCode (and/or font positions) + optional embell."""
     if opts & 0x08:
         _read_nudge_v5(r)
@@ -212,7 +215,7 @@ def _collect_embell_v5(
 
 def _read_tmpl_v5(
     r: _Reader, opts: int, depth: int
-) -> list[ET.Element]:
+) -> list[_ET.Element]:
     """v5 TMPL — selector + variation + options + slot LINE/CHAR records."""
     if opts & 0x08:
         _read_nudge_v5(r)
@@ -225,14 +228,14 @@ def _read_tmpl_v5(
         # branch on the low byte only.
         r.u8()
     r.u8()  # template-specific options
-    slots: list[list[ET.Element]] = []
+    slots: list[list[_ET.Element]] = []
     _read_tmpl_slots_v5(r, slots, depth + 1)
     return _build_tmpl(selector, variation & 0x7F, slots, version=5)
 
 
 def _read_tmpl_slots_v5(
     r: _Reader,
-    slots: list[list[ET.Element]],
+    slots: list[list[_ET.Element]],
     depth: int,
 ) -> None:
     """Read TMPL subobject list — sequence of LINE records ending in END.
@@ -288,15 +291,15 @@ def _read_tmpl_slots_v5(
             )
 
 
-def _read_pile_v5(r: _Reader, opts: int, depth: int) -> ET.Element:
+def _read_pile_v5(r: _Reader, opts: int, depth: int) -> _ET.Element:
     """v5 PILE — vertical stack of LINE records → ``<mtable>``."""
     if opts & 0x08:
         _read_nudge_v5(r)
     r.u8()  # halign
     r.u8()  # valign
 
-    def _rows() -> ET.Element:
-        mtable = ET.Element("mtable")
+    def _rows() -> _ET.Element:
+        mtable = _ET.Element("mtable")
         while r.remaining() > 0:
             rec = r.u8()
             if rec == _REC_END:
@@ -304,8 +307,8 @@ def _read_pile_v5(r: _Reader, opts: int, depth: int) -> ET.Element:
             if rec == _REC_LINE:
                 line_opts = r.u8()
                 row_children = _read_line_v5(r, line_opts, depth + 1)
-                mtr = ET.Element("mtr")
-                mtd = ET.Element("mtd")
+                mtr = _ET.Element("mtr")
+                mtd = _ET.Element("mtd")
                 for c in row_children:
                     mtd.append(c)
                 mtr.append(mtd)
@@ -321,7 +324,7 @@ def _read_pile_v5(r: _Reader, opts: int, depth: int) -> ET.Element:
     return _rows()
 
 
-def _read_matrix_v5(r: _Reader, opts: int, depth: int) -> ET.Element:
+def _read_matrix_v5(r: _Reader, opts: int, depth: int) -> _ET.Element:
     """v5 MATRIX → ``<mtable>`` of ``<mtr>``/``<mtd>``."""
     if opts & 0x08:
         _read_nudge_v5(r)
@@ -333,15 +336,15 @@ def _read_matrix_v5(r: _Reader, opts: int, depth: int) -> ET.Element:
     # row partitions: 2-bit values per (rows+1) line, rounded up.
     _skip_partitions(r, rows + 1)
     _skip_partitions(r, cols + 1)
-    mtable = ET.Element("mtable")
+    mtable = _ET.Element("mtable")
     for _row in range(rows):
-        mtr = ET.Element("mtr")
+        mtr = _ET.Element("mtr")
         for _col in range(cols):
             # Each cell is one LINE record.
             rec = r.u8()
             if rec == _REC_END:
                 # Truncated matrix — pad with empty cells.
-                mtd = ET.Element("mtd")
+                mtd = _ET.Element("mtd")
                 mtr.append(mtd)
                 continue
             if rec != _REC_LINE:
@@ -350,7 +353,7 @@ def _read_matrix_v5(r: _Reader, opts: int, depth: int) -> ET.Element:
                 )
             opts2 = r.u8()
             cell_children = _read_line_v5(r, opts2, depth + 1)
-            mtd = ET.Element("mtd")
+            mtd = _ET.Element("mtd")
             for c in cell_children:
                 mtd.append(c)
             mtr.append(mtd)

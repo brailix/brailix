@@ -8,15 +8,18 @@ modules.
 
 from __future__ import annotations
 
-import copy
-import html.entities
-import json
-import re
-from collections.abc import Mapping
-from pathlib import Path
-from typing import Any
+import copy as _copy
+import html.entities as _html_entities
+import json as _json
+import re as _re
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.errors import ConfigurationError
+
+if _TYPE_CHECKING:
+    from collections.abc import Mapping
+    from pathlib import Path
+    from typing import Any
 
 # Reserved keys at the top of each table file — ignored as metadata.
 _METADATA_KEYS: frozenset[str] = frozenset({
@@ -71,12 +74,12 @@ def _read_json(path: Path) -> dict[str, Any]:
     """
     try:
         with path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
+            data = _json.load(f)
     except FileNotFoundError as e:
         raise ConfigurationError(f"{path}: file not found") from e
     except OSError as e:
         raise ConfigurationError(f"{path}: unreadable ({e})") from e
-    except json.JSONDecodeError as e:
+    except _json.JSONDecodeError as e:
         raise ConfigurationError(f"{path}: invalid JSON ({e})") from e
     if not isinstance(data, dict):
         raise ConfigurationError(
@@ -144,7 +147,7 @@ def _dots_dict(payload: dict[str, Any]) -> dict[str, tuple[int, ...]]:
     return out
 
 
-_CODEPOINT_RE = re.compile(r"^U\+([0-9A-Fa-f]{4,6})$")
+_CODEPOINT_RE = _re.compile(r"^U\+([0-9A-Fa-f]{4,6})$")
 
 
 def _entity_to_char(name: str, *, file: str | None = None) -> str:
@@ -179,7 +182,7 @@ def _entity_to_char(name: str, *, file: str | None = None) -> str:
                 f"Unicode scalar value"
             )
         return chr(cp)
-    expanded = html.entities.html5.get(f"{name};")
+    expanded = _html_entities.html5.get(f"{name};")
     if expanded is None:
         location = f"{file}: " if file else ""
         raise ConfigurationError(
@@ -280,7 +283,7 @@ def _feature_merge(
     (:meth:`BrailleProfile.with_features` and the ``profile_features``
     pipeline field) — a check on one of those is a check the other is missing.
     """
-    merged = copy.deepcopy(features)
+    merged = _copy.deepcopy(features)
     for key, value in overrides.items():
         if not isinstance(value, _FEATURE_VALUE_TYPES):
             raise ConfigurationError(

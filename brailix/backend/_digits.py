@@ -21,17 +21,20 @@ passed in by the caller:
 
 from __future__ import annotations
 
-import unicodedata
-from collections.abc import Callable
-from dataclasses import dataclass
+import unicodedata as _unicodedata
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.config import BrailleProfile
 from brailix.core.errors import WarningCollector
 from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
 
+if _TYPE_CHECKING:
+    from collections.abc import Callable
 
-@dataclass(frozen=True, slots=True)
+
+@_dataclass(frozen=True, slots=True)
 class DigitRoles:
     """Role labels for the cells a digit run emits.
 
@@ -45,7 +48,7 @@ class DigitRoles:
     number_sign: str = "number_sign"
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class DigitRunPolicy:
     """Per-caller policy for a digit run.
 
@@ -71,7 +74,7 @@ def ascii_decimal_digit(ch: str) -> str | None:
     unknown rather than render as a plain ``2``.
     """
     try:
-        return str(unicodedata.decimal(ch))
+        return str(_unicodedata.decimal(ch))
     except (TypeError, ValueError):
         return None
 

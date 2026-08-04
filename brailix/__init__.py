@@ -61,8 +61,12 @@ manifest in the test suite: a name cannot go missing without failing a
 test, and cannot quietly become public without a deliberate edit — the
 manifest is checked for exact equality, and a facade's namespace is checked
 too, so a brailix name cannot merely *resolve* there without being
-published. That manifest is also what this reference is generated from, so
-what you read here and what the library supports cannot drift apart.
+published. Names from *outside* brailix are held to that everywhere, not
+only at the facades: no module in the package binds one under its plain
+spelling, so ``from brailix.<anything> import Path`` does not quietly work
+at an address that was never ours to promise. That manifest is also what
+this reference is generated from, so what you read here and what the
+library supports cannot drift apart.
 
 Importing this package costs nothing but this module. Every name above is
 resolved **lazily**, on first attribute access (PEP 562): ``import brailix``

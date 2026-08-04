@@ -20,25 +20,29 @@ independently replaceable component.
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, fields
-from pathlib import Path
-from typing import Any
+import json as _json
+from dataclasses import dataclass as _dataclass
+from dataclasses import fields as _fields
+from pathlib import Path as _Path
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.errors import ConfigurationError
 from brailix.core.measure import as_positive_finite
 from brailix.core.paths import resolve_named_resource
 
+if _TYPE_CHECKING:
+    from typing import Any
+
 # resources/ lives at the package root: this file is
 # brailix/backend/tactile/profile.py, so parents[2] == the ``brailix``
 # package directory (mirrors core.config.loader.PACKAGE_ROOT).
-_PACKAGE_ROOT: Path = Path(__file__).resolve().parents[2]
-_TACTILE_DIR: Path = _PACKAGE_ROOT / "resources" / "tactile"
+_PACKAGE_ROOT: _Path = _Path(__file__).resolve().parents[2]
+_TACTILE_DIR: _Path = _PACKAGE_ROOT / "resources" / "tactile"
 
 DEFAULT_PROFILE = "generic"
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class TactileProfile:
     """Resolved tactile adaptation parameters.
 
@@ -91,7 +95,7 @@ class TactileProfile:
         dataclass is frozen and this runs during its own construction — the same
         move :class:`brailix.core.errors.Warning` makes to freeze its anchor.
         """
-        for f in fields(self):
+        for f in _fields(self):
             if f.name == "name":
                 continue
             object.__setattr__(
@@ -130,7 +134,7 @@ def _check_positive(value: Any, field: str, prefix: str = "") -> float:
     )
 
 
-def _require_positive(value: Any, field: str, path: Path) -> float:
+def _require_positive(value: Any, field: str, path: _Path) -> float:
     """:func:`_check_positive` with the offending file named, so a bad JSON
     value points at the profile that carries it."""
     return _check_positive(value, field, prefix=f"{path}: ")
@@ -151,14 +155,14 @@ def load_tactile_profile(name: str = DEFAULT_PROFILE) -> TactileProfile:
     path = resolve_named_resource(_TACTILE_DIR, name, "tactile profile")
     try:
         with path.open("r", encoding="utf-8") as f:
-            payload = json.load(f)
+            payload = _json.load(f)
     except FileNotFoundError as e:
         raise ConfigurationError(
             f"{path}: tactile profile {name!r} not found"
         ) from e
     except OSError as e:
         raise ConfigurationError(f"{path}: unreadable ({e})") from e
-    except json.JSONDecodeError as e:
+    except _json.JSONDecodeError as e:
         raise ConfigurationError(f"{path}: invalid JSON ({e})") from e
     if not isinstance(payload, dict):
         raise ConfigurationError(

@@ -31,15 +31,19 @@ ASCII keys = ergonomic tooling.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+
+if _TYPE_CHECKING:
+    from typing import Any
 
 # ---------------------------------------------------------------------------
 # Tone omission section
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class NcbToneOmission:
     """Tone-omission-grouped-by-initial sub-section of :class:`NcbExceptions`.
 
@@ -59,8 +63,8 @@ class NcbToneOmission:
     * ``boundary_rule_enabled`` — the cross-syllable boundary rule.
     """
 
-    by_initial: dict[str, dict[str, Any]] = field(default_factory=dict)
-    zero_initial: dict[str, Any] = field(default_factory=dict)
+    by_initial: dict[str, dict[str, Any]] = _field(default_factory=dict)
+    zero_initial: dict[str, Any] = _field(default_factory=dict)
     boundary_rule_enabled: bool = True
 
 
@@ -69,7 +73,7 @@ class NcbToneOmission:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class _Shorthand:
     """Definite-word shorthand sub-record on a :class:`_CharOverride`.
 
@@ -91,7 +95,7 @@ class _Shorthand:
     boundary_spelling: tuple[tuple[int, ...], ...] | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class _CharOverride:
     """One entry in :class:`NcbCharOverrides`.
 
@@ -112,7 +116,7 @@ class _CharOverride:
     keep_tone: bool = False
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class NcbCharOverrides:
     """Character-level override sub-section of :class:`NcbExceptions`.
 
@@ -122,7 +126,7 @@ class NcbCharOverrides:
     so they share the same index.
     """
 
-    by_char: dict[str, _CharOverride] = field(default_factory=dict)
+    by_char: dict[str, _CharOverride] = _field(default_factory=dict)
 
     def shorthand_cells_for(
         self,
@@ -158,7 +162,7 @@ class NcbCharOverrides:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class NcbWordOverrides:
     """Word-level tone-retention sub-section of :class:`NcbExceptions`.
 
@@ -170,7 +174,7 @@ class NcbWordOverrides:
     adjusted).
     """
 
-    by_word: dict[str, tuple[bool, ...]] = field(default_factory=dict)
+    by_word: dict[str, tuple[bool, ...]] = _field(default_factory=dict)
 
     def should_force_keep_tone(
         self,
@@ -193,7 +197,7 @@ class NcbWordOverrides:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class NcbExceptions:
     """All NCB-specific data — loaded from one ``exceptions.json``.
 

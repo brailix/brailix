@@ -27,9 +27,12 @@ text backend's whole-word-capitals branch (``backend.latin``).
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.config import BrailleProfile
+
+if _TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def iter_letter_runs(

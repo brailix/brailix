@@ -7,8 +7,7 @@ into :class:`BrailleProfile`.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.config.loader._refs import (
     _flag_dict_bool,
@@ -20,6 +19,10 @@ from brailix.core.config.loader._refs import (
     _resolve_table,
     _symbol_spacing_dict,
 )
+
+if _TYPE_CHECKING:
+    from pathlib import Path
+    from typing import Any
 
 _EMPTY_MATH: dict[str, Any] = {
     "symbols": {},

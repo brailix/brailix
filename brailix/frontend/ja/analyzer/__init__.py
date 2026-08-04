@@ -28,18 +28,20 @@ the dictionary's pronunciation field (janome ``phonetic``, fugashi UniDic
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Protocol as _Protocol
+from typing import runtime_checkable as _runtime_checkable
 
 from brailix.core.span import Span
 from brailix.frontend.ja._chars import _is_kana
 from brailix.ir.inline import InlineNode, Space, Word
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from brailix.core.context import FrontendContext
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class JapaneseToken:
     """One morpheme: surface text, a katakana pronunciation-form reading
     (``None`` when the analyzer can't read it), the analyzer's
@@ -52,8 +54,8 @@ class JapaneseToken:
     span: Span | None = None
 
 
-@runtime_checkable
-class JapaneseAnalyzer(Protocol):
+@_runtime_checkable
+class JapaneseAnalyzer(_Protocol):
     name: str
 
     def analyze(

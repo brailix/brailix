@@ -14,10 +14,13 @@ texture pattern. Pure standard library, like the rest of the backend.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.ir.tactile import TactileRaster
+
+if _TYPE_CHECKING:
+    from collections.abc import Sequence
 
 # Touch-distinguishable textures, ordered clearest/sparsest first so the
 # first few distinct fills in a drawing get the easiest-to-read patterns.
@@ -83,7 +86,7 @@ def _point_in_polygon(x: int, y: int, pts: Sequence[tuple[int, int]]) -> bool:
     return inside
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class FillStyle:
     """The parameters every texture fill shares: which touch ``texture`` to
     stamp, the pattern's line ``spacing`` and ``thickness`` in device pixels,

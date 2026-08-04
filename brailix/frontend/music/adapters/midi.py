@@ -20,15 +20,15 @@ with ``extra="midi"``; a missing package surfaces as
 
 from __future__ import annotations
 
-import io
-import warnings
-from dataclasses import dataclass
+import io as _io
+import warnings as _warnings
+from dataclasses import dataclass as _dataclass
 
 from brailix.core.context import MusicContext
 from brailix.frontend.music.adapters.musicxml import music_error_wrap
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class MidiSourceAdapter:
     """MIDI bytes → MusicXML string via partitura.
 
@@ -66,11 +66,11 @@ class MidiSourceAdapter:
         try:
             # partitura emits UserWarnings for unsupported MIDI features;
             # they're noise for a library caller, so scope-suppress them.
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                midi = mido.MidiFile(file=io.BytesIO(src))
+            with _warnings.catch_warnings():
+                _warnings.simplefilter("ignore")
+                midi = mido.MidiFile(file=_io.BytesIO(src))
                 score = partitura.load_score_midi(midi)
-                buf = io.BytesIO()
+                buf = _io.BytesIO()
                 partitura.save_musicxml(score, buf)
             return buf.getvalue().decode("utf-8", errors="replace")
         except Exception as e:  # noqa: BLE001 — third-party failures vary

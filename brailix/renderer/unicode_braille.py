@@ -24,7 +24,7 @@ Blank cell → ``U+2800`` (⠀). Eight-dot cells are supported.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
 
 from brailix.ir.braille import BrailleCell, BrailleDocument, BrailleSequence
 
@@ -61,7 +61,7 @@ def char_to_dots(ch: str) -> tuple[int, ...]:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class UnicodeBrailleRenderer:
     """Convert a :class:`BrailleDocument` or :class:`BrailleSequence`
     into a Unicode braille string.

@@ -45,11 +45,11 @@ same renderers :meth:`brailix.TranslationResult.render` exposes.
 
 from __future__ import annotations
 
-import argparse
-import dataclasses
-import json
-import sys
-from typing import TYPE_CHECKING, Any, Literal
+import argparse as _argparse
+import dataclasses as _dataclasses
+import json as _json
+import sys as _sys
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix import Pipeline, __version__
 from brailix.core import RunMode
@@ -67,8 +67,9 @@ from brailix.renderer import (
     renderer_registry,
 )
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from collections.abc import Sequence
+    from typing import Any, Literal
 
     from brailix.pipeline import TranslationResult
 
@@ -77,7 +78,7 @@ if TYPE_CHECKING:
 # would make ``--help`` describe a run the library doesn't do — and the two
 # are the same decision, so only one of them should be allowed to state it.
 _PIPELINE_DEFAULTS: dict[str, Any] = {
-    f.name: f.default for f in dataclasses.fields(Pipeline)
+    f.name: f.default for f in _dataclasses.fields(Pipeline)
 }
 
 # Formats the ``--in-format`` flag (text / stdin) accepts. These mirror
@@ -105,15 +106,15 @@ def _positive_int(value: str) -> int:
     try:
         n = int(value)
     except ValueError:
-        raise argparse.ArgumentTypeError(
+        raise _argparse.ArgumentTypeError(
             f"expected an integer, got {value!r}"
         ) from None
     if n < 1:
-        raise argparse.ArgumentTypeError(f"must be >= 1, got {n}")
+        raise _argparse.ArgumentTypeError(f"must be >= 1, got {n}")
     return n
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser() -> _argparse.ArgumentParser:
     """Build the argument parser.
 
     Choices for ``--to`` come from the live renderer registry and ``--mode``
@@ -133,10 +134,10 @@ def build_parser() -> argparse.ArgumentParser:
     prose, and ``tests/test_output_domains.py`` is what keeps it honest.
     """
     renderers = braille_renderer_names()
-    parser = argparse.ArgumentParser(
+    parser = _argparse.ArgumentParser(
         prog="brailix",
         description="Compile text, Markdown, Word, and MusicXML into braille.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=_argparse.RawDescriptionHelpFormatter,
         epilog=_EPILOG,
     )
 
@@ -337,7 +338,7 @@ def _print_by_language(family: str) -> None:
             print(
                 f"brailix: language {lang!r} is registered but unavailable: "
                 f"{_format_error(exc)}",
-                file=sys.stderr,
+                file=_sys.stderr,
             )
             continue
         if not names:
@@ -347,7 +348,7 @@ def _print_by_language(family: str) -> None:
             print(f"  {name}")
 
 
-def _handle_discovery(args: argparse.Namespace) -> int | None:
+def _handle_discovery(args: _argparse.Namespace) -> int | None:
     """Run a ``--list-*`` / ``--version`` action if requested.
 
     Returns the exit code to use, or ``None`` if no discovery flag was set
@@ -396,7 +397,7 @@ def _profile_language(name: str) -> str | None:
 
 
 def _validate_language_adapters(
-    args: argparse.Namespace, parser: argparse.ArgumentParser
+    args: _argparse.Namespace, parser: _argparse.ArgumentParser
 ) -> None:
     """Check ``--analyzer`` / ``--resolver`` against the *profile's* language.
 
@@ -450,7 +451,7 @@ def _validate_language_adapters(
             )
 
 
-def _validate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+def _validate(args: _argparse.Namespace, parser: _argparse.ArgumentParser) -> None:
     """Reject combinations argparse can't express, with clean exit-2 errors.
 
     ``--analyzer`` / ``--resolver`` are validated against the live registry of
@@ -504,7 +505,7 @@ def _validate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None
 
 
 def _produce_output(
-    result: TranslationResult, args: argparse.Namespace
+    result: TranslationResult, args: _argparse.Namespace
 ) -> str | bytes:
     """Render ``result`` to the payload the user asked for.
 
@@ -514,7 +515,7 @@ def _produce_output(
     wrapped + paginated. ``cells`` is structural JSON and never laid out.
     """
     if args.to == "cells":
-        return json.dumps(
+        return _json.dumps(
             result.render("cells"), indent=2, ensure_ascii=False
         ) + "\n"
 
@@ -544,11 +545,11 @@ def _write_output(payload: str | bytes, output_path: str | None) -> None:
             with open(output_path, "wb") as fh:
                 fh.write(payload)
             return
-        buffer = getattr(sys.stdout, "buffer", None)
+        buffer = getattr(_sys.stdout, "buffer", None)
         if buffer is not None:
             buffer.write(payload)
         else:  # text-only stream (e.g. a captured test stdout): BRF is ASCII
-            sys.stdout.write(payload.decode("ascii"))
+            _sys.stdout.write(payload.decode("ascii"))
         return
 
     text = payload if payload.endswith("\n") else payload + "\n"
@@ -556,7 +557,7 @@ def _write_output(payload: str | bytes, output_path: str | None) -> None:
         with open(output_path, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
         return
-    sys.stdout.write(text)
+    _sys.stdout.write(text)
 
 
 def _reconfigure_utf8_streams() -> None:
@@ -567,7 +568,7 @@ def _reconfigure_utf8_streams() -> None:
     console codepage. A no-op for streams that can't be reconfigured — a
     captured test stream, or a closed std stream.
     """
-    for stream in (sys.stdout, sys.stderr):
+    for stream in (_sys.stdout, _sys.stderr):
         if stream is not None and hasattr(stream, "reconfigure"):
             try:
                 stream.reconfigure(encoding="utf-8")
@@ -599,7 +600,7 @@ def _read_stdin() -> str | None:
     closed. Answering "no input" instead lands on the usage error that
     already tells the user what to do.
     """
-    stdin = sys.stdin
+    stdin = _sys.stdin
     if stdin is None:
         return None
     try:
@@ -621,7 +622,7 @@ def _read_stdin() -> str | None:
 
 
 def _translate(
-    pipe: Pipeline, args: argparse.Namespace, source_text: str | None
+    pipe: Pipeline, args: _argparse.Namespace, source_text: str | None
 ) -> TranslationResult:
     """Run the pipeline on the selected input source.
 
@@ -647,7 +648,7 @@ def _emit_warnings(result: TranslationResult, quiet: bool) -> None:
     if quiet:
         return
     for warning in result.warnings:
-        print(f"[{warning.code}] {warning.message}", file=sys.stderr)
+        print(f"[{warning.code}] {warning.message}", file=_sys.stderr)
 
 
 def _format_error(exc: Exception) -> str:
@@ -684,7 +685,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.page_numbers and args.page_height is None:
         print(
             "brailix: --page-numbers has no effect without --page-height",
-            file=sys.stderr,
+            file=_sys.stderr,
         )
 
     try:
@@ -714,7 +715,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Bare KeyError is deliberately NOT caught: a genuine internal dict-miss
         # is a programming bug and should surface as a crash + traceback, not be
         # masked as a user-facing error.
-        print(f"brailix: {_format_error(exc)}", file=sys.stderr)
+        print(f"brailix: {_format_error(exc)}", file=_sys.stderr)
         return 1
 
     _emit_warnings(result, args.quiet)
@@ -723,7 +724,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         payload = _produce_output(result, args)
         _write_output(payload, args.output)
     except (BrailixError, OSError) as exc:  # see the translate try above re KeyError
-        print(f"brailix: {_format_error(exc)}", file=sys.stderr)
+        print(f"brailix: {_format_error(exc)}", file=_sys.stderr)
         return 1
     return 0
 

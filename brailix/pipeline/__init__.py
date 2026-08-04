@@ -3,9 +3,10 @@
 Wires together segmentation, normalization, language-specific
 processing (Chinese tokenize + pinyin), math parsing, and the Backend
 dispatcher into one :meth:`Pipeline.translate_text` call. Each
-frontend subsystem has its own single-callable public interface
-(see :mod:`brailix.frontend`); this module is just orchestration
-plus the optional name-override knobs.
+frontend subsystem has its own single-callable subsystem entry point
+(see :mod:`brailix.frontend`, which is also where the line between
+those entry points and the published surface is drawn); this module
+is just orchestration plus the optional name-override knobs.
 
 Rendering is **deferred**: :meth:`translate_text` returns a
 :class:`TranslationResult` carrying the parsed IR and the braille IR,
@@ -70,13 +71,13 @@ driver's injected parsers instead.
 
 from __future__ import annotations
 
-import os
-import xml.etree.ElementTree as ET
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
-from pathlib import Path
-from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+import xml.etree.ElementTree as _ET
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from dataclasses import replace as _replace
+from pathlib import Path as _Path
+from types import MappingProxyType as _MappingProxyType
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.block import translate_document as _translate_document
 from brailix.core.config import BrailleProfile
@@ -134,6 +135,17 @@ from brailix.ir.inline import MathInline
 # ``brailix.pipeline`` beside ``Pipeline`` itself, tab-completed there, and a
 # downstream author had no way to tell them apart from the API.
 # ``tests/test_public_api.py`` enforces exactly that line.
+#
+# Names from outside brailix are a separate rule, and it is not this module's
+# alone: no module in the package binds one plainly. ``from brailix.pipeline
+# import Path`` used to work, and while ``pathlib.Path`` is nobody's promise to
+# break, the address it came from was ours to answer for — "go to definition"
+# on ``Pipeline`` lands here, and an editor completes whatever resolves.
+# Runtime ones are aliased (``_os``, ``_ET``, ``_dataclass``); a name only ever
+# written in an annotation is imported under ``if _TYPE_CHECKING:`` below,
+# where it is not a binding at all.
+# ``test_no_module_binds_a_foreign_name_under_a_plain_name`` checks every
+# module in the package for it.
 from brailix.pipeline._fingerprint import (
     asset_resolver_identity as _asset_resolver_identity,
 )
@@ -164,7 +176,11 @@ from brailix.pipeline._session import _InlineTextTranslator
 from brailix.pipeline._session import warn_epoch_changed as _warn_epoch_changed
 from brailix.pipeline.frontend_driver import FrontendDriver as _FrontendDriver
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
+    import os
+    from collections.abc import Callable, Mapping, Sequence
+    from typing import Any
+
     from brailix.backend.tactile.profile import TactileProfile
     from brailix.core.protocols import GraphicAssetResolver
 
@@ -284,7 +300,7 @@ def _freeze_seg_dict(
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Pipeline:
     """Convenience wrapper for the default end-to-end flow.
 
@@ -412,7 +428,7 @@ class Pipeline:
     # fingerprint at construction, so an in-place ``pipe.user_pinyin_dict[w]
     # = r`` would change the braille while the fingerprint — and every
     # ``source_hash`` derived from it — stayed put.
-    user_pinyin_dict: Mapping[str, str] = field(default_factory=dict)
+    user_pinyin_dict: Mapping[str, str] = _field(default_factory=dict)
     # Personal segmentation dictionary (user-authored surface→pieces map),
     # layered on top of whichever analyzer runs: the zh frontend applies it
     # as a post-pass, so a word division the user pinned wins for every
@@ -427,7 +443,7 @@ class Pipeline:
     # A front-end is free to present both as one "my dictionary" to its user.
     #
     # Same defensive copy behind a read-only view, for the same reason.
-    user_seg_dict: Mapping[str, Sequence[str]] = field(default_factory=dict)
+    user_seg_dict: Mapping[str, Sequence[str]] = _field(default_factory=dict)
     # Feature-flag overrides applied to the loaded profile, keyed by the
     # dotted names ``BrailleProfile.feature`` reads (``"zh.tone"``).
     #
@@ -450,7 +466,7 @@ class Pipeline:
     # to reach back into and edit after the fingerprint was taken. (The
     # neighbouring ``user_seg_dict`` answers the same hazard the other way —
     # its values are legitimately sequences, so it freezes them.)
-    profile_features: Mapping[str, Any] = field(default_factory=dict)
+    profile_features: Mapping[str, Any] = _field(default_factory=dict)
     # Unlike the frontend families there is no ``auto`` here, deliberately:
     # a renderer choice is an OUTPUT FORMAT, and no amount of probing can
     # tell whether the caller wanted BRF or a PDF. ``unicode`` is the one
@@ -475,20 +491,20 @@ class Pipeline:
     # section: the export deletes a citation of an unpublished note whole, and
     # can only do that when the reference is the entire parenthetical.)
     asset_resolver: GraphicAssetResolver | None = None
-    _profile: BrailleProfile = field(init=False, default=None)  # type: ignore[assignment]
-    _frontend: _FrontendDriver = field(init=False, default=None)  # type: ignore[assignment]
+    _profile: BrailleProfile = _field(init=False, default=None)  # type: ignore[assignment]
+    _frontend: _FrontendDriver = _field(init=False, default=None)  # type: ignore[assignment]
     # The configuration-only digest (compilation_fingerprint) plus the
     # cached fold of it with the registry-generation snapshot it was last
     # combined with — see the ``fingerprint`` property.
-    _fingerprint_base: str = field(init=False, default="")
-    _fingerprint: str = field(init=False, default="")
-    _fingerprint_env: tuple[tuple[int, ...], str] | None = field(
+    _fingerprint_base: str = _field(init=False, default="")
+    _fingerprint: str = _field(init=False, default="")
+    _fingerprint_env: tuple[tuple[int, ...], str] | None = _field(
         init=False, default=None
     )
     # Flipped at the end of ``__post_init__``: until then the dataclass's own
     # ``__init__`` and the normalisation below are still writing the fields,
     # and they must go through.
-    _configured: bool = field(init=False, default=False)
+    _configured: bool = _field(init=False, default=False)
 
     def __setattr__(self, name: str, value: Any) -> None:
         """Reject writes to :data:`_FROZEN_CONFIG_FIELDS` on a built pipeline.
@@ -527,7 +543,7 @@ class Pipeline:
         # dictionary and may go on editing it, but this pipeline's digest was
         # computed from the contents at *this* moment, so it must hold a
         # snapshot nobody else can reach — and one it cannot edit either.
-        self.user_pinyin_dict = MappingProxyType(dict(self.user_pinyin_dict))
+        self.user_pinyin_dict = _MappingProxyType(dict(self.user_pinyin_dict))
         # Same, plus each value is frozen to a tuple: a ``MappingProxyType``
         # over a copied dict protects the mapping, not the LISTS inside it,
         # so a caller who kept ``{"国家通用": ["国家", "通用"]}`` could still
@@ -536,10 +552,10 @@ class Pipeline:
         # to freeze are skipped rather than raised on (see
         # :func:`_freeze_seg_dict`), so what the fingerprint below hashes is
         # exactly what this pipeline holds.
-        self.user_seg_dict = MappingProxyType(
+        self.user_seg_dict = _MappingProxyType(
             _freeze_seg_dict(self.user_seg_dict)
         )
-        self.profile_features = MappingProxyType(dict(self.profile_features))
+        self.profile_features = _MappingProxyType(dict(self.profile_features))
         # Accept ``Path`` objects too — keeping the dataclass field type
         # as ``tuple[str, ...]`` simplifies serialization, but the caller
         # naturally passes :class:`pathlib.Path`.
@@ -555,7 +571,7 @@ class Pipeline:
         )
         self._profile = _load_profile(
             self.profile,
-            extra_search_paths=[Path(p) for p in self.extra_profile_paths]
+            extra_search_paths=[_Path(p) for p in self.extra_profile_paths]
             or None,
         ).with_features(self.profile_features)
         self._frontend = _FrontendDriver(
@@ -846,7 +862,7 @@ class Pipeline:
         pipe = (
             self
             if braille_profile == self.profile
-            else replace(self, profile=braille_profile)
+            else _replace(self, profile=braille_profile)
         )
         return _InlineTextTranslator(pipe, host_warnings, "graphic_label")
 
@@ -1277,7 +1293,7 @@ class Pipeline:
                 if domain is not None:
                     anchor.setdefault("domain", domain)
                 host_warnings.emit(
-                    replace(w, span=host_span, anchor=anchor)
+                    _replace(w, span=host_span, anchor=anchor)
                 )
         return braille_doc.all_cells()
 
@@ -1363,7 +1379,7 @@ def translate_graphic(
     )
     tree = _frontend_parse_graphic_tree(source, gctx)
     if tree is None:  # a monkeypatched / fake frontend may return None
-        tree = ET.Element("svg", {"data-bk-error": "no graphic tree"})
+        tree = _ET.Element("svg", {"data-bk-error": "no graphic tree"})
 
     translator = label_translator
     if translator is None and braille_profile is not None:

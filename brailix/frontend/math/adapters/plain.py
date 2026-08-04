@@ -25,7 +25,7 @@ was". The two-tier contract is now the same as the music subsystem's
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
 
 from brailix.core.context import MathContext
 from brailix.frontend.math.utils import merror_wrap
@@ -33,7 +33,7 @@ from brailix.frontend.math.utils import merror_wrap
 _REASON = "plain math source unsupported -- declare a real source"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class PlainMathSourceAdapter:
     """Surface any undeclared math input as a soft failure."""
 

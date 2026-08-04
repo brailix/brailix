@@ -22,12 +22,15 @@ leaf handler in :mod:`brailix.backend.math.handlers.leaves`.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.utils import _parse_bk_span
 from brailix.core.dispatch import Handler, LazyTagDispatcher
 from brailix.ir.braille import BrailleCell
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 
 def _load() -> tuple[dict[str, Handler], Handler]:

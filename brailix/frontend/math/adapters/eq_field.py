@@ -19,10 +19,10 @@ over.
 
 from __future__ import annotations
 
-import re
-import xml.etree.ElementTree as ET
-from collections.abc import Callable
-from dataclasses import dataclass
+import re as _re
+import xml.etree.ElementTree as _ET
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import MathContext
 from brailix.frontend.math.adapters._atoms import tokenize_math_text
@@ -33,6 +33,9 @@ from brailix.frontend.math.utils import (
     mtext,
 )
 
+if _TYPE_CHECKING:
+    from collections.abc import Callable
+
 # Word *general field* switches that can trail an EQ instruction but are
 # document-field formatting, not EQ math syntax: ``\* MERGEFORMAT`` /
 # ``\* CHARFORMAT`` / ``\* Upper`` (the ``\*`` format switch + a keyword,
@@ -42,13 +45,13 @@ from brailix.frontend.math.utils import (
 # (``MERGEFORMAT`` → <mi>) or operator (``\!`` → factorial <mo>). The EQ
 # *math* switches are all ``\<letter>`` (\f \r \s \b \a \i \x \o \d \l …),
 # so matching only \*, \!, \#, \@ never touches them.
-_GENERAL_FIELD_SWITCH_RE = re.compile(
+_GENERAL_FIELD_SWITCH_RE = _re.compile(
     r"""\\(?:
           \*\s*[A-Za-z]+        # \* MERGEFORMAT / \* Upper / ...
         | [#@]\s*"[^"]*"        # \# "0.00" / \@ "M/d/yyyy"
         | !                     # \! lock-result
     )""",
-    re.VERBOSE,
+    _re.VERBOSE,
 )
 
 
@@ -57,39 +60,39 @@ _GENERAL_FIELD_SWITCH_RE = re.compile(
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _Text:
     """A run of literal characters — split into mi/mn/mo at emit time."""
     text: str
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _Frac:
     num: list[Node]
     den: list[Node]
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _Brackets:
     left: str           # may be empty (no left bracket)
     right: str          # may be empty (no right bracket — used for cases)
     content: list[Node]
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _Array:
     cols: int
     align: str          # 'l', 'c', 'r'
     cells: list[list[Node]]   # row-major list of cell node-lists
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _Radical:
     index: list[Node] | None  # None = √ (no degree)
     radicand: list[Node]
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _Nary:
     op: str             # ∫ ∑ ∏ or custom char
     lower: list[Node]
@@ -98,35 +101,35 @@ class _Nary:
     limits_above: bool  # True for sum/product; False for integral
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _Script:
     kind: str           # 'sup' or 'sub'
     content: list[Node]
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _Box:
     sides: frozenset[str]   # subset of {'top','bottom','left','right'}; empty = all four
     content: list[Node]
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _Overstrike:
     items: list[list[Node]]
     align: str          # 'l', 'c', 'r'
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _Displace:
     points: int         # signed (positive = forward, negative = backward)
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _List:
     items: list[list[Node]]
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _Unknown:
     name: str
     args: list[list[Node]]
@@ -143,7 +146,7 @@ Node = (
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class EqFieldMathSourceAdapter:
     """Convert a Word ``eq`` field instruction text into MathML.
 
@@ -165,7 +168,7 @@ class EqFieldMathSourceAdapter:
         if not text:
             return merror_wrap("", reason="empty input")
         # Strip the ``eq`` prefix (case-insensitive, may be absent).
-        m = re.match(r"(?is)eq\b\s*", text)
+        m = _re.match(r"(?is)eq\b\s*", text)
         if m:
             text = text[m.end():]
         # Drop Word general field switches (\* MERGEFORMAT, \!, \# / \@
@@ -184,14 +187,14 @@ class EqFieldMathSourceAdapter:
             return merror_wrap(text, reason=f"eq parse error: {e}")
         except Exception as e:  # noqa: BLE001 — keep adapter soft-failing
             return merror_wrap(text, reason=f"eq convert error: {e}")
-        math = ET.Element("math", {"xmlns": _MATHML_NS})
+        math = _ET.Element("math", {"xmlns": _MATHML_NS})
         try:
             children = _emit_sequence(nodes)
         except Exception as e:  # noqa: BLE001
             return merror_wrap(text, reason=f"eq emit error: {e}")
         for c in children:
             math.append(c)
-        return ET.tostring(math, encoding="unicode")
+        return _ET.tostring(math, encoding="unicode")
 
 
 def _load() -> EqFieldMathSourceAdapter:
@@ -203,7 +206,7 @@ def _load() -> EqFieldMathSourceAdapter:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _Tok:
     type: str           # 'switch' | 'esc' | 'char' | 'lparen' | 'rparen' | 'comma' | 'semi'
     value: str
@@ -772,39 +775,39 @@ def _collapse_text(nodes: list[Node]) -> list[Node]:
     return out
 
 
-def _emit_sequence(nodes: list[Node]) -> list[ET.Element]:
+def _emit_sequence(nodes: list[Node]) -> list[_ET.Element]:
     """Convert a flat node list to MathML atoms."""
-    out: list[ET.Element] = []
+    out: list[_ET.Element] = []
     for node in _collapse_text(nodes):
         out.extend(_emit(node))
     return out
 
 
-def _emit_mrow(nodes: list[Node]) -> ET.Element:
+def _emit_mrow(nodes: list[Node]) -> _ET.Element:
     """Wrap ``nodes`` in an ``<mrow>`` (or unwrap if exactly one child)."""
     return mrow_wrap(_emit_sequence(nodes))
 
 
-def _emit(node: Node) -> list[ET.Element]:
+def _emit(node: Node) -> list[_ET.Element]:
     if isinstance(node, _Text):
         # EQ-field syntax uses ``,`` as the argument separator (``\f(1,2)``
         # is two operands), so a comma must never group into a number.
         return tokenize_math_text(node.text, comma_in_number=False)
     if isinstance(node, _Frac):
-        mfrac = ET.Element("mfrac")
+        mfrac = _ET.Element("mfrac")
         mfrac.append(_emit_mrow(node.num))
         mfrac.append(_emit_mrow(node.den))
         return [mfrac]
     if isinstance(node, _Brackets):
-        mrow = ET.Element("mrow")
+        mrow = _ET.Element("mrow")
         if node.left:
-            op = ET.Element("mo", {"fence": "true"})
+            op = _ET.Element("mo", {"fence": "true"})
             op.text = node.left
             mrow.append(op)
         for c in _emit_sequence(node.content):
             mrow.append(c)
         if node.right:
-            op = ET.Element("mo", {"fence": "true"})
+            op = _ET.Element("mo", {"fence": "true"})
             op.text = node.right
             mrow.append(op)
         return [mrow]
@@ -812,10 +815,10 @@ def _emit(node: Node) -> list[ET.Element]:
         return [_emit_array(node)]
     if isinstance(node, _Radical):
         if node.index is None:
-            msqrt = ET.Element("msqrt")
+            msqrt = _ET.Element("msqrt")
             msqrt.append(_emit_mrow(node.radicand))
             return [msqrt]
-        mroot = ET.Element("mroot")
+        mroot = _ET.Element("mroot")
         mroot.append(_emit_mrow(node.radicand))
         mroot.append(_emit_mrow(node.index))
         return [mroot]
@@ -823,11 +826,11 @@ def _emit(node: Node) -> list[ET.Element]:
         return [_emit_nary(node)]
     if isinstance(node, _Script):
         tag = "msup" if node.kind == "sup" else "msub"
-        elem = ET.Element(tag)
+        elem = _ET.Element(tag)
         # Empty base — the script attaches to whatever comes before it
         # in the surrounding text, which the braille backend reads
         # sequentially.
-        elem.append(ET.Element("mrow"))
+        elem.append(_ET.Element("mrow"))
         elem.append(_emit_mrow(node.content))
         return [elem]
     if isinstance(node, _Box):
@@ -836,7 +839,7 @@ def _emit(node: Node) -> list[ET.Element]:
             if not node.sides or node.sides == frozenset({"top", "bottom", "left", "right"})
             else " ".join(sorted(node.sides))
         )
-        elem = ET.Element("menclose", {"notation": notation})
+        elem = _ET.Element("menclose", {"notation": notation})
         elem.append(_emit_mrow(node.content))
         return [elem]
     if isinstance(node, _Overstrike):
@@ -844,16 +847,16 @@ def _emit(node: Node) -> list[ET.Element]:
     if isinstance(node, _Displace):
         if node.points == 0:
             return []
-        elem = ET.Element("mspace", {"width": f"{node.points}pt"})
+        elem = _ET.Element("mspace", {"width": f"{node.points}pt"})
         return [elem]
     if isinstance(node, _List):
         # Flatten — items are simply concatenated.
-        out: list[ET.Element] = []
+        out: list[_ET.Element] = []
         for item in node.items:
             out.extend(_emit_sequence(item))
         if len(out) == 1:
             return out
-        mrow = ET.Element("mrow")
+        mrow = _ET.Element("mrow")
         for c in out:
             mrow.append(c)
         return [mrow]
@@ -864,9 +867,9 @@ def _emit(node: Node) -> list[ET.Element]:
     raise _EqParseError(f"unhandled node: {type(node).__name__}")
 
 
-def _emit_array(node: _Array) -> ET.Element:
+def _emit_array(node: _Array) -> _ET.Element:
     """Lay cells out row-major into an ``<mtable>``."""
-    mtable = ET.Element("mtable")
+    mtable = _ET.Element("mtable")
     cols = max(1, node.cols)
     # Map our align letter to MathML's columnalign vocabulary.
     align_word = {"l": "left", "c": "center", "r": "right"}.get(node.align, "center")
@@ -874,9 +877,9 @@ def _emit_array(node: _Array) -> ET.Element:
     cells = node.cells
     for row_start in range(0, len(cells), cols):
         row_cells = cells[row_start:row_start + cols]
-        mtr = ET.Element("mtr")
+        mtr = _ET.Element("mtr")
         for cell in row_cells:
-            mtd = ET.Element("mtd")
+            mtd = _ET.Element("mtd")
             for c in _emit_sequence(cell):
                 mtd.append(c)
             mtr.append(mtd)
@@ -884,38 +887,38 @@ def _emit_array(node: _Array) -> ET.Element:
     return mtable
 
 
-def _emit_nary(node: _Nary) -> ET.Element:
+def _emit_nary(node: _Nary) -> _ET.Element:
     """Build ``<munderover>`` or ``<msubsup>`` + integrand."""
-    op = ET.Element("mo")
+    op = _ET.Element("mo")
     op.text = node.op
     has_lower = bool(node.lower)
     has_upper = bool(node.upper)
     if not has_lower and not has_upper:
-        scripted: ET.Element = op
+        scripted: _ET.Element = op
     elif has_lower and has_upper:
         tag = "munderover" if node.limits_above else "msubsup"
-        scripted = ET.Element(tag)
+        scripted = _ET.Element(tag)
         scripted.append(op)
         scripted.append(_emit_mrow(node.lower))
         scripted.append(_emit_mrow(node.upper))
     elif has_lower:
         tag = "munder" if node.limits_above else "msub"
-        scripted = ET.Element(tag)
+        scripted = _ET.Element(tag)
         scripted.append(op)
         scripted.append(_emit_mrow(node.lower))
     else:  # has_upper only
         tag = "mover" if node.limits_above else "msup"
-        scripted = ET.Element(tag)
+        scripted = _ET.Element(tag)
         scripted.append(op)
         scripted.append(_emit_mrow(node.upper))
-    mrow = ET.Element("mrow")
+    mrow = _ET.Element("mrow")
     mrow.append(scripted)
     for c in _emit_sequence(node.integrand):
         mrow.append(c)
     return mrow
 
 
-def _emit_overstrike(node: _Overstrike) -> ET.Element:
+def _emit_overstrike(node: _Overstrike) -> _ET.Element:
     """Approximate overstrike as ``<mover>`` for two items, else
     ``<menclose notation="updiagonalstrike">`` of the first item
     (matches the common "cancel a term" usage), with the remaining
@@ -923,18 +926,18 @@ def _emit_overstrike(node: _Overstrike) -> ET.Element:
     has no precise primitive."""
     items = [item for item in node.items if item]
     if len(items) == 0:
-        return ET.Element("mrow")
+        return _ET.Element("mrow")
     if len(items) == 1:
         return _emit_mrow(items[0])
     if len(items) == 2:
-        mover = ET.Element("mover", {"accent": "false"})
+        mover = _ET.Element("mover", {"accent": "false"})
         mover.append(_emit_mrow(items[0]))
         mover.append(_emit_mrow(items[1]))
         return mover
     # 3+ items — stack via successive mover so all content survives.
     base = _emit_mrow(items[0])
     for overlay in items[1:]:
-        mover = ET.Element("mover", {"accent": "false"})
+        mover = _ET.Element("mover", {"accent": "false"})
         mover.append(base)
         mover.append(_emit_mrow(overlay))
         base = mover

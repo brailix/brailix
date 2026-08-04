@@ -39,16 +39,19 @@ escaping and well-formedness come for free.
 
 from __future__ import annotations
 
-import json
-import xml.etree.ElementTree as ET
-from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import Any
+import json as _json
+import xml.etree.ElementTree as _ET
+from collections.abc import Sequence as _Sequence
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import GraphicsContext
 from brailix.core.errors import WarningCollector
 from brailix.frontend.graphics._numbers import as_finite, non_finite_paths
 from brailix.frontend.graphics.adapters.svg import svg_error_wrap
+
+if _TYPE_CHECKING:
+    from typing import Any
 
 
 def _fmt(value: Any) -> str:
@@ -67,16 +70,16 @@ def _fmt(value: Any) -> str:
 
 
 def _points_attr(points: Any) -> str:
-    if not isinstance(points, Sequence):
+    if not isinstance(points, _Sequence):
         return ""
     out: list[str] = []
     for p in points:
-        if isinstance(p, Sequence) and not isinstance(p, str) and len(p) >= 2:
+        if isinstance(p, _Sequence) and not isinstance(p, str) and len(p) >= 2:
             out.append(f"{_fmt(p[0])},{_fmt(p[1])}")
     return " ".join(out)
 
 
-def _style(el: ET.Element, shape: dict[str, Any]) -> None:
+def _style(el: _ET.Element, shape: dict[str, Any]) -> None:
     """Carry the optional ``stroke_width`` (thicker line) and ``fill``
     (texture name / alias / colour → tactile texture) onto the element."""
     if "stroke_width" in shape:
@@ -85,48 +88,48 @@ def _style(el: ET.Element, shape: dict[str, Any]) -> None:
         el.set("fill", str(shape["fill"]))
 
 
-def _b_line(svg: ET.Element, s: dict[str, Any]) -> None:
-    el = ET.SubElement(svg, "line")
+def _b_line(svg: _ET.Element, s: dict[str, Any]) -> None:
+    el = _ET.SubElement(svg, "line")
     for k in ("x1", "y1", "x2", "y2"):
         el.set(k, _fmt(s.get(k, 0)))
     _style(el, s)
 
 
-def _b_rect(svg: ET.Element, s: dict[str, Any]) -> None:
-    el = ET.SubElement(svg, "rect")
+def _b_rect(svg: _ET.Element, s: dict[str, Any]) -> None:
+    el = _ET.SubElement(svg, "rect")
     for k in ("x", "y", "width", "height"):
         el.set(k, _fmt(s.get(k, 0)))
     _style(el, s)
 
 
-def _b_circle(svg: ET.Element, s: dict[str, Any]) -> None:
-    el = ET.SubElement(svg, "circle")
+def _b_circle(svg: _ET.Element, s: dict[str, Any]) -> None:
+    el = _ET.SubElement(svg, "circle")
     for k in ("cx", "cy", "r"):
         el.set(k, _fmt(s.get(k, 0)))
     _style(el, s)
 
 
-def _b_ellipse(svg: ET.Element, s: dict[str, Any]) -> None:
-    el = ET.SubElement(svg, "ellipse")
+def _b_ellipse(svg: _ET.Element, s: dict[str, Any]) -> None:
+    el = _ET.SubElement(svg, "ellipse")
     for k in ("cx", "cy", "rx", "ry"):
         el.set(k, _fmt(s.get(k, 0)))
     _style(el, s)
 
 
-def _b_polyline(svg: ET.Element, s: dict[str, Any]) -> None:
-    el = ET.SubElement(svg, "polyline")
+def _b_polyline(svg: _ET.Element, s: dict[str, Any]) -> None:
+    el = _ET.SubElement(svg, "polyline")
     el.set("points", _points_attr(s.get("points")))
     _style(el, s)
 
 
-def _b_polygon(svg: ET.Element, s: dict[str, Any]) -> None:
-    el = ET.SubElement(svg, "polygon")
+def _b_polygon(svg: _ET.Element, s: dict[str, Any]) -> None:
+    el = _ET.SubElement(svg, "polygon")
     el.set("points", _points_attr(s.get("points")))
     _style(el, s)
 
 
-def _b_label(svg: ET.Element, s: dict[str, Any]) -> None:
-    el = ET.SubElement(svg, "text")
+def _b_label(svg: _ET.Element, s: dict[str, Any]) -> None:
+    el = _ET.SubElement(svg, "text")
     el.set("x", _fmt(s.get("x", 0)))
     el.set("y", _fmt(s.get("y", 0)))
     el.text = str(s.get("text", ""))
@@ -170,7 +173,7 @@ def primitives_to_svg(
         return svg_error_wrap(
             type(spec).__name__, reason="primitives spec must be an object"
         )
-    svg = ET.Element("svg")
+    svg = _ET.Element("svg")
     # ``as_finite`` rather than a bare ``float()``: an infinite canvas passes
     # ``> 0`` and would set ``width="infmm"`` on the root, which is where a
     # page size comes from.
@@ -207,10 +210,10 @@ def primitives_to_svg(
                 )
                 continue
             builder(svg, shape)
-    return ET.tostring(svg, encoding="unicode")
+    return _ET.tostring(svg, encoding="unicode")
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class PrimitivesSourceAdapter:
     """Adapter: a JSON primitives spec → SVG."""
 
@@ -228,8 +231,8 @@ class PrimitivesSourceAdapter:
         if not text:
             return svg_error_wrap("", reason="empty primitives spec")
         try:
-            spec = json.loads(text)
-        except json.JSONDecodeError as e:
+            spec = _json.loads(text)
+        except _json.JSONDecodeError as e:
             return svg_error_wrap(text, reason=f"invalid JSON: {e}")
         warnings = ctx.warnings if ctx is not None else None
         return primitives_to_svg(spec, warnings)

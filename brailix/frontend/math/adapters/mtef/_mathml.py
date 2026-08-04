@@ -9,24 +9,27 @@ here because :func:`_build_tmpl` selects between them.
 
 from __future__ import annotations
 
-import logging
-import xml.etree.ElementTree as ET
-from collections.abc import Callable
-from typing import Any
+import logging as _logging
+import xml.etree.ElementTree as _ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.frontend.math.adapters._atoms import classify_math_token
 from brailix.frontend.math.adapters.mtef._reader import _MtefParseError
 from brailix.frontend.math.utils import mrow_wrap, mtext
 
-_LOG = logging.getLogger(__name__)
+if _TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
+
+_LOG = _logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Common helpers — building MathML
 # ---------------------------------------------------------------------------
 
 
-def _mo(text: str, **attrs: str) -> ET.Element:
-    el = ET.Element("mo")
+def _mo(text: str, **attrs: str) -> _ET.Element:
+    el = _ET.Element("mo")
     el.text = text
     for k, v in attrs.items():
         el.set(k, v)
@@ -46,7 +49,7 @@ _SCRIPT_BASE_TAGS = frozenset({"msub", "msup", "msubsup"})
 
 
 def _attach_preceding_base(
-    sink: list[ET.Element], built: list[ET.Element]
+    sink: list[_ET.Element], built: list[_ET.Element]
 ) -> None:
     """Move the previous sibling into an empty script base slot.
 
@@ -82,7 +85,7 @@ def _attach_preceding_base(
 
 def _char_to_mathml(
     char_value: int | None, embell_list: list[int]
-) -> list[ET.Element]:
+) -> list[_ET.Element]:
     """Map an MTCode / character value plus embellishments to MathML atoms.
 
     The base atom's tag is decided by character class: digits→``<mn>``,
@@ -125,11 +128,11 @@ def _char_to_mathml(
     if not ch or ch.isspace():
         return []
     tag = _classify_token(ch)
-    base = ET.Element(tag)
+    base = _ET.Element(tag)
     base.text = ch
     if not embell_list:
         return [base]
-    out: ET.Element = base
+    out: _ET.Element = base
     for code in embell_list:
         out = _wrap_embell(out, code)
     return [out]
@@ -160,22 +163,22 @@ _EMBELL_UNDER = {
 }
 
 
-def _wrap_embell(base: ET.Element, code: int) -> ET.Element:
+def _wrap_embell(base: _ET.Element, code: int) -> _ET.Element:
     """Wrap ``base`` in the right script container for an embell code."""
     if code == 10:  # slash — render as base + mo "/"
-        mrow = ET.Element("mrow")
+        mrow = _ET.Element("mrow")
         mrow.append(base)
         mrow.append(_mo("̸"))  # combining long solidus overlay
         return mrow
     if code in _EMBELL_UNDER:
-        container = ET.Element("munder")
+        container = _ET.Element("munder")
         container.append(base)
         container.append(_mo(_EMBELL_UNDER[code]))
         return container
     sym = _EMBELL_OVER.get(code)
     if sym is None:
         return base
-    container = ET.Element("mover")
+    container = _ET.Element("mover")
     container.append(base)
     container.append(_mo(sym))
     return container
@@ -189,10 +192,10 @@ def _wrap_embell(base: ET.Element, code: int) -> ET.Element:
 def _build_tmpl(
     selector: int,
     variation: int,
-    slots: list[list[ET.Element]],
+    slots: list[list[_ET.Element]],
     *,
     version: int,
-) -> list[ET.Element]:
+) -> list[_ET.Element]:
     """Translate a TMPL record into MathML.
 
     Dispatch tables differ between v3 and v5 because their selector
@@ -226,25 +229,25 @@ def _build_tmpl(
         return _tmpl_passthrough(slots)
 
 
-def _tmpl_passthrough(slots: list[list[ET.Element]]) -> list[ET.Element]:
+def _tmpl_passthrough(slots: list[list[_ET.Element]]) -> list[_ET.Element]:
     """Default for unrecognised templates: concatenate all slots."""
-    out: list[ET.Element] = []
+    out: list[_ET.Element] = []
     for s in slots:
         out.extend(s)
     return out
 
 
-def _slot(slots: list[list[ET.Element]], i: int) -> ET.Element:
+def _slot(slots: list[list[_ET.Element]], i: int) -> _ET.Element:
     """Return slot ``i`` wrapped in ``<mrow>`` if it has multiple atoms.
 
     Falls back to an empty ``<mrow>`` if the slot is missing — keeps
     MathML well-formed even when the input is truncated.
     """
     if i >= len(slots):
-        return ET.Element("mrow")
+        return _ET.Element("mrow")
     children = slots[i]
     if not children:
-        return ET.Element("mrow")
+        return _ET.Element("mrow")
     return mrow_wrap(list(children))
 
 
@@ -257,9 +260,9 @@ _FENCE_CLOSE = ["⟩", ")", "}", "]", "|", "‖", "⌋", "⌉"]
 def _build_fence(
     open_ch: str | None,
     close_ch: str | None,
-    body: list[ET.Element],
-) -> list[ET.Element]:
-    mrow = ET.Element("mrow")
+    body: list[_ET.Element],
+) -> list[_ET.Element]:
+    mrow = _ET.Element("mrow")
     if open_ch:
         mrow.append(_mo(open_ch, fence="true"))
     for c in body:
@@ -278,17 +281,17 @@ def _build_fence(
 
 def _radical(variation, slots):
     if len(slots) >= 2 and slots[1]:
-        mroot = ET.Element("mroot")
+        mroot = _ET.Element("mroot")
         mroot.append(_slot(slots, 0))
         mroot.append(_slot(slots, 1))
         return [mroot]
-    msqrt = ET.Element("msqrt")
+    msqrt = _ET.Element("msqrt")
     msqrt.append(_slot(slots, 0))
     return [msqrt]
 
 
 def _fraction(variation, slots):
-    mfrac = ET.Element("mfrac")
+    mfrac = _ET.Element("mfrac")
     mfrac.append(_slot(slots, 0))
     mfrac.append(_slot(slots, 1))
     return [mfrac]
@@ -296,35 +299,35 @@ def _fraction(variation, slots):
 
 def _limits(variation, slots):
     """Limit template (lim_{x→0}, ...): slot 0 base, slot 1 under-script."""
-    container = ET.Element("munder")
+    container = _ET.Element("munder")
     container.append(_slot(slots, 0))
     container.append(_slot(slots, 1))
     return [container]
 
 
 def _underbar(variation, slots):
-    container = ET.Element("munder")
+    container = _ET.Element("munder")
     container.append(_slot(slots, 0))
     container.append(_mo("¯"))
     return [container]
 
 
 def _overbar(variation, slots):
-    container = ET.Element("mover")
+    container = _ET.Element("mover")
     container.append(_slot(slots, 0))
     container.append(_mo("¯"))
     return [container]
 
 
 def _hbrace_under(variation, slots):
-    container = ET.Element("munder")
+    container = _ET.Element("munder")
     container.append(_slot(slots, 0))
     container.append(_mo("⏟"))
     return [container]
 
 
 def _hbrace_over(variation, slots):
-    container = ET.Element("mover")
+    container = _ET.Element("mover")
     container.append(_slot(slots, 0))
     container.append(_mo("⏞"))
     return [container]
@@ -377,7 +380,7 @@ def _fence_char_from_slot(slots, idx):
 
 
 def _v5_arrow(variation, slots):
-    container = ET.Element("mover")
+    container = _ET.Element("mover")
     container.append(_slot(slots, 0))
     container.append(_mo("→"))
     return [container]
@@ -389,22 +392,22 @@ def _v5_bigop(op: str):
         sup = slots[2] if len(slots) > 2 and slots[2] else None
         op_el = _mo(op)
         if sub and sup:
-            head = ET.Element("munderover")
+            head = _ET.Element("munderover")
             head.append(op_el)
             head.append(_slot(slots, 1))
             head.append(_slot(slots, 2))
         elif sub:
-            head = ET.Element("munder")
+            head = _ET.Element("munder")
             head.append(op_el)
             head.append(_slot(slots, 1))
         elif sup:
-            head = ET.Element("mover")
+            head = _ET.Element("mover")
             head.append(op_el)
             head.append(_slot(slots, 2))
         else:
             head = op_el
         body = slots[0] if slots else []
-        mrow = ET.Element("mrow")
+        mrow = _ET.Element("mrow")
         mrow.append(head)
         for c in body:
             mrow.append(c)
@@ -413,21 +416,21 @@ def _v5_bigop(op: str):
 
 
 def _v5_subscript(variation, slots):
-    elem = ET.Element("msub")
+    elem = _ET.Element("msub")
     elem.append(_slot(slots, 0))
     elem.append(_slot(slots, 1))
     return [elem]
 
 
 def _v5_superscript(variation, slots):
-    elem = ET.Element("msup")
+    elem = _ET.Element("msup")
     elem.append(_slot(slots, 0))
     elem.append(_slot(slots, 1))
     return [elem]
 
 
 def _v5_subsup(variation, slots):
-    elem = ET.Element("msubsup")
+    elem = _ET.Element("msubsup")
     elem.append(_slot(slots, 0))
     elem.append(_slot(slots, 1))
     elem.append(_slot(slots, 2))
@@ -436,7 +439,7 @@ def _v5_subsup(variation, slots):
 
 def _v5_accent(sym: str):
     def handler(variation, slots):
-        container = ET.Element("mover")
+        container = _ET.Element("mover")
         container.append(_slot(slots, 0))
         container.append(_mo(sym))
         return [container]
@@ -492,7 +495,7 @@ def _v3_paren(open_ch: str, close_ch: str):
 
 def _v3_slash_fraction(variation, slots):
     """selector 41 — slash-style fraction. Renders as a / b inline."""
-    mrow = ET.Element("mrow")
+    mrow = _ET.Element("mrow")
     mrow.append(_slot(slots, 0))
     mrow.append(_mo("/"))
     mrow.append(_slot(slots, 1))
@@ -507,18 +510,18 @@ def _v3_scripts(variation, slots):
     has_sub = bool(variation & 0x01)
     has_sup = bool(variation & 0x02)
     if has_sub and has_sup:
-        elem = ET.Element("msubsup")
+        elem = _ET.Element("msubsup")
         elem.append(_slot(slots, 0))
         elem.append(_slot(slots, 1))
         elem.append(_slot(slots, 2))
         return [elem]
     if has_sub:
-        elem = ET.Element("msub")
+        elem = _ET.Element("msub")
         elem.append(_slot(slots, 0))
         elem.append(_slot(slots, 1))
         return [elem]
     if has_sup:
-        elem = ET.Element("msup")
+        elem = _ET.Element("msup")
         elem.append(_slot(slots, 0))
         elem.append(_slot(slots, 1))
         return [elem]
@@ -531,21 +534,21 @@ def _v3_bigop(op: str):
         has_sup = bool(variation & 0x02)
         op_el = _mo(op)
         if has_sub and has_sup:
-            head = ET.Element("munderover")
+            head = _ET.Element("munderover")
             head.append(op_el)
             head.append(_slot(slots, 1))
             head.append(_slot(slots, 2))
         elif has_sub:
-            head = ET.Element("munder")
+            head = _ET.Element("munder")
             head.append(op_el)
             head.append(_slot(slots, 1))
         elif has_sup:
-            head = ET.Element("mover")
+            head = _ET.Element("mover")
             head.append(op_el)
             head.append(_slot(slots, 2))
         else:
             head = op_el
-        mrow = ET.Element("mrow")
+        mrow = _ET.Element("mrow")
         mrow.append(head)
         # The body (integrand / summand) follows in slot 0 — but the
         # OMML mental model puts it after the operator script. Append
@@ -562,11 +565,11 @@ def _v3_left_sub_sup(variation, slots):
 
     Becomes ``<mmultiscripts>`` so MathML stays semantically correct.
     """
-    elem = ET.Element("mmultiscripts")
+    elem = _ET.Element("mmultiscripts")
     elem.append(_slot(slots, 0))
-    elem.append(ET.Element("none"))
-    elem.append(ET.Element("none"))
-    elem.append(ET.Element("mprescripts"))
+    elem.append(_ET.Element("none"))
+    elem.append(_ET.Element("none"))
+    elem.append(_ET.Element("mprescripts"))
     elem.append(_slot(slots, 1))
     elem.append(_slot(slots, 2))
     return [elem]

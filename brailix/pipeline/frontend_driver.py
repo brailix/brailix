@@ -31,8 +31,9 @@ forced co-location of this class with the parse-function aliases.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
-from typing import TYPE_CHECKING, Any
+import xml.etree.ElementTree as _ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Any as _Any
 
 from brailix.core.config import BrailleProfile
 from brailix.core.context import (
@@ -61,12 +62,12 @@ from brailix.pipeline._helpers import (
 from brailix.pipeline._populate import parse_cached_tree, populate_leaf
 from brailix.pipeline._results import TreeSubcache
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from brailix.core.protocols import GraphicAssetResolver
 
-    TreeParser = Callable[[str, Any], ET.Element | None]
+    TreeParser = Callable[[str, _Any], _ET.Element | None]
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +80,7 @@ if TYPE_CHECKING:
 _TABLE_CELL_GAP = 2
 
 
-def _shift_node_spans(node: Any, delta: int) -> None:
+def _shift_node_spans(node: _Any, delta: int) -> None:
     """Recursively shift ``node``'s ``span`` and every descendant's by ``delta``.
 
     Inline nodes / blocks are mutable (``frozen=False`` slots dataclasses) and
@@ -92,7 +93,7 @@ def _shift_node_spans(node: Any, delta: int) -> None:
         _shift_node_spans(child, delta)
 
 
-def _table_cell_source_len(cell: Any) -> int:
+def _table_cell_source_len(cell: _Any) -> int:
     """Source-text length of a table cell — what a row's display text joins.
 
     A cell's source length is its own ``text`` when present, else the total of
@@ -197,7 +198,7 @@ class FrontendDriver:
 
     def populate_block(
         self,
-        block: Any,
+        block: _Any,
         ctx: FrontendContext,
         *,
         tree_in: TreeSubcache | None = None,
@@ -277,7 +278,7 @@ class FrontendDriver:
 
     def _populate_row(
         self,
-        row: Any,
+        row: _Any,
         ctx: FrontendContext,
         *,
         tree_in: TreeSubcache | None = None,
@@ -333,7 +334,7 @@ class FrontendDriver:
                 _shift_node_spans(cell, cell_offset - applied)
             cell_offset += _table_cell_source_len(cell) + _TABLE_CELL_GAP
 
-    def _heal_stale_children(self, block: Any) -> None:
+    def _heal_stale_children(self, block: _Any) -> None:
         """Drop ``children`` that no longer describe ``block.text`` — the
         stale-re-entry self-heal the populate paths rely on.
 
@@ -393,7 +394,7 @@ class FrontendDriver:
             self._invalidate(block)
 
     @staticmethod
-    def _invalidate(block: Any) -> None:
+    def _invalidate(block: _Any) -> None:
         """Drop a block's populated ``children`` and the stamp describing them.
 
         The single way children are invalidated, so the pair can't come apart:
@@ -413,7 +414,7 @@ class FrontendDriver:
     # :meth:`_process_segment`), so adding a language is registration,
     # not a change here. See ARCHITECTURE#arch-language-slots.
 
-    def frontend_options(self) -> dict[str, Any]:
+    def frontend_options(self) -> dict[str, _Any]:
         lang = self._profile.language.split("-")[0]
         return {
             # The active language, published for whichever adapter needs it.

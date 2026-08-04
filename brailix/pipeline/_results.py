@@ -9,10 +9,12 @@ keep working.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from typing import Any
+import xml.etree.ElementTree as _ET
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from datetime import UTC as _UTC
+from datetime import datetime as _datetime
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.errors import (
     IncompatibleRendererError,
@@ -23,6 +25,9 @@ from brailix.ir.braille import BrailleBlock, BrailleDocument
 from brailix.ir.document import Block, DocumentIR
 from brailix.ir.tactile import TactileRaster
 from brailix.renderer import renderer_registry
+
+if _TYPE_CHECKING:
+    from typing import Any
 
 # Default tactile-graphics renderer for :meth:`GraphicResult.render` — the
 # embossable 8-bit grayscale BMP master.
@@ -79,7 +84,7 @@ def _resolve_renderer(name: str | None, default: str, expected_domain: str) -> A
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class TranslationResult:
     """Output of one :meth:`Pipeline.translate_text` call.
 
@@ -93,7 +98,7 @@ class TranslationResult:
     text: str
     ir: DocumentIR
     braille_ir: BrailleDocument
-    warnings: WarningCollector = field(default_factory=WarningCollector)
+    warnings: WarningCollector = _field(default_factory=WarningCollector)
     # Matches :attr:`brailix.Pipeline.default_renderer`, which is what fills
     # this in on every result the library builds; the literal is only reached
     # by a hand-constructed result. (Not imported FROM ``Pipeline`` — this
@@ -133,7 +138,7 @@ class TranslationResult:
         }
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class GraphicResult:
     """Output of one :meth:`Pipeline.translate_graphic` call — the tactile
     vertical's counterpart to :class:`TranslationResult`.
@@ -152,8 +157,8 @@ class GraphicResult:
     """
 
     raster: TactileRaster
-    svg_tree: ET.Element | None = None
-    warnings: WarningCollector = field(default_factory=WarningCollector)
+    svg_tree: _ET.Element | None = None
+    warnings: WarningCollector = _field(default_factory=WarningCollector)
     default_renderer: str = DEFAULT_TACTILE_RENDERER
 
     def render(self, name: str | None = None) -> Any:
@@ -180,7 +185,7 @@ class GraphicResult:
         return renderer.render(self.raster)
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class TactilePageResult:
     """Output of one :meth:`Pipeline.translate_document_to_pages` call — a
     braille document with embedded figures laid onto tactile page rasters.
@@ -195,8 +200,8 @@ class TactilePageResult:
     / ``tactile_preview`` all accept it with no new renderer.
     """
 
-    pages: list[TactileRaster] = field(default_factory=list)
-    warnings: WarningCollector = field(default_factory=WarningCollector)
+    pages: list[TactileRaster] = _field(default_factory=list)
+    warnings: WarningCollector = _field(default_factory=WarningCollector)
     default_renderer: str = DEFAULT_TACTILE_RENDERER
 
     @property
@@ -285,7 +290,7 @@ class TactilePageResult:
 #
 # which costs a copy only for the nodes a caller actually edits, and is what
 # a front-end applying score-level proofreading edits is expected to do.
-TreeSubcache = dict[tuple[str, str, str, str, str], ET.Element]
+TreeSubcache = dict[tuple[str, str, str, str, str], _ET.Element]
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +298,7 @@ TreeSubcache = dict[tuple[str, str, str, str, str], ET.Element]
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class CompiledBlock:
     """Block-level incremental compilation result.
 
@@ -353,8 +358,8 @@ class CompiledBlock:
     source_hash: str
     ir: Block
     braille_blocks: list[BrailleBlock]
-    warnings: list[Warning] = field(default_factory=list)
-    tree_subcache: TreeSubcache = field(default_factory=dict)
+    warnings: list[Warning] = _field(default_factory=list)
+    tree_subcache: TreeSubcache = _field(default_factory=dict)
     # False when the registration surface moved mid-compile (the run also
     # carries a ``COMPILE_EPOCH_CHANGED`` warning). A warning alone was not
     # enough: a caller that stores ``result.source_hash -> result`` without
@@ -363,8 +368,8 @@ class CompiledBlock:
     # the ``source_hash`` of such a result is *also* made one-off, so ignoring
     # this flag costs a dead cache entry rather than a wrong hit.
     cacheable: bool = True
-    compiled_at: datetime = field(
-        default_factory=lambda: datetime.now(UTC)
+    compiled_at: _datetime = _field(
+        default_factory=lambda: _datetime.now(_UTC)
     )
     # Tactile-graphics inline embedding:
     # a :class:`~brailix.ir.document.GraphicBlock` rasterises to a

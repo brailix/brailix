@@ -19,10 +19,13 @@ also write unit tests for adapter behaviour.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Protocol as _Protocol
+from typing import runtime_checkable as _runtime_checkable
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from collections.abc import Collection, Iterable
+    from typing import Any
 
     from brailix.core.config import BrailleProfile
     from brailix.core.context import BackendContext, FrontendContext
@@ -54,8 +57,8 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-@runtime_checkable
-class Segmenter(Protocol):
+@_runtime_checkable
+class Segmenter(_Protocol):
     """Split a block of raw text into typed inline segments (hanzi /
     number / date / math / latin / punct / ...). The segmenter
     decides *what* a region is, not how to translate it.
@@ -73,8 +76,8 @@ class Segmenter(Protocol):
     ) -> list[Segment]: ...
 
 
-@runtime_checkable
-class Normalizer(Protocol):
+@_runtime_checkable
+class Normalizer(_Protocol):
     """Promote raw :class:`Segment` runs into typed inline nodes where
     possible (numbers, dates, percent, latin words, math_inline).
     Segments the normalizer doesn't recognize pass through untouched
@@ -94,8 +97,8 @@ class Normalizer(Protocol):
 # ---------------------------------------------------------------------------
 
 
-@runtime_checkable
-class LanguageFrontend(Protocol):
+@_runtime_checkable
+class LanguageFrontend(_Protocol):
     """Turn a run of one language's prose into inline IR nodes.
 
     Registered per language (``frontend.language_frontend_registry``);
@@ -137,8 +140,8 @@ class LanguageFrontend(Protocol):
     ) -> list[InlineNode]: ...
 
 
-@runtime_checkable
-class LanguageBackend(Protocol):
+@_runtime_checkable
+class LanguageBackend(_Protocol):
     """Translate a language's prose IR nodes to cells.
 
     Two node kinds, one required method each: :class:`Word` (a language's
@@ -185,8 +188,8 @@ class LanguageBackend(Protocol):
         ...
 
 
-@runtime_checkable
-class MathSourceAdapter(Protocol):
+@_runtime_checkable
+class MathSourceAdapter(_Protocol):
     """Convert a math formula from one source format into MathML.
 
     MathML is the normalized intermediate format for the math
@@ -204,8 +207,8 @@ class MathSourceAdapter(Protocol):
 # ---------------------------------------------------------------------------
 
 
-@runtime_checkable
-class MusicSourceAdapter(Protocol):
+@_runtime_checkable
+class MusicSourceAdapter(_Protocol):
     """Convert score data from one source format into MusicXML.
 
     MusicXML is the normalized intermediate format for the music
@@ -226,8 +229,8 @@ class MusicSourceAdapter(Protocol):
 # ---------------------------------------------------------------------------
 
 
-@runtime_checkable
-class GraphicSourceAdapter(Protocol):
+@_runtime_checkable
+class GraphicSourceAdapter(_Protocol):
     """Convert a graphic from one source format into SVG.
 
     SVG is the normalized intermediate format for the tactile-graphics
@@ -259,8 +262,8 @@ class GraphicSourceAdapter(Protocol):
 # fall back to a warning + marker.
 
 
-@runtime_checkable
-class InlineTextTranslator(Protocol):
+@_runtime_checkable
+class InlineTextTranslator(_Protocol):
     """Translate a run of inline prose into braille cells.
 
     Injected by :class:`~brailix.pipeline.Pipeline` so backend handlers
@@ -282,8 +285,8 @@ class InlineTextTranslator(Protocol):
     def __call__(self, text: str) -> list[BrailleCell]: ...
 
 
-@runtime_checkable
-class GraphicAssetResolver(Protocol):
+@_runtime_checkable
+class GraphicAssetResolver(_Protocol):
     """Resolve a graphic's asset reference to its raw bytes.
 
     Injected onto :class:`~brailix.core.context.GraphicsContext` so the
@@ -326,8 +329,8 @@ class GraphicAssetResolver(Protocol):
 # Profile JSON + resources, not by registering a Backend implementation.
 
 
-@runtime_checkable
-class Renderer(Protocol):
+@_runtime_checkable
+class Renderer(_Protocol):
     """Encode an IR into a concrete output — the dumb-encoder layer.
 
     The return type is intentionally :data:`~typing.Any` — concrete
@@ -367,7 +370,7 @@ class Renderer(Protocol):
 # Forward declarations for context types that are defined in
 # ``core.context`` — kept here as TYPE_CHECKING-only imports to avoid
 # circular references at runtime.
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from brailix.core.context import (
         FrontendContext,
         GraphicsContext,

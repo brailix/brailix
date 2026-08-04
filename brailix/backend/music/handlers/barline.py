@@ -8,11 +8,14 @@ independent helper; emit order is repeat → volta → bar style.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.music.context import MusicBrailleContext
 from brailix.backend.music.utils import emit_cells_for_entity, first_child_text
 from brailix.ir.braille import BrailleCell
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 
 def _emit_barline(

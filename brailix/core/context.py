@@ -21,12 +21,15 @@ nothing in the graphic path reads.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.errors import RunMode, WarningCollector, normalize_run_mode
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
+    from typing import Any, Literal
+
     from brailix.core.protocols import (
         GraphicAssetResolver,
         InlineTextTranslator,
@@ -38,7 +41,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class FrontendContext:
     """Context for the Frontend phase: segmentation, normalization,
     language-specific processing.
@@ -51,8 +54,8 @@ class FrontendContext:
 
     profile: str
     mode: RunMode | str = RunMode.NORMAL
-    warnings: WarningCollector = field(default_factory=WarningCollector)
-    options: dict[str, Any] = field(default_factory=dict)
+    warnings: WarningCollector = _field(default_factory=WarningCollector)
+    options: dict[str, Any] = _field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.mode = normalize_run_mode(self.mode)
@@ -97,7 +100,7 @@ class FrontendContext:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class MathContext:
     """Context for the math subsystem (source adapter + IR builder).
 
@@ -113,10 +116,10 @@ class MathContext:
     # usable and says clearly what is missing. Same convention as
     # :class:`MusicContext` below.
     source: str = "plain"  # latex / omml / mathml / plain (= undeclared)
-    profile: str = field(kw_only=True)  # required; no built-in default standard
+    profile: str = _field(kw_only=True)  # required; no built-in default standard
     surrounding_text: tuple[str, str] | None = None  # (before, after)
-    warnings: WarningCollector = field(default_factory=WarningCollector)
-    options: dict[str, Any] = field(default_factory=dict)
+    warnings: WarningCollector = _field(default_factory=WarningCollector)
+    options: dict[str, Any] = _field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +127,7 @@ class MathContext:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class MusicContext:
     """Context for the music subsystem (source adapter + normalizer).
 
@@ -136,15 +139,15 @@ class MusicContext:
 
     mode: Literal["inline", "block", "score"] = "block"
     source: str = "plain"  # musicxml / mxl / midi / abc / plain
-    profile: str = field(kw_only=True)  # required; no built-in default standard
+    profile: str = _field(kw_only=True)  # required; no built-in default standard
     # No transposition / octave-inference / lyrics knobs live here: those
     # behaviours are driven by profile features (e.g. ``music.octave_rule`` /
     # ``music.show_lyrics``) read by the backend, not by MusicContext. Add a
     # field only when a source adapter actually reads it — and key the tree
     # cache on it — so the context never advertises a setting that does nothing.
     surrounding_text: tuple[str, str] | None = None  # (before, after)
-    warnings: WarningCollector = field(default_factory=WarningCollector)
-    options: dict[str, Any] = field(default_factory=dict)
+    warnings: WarningCollector = _field(default_factory=WarningCollector)
+    options: dict[str, Any] = _field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +163,7 @@ class MusicContext:
 GRAPHIC_ASSET_RESOLVER_KEY = "graphic_asset_resolver"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class GraphicsContext:
     """Context for the tactile-graphics subsystem (source → SVG adapter).
 
@@ -176,8 +179,8 @@ class GraphicsContext:
     """
 
     source: str = "svg"  # svg / primitives / image / chart / ...
-    warnings: WarningCollector = field(default_factory=WarningCollector)
-    options: dict[str, Any] = field(default_factory=dict)
+    warnings: WarningCollector = _field(default_factory=WarningCollector)
+    options: dict[str, Any] = _field(default_factory=dict)
 
     def asset_resolver(self) -> GraphicAssetResolver | None:
         """The caller-injected asset resolver, or ``None``.
@@ -204,7 +207,7 @@ class GraphicsContext:
 INLINE_TEXT_TRANSLATOR_KEY = "inline_text_translator"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class BackendContext:
     """Context for the Backend phase: translates IR to BrailleIR.
 
@@ -220,8 +223,8 @@ class BackendContext:
     profile: str
     mode: RunMode | str = RunMode.NORMAL
     block_type: str = "paragraph"
-    warnings: WarningCollector = field(default_factory=WarningCollector)
-    options: dict[str, Any] = field(default_factory=dict)
+    warnings: WarningCollector = _field(default_factory=WarningCollector)
+    options: dict[str, Any] = _field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.mode = normalize_run_mode(self.mode)

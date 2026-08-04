@@ -14,9 +14,10 @@ adapters (primitives / image / figure) share one soft-fail shape.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass
-from xml.sax.saxutils import escape, quoteattr
+import xml.etree.ElementTree as _ET
+from dataclasses import dataclass as _dataclass
+from xml.sax.saxutils import escape as _escape
+from xml.sax.saxutils import quoteattr as _quoteattr
 
 from brailix.core._xml import (
     XmlDecodeError,
@@ -28,7 +29,7 @@ from brailix.core._xml import (
 from brailix.core.context import GraphicsContext
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class SVGSourceAdapter:
     """Trivial adapter: accept SVG in, give SVG out.
 
@@ -56,7 +57,7 @@ class SVGSourceAdapter:
         text = strip_xml_prolog(text)
         try:
             safe_fromstring(text)
-        except ET.ParseError as e:
+        except _ET.ParseError as e:
             return svg_error_wrap(text, reason=f"parse error: {e}")
         return text
 
@@ -69,8 +70,8 @@ def svg_error_wrap(surface: str, *, reason: str) -> str:
     proofread UIs. An empty ``<svg>`` rasterizes to a blank page, so the
     pipeline degrades gracefully instead of raising.
     """
-    escaped = escape(strip_xml_invalid_chars(surface))
-    reason_attr = quoteattr(strip_xml_invalid_chars(reason))
+    escaped = _escape(strip_xml_invalid_chars(surface))
+    reason_attr = _quoteattr(strip_xml_invalid_chars(reason))
     return f"<svg data-bk-error={reason_attr}><desc>{escaped}</desc></svg>"
 
 

@@ -31,8 +31,8 @@ single ``dpi`` dial.
 
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass
+import math as _math
+from dataclasses import dataclass as _dataclass
 
 from brailix.backend.tactile._labels import LabelStamper
 from brailix.backend.tactile._raster_cap import (
@@ -129,7 +129,7 @@ def _as_page_measure(value: object, what: str, *, upper: float) -> float:
         num = float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         raise ValueError(f"{what} must be a number, got {value!r}") from None
-    if not math.isfinite(num):
+    if not _math.isfinite(num):
         raise ValueError(f"{what} must be a finite number, got {num}")
     if not 0 <= num < upper:
         raise ValueError(
@@ -167,7 +167,7 @@ def line_width_cells(
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class PageText:
     """A run of braille text: display lines already wrapped to page width.
 
@@ -181,7 +181,7 @@ class PageText:
     lines: list[list[BrailleCell]]
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class PageFigure:
     """A figure: a already-rasterised :class:`TactileRaster` to place inline.
 

@@ -37,12 +37,12 @@ rewrite because none exists yet.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.span import Span
 from brailix.frontend.zh.tokens import ChineseToken
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
 # Multi-character surfaces only, mirroring the pinyin dictionary's policy —

@@ -27,8 +27,8 @@ may import ``pipeline`` internals, while ``frontend`` may never import either
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
-from typing import TYPE_CHECKING, Any, Literal
+import xml.etree.ElementTree as _ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import (
     FrontendContext,
@@ -61,8 +61,9 @@ from brailix.pipeline._helpers import (
     tree_cache_key,
 )
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from collections.abc import Callable
+    from typing import Any, Literal
 
     from brailix.core.span import Span as _Span
     from brailix.pipeline._results import TreeSubcache
@@ -93,13 +94,13 @@ def parse_cached_tree(
     span: _Span | None,
     salt: str = "",
     identity: str,
-    parser: Callable[[str, Any], ET.Element | None],
+    parser: Callable[[str, Any], _ET.Element | None],
     context_factory: Callable[[], Any],
     code: str,
     label: str,
     tree_in: TreeSubcache | None,
     tree_out: TreeSubcache | None,
-) -> tuple[ET.Element | None, Exception | None]:
+) -> tuple[_ET.Element | None, Exception | None]:
     """Reuse-or-parse one vertical's tree, and classify what went wrong.
 
     Everything the math / music / graphic populate paths do *identically*
@@ -455,7 +456,7 @@ def populate_graphic_block(
         # (unlike math / music, whose recoveries are not cached): the parse is
         # deterministic in (source, surface, resolver), so a re-compile of the
         # same figure would only fail again.
-        tree = ET.Element("svg", {"data-bk-error": repr(error)})
+        tree = _ET.Element("svg", {"data-bk-error": repr(error)})
         cache_record(
             tree_out,
             tree_cache_key(

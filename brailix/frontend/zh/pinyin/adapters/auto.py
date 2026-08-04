@@ -20,7 +20,8 @@ than the single configuration one it is.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
 
 from brailix.core.context import FrontendContext
 from brailix.core.errors import (
@@ -36,12 +37,12 @@ from brailix.frontend.zh.tokens import ChineseToken
 _NO_ENGINE = "null"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class AutoPinyinResolver:
     name: str = "auto"
     preferred: tuple[str, ...] = ("g2pm", "g2pw", "pypinyin", _NO_ENGINE)
-    _delegate: PinyinResolver | None = field(default=None, init=False, repr=False)
-    _warned: bool = field(default=False, init=False, repr=False)
+    _delegate: PinyinResolver | None = _field(default=None, init=False, repr=False)
+    _warned: bool = _field(default=False, init=False, repr=False)
 
     def resolve(
         self,

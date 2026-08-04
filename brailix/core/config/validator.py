@@ -22,12 +22,15 @@ need the raw entry keys / values to give helpful error messages.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.config._helpers import _is_metadata_key, _read_json
 from brailix.core.config.profile import BrailleProfile
 from brailix.core.errors import ConfigurationError
+
+if _TYPE_CHECKING:
+    from pathlib import Path
+    from typing import Any
 
 _VALID_SYMBOL_ROLES: frozenset[str] = frozenset({
     "op", "rel", "delim", "punct", "shape", "big_op", "accent",

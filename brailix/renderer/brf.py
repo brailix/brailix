@@ -31,7 +31,7 @@ in binary mode to preserve the CR/LF endings on every platform.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
 
 from brailix.ir.braille import BrailleCell, BrailleDocument, BrailleSequence
 
@@ -88,7 +88,7 @@ def brf_to_dots(ch: str) -> tuple[int, ...]:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class BrfRenderer:
     """Convert a :class:`BrailleDocument` or :class:`BrailleSequence`
     into BRF bytes.

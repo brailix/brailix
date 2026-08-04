@@ -23,7 +23,8 @@ lifetime of the AutoChineseAnalyzer instance.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
 
 from brailix.core.context import FrontendContext
 from brailix.core.errors import (
@@ -49,13 +50,13 @@ _UNAVAILABLE: tuple[type[Exception], ...] = (
 )
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class AutoChineseAnalyzer:
     """Delegating analyzer that resolves to the first viable candidate."""
 
     name: str = "auto"
     preferred: tuple[str, ...] = ("thulac", "hanlp", "jieba", "char")
-    _delegate: ChineseAnalyzer | None = field(default=None, init=False, repr=False)
+    _delegate: ChineseAnalyzer | None = _field(default=None, init=False, repr=False)
 
     def analyze(
         self, text: str, ctx: FrontendContext | None = None

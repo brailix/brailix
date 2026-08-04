@@ -15,8 +15,10 @@ own data arrives through instead, and its own backend is what interprets it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from dataclasses import replace as _replace
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.config._helpers import (
     _feature_keys_to_try,
@@ -24,11 +26,12 @@ from brailix.core.config._helpers import (
     _feature_merge,
 )
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from collections.abc import Mapping
+    from typing import Any
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class BrailleProfile:
     """Resolved profile: all table files are read and parsed."""
 
@@ -38,14 +41,14 @@ class BrailleProfile:
     # the loader raises if a profile omits it.
     language: str
     cell: str = "six_dot"
-    features: dict[str, Any] = field(default_factory=dict)
+    features: dict[str, Any] = _field(default_factory=dict)
 
     # Punctuation values are *cell sequences* — one entry may map to
     # several cells (e.g. the Chinese full stop 。 = ⠐⠆ is two cells). Same shape as
     # ``math_symbols`` so the backend treats them uniformly.
-    punctuation: dict[str, tuple[tuple[int, ...], ...]] = field(default_factory=dict)
-    punctuation_spacing: dict[str, tuple[bool, bool]] = field(default_factory=dict)
-    digits: dict[str, tuple[int, ...]] = field(default_factory=dict)
+    punctuation: dict[str, tuple[tuple[int, ...], ...]] = _field(default_factory=dict)
+    punctuation_spacing: dict[str, tuple[bool, bool]] = _field(default_factory=dict)
+    digits: dict[str, tuple[int, ...]] = _field(default_factory=dict)
     number_sign: tuple[int, ...] = ()
     decimal_point: tuple[int, ...] = ()
     thousands_sep: tuple[int, ...] = ()
@@ -59,17 +62,17 @@ class BrailleProfile:
     # ``tables.zh.compounds``): surfaces like ``x轴`` that take a connector
     # instead of a blank cell at a letter↔hanzi boundary. Empty when undeclared.
     zh_compounds: frozenset[str] = frozenset()
-    math_symbols: dict[str, tuple[tuple[int, ...], ...]] = field(default_factory=dict)
-    math_functions: dict[str, tuple[tuple[int, ...], ...]] = field(default_factory=dict)
+    math_symbols: dict[str, tuple[tuple[int, ...], ...]] = _field(default_factory=dict)
+    math_functions: dict[str, tuple[tuple[int, ...], ...]] = _field(default_factory=dict)
     # Math structures keyed by dotted names (``fraction.bar`` etc.).
-    math_structures: dict[str, tuple[tuple[int, ...], ...]] = field(default_factory=dict)
+    math_structures: dict[str, tuple[tuple[int, ...], ...]] = _field(default_factory=dict)
     # Antoine "lower" digit cells, used for atomic digit/digit fractions.
-    math_digits_lower: dict[str, tuple[int, ...]] = field(default_factory=dict)
+    math_digits_lower: dict[str, tuple[int, ...]] = _field(default_factory=dict)
     # per-symbol (space_before, space_after) flags; missing entries default to (False, False).
-    math_symbol_spacing: dict[str, tuple[bool, bool]] = field(default_factory=dict)
+    math_symbol_spacing: dict[str, tuple[bool, bool]] = _field(default_factory=dict)
     # Per-symbol role: one of "op"/"rel"/"delim"/"punct"/"shape"/"big_op"/"accent".
     # Lookup defaults to ``None``.
-    math_symbol_roles: dict[str, str] = field(default_factory=dict)
+    math_symbol_roles: dict[str, str] = _field(default_factory=dict)
     # Contextual accent-mark kind for chars that render as a vector mark
     # (over-arrow / short bar) when they sit in an accent over/under position:
     # → / ← (\vec, \overrightarrow, \overleftarrow) -> "arrow"; ¯ / ― / ‾
@@ -78,30 +81,30 @@ class BrailleProfile:
     # ``math_structures`` (accent.mark.<kind>.{single,double}); this map
     # only names the kind, so the backend can pick single vs double by the
     # base letter count.
-    math_symbol_accent_marks: dict[str, str] = field(default_factory=dict)
+    math_symbol_accent_marks: dict[str, str] = _field(default_factory=dict)
     # Symbols that take the 46-dot script prefix when subscripted/superscripted
     # (e.g. ∫ and ∮ per cn_current).
-    math_symbol_script_prefix_flags: dict[str, bool] = field(default_factory=dict)
+    math_symbol_script_prefix_flags: dict[str, bool] = _field(default_factory=dict)
     # Symbols whose cell sequence is provisional (a guess by maintainers,
     # not validated against an authoritative rule reference). Proofread
     # tools should highlight these. Backend treats them as ordinary symbols.
-    math_symbol_provisional_flags: dict[str, bool] = field(default_factory=dict)
+    math_symbol_provisional_flags: dict[str, bool] = _field(default_factory=dict)
     # Symbols that take a category marker (``structures.indicator.<name>``)
     # in front of their cells: maps the symbol char → the marker name
     # ("symbol" ⠫ / "operation" ⠰ / "negation" ⠈). The backend emits the
     # marker, so these symbols' cells stay bare — the same pathway a
     # function name uses, instead of baking the marker into the table.
-    math_symbol_indicator_flags: dict[str, str] = field(default_factory=dict)
+    math_symbol_indicator_flags: dict[str, str] = _field(default_factory=dict)
     # Function flags: which functions behave as big-ops, which take the
     # 46-dot script prefix.
-    math_function_big_op_flags: dict[str, bool] = field(default_factory=dict)
-    math_function_script_prefix_flags: dict[str, bool] = field(default_factory=dict)
+    math_function_big_op_flags: dict[str, bool] = _field(default_factory=dict)
+    math_function_script_prefix_flags: dict[str, bool] = _field(default_factory=dict)
     # Neutral letter tables (no context prefix). Shared between the math
     # backend (which prepends a script-class prefix from math.structures)
     # and the future LatinBraille backend (which applies its own rules).
     # Two sub-keys: "lower" and "upper", each maps char → dot tuple.
-    latin_letters: dict[str, dict[str, tuple[int, ...]]] = field(default_factory=dict)
-    greek_letters: dict[str, dict[str, tuple[int, ...]]] = field(default_factory=dict)
+    latin_letters: dict[str, dict[str, tuple[int, ...]]] = _field(default_factory=dict)
+    greek_letters: dict[str, dict[str, tuple[int, ...]]] = _field(default_factory=dict)
     # Music (BANA 2015 Music Braille Code) — nested by topic:
     # ``music["notes"]["whole_or_16th_C"]`` -> ``((1,3,4,5,6),)``.
     # An empty cell (BANA prints two cell groups with an internal space)
@@ -110,18 +113,18 @@ class BrailleProfile:
     # Subdirectories (instruments/, vocal/) are flattened with a single-
     # level prefix in the topic key: ``music["instruments.keyboard"]``,
     # ``music["vocal.music_lines"]``, ...
-    music: dict[str, dict[str, tuple[tuple[int, ...], ...]]] = field(default_factory=dict)
+    music: dict[str, dict[str, tuple[tuple[int, ...], ...]]] = _field(default_factory=dict)
     # Declarative, non-cells rule sections per music topic (e.g.
     # ``chord_symbols`` -> ``kind_spec`` -> chord-kind emit recipes),
     # loaded from ``_``-prefixed sections the cells loader skips.
-    music_specs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    music_specs: dict[str, dict[str, Any]] = _field(default_factory=dict)
     # English IPA phonetic table: IPA phoneme string -> cell sequence
     # (``"tʃ" -> ((2,3,4,5),(1,5,6))``). Multi-character phonemes
     # (diphthongs eɪ / affricates tʃ / long vowels iː) are stored whole;
     # the phonetic backend matches greedily longest-first so a 2-char
     # phoneme wins over its 1-char prefix. Empty when a profile declares
     # no ``tables.phonetic``.
-    phonetic: dict[str, tuple[tuple[int, ...], ...]] = field(default_factory=dict)
+    phonetic: dict[str, tuple[tuple[int, ...], ...]] = _field(default_factory=dict)
     # Per-language braille tables (ARCHITECTURE#arch-language-slots generic language
     # slot): subtag -> table name -> entry -> cell sequence, e.g.
     # ``lang_tables["ja"]["kana"]["カ"] == ((1, 6),)``. New languages put
@@ -132,7 +135,7 @@ class BrailleProfile:
     # a language mean editing a shared dataclass.
     lang_tables: dict[
         str, dict[str, dict[str, tuple[tuple[int, ...], ...]]]
-    ] = field(default_factory=dict)
+    ] = _field(default_factory=dict)
     # The same generic slot for a language's **non-cell** rules: subtag ->
     # spec name -> whatever that language's backend loaded, e.g.
     # ``lang_specs["zh"]["ncb_exceptions"]`` (the tone-omission,
@@ -154,12 +157,12 @@ class BrailleProfile:
     #
     # Distinct from :attr:`music_specs`, which is the same idea scoped to a
     # music topic rather than to a language.
-    lang_specs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    lang_specs: dict[str, dict[str, Any]] = _field(default_factory=dict)
     # Per-instance lazy cache for letter() results. Excluded from
     # ``__eq__`` / ``__repr__``: it's runtime-populated memoization, so two
     # profiles built from identical tables must stay equal (and hashable as
     # config-cache keys) even after one has had ``letter()`` called on it.
-    _letter_cache: dict[str, tuple[tuple[int, ...], ...] | None] = field(
+    _letter_cache: dict[str, tuple[tuple[int, ...], ...] | None] = _field(
         default_factory=dict, compare=False, repr=False
     )
 
@@ -212,7 +215,7 @@ class BrailleProfile:
         """
         if not overrides:
             return self
-        return replace(
+        return _replace(
             self,
             features=_feature_merge(self.features, overrides),
             # A fresh memo rather than the original's. ``letter()`` results

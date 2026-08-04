@@ -35,9 +35,10 @@ malformed attribute never crashes — it is warned and skipped, mirroring the
 
 from __future__ import annotations
 
-import math
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field, replace
+import math as _math
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from dataclasses import replace as _replace
 
 from brailix.backend.tactile._draw import (
     draw_circle,
@@ -91,10 +92,15 @@ __all__ = (
 # shares it without an import cycle. Re-exported here so existing
 # ``monkeypatch.setattr(tactile, "_MAX_RASTER_PIXELS", ...)`` tests still work
 # (the value is read at each rasterize call, below).
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+
 from brailix.backend.tactile._raster_cap import (  # noqa: E402
     _MAX_RASTER_PIXELS,
     clamp_raster_pixels,
 )
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 # Absolute-unit → millimetre factors for SVG length values. CSS px is
 # 1/96 inch; pt is 1/72 inch; pc is 1/6 inch; Q is a quarter-millimetre.
@@ -141,7 +147,7 @@ def _finite_positive(value: float, fallback: float) -> float:
     construction, they would take :func:`rasterize`'s "never raises on bad
     geometry" contract down with it.
     """
-    return value if math.isfinite(value) and value > 0 else fallback
+    return value if _math.isfinite(value) and value > 0 else fallback
 
 
 def _round_finite(v: float) -> int:
@@ -152,7 +158,7 @@ def _round_finite(v: float) -> int:
     float) would make ``round()`` raise ``ValueError`` / ``OverflowError``,
     breaking rasterize's "never raises on bad geometry" contract. Off-page /
     zero pixels are dropped downstream anyway, so 0 is a safe degenerate."""
-    return round(v) if math.isfinite(v) else 0
+    return round(v) if _math.isfinite(v) else 0
 
 
 # Container tags whose children are walked in place. Their own ``transform``
@@ -202,7 +208,7 @@ def _parse_float(value: str | None, default: float) -> float:
         return default
     # Reject NaN / ±inf (e.g. "1e999" overflows to inf): they would raise in
     # the round()/int() downstream, defeating the soft-failure contract.
-    return val if math.isfinite(val) else default
+    return val if _math.isfinite(val) else default
 
 
 def _length_to_mm(value: str | None) -> float | None:
@@ -230,7 +236,7 @@ def _length_to_mm(value: str | None) -> float | None:
         val = float(head) * factor
     except ValueError:
         return None
-    return val if math.isfinite(val) else None
+    return val if _math.isfinite(val) else None
 
 
 def _parse_view_box(root: ET.Element) -> tuple[float, float, float, float] | None:
@@ -246,7 +252,7 @@ def _parse_view_box(root: ET.Element) -> tuple[float, float, float, float] | Non
         minx, miny, w, h = (float(p) for p in parts)
     except ValueError:
         return None
-    if not all(math.isfinite(v) for v in (minx, miny, w, h)):
+    if not all(_math.isfinite(v) for v in (minx, miny, w, h)):
         return None  # "nan" / "1e999" would raise downstream
     if w <= 0 or h <= 0:
         return None
@@ -265,7 +271,7 @@ def _parse_points(value: str | None) -> list[tuple[float, float]]:
             f = float(tok)
         except ValueError:
             continue
-        if math.isfinite(f):
+        if _math.isfinite(f):
             nums.append(f)
     return [(nums[i], nums[i + 1]) for i in range(0, len(nums) - 1, 2)]
 
@@ -275,7 +281,7 @@ def _parse_points(value: str | None) -> list[tuple[float, float]]:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _State:
     """Per-rasterization transform + style carried through the walk.
 
@@ -303,8 +309,8 @@ class _State:
     # collects ``(text element, its effective state)`` so labels draw last
     # (order-independent overlap), ``boxes`` collects ``(name, device bbox)``
     # for every drawn non-text element so spacing can be checked pairwise.
-    labels: list[tuple[ET.Element, _State]] = field(default_factory=list)
-    boxes: list[tuple[str, tuple[int, int, int, int]]] = field(
+    labels: list[tuple[ET.Element, _State]] = _field(default_factory=list)
+    boxes: list[tuple[str, tuple[int, int, int, int]]] = _field(
         default_factory=list
     )
     ctm: Affine = IDENTITY
@@ -506,10 +512,10 @@ def _h_image(
                full.apply(1.0, 1.0), full.apply(0.0, 1.0)]
     xs = [c[0] for c in corners]
     ys = [c[1] for c in corners]
-    lo_x = max(0, math.floor(min(xs)))
-    hi_x = min(raster.width - 1, math.ceil(max(xs)))
-    lo_y = max(0, math.floor(min(ys)))
-    hi_y = min(raster.height - 1, math.ceil(max(ys)))
+    lo_x = max(0, _math.floor(min(xs)))
+    hi_x = min(raster.width - 1, _math.ceil(max(xs)))
+    lo_y = max(0, _math.floor(min(ys)))
+    hi_y = min(raster.height - 1, _math.ceil(max(ys)))
     if lo_x > hi_x or lo_y > hi_y:
         return  # placement box is entirely off the page
     mode = (elem.get("data-bk-mode") or "threshold").strip().lower()
@@ -670,7 +676,7 @@ def _walk(
             # ET.Comment / ProcessingInstruction carry a callable tag.
             continue
         tf = child.get("transform")
-        st_eff = replace(st, ctm=st.ctm.then(parse_transform(tf))) if tf else st
+        st_eff = _replace(st, ctm=st.ctm.then(parse_transform(tf))) if tf else st
         radius = _resolve_radius(child, st_eff, inherited_radius)
         fill = _resolve_fill(child, inherited_fill)
         if tag in _CONTAINERS:

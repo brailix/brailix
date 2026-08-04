@@ -63,9 +63,9 @@ the frontend's segmenter.
 
 from __future__ import annotations
 
-import re
-from collections.abc import Iterable
-from dataclasses import dataclass
+import re as _re
+from dataclasses import dataclass as _dataclass
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.span import Span
 from brailix.ir.document import (
@@ -85,16 +85,19 @@ from brailix.ir.document import (
     TableRow,
 )
 
+if _TYPE_CHECKING:
+    from collections.abc import Iterable
+
 # ---------------------------------------------------------------------------
 # Line-level patterns
 # ---------------------------------------------------------------------------
 
 
-_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
-_UNORDERED_RE = re.compile(r"^([-*+])\s+(.*)$")
-_ORDERED_RE = re.compile(r"^(\d+)[.)]\s+(.*)$")
-_QUOTE_RE = re.compile(r"^>\s?(.*)$")
-_FENCE_RE = re.compile(r"^```\s*(\S*)\s*$")
+_HEADING_RE = _re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
+_UNORDERED_RE = _re.compile(r"^([-*+])\s+(.*)$")
+_ORDERED_RE = _re.compile(r"^(\d+)[.)]\s+(.*)$")
+_QUOTE_RE = _re.compile(r"^>\s?(.*)$")
+_FENCE_RE = _re.compile(r"^```\s*(\S*)\s*$")
 _DOLLAR_FENCE = "$$"
 
 
@@ -163,7 +166,7 @@ def graphic_fence_open(source: str) -> str:
 # support); ``target`` is greedy so a path containing ``)`` still ends at
 # the line's final paren, and may be empty (an alt-only placeholder whose
 # image bytes were unrecoverable — round-trips as ``![alt]()``).
-_IMAGE_RE = re.compile(r"^!\[([^\]]*)\]\((.*)\)$")
+_IMAGE_RE = _re.compile(r"^!\[([^\]]*)\]\((.*)\)$")
 
 
 def image_alt_line(alt: str, target: str | None) -> str:
@@ -181,8 +184,8 @@ def image_alt_line(alt: str, target: str | None) -> str:
     return f"![{safe_alt}]({target or ''})"
 
 
-_TABLE_RE = re.compile(r"^\s*\|(.+)\|\s*$")
-_TABLE_SEP_CHARS = re.compile(r"^[\s\-|:]+$")
+_TABLE_RE = _re.compile(r"^\s*\|(.+)\|\s*$")
+_TABLE_SEP_CHARS = _re.compile(r"^[\s\-|:]+$")
 
 # A trailing block-attribute marker carrying horizontal alignment, e.g.
 # ``# 标题 {align=center}`` or ``正文 {align=right}`` (pandoc-style attribute
@@ -192,7 +195,7 @@ _TABLE_SEP_CHARS = re.compile(r"^[\s\-|:]+$")
 # document back to markdown, then this parser rebuilds the IR). Only
 # ``center`` / ``right`` — the alignments the braille layout renders;
 # anything else stays literal text and yields no alignment.
-_ALIGN_ATTR_RE = re.compile(r"\s*\{align=(center|right)\}\s*$", re.IGNORECASE)
+_ALIGN_ATTR_RE = _re.compile(r"\s*\{align=(center|right)\}\s*$", _re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +228,7 @@ def parse_markdown(
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class _LineCursor:
     """Tiny cursor over the source lines.
 

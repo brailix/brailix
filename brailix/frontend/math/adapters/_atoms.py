@@ -16,7 +16,7 @@ the explicit ``comma_in_number`` flag, not accidental drift.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as _ET
 
 # Symbols that read as operators even when adjacent to identifiers. This is
 # the union of what the three adapters historically listed; the extra
@@ -38,7 +38,7 @@ def is_identifier_char(ch: str) -> bool:
     return False
 
 
-def tokenize_math_text(text: str, *, comma_in_number: bool = True) -> list[ET.Element]:
+def tokenize_math_text(text: str, *, comma_in_number: bool = True) -> list[_ET.Element]:
     """Split ``text`` into ``<mn>`` / ``<mi>`` / ``<mtext>`` / ``<mo>`` atoms.
 
     Digit runs (with ``.``, and ``,`` when ``comma_in_number``) coalesce
@@ -52,7 +52,7 @@ def tokenize_math_text(text: str, *, comma_in_number: bool = True) -> list[ET.El
     only for visual padding).
     """
     number_seps = ".," if comma_in_number else "."
-    out: list[ET.Element] = []
+    out: list[_ET.Element] = []
     i = 0
     n = len(text)
     while i < n:
@@ -82,7 +82,7 @@ def tokenize_math_text(text: str, *, comma_in_number: bool = True) -> list[ET.El
                 or (text[j] in number_seps and j + 1 < n and text[j + 1].isdigit())
             ):
                 j += 1
-            atom = ET.Element("mn")
+            atom = _ET.Element("mn")
             atom.text = text[i:j]
             out.append(atom)
             i = j
@@ -91,7 +91,7 @@ def tokenize_math_text(text: str, *, comma_in_number: bool = True) -> list[ET.El
             j = i
             while j < n and is_identifier_char(text[j]):
                 j += 1
-            atom = ET.Element("mi")
+            atom = _ET.Element("mi")
             atom.text = text[i:j]
             out.append(atom)
             i = j
@@ -105,12 +105,12 @@ def tokenize_math_text(text: str, *, comma_in_number: bool = True) -> list[ET.El
             j = i
             while j < n and text[j].isalpha() and not is_identifier_char(text[j]):
                 j += 1
-            atom = ET.Element("mtext")
+            atom = _ET.Element("mtext")
             atom.text = text[i:j]
             out.append(atom)
             i = j
             continue
-        atom = ET.Element("mo")
+        atom = _ET.Element("mo")
         atom.text = ch
         out.append(atom)
         i += 1

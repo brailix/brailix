@@ -9,8 +9,11 @@ block can carry raw text via ``text``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields
-from typing import Any, ClassVar
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from dataclasses import fields as _fields
+from typing import Any as _Any
+from typing import ClassVar as _ClassVar
 
 from brailix.core.span import Span
 from brailix.ir import _serde
@@ -29,7 +32,7 @@ from brailix.ir.inline import from_dict as inline_from_dict
 type _BlockClass = type[Block]
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Block:
     """Abstract base for every block type.
 
@@ -68,7 +71,7 @@ class Block:
     slicing the source row.
     """
 
-    type: ClassVar[str] = "block"
+    type: _ClassVar[str] = "block"
     # Fields holding nested *blocks*, declared as ``{field name: the Block
     # subclass its entries must be}`` — ``List.items`` → :class:`ListItem`,
     # ``Table.rows`` → :class:`TableRow`. One declaration drives both
@@ -84,9 +87,9 @@ class Block:
     # produced valid JSON, and came back from a reload without the field. Now
     # the base loop refuses to serialize nested IR nobody declared, so the
     # omission surfaces where the tree is built rather than after a round trip.
-    structural_fields: ClassVar[dict[str, _BlockClass]] = {}
+    structural_fields: _ClassVar[dict[str, _BlockClass]] = {}
     id: str | None = None
-    children: list[InlineNode] = field(default_factory=list)
+    children: list[InlineNode] = _field(default_factory=list)
     text: str | None = None  # used before Frontend has built children
     span: Span | None = None
     # Horizontal alignment carried over from the source document, when it
@@ -107,15 +110,15 @@ class Block:
     # documented "used as-is" contract.  In-memory only: excluded from
     # equality, ``to_dict`` and ``structure_key`` (it is cache provenance,
     # not document content or structural identity).
-    frontend_fingerprint: str | None = field(
+    frontend_fingerprint: str | None = _field(
         default=None, compare=False, repr=False
     )
 
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {"type": self.type}
+    def to_dict(self) -> dict[str, _Any]:
+        d: dict[str, _Any] = {"type": self.type}
         if self.id is not None:
             d["id"] = self.id
-        for f in fields(self):
+        for f in _fields(self):
             if f.name in ("id", "children", "text", "span", "frontend_fingerprint"):
                 continue
             value = getattr(self, f.name)
@@ -219,7 +222,7 @@ class Block:
         apart from its identically-configured unpopulated twin.
         """
         parts = [self.type]
-        for f in fields(self):
+        for f in _fields(self):
             if f.name in ("id", "children", "text", "span", "frontend_fingerprint"):
                 continue
             value = getattr(self, f.name)
@@ -239,7 +242,7 @@ class Block:
         return "|".join(parts)
 
 
-def _is_ir_payload(value: Any) -> bool:
+def _is_ir_payload(value: _Any) -> bool:
     """True if ``value`` is an IR node (:class:`Block` / :class:`InlineNode`)
     or a sequence containing one.
 
@@ -263,37 +266,37 @@ def _is_ir_payload(value: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Heading(Block):
-    type: ClassVar[str] = "heading"
+    type: _ClassVar[str] = "heading"
     level: int = 1
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Paragraph(Block):
-    type: ClassVar[str] = "paragraph"
+    type: _ClassVar[str] = "paragraph"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class ListItem(Block):
-    type: ClassVar[str] = "list_item"
+    type: _ClassVar[str] = "list_item"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class List(Block):
     """An ordered or unordered list. ``items`` is the same as ``children``
     but typed as :class:`ListItem` by convention."""
 
-    type: ClassVar[str] = "list"
+    type: _ClassVar[str] = "list"
     # ``ordered`` (a plain bool) rides the base scalar loop; ``items`` is
     # nested IR, so it is declared — which is what emits it *and* what rebuilds
     # it as ListItem entries.
-    structural_fields: ClassVar[dict[str, _BlockClass]] = {"items": ListItem}
+    structural_fields: _ClassVar[dict[str, _BlockClass]] = {"items": ListItem}
     ordered: bool = False
-    items: list[ListItem] = field(default_factory=list)
+    items: list[ListItem] = _field(default_factory=list)
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class TableCell(Block):
     """One table cell.
 
@@ -304,71 +307,71 @@ class TableCell(Block):
     coordinate system its provenance has to resolve against.
     """
 
-    type: ClassVar[str] = "table_cell"
+    type: _ClassVar[str] = "table_cell"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class TableRow(Block):
-    type: ClassVar[str] = "table_row"
-    structural_fields: ClassVar[dict[str, _BlockClass]] = {"cells": TableCell}
-    cells: list[TableCell] = field(default_factory=list)
+    type: _ClassVar[str] = "table_row"
+    structural_fields: _ClassVar[dict[str, _BlockClass]] = {"cells": TableCell}
+    cells: list[TableCell] = _field(default_factory=list)
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Table(Block):
-    type: ClassVar[str] = "table"
-    structural_fields: ClassVar[dict[str, _BlockClass]] = {"rows": TableRow}
-    rows: list[TableRow] = field(default_factory=list)
+    type: _ClassVar[str] = "table"
+    structural_fields: _ClassVar[dict[str, _BlockClass]] = {"rows": TableRow}
+    rows: list[TableRow] = _field(default_factory=list)
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Quote(Block):
-    type: ClassVar[str] = "quote"
+    type: _ClassVar[str] = "quote"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class Footnote(Block):
-    type: ClassVar[str] = "footnote"
+    type: _ClassVar[str] = "footnote"
     ref: str | None = None
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class CodeBlock(Block):
-    type: ClassVar[str] = "code_block"
+    type: _ClassVar[str] = "code_block"
     language: str | None = None
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class MathBlock(Block):
     """Display-mode math block. ``source`` is the source format the raw
     formula text is written in (latex / mathml / plain)."""
 
-    type: ClassVar[str] = "math_block"
+    type: _ClassVar[str] = "math_block"
     source: str = "plain"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class ScoreBlock(Block):
     """Full score (metadata + parts + measures). Holds only ``source``;
     the parsed MusicXML tree is filled by ``FrontendDriver.populate_block``
     into ``children=[MusicInline(score=tree)]`` — same indirection as
     :class:`MathBlock` → :class:`~brailix.ir.inline.MathInline`."""
 
-    type: ClassVar[str] = "score"
+    type: _ClassVar[str] = "score"
     source: str = "plain"  # musicxml / mxl / midi / abc / plain
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class MusicBlock(Block):
     """Display-mode single-passage music block, analogue of
     :class:`MathBlock`. Same children-carrier pattern as
     :class:`ScoreBlock`."""
 
-    type: ClassVar[str] = "music_block"
+    type: _ClassVar[str] = "music_block"
     source: str = "plain"
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class ImageAlt(Block):
     """Block-level placeholder for an image that has **not** been converted
     to a tactile graphic: ``text`` carries the alt text (translated to
@@ -380,11 +383,11 @@ class ImageAlt(Block):
     ``graphic-image`` fence. ``target``
     is ``None`` for a bare alt-text block with no locatable image."""
 
-    type: ClassVar[str] = "image_alt"
+    type: _ClassVar[str] = "image_alt"
     target: str | None = None
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class GraphicBlock(Block):
     """A tactile graphic. ``source`` is the format the raw graphic in
     ``text`` is written in (``svg`` / ``primitives`` / ``figure`` / ``image``). The
@@ -402,7 +405,7 @@ class GraphicBlock(Block):
     — is never handed to the braille node dispatcher. The dots ride on the
     raster instead, attached to the compiled block beside those empty cells."""
 
-    type: ClassVar[str] = "graphic"
+    type: _ClassVar[str] = "graphic"
     source: str = "svg"  # svg / primitives / figure / image
 
 
@@ -451,7 +454,7 @@ def _check_ir_version(version: object, action: str) -> None:
         )
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class DocumentIR:
     """Root container. ``metadata`` carries language, profile name, and
     any free-form annotations the Input layer wants to preserve.
@@ -477,14 +480,14 @@ class DocumentIR:
     :class:`~brailix.ir.tactile.TactileRaster` validates its metrics."""
 
     version: str = _DEFAULT_IR_VERSION
-    metadata: dict[str, Any] = field(default_factory=dict)
-    blocks: list[Block] = field(default_factory=list)
-    assets: dict[str, bytes] = field(default_factory=dict)
+    metadata: dict[str, _Any] = _field(default_factory=dict)
+    blocks: list[Block] = _field(default_factory=list)
+    assets: dict[str, bytes] = _field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _check_ir_version(self.version, "writes and reads")
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, _Any]:
         return {
             "version": self.version,
             "type": "document",
@@ -493,7 +496,7 @@ class DocumentIR:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> DocumentIR:
+    def from_dict(cls, payload: dict[str, _Any]) -> DocumentIR:
         """Rebuild a document from :meth:`to_dict`'s payload.
 
         Two things about the payload are checked before any block is read,
@@ -570,14 +573,14 @@ def block_for(type_name: str) -> type[Block]:
         raise KeyError(f"unknown block type: {type_name!r}") from e
 
 
-def block_from_dict(payload: dict[str, Any]) -> Block:
+def block_from_dict(payload: dict[str, _Any]) -> Block:
     _serde.require_payload_object(payload, "block")
     type_name = payload.get("type")
     if type_name is None:
         raise ValueError("missing 'type' in block payload")
     cls = block_for(type_name)
-    valid = {f.name for f in fields(cls)}
-    kwargs: dict[str, Any] = {}
+    valid = {f.name for f in _fields(cls)}
+    kwargs: dict[str, _Any] = {}
     for key, value in payload.items():
         if key == "type":
             continue
@@ -599,7 +602,7 @@ def block_from_dict(payload: dict[str, Any]) -> Block:
     return cls(**kwargs)
 
 
-def _deserialize_block_value(cls: type[Block], key: str, value: Any) -> Any:
+def _deserialize_block_value(cls: type[Block], key: str, value: _Any) -> _Any:
     """Reconstruct a block-side value from its serialized form.
 
     A nested-block field carries typed sub-blocks, and which type is the
@@ -628,7 +631,7 @@ def _deserialize_block_value(cls: type[Block], key: str, value: Any) -> Any:
 def _typed_child(
     parent_cls: type[Block],
     field_name: str,
-    payload: Any,
+    payload: _Any,
     expected: type[Block],
 ) -> Block:
     """Deserialize ``payload`` and verify it's an instance of ``expected``.

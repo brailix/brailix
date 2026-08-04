@@ -17,7 +17,7 @@ scan during rule-by-rule audits.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as _ET
 
 from brailix.backend.math.context import MathBrailleContext
 from brailix.core.chars import fold_fullwidth, nonstandard_char_hint
@@ -94,7 +94,7 @@ def _emit_structure(
         )
 
 
-def _unpack_script(elem: ET.Element) -> tuple[ET.Element | None, ET.Element | None, ET.Element | None]:
+def _unpack_script(elem: _ET.Element) -> tuple[_ET.Element | None, _ET.Element | None, _ET.Element | None]:
     """Return (base, sub, sup) tuples for msub / msup / msubsup."""
     kids = list(elem)
     base = kids[0] if len(kids) >= 1 else None
@@ -110,7 +110,7 @@ def _unpack_script(elem: ET.Element) -> tuple[ET.Element | None, ET.Element | No
     return base, sub, sup
 
 
-def _unpack_under_over(elem: ET.Element) -> tuple[ET.Element | None, ET.Element | None, ET.Element | None]:
+def _unpack_under_over(elem: _ET.Element) -> tuple[_ET.Element | None, _ET.Element | None, _ET.Element | None]:
     """Return (base, sub, sup) for munder / mover / munderover.
 
     By design under≈sub and over≈sup for the script handler.
@@ -143,7 +143,7 @@ _SCRIPT_LIKE_TAGS: frozenset[str] = frozenset({
 })
 
 
-def _is_typed_slash_mrow(elem: ET.Element) -> bool:
+def _is_typed_slash_mrow(elem: _ET.Element) -> bool:
     """The typed-slash fraction shape: an ``<mrow>`` of exactly
     ``[X, <mo>/</mo>, Y]``. :func:`handlers.containers._emit_mrow`
     re-dispatches it through the fraction handler so ``a / b`` gets the
@@ -175,7 +175,7 @@ def _mi_routes_to_function(text: str, profile) -> bool:
     return any(profile.letter_class(ch) is None for ch in text)
 
 
-def _is_function_head(elem: ET.Element | None, profile) -> bool:
+def _is_function_head(elem: _ET.Element | None, profile) -> bool:
     """A node that renders as a function name (⠫ prefix + name cells):
 
     * a multi-char ``<mi>`` that routes to the function path (registered
@@ -205,7 +205,7 @@ def _is_function_head(elem: ET.Element | None, profile) -> bool:
     return False
 
 
-def _is_function_application(elem: ET.Element | None, profile) -> bool:
+def _is_function_application(elem: _ET.Element | None, profile) -> bool:
     """An ``<mrow>`` of exactly ``[function head, argument]`` where the
     argument is a single self-fenced structure — ``cos α``, ``sin x²``,
     ``log₂ x``.
@@ -236,7 +236,7 @@ def _is_function_application(elem: ET.Element | None, profile) -> bool:
     return _is_function_head(head, profile) and _is_self_fenced(arg, profile)
 
 
-def _is_single_structure(elem: ET.Element | None) -> bool:
+def _is_single_structure(elem: _ET.Element | None) -> bool:
     """One self-fenced MathML element.
 
     Used by the fraction simplifiability check: when both numerator and
@@ -266,7 +266,7 @@ def _is_single_structure(elem: ET.Element | None) -> bool:
     return True
 
 
-def _peel_single_mrow(elem: ET.Element | None) -> ET.Element | None:
+def _peel_single_mrow(elem: _ET.Element | None) -> _ET.Element | None:
     """Peel transparent single-child ``<mrow>`` wrappers (latex2mathml
     wraps even a one-element numerator/denominator), returning the inner
     element, or ``None`` if a wrapper holds anything but exactly one child.
@@ -280,7 +280,7 @@ def _peel_single_mrow(elem: ET.Element | None) -> ET.Element | None:
 
 
 def _antoine_applies(
-    numerator: ET.Element | None, denominator: ET.Element | None, profile
+    numerator: _ET.Element | None, denominator: _ET.Element | None, profile
 ) -> bool:
     """True if both operands are single-digit ``<mn>`` with Antoine
     upper/lower digit forms in the profile — the compact fraction that is
@@ -293,7 +293,7 @@ def _antoine_applies(
     return bool(upper and lower)
 
 
-def _is_self_fenced(elem: ET.Element | None, profile) -> bool:
+def _is_self_fenced(elem: _ET.Element | None, profile) -> bool:
     """A single structure that carries its own right-hand fence, so a
     fraction bar placed immediately after it is unambiguous.
 
@@ -312,7 +312,7 @@ def _is_self_fenced(elem: ET.Element | None, profile) -> bool:
 
 
 def _fraction_simplifiable(
-    numerator: ET.Element | None, denominator: ET.Element | None, profile
+    numerator: _ET.Element | None, denominator: _ET.Element | None, profile
 ) -> bool:
     """Whether an ``<mfrac>`` with these operands renders in the simple bar
     form (``numerator bar denominator``, no brackets): both operands are
@@ -326,7 +326,7 @@ def _fraction_simplifiable(
     )
 
 
-def _fraction_operand_is_term(elem: ET.Element | None, profile) -> bool:
+def _fraction_operand_is_term(elem: _ET.Element | None, profile) -> bool:
     """One numerator / denominator counts as a single term for the simple
     bar form: a self-fenced structure, or a function application whose
     argument is one (``\\frac{\\cos α}{a}`` keeps the bare bar)."""
@@ -335,7 +335,7 @@ def _fraction_operand_is_term(elem: ET.Element | None, profile) -> bool:
     )
 
 
-def _fraction_renders_simple(elem: ET.Element | None, profile) -> bool:
+def _fraction_renders_simple(elem: _ET.Element | None, profile) -> bool:
     """True if ``elem`` (single-mrow-peeled) is an ``<mfrac>`` that renders
     in the bare simple bar form — i.e. without any closing fence.
 
@@ -355,7 +355,7 @@ def _fraction_renders_simple(elem: ET.Element | None, profile) -> bool:
     return _fraction_simplifiable(numerator, denominator, profile)
 
 
-def _is_atomic(elem: ET.Element | None) -> bool:
+def _is_atomic(elem: _ET.Element | None) -> bool:
     """Whether a script's content is self-delimiting, so the trailing
     ``script.close`` marker can be omitted.
 
@@ -371,7 +371,7 @@ def _is_atomic(elem: ET.Element | None) -> bool:
     return bool((elem.text or "").strip())
 
 
-def _is_single_digit_mn(elem: ET.Element | None) -> bool:
+def _is_single_digit_mn(elem: _ET.Element | None) -> bool:
     if elem is None or elem.tag != "mn":
         return False
     if list(elem):
@@ -380,7 +380,7 @@ def _is_single_digit_mn(elem: ET.Element | None) -> bool:
     return len(text) == 1 and text.isdigit()
 
 
-def _is_digits_mn(elem: ET.Element | None) -> bool:
+def _is_digits_mn(elem: _ET.Element | None) -> bool:
     """An ``<mn>`` holding nothing but digits, of ANY length.
 
     Separate from :func:`_is_single_digit_mn` because the two answer
@@ -503,7 +503,7 @@ def _fallback_surface(surface: str, span: Span | None) -> list[BrailleCell]:
     ]
 
 
-def _is_single_char_mi(elem: ET.Element) -> bool:
+def _is_single_char_mi(elem: _ET.Element) -> bool:
     """A bare ``<mi>`` with exactly one character of text — the shape
     MTEF (and per-letter OMML runs) produce when a function name like
     ``cos`` is stored as three separate character records.
@@ -529,7 +529,7 @@ _SEQUENCE_CONTAINER_TAGS: frozenset[str] = frozenset(
 )
 
 
-def _coalesce_identifier_runs(elem: ET.Element, profile) -> ET.Element:
+def _coalesce_identifier_runs(elem: _ET.Element, profile) -> _ET.Element:
     """Return ``elem`` with consecutive single-char ``<mi>`` runs merged:
     first runs spelling a registered function name into one function
     ``<mi>`` (greedy longest match), then remaining adjacent letters into
@@ -580,7 +580,7 @@ def _coalesce_identifier_runs(elem: ET.Element, profile) -> ET.Element:
 
     # Build a new element; shared (unchanged) children are reused by
     # reference — safe because both trees are only ever read afterwards.
-    out = ET.Element(elem.tag, dict(elem.attrib))
+    out = _ET.Element(elem.tag, dict(elem.attrib))
     out.text = elem.text
     out.tail = elem.tail
     out.extend(new_children)
@@ -588,14 +588,14 @@ def _coalesce_identifier_runs(elem: ET.Element, profile) -> ET.Element:
 
 
 def _merge_function_name_runs(
-    children: list[ET.Element], profile
-) -> list[ET.Element]:
+    children: list[_ET.Element], profile
+) -> list[_ET.Element]:
     """Merge consecutive single-char ``<mi>`` runs that spell a known
     function name into one ``<mi>`` each. Returns the *same list object*
     when no merge applies (so callers can detect "unchanged" by identity),
     otherwise a new list.
     """
-    out: list[ET.Element] = []
+    out: list[_ET.Element] = []
     i = 0
     n = len(children)
     merged_any = False
@@ -616,7 +616,7 @@ def _merge_function_name_runs(
                     best_len = length
                     break
             if best_len > 0:
-                merged = ET.Element("mi")
+                merged = _ET.Element("mi")
                 merged.text = "".join(
                     children[k + d].text or "" for d in range(best_len)
                 )
@@ -630,7 +630,7 @@ def _merge_function_name_runs(
     return out if merged_any else children
 
 
-def _is_letter_run_mi(elem: ET.Element, profile) -> bool:
+def _is_letter_run_mi(elem: _ET.Element, profile) -> bool:
     """A bare single-letter ``<mi>`` eligible for letter-run merging.
 
     Wider than :func:`_is_single_char_mi` (the function-name predicate):
@@ -655,8 +655,8 @@ def _is_letter_run_mi(elem: ET.Element, profile) -> bool:
 
 
 def _merge_letter_word_runs(
-    children: list[ET.Element], profile
-) -> list[ET.Element]:
+    children: list[_ET.Element], profile
+) -> list[_ET.Element]:
     """Merge adjacent single-letter ``<mi>`` siblings (two or more) into
     one multi-letter ``<mi>`` so the letter-sign rule can see the whole
     run — one sign per same-class
@@ -672,7 +672,7 @@ def _merge_letter_word_runs(
     unmerged — collapsing it would mis-attribute cells to the spanned
     subset.
     """
-    out: list[ET.Element] = []
+    out: list[_ET.Element] = []
     i = 0
     n = len(children)
     merged_any = False
@@ -695,7 +695,7 @@ def _merge_letter_word_runs(
             out.extend(run)
             i = run_end
             continue
-        merged = ET.Element("mi")
+        merged = _ET.Element("mi")
         merged.text = "".join(c.text or "" for c in run)
         if present:
             merged.set(

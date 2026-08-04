@@ -14,10 +14,9 @@ Not public API: callers go through :meth:`Pipeline.translate_block`.
 
 from __future__ import annotations
 
-import uuid
-import xml.etree.ElementTree as ET
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+import uuid as _uuid
+import xml.etree.ElementTree as _ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.block import expand_block
 from brailix.core.errors import WarningCollector
@@ -29,7 +28,10 @@ from brailix.pipeline._helpers import block_hash
 from brailix.pipeline._results import CompiledBlock, TreeSubcache
 from brailix.pipeline._session import CompilationSession, _InlineTextTranslator
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
+
     from brailix.backend.tactile.profile import TactileProfile
     from brailix.pipeline import Pipeline
 
@@ -169,7 +171,7 @@ def _uncacheable_hash(source_hash: str) -> str:
     possibly-blended result answer for a clean one. The original digest is
     kept as a suffix so the value stays recognisable while debugging.
     """
-    return f"uncacheable-{uuid.uuid4().hex}-{source_hash}"
+    return f"uncacheable-{_uuid.uuid4().hex}-{source_hash}"
 
 
 def rasterize_graphic_block(
@@ -180,7 +182,7 @@ def rasterize_graphic_block(
     tactile_profile: str | TactileProfile,
     label_translator: Callable[[str], list[BrailleCell]] | None,
     record_provenance: bool = False,
-) -> tuple[TactileRaster, ET.Element]:
+) -> tuple[TactileRaster, _ET.Element]:
     """Rasterise an already-populated :class:`GraphicBlock` into a
     :class:`~brailix.ir.tactile.TactileRaster`.
 
@@ -199,7 +201,7 @@ def rasterize_graphic_block(
     child = block.children[0] if block.children else None
     tree = child.svg if isinstance(child, GraphicInline) else None
     if tree is None:  # defensive — populate guarantees a GraphicInline tree
-        tree = ET.Element("svg", {"data-bk-error": "no graphic tree"})
+        tree = _ET.Element("svg", {"data-bk-error": "no graphic tree"})
     prof = (
         load_tactile_profile(tactile_profile)
         if isinstance(tactile_profile, str)

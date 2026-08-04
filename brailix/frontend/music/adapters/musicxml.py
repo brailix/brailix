@@ -13,9 +13,10 @@ soft-failure reporting — exposed at module level for that reason.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass
-from xml.sax.saxutils import escape, quoteattr
+import xml.etree.ElementTree as _ET
+from dataclasses import dataclass as _dataclass
+from xml.sax.saxutils import escape as _escape
+from xml.sax.saxutils import quoteattr as _quoteattr
 
 from brailix.core._xml import (
     XmlDecodeError,
@@ -27,7 +28,7 @@ from brailix.core._xml import (
 from brailix.core.context import MusicContext
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class MusicXMLSourceAdapter:
     """Trivial adapter: accept MusicXML in, give MusicXML out.
 
@@ -59,7 +60,7 @@ class MusicXMLSourceAdapter:
         text = strip_xml_prolog(text)
         try:
             safe_fromstring(text)
-        except ET.ParseError as e:
+        except _ET.ParseError as e:
             return music_error_wrap(text, reason=f"parse error: {e}")
         return text
 
@@ -76,8 +77,8 @@ def music_error_wrap(surface: str, *, reason: str) -> str:
 
     Shared by every adapter that needs to report a soft failure.
     """
-    escaped = escape(strip_xml_invalid_chars(surface))
-    escaped_reason = quoteattr(strip_xml_invalid_chars(reason))
+    escaped = _escape(strip_xml_invalid_chars(surface))
+    escaped_reason = _quoteattr(strip_xml_invalid_chars(reason))
     return (
         "<score-partwise>"
         f"<music-error data-reason={escaped_reason}>{escaped}</music-error>"

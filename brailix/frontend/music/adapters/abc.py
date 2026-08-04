@@ -13,14 +13,14 @@ placeholder per the music subsystem's soft-failure contract.
 
 from __future__ import annotations
 
-import warnings
-from dataclasses import dataclass
+import warnings as _warnings
+from dataclasses import dataclass as _dataclass
 
 from brailix.core.context import MusicContext
 from brailix.frontend.music.adapters.musicxml import music_error_wrap
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class AbcSourceAdapter:
     """ABC text → MusicXML via ``abc-xml-converter``.
 
@@ -71,8 +71,8 @@ class AbcSourceAdapter:
                 reason="abc-xml-converter lacks the getXmlScores API",
             )
         try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
+            with _warnings.catch_warnings():
+                _warnings.simplefilter("ignore")
                 scores = get_scores(text)
         except Exception as e:  # noqa: BLE001 — third-party failures vary
             return music_error_wrap(text, reason=f"abc-xml-converter error: {e}")

@@ -26,10 +26,9 @@ is where the callers that wanted them now look.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from functools import lru_cache
-from pathlib import Path
-from typing import Any
+from functools import lru_cache as _lru_cache
+from pathlib import Path as _Path
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.config._helpers import _is_metadata_key, _read_json
 from brailix.core.config.loader._refs import (
@@ -59,7 +58,11 @@ from brailix.core.config.validator import (
 )
 from brailix.core.paths import resolve_named_resource
 
-PACKAGE_ROOT: Path = Path(__file__).resolve().parents[3]
+if _TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
+
+PACKAGE_ROOT: _Path = _Path(__file__).resolve().parents[3]
 
 
 # ---------------------------------------------------------------------------
@@ -69,9 +72,9 @@ PACKAGE_ROOT: Path = Path(__file__).resolve().parents[3]
 
 def load_profile(
     name: str,
-    root: Path | None = None,
+    root: _Path | None = None,
     *,
-    extra_search_paths: list[Path] | tuple[Path, ...] | None = None,
+    extra_search_paths: list[_Path] | tuple[_Path, ...] | None = None,
 ) -> BrailleProfile:
     """Load a profile by name from ``brailix/profiles/<name>.json``.
 
@@ -94,7 +97,7 @@ def load_profile(
     role, missing required field, ...).
     """
     base = root if root is not None else PACKAGE_ROOT
-    extras = tuple(Path(p) for p in (extra_search_paths or ()))
+    extras = tuple(_Path(p) for p in (extra_search_paths or ()))
 
     profile_path = _resolve_profile_path(name, base, extras)
 
@@ -207,7 +210,7 @@ def load_profile(
 
 
 def _load_phonetic_table(
-    base: Path,
+    base: _Path,
     relative: str | None,
     cells_pool: dict[str, tuple[int, ...]],
 ) -> dict[str, tuple[tuple[int, ...], ...]]:
@@ -229,7 +232,7 @@ def _load_phonetic_table(
 
 
 def _load_lang_table(
-    base: Path,
+    base: _Path,
     key: str,
     relative: str,
     cells_pool: dict[str, tuple[int, ...]],
@@ -257,7 +260,7 @@ _ZH_CELL_TABLES: tuple[str, ...] = ("initials", "finals", "tones")
 
 
 def _load_zh_cell_tables(
-    base: Path,
+    base: _Path,
     ref: Callable[[str], Any],
     cells_pool: dict[str, tuple[int, ...]],
 ) -> dict[str, dict[str, tuple[tuple[int, ...], ...]]]:
@@ -284,7 +287,7 @@ def _load_zh_cell_tables(
 
 
 def _load_lang_tables(
-    base: Path,
+    base: _Path,
     payload: dict[str, Any],
     tables: dict[str, Any],
     cells_pool: dict[str, tuple[int, ...]],
@@ -325,9 +328,9 @@ def _load_lang_tables(
 
 
 def iter_builtin_profiles(
-    root: Path | None = None,
+    root: _Path | None = None,
     *,
-    extra_search_paths: list[Path] | tuple[Path, ...] | None = None,
+    extra_search_paths: list[_Path] | tuple[_Path, ...] | None = None,
 ) -> list[str]:
     """Return sorted profile names (without ``.json``) discoverable by
     :func:`load_profile`.
@@ -342,11 +345,11 @@ def iter_builtin_profiles(
     without coupling to the filesystem layout.
     """
     base = root if root is not None else PACKAGE_ROOT
-    extras = tuple(Path(p) for p in (extra_search_paths or ()))
+    extras = tuple(_Path(p) for p in (extra_search_paths or ()))
     return _list_available_profiles(base, extras)
 
 
-@lru_cache(maxsize=1)
+@_lru_cache(maxsize=1)
 def load_builtin_numbers_table() -> dict[str, Any]:
     """Parse the builtin universal numbers resource:
     ``resources/numbers.json`` resolved against the builtin
@@ -366,8 +369,8 @@ def load_builtin_numbers_table() -> dict[str, Any]:
 
 
 def _resolve_profile_path(
-    name: str, base: Path, extras: tuple[Path, ...]
-) -> Path:
+    name: str, base: _Path, extras: tuple[_Path, ...]
+) -> _Path:
     """Locate ``<name>.json``. User-folder ``extras`` win — a same-named
     user profile shadows the builtin — then ``base/profiles`` as the
     fallback. Raises :class:`FileNotFoundError`, listing the union of
@@ -398,7 +401,7 @@ def _resolve_profile_path(
 
 
 def _list_available_profiles(
-    base: Path, extras: tuple[Path, ...] = ()
+    base: _Path, extras: tuple[_Path, ...] = ()
 ) -> list[str]:
     """Return the names (without .json) of profiles found under
     ``base/profiles`` and any extra search paths.  Used to make

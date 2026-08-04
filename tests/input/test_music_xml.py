@@ -161,7 +161,7 @@ class TestMxlArchiveCaps:
                 opened = True
                 super().__init__(*args, **kwargs)
 
-        monkeypatch.setattr(mxl_mod.zipfile, "ZipFile", _Tripwire)
+        monkeypatch.setattr(mxl_mod._zipfile, "ZipFile", _Tripwire)
         out = MxlSourceAdapter().to_musicxml(payload)
         assert "declares 200 members" in out
         assert not opened

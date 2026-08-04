@@ -16,8 +16,8 @@ without touching the dispatcher.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable as _Callable
+from typing import Any as _Any
 
 from brailix.backend import ja as ja_backend
 from brailix.backend import latin as latin_backend
@@ -52,7 +52,7 @@ from brailix.ir.inline import (
     Word,
 )
 
-_Translator = Callable[[Any, BackendContext, BrailleProfile], list[BrailleCell]]
+_Translator = _Callable[[_Any, BackendContext, BrailleProfile], list[BrailleCell]]
 
 # Inline node type -> translator.  Dispatch is by exact ``type(node)``:
 # the IR inline set is closed — every node is a direct dataclass leaf of

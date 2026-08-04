@@ -64,16 +64,18 @@ needs an environment stamp of its own on top.
 
 from __future__ import annotations
 
-import hashlib
-import itertools
-import weakref
-from collections.abc import Mapping
-from dataclasses import fields, is_dataclass
-from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+import hashlib as _hashlib
+import itertools as _itertools
+import weakref as _weakref
+from collections.abc import Mapping as _Mapping
+from dataclasses import fields as _fields
+from dataclasses import is_dataclass as _is_dataclass
+from types import MappingProxyType as _MappingProxyType
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from collections.abc import Sequence
+    from typing import Any
 
     from brailix.core.config import BrailleProfile
 
@@ -104,7 +106,7 @@ def _canon(value: Any, out: list[str]) -> None:
     otherwise fall through to ``repr`` — insertion-ordered, and so no longer
     order-insensitive.
     """
-    if isinstance(value, Mapping):
+    if isinstance(value, _Mapping):
         out.append("{")
         for key in sorted(value, key=repr):
             out.append(repr(key))
@@ -122,10 +124,10 @@ def _canon(value: Any, out: list[str]) -> None:
             _canon(v, out)
             out.append(",")
         out.append("]")
-    elif is_dataclass(value) and not isinstance(value, type):
+    elif _is_dataclass(value) and not isinstance(value, type):
         out.append(type(value).__name__)
         out.append("(")
-        for f in fields(value):
+        for f in _fields(value):
             if not f.compare:
                 continue
             out.append(f.name)
@@ -146,7 +148,7 @@ def profile_digest(profile: BrailleProfile) -> str:
     """
     parts: list[str] = []
     _canon(profile, parts)
-    return hashlib.sha256("".join(parts).encode("utf-8")).hexdigest()
+    return _hashlib.sha256("".join(parts).encode("utf-8")).hexdigest()
 
 
 def compilation_fingerprint(
@@ -155,8 +157,8 @@ def compilation_fingerprint(
     mode: str,
     analyzer: str,
     resolver: str,
-    user_pinyin_dict: Mapping[str, str],
-    user_seg_dict: Mapping[str, Sequence[str]] = MappingProxyType({}),
+    user_pinyin_dict: _Mapping[str, str],
+    user_seg_dict: _Mapping[str, Sequence[str]] = _MappingProxyType({}),
 ) -> str:
     """SHA-256 hex digest of one Pipeline's compilation configuration.
 
@@ -209,7 +211,7 @@ def compilation_fingerprint(
         ),
         parts,
     )
-    return hashlib.sha256("".join(parts).encode("utf-8")).hexdigest()
+    return _hashlib.sha256("".join(parts).encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +300,7 @@ def fold_runtime_identity(
     positional (fixed registry order above), so equal vectors mean equal
     fold input.
     """
-    h = hashlib.sha256()
+    h = _hashlib.sha256()
     h.update(base.encode("utf-8"))
     h.update(b"|gen|")
     h.update(",".join(str(g) for g in generations).encode("utf-8"))
@@ -319,7 +321,7 @@ def fold_runtime_identity(
 # FIRST identity read of one resolver may mint two tokens and keep the last
 # write — one spurious cache invalidation, never a false hit.
 _RESOLVER_TOKENS: dict[int, str] = {}
-_RESOLVER_COUNTER = itertools.count(1)
+_RESOLVER_COUNTER = _itertools.count(1)
 
 
 def asset_resolver_identity(resolver: Any) -> str:
@@ -355,7 +357,7 @@ def asset_resolver_identity(resolver: Any) -> str:
     if token is None:
         token = f"instance:{next(_RESOLVER_COUNTER)}"
         try:
-            weakref.finalize(resolver, _RESOLVER_TOKENS.pop, key, None)
+            _weakref.finalize(resolver, _RESOLVER_TOKENS.pop, key, None)
         except TypeError:
             # Not weak-referenceable (e.g. a __slots__ instance without
             # __weakref__): don't record a token we could never retire —

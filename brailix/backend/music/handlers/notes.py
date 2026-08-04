@@ -14,7 +14,7 @@ and are pulled in by ``_emit_note`` in BANA emit order.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.music.context import MusicBrailleContext
 from brailix.backend.music.handlers._common import serialise_short, warn_and_fallback
@@ -36,6 +36,9 @@ from brailix.backend.music.utils import (
     unknown_cell,
 )
 from brailix.ir.braille import BrailleCell
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 # BANA Par. 2.4: every printed note shape stands for a "large" value
 # (8th-and-larger) and the "small" value 1/16 of it (16th-and-smaller).

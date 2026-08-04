@@ -25,7 +25,7 @@ published path (see :mod:`brailix.frontend`).
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import GraphicsContext
 from brailix.core.errors import (
@@ -34,6 +34,9 @@ from brailix.core.errors import (
     StrictModeError,
 )
 from brailix.frontend.graphics.normalizer import normalize
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 
 def parse_graphic_tree(

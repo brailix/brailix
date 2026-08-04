@@ -55,8 +55,9 @@ size and printed at another.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from typing import Any as _Any
 
 from brailix.core.measure import as_positive_finite
 
@@ -79,7 +80,7 @@ SUPPORTED_BIT_DEPTHS = frozenset({1, 8})
 # ``ValueError`` like the dimension checks below.
 
 
-def _pixel_count(value: Any, field_name: str) -> int:
+def _pixel_count(value: _Any, field_name: str) -> int:
     """``value`` as a non-negative ``int``, or ``ValueError`` if it is neither.
 
     The pixel pair is not checked the way the physical pair is. Millimetres and
@@ -115,7 +116,7 @@ def _pixel_count(value: Any, field_name: str) -> int:
     return value
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class TactileRaster:
     """A 2-D grid of raise levels plus the physical metadata a renderer
     needs to emit a correctly-scaled image.
@@ -139,7 +140,7 @@ class TactileRaster:
     dpi: float
     page_width_mm: float
     page_height_mm: float
-    data: bytearray = field(default_factory=bytearray)
+    data: bytearray = _field(default_factory=bytearray)
     # Which encoding this raster is meant to be written at (8 = grayscale
     # master, 1 = bilevel). The data is always *stored* as 0..255 raise levels
     # regardless — this says how to pack them, and
@@ -153,10 +154,10 @@ class TactileRaster:
     # = not recording (the default; export / headless pay nothing). Enabled
     # by :meth:`enable_provenance`; the backend tags pixels via
     # :meth:`begin_element`. ``compare=False`` so it's metadata, not identity.
-    provenance: dict[str, set[int]] | None = field(
+    provenance: dict[str, set[int]] | None = _field(
         default=None, compare=False, repr=False
     )
-    _owner: str | None = field(default=None, compare=False, repr=False)
+    _owner: str | None = _field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         """Check every field a downstream encoder trusts, at construction.

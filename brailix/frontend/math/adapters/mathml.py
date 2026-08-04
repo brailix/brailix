@@ -8,15 +8,15 @@ backend produce a clean ``MATH_ERROR`` warning rather than crashing.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+import xml.etree.ElementTree as _ET
+from dataclasses import dataclass as _dataclass
 
 from brailix.core._xml import XmlDecodeError, decode_xml_bytes, safe_fromstring
 from brailix.core.context import MathContext
 from brailix.frontend.math.utils import _strip_math_delimiters, merror_wrap
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class MathMLSourceAdapter:
     """Trivial adapter: accept MathML in, give MathML out.
 
@@ -46,7 +46,7 @@ class MathMLSourceAdapter:
         text = _strip_math_delimiters(text)
         try:
             safe_fromstring(text)
-        except ET.ParseError as e:
+        except _ET.ParseError as e:
             return merror_wrap(text, reason=f"parse error: {e}")
         return text
 

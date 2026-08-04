@@ -17,15 +17,15 @@ picture is scaled.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable as _Callable
+from dataclasses import dataclass as _dataclass
 
 from brailix.backend.tactile._draw import stamp_disk
 from brailix.ir.braille import BrailleCell
 from brailix.ir.tactile import TactileRaster
 
 # text → braille cells (the text→braille backend, injected; never imported).
-LabelTranslator = Callable[[str], list[BrailleCell]]
+LabelTranslator = _Callable[[str], list[BrailleCell]]
 
 # 8-dot braille dot number → (column-in-cell, row-in-cell) — the inverse of
 # the preview's mapping. Column 0 holds dots 1/2/3/7, column 1 dots 4/5/6/8.
@@ -40,7 +40,7 @@ _DOT_POS: dict[int, tuple[int, int]] = {
 _SKIP_ROLES = frozenset({"line_break", "hang_open", "hang_close"})
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class LabelStamper:
     """Translate a label and paint its braille cells onto a raster.
 

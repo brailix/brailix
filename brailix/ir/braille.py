@@ -16,9 +16,10 @@ operate on structure.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from dataclasses import dataclass, field
-from typing import Any
+from collections.abc import Iterator as _Iterator
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from typing import Any as _Any
 
 from brailix.core.span import Span
 from brailix.ir import _serde
@@ -28,7 +29,7 @@ from brailix.ir import _serde
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True, frozen=True)
+@_dataclass(slots=True, frozen=True)
 class BrailleCell:
     """One braille cell.
 
@@ -90,8 +91,8 @@ class BrailleCell:
     def is_blank(self) -> bool:
         return len(self.dots) == 0
 
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {"dots": list(self.dots)}
+    def to_dict(self) -> dict[str, _Any]:
+        d: dict[str, _Any] = {"dots": list(self.dots)}
         if self.role is not None:
             d["role"] = self.role
         if self.source_span is not None:
@@ -101,7 +102,7 @@ class BrailleCell:
         return d
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> BrailleCell:
+    def from_dict(cls, payload: dict[str, _Any]) -> BrailleCell:
         # A cell is a value object: unlike the three containers below it
         # carries no ``type`` tag in the wire form, so there is nothing to
         # check beyond the field shapes. ``dots`` is the one that used to
@@ -237,12 +238,12 @@ def cases_palette_cell(dots: tuple[int, ...], source_span: Span | None) -> Brail
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class BrailleSequence:
     """Ordered list of braille cells representing one inline run or
     one whole paragraph."""
 
-    cells: list[BrailleCell] = field(default_factory=list)
+    cells: list[BrailleCell] = _field(default_factory=list)
 
     def extend(self, other: BrailleSequence | list[BrailleCell]) -> None:
         if isinstance(other, BrailleSequence):
@@ -256,17 +257,17 @@ class BrailleSequence:
     def __len__(self) -> int:
         return len(self.cells)
 
-    def __iter__(self) -> Iterator[BrailleCell]:
+    def __iter__(self) -> _Iterator[BrailleCell]:
         return iter(self.cells)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, _Any]:
         return {
             "type": "braille_sequence",
             "cells": [c.to_dict() for c in self.cells],
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> BrailleSequence:
+    def from_dict(cls, payload: dict[str, _Any]) -> BrailleSequence:
         _serde.require_payload_type(payload, "braille_sequence", "braille sequence")
         return cls(
             cells=[
@@ -281,7 +282,7 @@ class BrailleSequence:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class BrailleBlock:
     """A block of braille (paragraph / heading / list_item / ...).
 
@@ -297,13 +298,13 @@ class BrailleBlock:
     """
 
     block_type: str = "paragraph"
-    cells: list[BrailleCell] = field(default_factory=list)
+    cells: list[BrailleCell] = _field(default_factory=list)
     id: str | None = None
     heading_level: int | None = None
     align: str | None = None
 
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {
+    def to_dict(self) -> dict[str, _Any]:
+        d: dict[str, _Any] = {
             "type": "braille_block",
             "block_type": self.block_type,
             "cells": [c.to_dict() for c in self.cells],
@@ -317,7 +318,7 @@ class BrailleBlock:
         return d
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> BrailleBlock:
+    def from_dict(cls, payload: dict[str, _Any]) -> BrailleBlock:
         what = "braille block"
         _serde.require_payload_type(payload, "braille_block", what)
         built = cls(
@@ -335,14 +336,14 @@ class BrailleBlock:
         return built
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class BrailleDocument:
     """Root of the braille IR."""
 
-    metadata: dict[str, Any] = field(default_factory=dict)
-    blocks: list[BrailleBlock] = field(default_factory=list)
+    metadata: dict[str, _Any] = _field(default_factory=dict)
+    blocks: list[BrailleBlock] = _field(default_factory=list)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, _Any]:
         return {
             "type": "braille_document",
             "metadata": dict(self.metadata),
@@ -350,7 +351,7 @@ class BrailleDocument:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> BrailleDocument:
+    def from_dict(cls, payload: dict[str, _Any]) -> BrailleDocument:
         what = "braille document"
         _serde.require_payload_type(payload, "braille_document", what)
         return cls(

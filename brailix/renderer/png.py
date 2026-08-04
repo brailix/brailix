@@ -16,9 +16,9 @@ the PDF ``MediaBox`` state (:mod:`brailix.renderer._raster_encoding`).
 
 from __future__ import annotations
 
-import struct
-import zlib
-from dataclasses import dataclass
+import struct as _struct
+import zlib as _zlib
+from dataclasses import dataclass as _dataclass
 
 from brailix.ir.tactile import TactileRaster
 from brailix.renderer._raster_encoding import INVERT_LEVELS, pixels_per_metre
@@ -28,10 +28,10 @@ _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 def _chunk(tag: bytes, data: bytes) -> bytes:
     return (
-        struct.pack(">I", len(data))
+        _struct.pack(">I", len(data))
         + tag
         + data
-        + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        + _struct.pack(">I", _zlib.crc32(tag + data) & 0xFFFFFFFF)
     )
 
 
@@ -46,13 +46,13 @@ def raster_to_png(raster: TactileRaster) -> bytes:
         raw.append(0)
         start = y * w
         raw += data[start:start + w].translate(INVERT_LEVELS)
-    idat = zlib.compress(bytes(raw), 9)
+    idat = _zlib.compress(bytes(raw), 9)
 
     # IHDR: width, height, bit depth 8, colour type 0 (grayscale), default
     # compression / filter / interlace.
-    ihdr = struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0)
+    ihdr = _struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0)
     ppu_x, ppu_y = pixels_per_metre(raster)
-    phys = struct.pack(">IIB", ppu_x, ppu_y, 1)  # unit 1 = metre
+    phys = _struct.pack(">IIB", ppu_x, ppu_y, 1)  # unit 1 = metre
 
     return (
         _PNG_SIGNATURE
@@ -68,7 +68,7 @@ def raster_to_png(raster: TactileRaster) -> bytes:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class PngRenderer:
     """Encode a tactile raster as 8-bit grayscale PNG bytes."""
 

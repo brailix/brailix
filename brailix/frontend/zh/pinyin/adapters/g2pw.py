@@ -10,18 +10,22 @@ human proofreaders can review them.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import FrontendContext
 from brailix.core.errors import PROGRAMMING_ERRORS, MissingExtraError
 from brailix.frontend.zh.pinyin.adapters._align import resolve_by_char_alignment
 from brailix.frontend.zh.tokens import ChineseToken
 
+if _TYPE_CHECKING:
+    from typing import Any
+
 LOW_CONFIDENCE_THRESHOLD = 0.75
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class G2pwPinyinResolver:
     """Wraps a g2pW predictor.
 
@@ -32,7 +36,7 @@ class G2pwPinyinResolver:
     """
 
     name: str = "g2pw"
-    predictor: Any = field(default=None)
+    predictor: Any = _field(default=None)
     low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD
 
     def resolve(

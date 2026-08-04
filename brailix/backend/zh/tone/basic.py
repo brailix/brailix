@@ -16,14 +16,14 @@ booleans at policy build time would silently skip those changes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
 
 from brailix.backend.zh.pinyin_parser import ParsedPinyin
 from brailix.backend.zh.tone import register
 from brailix.core.config import BrailleProfile
 
 
-@dataclass(frozen=True, slots=True)
+@_dataclass(frozen=True, slots=True)
 class BasicTonePolicy:
     """Flag-driven tone-emit decision.  Holds a profile reference and
     re-reads the relevant features on every call."""

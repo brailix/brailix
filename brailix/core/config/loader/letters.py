@@ -9,10 +9,13 @@ future LatinBraille backend will apply its own rules to the same data.
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.config._helpers import _read_json
 from brailix.core.config.loader._refs import _resolve_dots_table
+
+if _TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _load_letters_table(

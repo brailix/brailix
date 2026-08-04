@@ -21,7 +21,7 @@ done here; that is an editor's job.
 
 from __future__ import annotations
 
-import unicodedata
+import unicodedata as _unicodedata
 
 # Invisible / zero-width formatting characters that almost always arrive as
 # paste artefacts from the web, a PDF, or Word: ZWSP / ZWNJ / ZWJ (U+200B–
@@ -99,7 +99,7 @@ def is_math_symbol(ch: str) -> bool:
     through to ordinary punctuation, with no hand-kept exclusion list to
     drift.  Returns ``False`` for a multi-character string.
     """
-    return len(ch) == 1 and unicodedata.category(ch) == "Sm"
+    return len(ch) == 1 and _unicodedata.category(ch) == "Sm"
 
 
 # Every spelling of the percent sign a document can carry: ASCII and the

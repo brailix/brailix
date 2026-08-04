@@ -91,7 +91,7 @@ class TestResolveDocConverter:
         from brailix.input.docx import _resolve_doc_converter
 
         monkeypatch.setattr(
-            "brailix.input.docx.shutil.which",
+            "brailix.input.docx._shutil.which",
             lambda name: "/usr/bin/soffice" if name == "soffice" else None,
         )
         assert _resolve_doc_converter("soffice") == "/usr/bin/soffice"
@@ -100,7 +100,7 @@ class TestResolveDocConverter:
         from brailix.input.docx import _resolve_doc_converter
 
         monkeypatch.setattr(
-            "brailix.input.docx.shutil.which", lambda name: None
+            "brailix.input.docx._shutil.which", lambda name: None
         )
         assert _resolve_doc_converter("nope") is None
 
@@ -1423,7 +1423,7 @@ class TestMathTypeFallback:
             "brailix.input.docx._resolve_doc_converter",
             lambda override: "soffice",
         )
-        monkeypatch.setattr("brailix.input.docx.subprocess.run", fake_run)
+        monkeypatch.setattr("brailix.input.docx._subprocess.run", fake_run)
 
         path, doc = _make_docx(tmp_path)
         doc.add_paragraph("回归测试")
@@ -1451,7 +1451,7 @@ class TestMathTypeFallback:
             "brailix.input.docx._resolve_doc_converter",
             lambda override: "soffice",
         )
-        monkeypatch.setattr("brailix.input.docx.subprocess.run", fake_run)
+        monkeypatch.setattr("brailix.input.docx._subprocess.run", fake_run)
 
         path, doc = _make_docx(tmp_path)
         para = doc.add_paragraph("前 ")
@@ -1519,7 +1519,7 @@ class TestMathTypeFallback:
             "brailix.input.docx._resolve_doc_converter",
             lambda override: "soffice",
         )
-        monkeypatch.setattr("brailix.input.docx.subprocess.run", fake_run)
+        monkeypatch.setattr("brailix.input.docx._subprocess.run", fake_run)
 
         path, doc = _make_docx(tmp_path)
         table = doc.add_table(rows=1, cols=1)
@@ -1569,7 +1569,7 @@ class TestMathTypeFallback:
             "brailix.input.docx._resolve_doc_converter",
             lambda override: "soffice",
         )
-        monkeypatch.setattr("brailix.input.docx.subprocess.run", fake_run)
+        monkeypatch.setattr("brailix.input.docx._subprocess.run", fake_run)
 
         path, doc = _make_docx(tmp_path)
         para = doc.add_paragraph("前 ")
@@ -1622,7 +1622,7 @@ class TestMathTypeFallback:
             "brailix.input.docx._resolve_doc_converter",
             lambda override: "soffice",
         )
-        monkeypatch.setattr("brailix.input.docx.subprocess.run", fake_run)
+        monkeypatch.setattr("brailix.input.docx._subprocess.run", fake_run)
 
         path, doc = _make_docx(tmp_path)
         para = doc.add_paragraph("前 ")
@@ -1652,7 +1652,7 @@ class TestMathTypeFallback:
             "brailix.input.docx._resolve_doc_converter",
             lambda override: "soffice",
         )
-        monkeypatch.setattr("brailix.input.docx.subprocess.run", fake_run)
+        monkeypatch.setattr("brailix.input.docx._subprocess.run", fake_run)
 
         path, doc = _make_docx(tmp_path)
         para = doc.add_paragraph("图表 ")
@@ -2250,7 +2250,7 @@ class TestArchiveResourceCaps:
                 opened = True
                 super().__init__(*args, **kwargs)
 
-        monkeypatch.setattr(docx_adapter.zipfile, "ZipFile", _Tripwire)
+        monkeypatch.setattr(docx_adapter._zipfile, "ZipFile", _Tripwire)
         with pytest.raises(ParseError, match="200 members declared"):
             _preflight_docx_archive(p.read_bytes(), p)
         assert not opened
@@ -2274,7 +2274,7 @@ class TestArchiveResourceCaps:
                 opened = True
                 super().__init__(*args, **kwargs)
 
-        monkeypatch.setattr(docx_adapter.zipfile, "ZipFile", _Tripwire)
+        monkeypatch.setattr(docx_adapter._zipfile, "ZipFile", _Tripwire)
         with pytest.raises(ParseError, match="20000 members declared"):
             _preflight_docx_archive(p.read_bytes(), p)
         assert not opened

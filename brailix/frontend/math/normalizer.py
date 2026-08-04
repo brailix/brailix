@@ -35,7 +35,7 @@ normalization untouched.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as _ET
 
 from brailix.core._xml import (
     safe_fromstring,
@@ -54,7 +54,7 @@ from brailix.frontend.math.utils import merror_wrap
 _MAX_MATHML_DEPTH = 150
 
 
-def normalize(mathml: str) -> ET.Element:
+def normalize(mathml: str) -> _ET.Element:
     """Parse a MathML string and return a normalized :class:`Element`
     tree with the MathML namespace stripped.
 
@@ -64,14 +64,14 @@ def normalize(mathml: str) -> ET.Element:
     """
     try:
         root = safe_fromstring(mathml)
-    except ET.ParseError as e:
-        root = ET.fromstring(merror_wrap(mathml, reason=f"parse error: {e}"))
+    except _ET.ParseError as e:
+        root = _ET.fromstring(merror_wrap(mathml, reason=f"parse error: {e}"))
     if tree_depth_exceeds(root, _MAX_MATHML_DEPTH):
         # Too deep for the recursive passes below — degrade to a <merror>
         # (shallow, so it sails through them) rather than overflow the stack.
         # Strip its namespace too, so the backend dispatches the bare
         # <merror> tag exactly as on the parse-error path.
-        degraded = ET.fromstring(
+        degraded = _ET.fromstring(
             merror_wrap(
                 "", reason=f"formula nested deeper than {_MAX_MATHML_DEPTH} levels"
             )
@@ -103,7 +103,7 @@ _INVISIBLE_OPERATORS: frozenset[str] = frozenset(
 )
 
 
-def _is_invisible_mo(elem: ET.Element) -> bool:
+def _is_invisible_mo(elem: _ET.Element) -> bool:
     return (
         elem.tag == "mo"
         and len(elem) == 0
@@ -111,7 +111,7 @@ def _is_invisible_mo(elem: ET.Element) -> bool:
     )
 
 
-def _drop_presentational(elem: ET.Element) -> None:
+def _drop_presentational(elem: _ET.Element) -> None:
     """In-place: neutralise presentational elements the backend has no
     handlers for, so real content never degrades to an unknown cell.
 
@@ -158,7 +158,7 @@ def _drop_presentational(elem: ET.Element) -> None:
                 del child.attrib[key]
 
 
-def _collapse_singleton_mrows(elem: ET.Element) -> None:
+def _collapse_singleton_mrows(elem: _ET.Element) -> None:
     """In-place: replace ``<mrow>`` elements that have exactly one
     child with that child. Visits descendants first so deeply nested
     redundant wrappers all collapse.
@@ -166,7 +166,7 @@ def _collapse_singleton_mrows(elem: ET.Element) -> None:
     # Iterate over a snapshot so we can mutate in place.
     for child in list(elem):
         _collapse_singleton_mrows(child)
-    new_children: list[ET.Element] = []
+    new_children: list[_ET.Element] = []
     for child in list(elem):
         if child.tag == "mrow" and len(child) == 1 and not (child.text and child.text.strip()):
             grand = child[0]
@@ -195,7 +195,7 @@ def _collapse_singleton_mrows(elem: ET.Element) -> None:
 _REPEAT_TYPO_OPS: frozenset[str] = frozenset({"=", "<", ">", "+", "-"})
 
 
-def _flag_repeated_operators(elem: ET.Element) -> None:
+def _flag_repeated_operators(elem: _ET.Element) -> None:
     """In-place: tag the second of two immediately-adjacent identical
     ``<mo>`` siblings (from :data:`_REPEAT_TYPO_OPS`) with
     ``data-bk-warn="repeated-operator"`` so the backend flags a likely typo.
@@ -226,7 +226,7 @@ def _flag_repeated_operators(elem: ET.Element) -> None:
 _RING_OPERATOR = "∘"
 
 
-def _is_degree_circle_msup(elem: ET.Element) -> bool:
+def _is_degree_circle_msup(elem: _ET.Element) -> bool:
     """``<msup><mn>…</mn><mo>∘</mo></msup>`` — latex2mathml's spelling of a
     degree sign (``144^\\circ`` / ``144^{\\circ}``).
 
@@ -245,7 +245,7 @@ def _is_degree_circle_msup(elem: ET.Element) -> bool:
     )
 
 
-def _rewrite_degree_circle(elem: ET.Element) -> None:
+def _rewrite_degree_circle(elem: _ET.Element) -> None:
     """In-place: replace each ``<msup>NUMBER<mo>∘</mo></msup>`` degree shape
     (see :func:`_is_degree_circle_msup`) with the number followed by a
     baseline ``<mo>°</mo>``.
@@ -278,12 +278,12 @@ def _rewrite_degree_circle(elem: ET.Element) -> None:
     """
     for child in list(elem):
         _rewrite_degree_circle(child)
-    new_children: list[ET.Element] = []
+    new_children: list[_ET.Element] = []
     changed = False
     for child in list(elem):
         if _is_degree_circle_msup(child):
             base, exponent = child[0], child[1]
-            degree = ET.Element("mo")
+            degree = _ET.Element("mo")
             degree.text = "°"
             _inherit_provenance(degree, exponent)
             _inherit_provenance(degree, child)
@@ -301,7 +301,7 @@ def _rewrite_degree_circle(elem: ET.Element) -> None:
             elem.append(c)
 
 
-def _inherit_provenance(target: ET.Element, source: ET.Element) -> None:
+def _inherit_provenance(target: _ET.Element, source: _ET.Element) -> None:
     """Copy ``source``'s ``data-bk-*`` attributes onto ``target``, keeping
     whatever ``target`` already says.
 
@@ -314,13 +314,13 @@ def _inherit_provenance(target: ET.Element, source: ET.Element) -> None:
             target.attrib.setdefault(key, value)
 
 
-def _is_digit_run_mn(node: ET.Element) -> bool:
+def _is_digit_run_mn(node: _ET.Element) -> bool:
     """True for an ``<mn>`` whose text is a plain ASCII digit run."""
     text = (node.text or "").strip()
     return node.tag == "mn" and text.isdigit() and text.isascii()
 
 
-def _tag_thousands_separators(elem: ET.Element) -> None:
+def _tag_thousands_separators(elem: _ET.Element) -> None:
     """In-place: tag a thousands-grouping comma with ``data-bk-tight`` so the
     backend drops its trailing space.
 

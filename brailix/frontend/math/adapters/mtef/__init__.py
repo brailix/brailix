@@ -48,7 +48,7 @@ References:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass as _dataclass
 
 from brailix.core.context import MathContext
 from brailix.frontend.math.adapters.mtef._reader import _MtefParseError
@@ -57,7 +57,7 @@ from brailix.frontend.math.adapters.mtef._v5 import _convert_v5
 from brailix.frontend.math.utils import merror_wrap
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class MtefMathSourceAdapter:
     """Convert an MTEF binary payload to MathML.
 

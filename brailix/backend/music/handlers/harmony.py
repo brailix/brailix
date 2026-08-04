@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.music.context import MusicBrailleContext
 from brailix.backend.music.utils import (
@@ -17,6 +17,9 @@ from brailix.backend.music.utils import (
     numeral_dots,
 )
 from brailix.ir.braille import BrailleCell
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 # MusicXML <root-alter> → BANA Table 23 accidental entity.
 _HARMONY_ACC_ENTITY: dict[int, str] = {

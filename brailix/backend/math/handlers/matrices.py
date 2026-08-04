@@ -18,7 +18,7 @@ delimiters through the shared ``<mo>`` machinery.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.math.context import MathBrailleContext
 from brailix.backend.math.dispatch import _emit_element
@@ -38,6 +38,9 @@ from brailix.ir.braille import (
     hang_open_cell,
     line_break_cell,
 )
+
+if _TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 # Fence chars that delimit a matrix / determinant. The matching close char
 # is taken from the actual sibling <mo>, so we only need membership sets to

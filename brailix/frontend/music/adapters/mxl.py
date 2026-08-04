@@ -10,10 +10,10 @@ Zero third-party dependencies.
 
 from __future__ import annotations
 
-import io
-import xml.etree.ElementTree as ET
-import zipfile
-from dataclasses import dataclass
+import io as _io
+import xml.etree.ElementTree as _ET
+import zipfile as _zipfile
+from dataclasses import dataclass as _dataclass
 
 from brailix.core._xml import safe_fromstring
 from brailix.core._zip import zip_entry_count_exceeds
@@ -79,7 +79,7 @@ class _Budget:
 
 
 def _read_member_capped(
-    zf: zipfile.ZipFile, name: str, budget: _Budget
+    zf: _zipfile.ZipFile, name: str, budget: _Budget
 ) -> bytes:
     """Read one archive member, aborting if it inflates past a cap.
 
@@ -103,7 +103,7 @@ def _read_member_capped(
     return b"".join(chunks)
 
 
-@dataclass(slots=True)
+@_dataclass(slots=True)
 class MxlSourceAdapter:
     """Unzip an ``.mxl`` payload and reuse the MusicXML adapter."""
 
@@ -132,7 +132,7 @@ class MxlSourceAdapter:
             )
         budget = _Budget()
         try:
-            with zipfile.ZipFile(io.BytesIO(src)) as zf:
+            with _zipfile.ZipFile(_io.BytesIO(src)) as zf:
                 inner_name = _find_rootfile(zf, budget)
                 if inner_name is None:
                     return music_error_wrap(
@@ -158,7 +158,7 @@ class MxlSourceAdapter:
                             "decompression cap (possible zip bomb)"
                         ),
                     )
-        except zipfile.BadZipFile as e:
+        except _zipfile.BadZipFile as e:
             return music_error_wrap("", reason=f"not a valid ZIP: {e}")
         except UNREADABLE_ZIP_MEMBER_ERRORS as e:
             # zipfile raises more than BadZipFile for an *unreadable input* —
@@ -175,7 +175,7 @@ class MxlSourceAdapter:
         return MusicXMLSourceAdapter().to_musicxml(inner_bytes, ctx)
 
 
-def _find_rootfile(zf: zipfile.ZipFile, budget: _Budget) -> str | None:
+def _find_rootfile(zf: _zipfile.ZipFile, budget: _Budget) -> str | None:
     """Locate the MusicXML rootfile inside an MXL archive.
 
     Per the W3C MusicXML container spec, ``META-INF/container.xml``
@@ -196,7 +196,7 @@ def _find_rootfile(zf: zipfile.ZipFile, budget: _Budget) -> str | None:
         return _fallback_xml_entry(zf)
     try:
         root = safe_fromstring(container_bytes)
-    except ET.ParseError:
+    except _ET.ParseError:
         return _fallback_xml_entry(zf)
     for rf in root.iter():
         local = rf.tag.split("}", 1)[-1]
@@ -207,7 +207,7 @@ def _find_rootfile(zf: zipfile.ZipFile, budget: _Budget) -> str | None:
     return _fallback_xml_entry(zf)
 
 
-def _fallback_xml_entry(zf: zipfile.ZipFile) -> str | None:
+def _fallback_xml_entry(zf: _zipfile.ZipFile) -> str | None:
     """Scan the archive for a plausible MusicXML entry when
     container.xml is missing or malformed.
 

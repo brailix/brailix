@@ -34,7 +34,8 @@ pinyin; the orchestrator chains the steps.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Protocol as _Protocol
+from typing import runtime_checkable as _runtime_checkable
 
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
@@ -67,8 +68,8 @@ from brailix.ir.inline import (
 _AUTO = "auto"
 
 
-@runtime_checkable
-class ChineseAnalyzer(Protocol):
+@_runtime_checkable
+class ChineseAnalyzer(_Protocol):
     """Tokenize a Chinese text region into words with POS tags.
 
     Implementations wrap external tokenizers (HanLP, jieba, THULAC, ...)
