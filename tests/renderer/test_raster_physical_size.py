@@ -25,6 +25,10 @@ import struct
 import pytest
 
 from brailix.ir.tactile import TactileRaster
+from brailix.renderer._raster_encoding import (
+    MAX_PIXELS_PER_METRE,
+    pixels_per_metre,
+)
 from brailix.renderer.bmp import raster_to_bmp
 from brailix.renderer.pdf import raster_to_pdf
 from brailix.renderer.png import raster_to_png
@@ -150,3 +154,86 @@ def test_a_denser_grid_on_the_same_page_keeps_the_page_size() -> None:
     assert struct.unpack_from("<i", fine_bmp, 38)[0] == pytest.approx(
         2 * struct.unpack_from("<i", coarse_bmp, 38)[0], rel=1e-3
     )
+
+
+class TestADensityNoHeaderCanHold:
+    """A page too small for its pixel count has no density either header can
+    state, and that is where the encoding stops.
+
+    The millimetre pair is a *measurement*: any finite positive value is a
+    legal way to spell one, and :class:`TactileRaster` is right to accept a
+    very small page rather than guess which containers the caller will write.
+    But a 1 px axis across a nanometre is 10^12 pixels per metre, and both
+    density headers are 32-bit integers — BMP's ``biXPelsPerMeter`` signed,
+    PNG's ``pHYs`` unsigned. So a raster like this constructed cleanly, passed
+    :meth:`~brailix.ir.tactile.TactileRaster.require_renderable`, and then died
+    inside ``struct.pack`` with ``struct.error: 'i' format requires ...`` —
+    which is not even a ``ValueError``, so nothing catching the IR's own error
+    type caught it, and the message named a format code rather than the field
+    the caller got wrong.
+    """
+
+    @staticmethod
+    def _square_page(mm: float) -> TactileRaster:
+        return TactileRaster.blank(
+            1, 1, dpi=100.0, page_width_mm=mm, page_height_mm=mm
+        )
+
+    def test_such_a_raster_is_still_legal_ir(self) -> None:
+        """Construction and ``require_renderable`` deliberately still accept
+        it: the page size is a positive finite measurement and the raster has
+        positive dimensions, which is all either of those two check."""
+        assert self._square_page(1e-9).require_renderable() is None
+
+    @pytest.mark.parametrize("encode", [raster_to_bmp, raster_to_png])
+    def test_both_integer_header_containers_refuse_it(self, encode) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            encode(self._square_page(1e-9))
+        message = str(excinfo.value)
+        assert "page_width_mm" in message, message
+        assert str(MAX_PIXELS_PER_METRE) in message, message
+
+    def test_the_last_page_both_headers_can_state_still_encodes(self) -> None:
+        """The ceiling itself is not off by one: 1 px across
+        ``1000 / MAX`` mm is exactly ``MAX`` pixels per metre, and both
+        containers write it back unchanged."""
+        raster = self._square_page(_MM_PER_METRE / MAX_PIXELS_PER_METRE)
+        assert pixels_per_metre(raster) == (
+            MAX_PIXELS_PER_METRE,
+            MAX_PIXELS_PER_METRE,
+        )
+        assert struct.unpack_from("<ii", raster_to_bmp(raster), 38) == (
+            MAX_PIXELS_PER_METRE,
+            MAX_PIXELS_PER_METRE,
+        )
+        png = raster_to_png(raster)
+        assert struct.unpack_from(">II", png, png.index(b"pHYs") + 4) == (
+            MAX_PIXELS_PER_METRE,
+            MAX_PIXELS_PER_METRE,
+        )
+
+    def test_one_step_past_the_ceiling_is_refused(self) -> None:
+        raster = self._square_page(_MM_PER_METRE / (MAX_PIXELS_PER_METRE + 1))
+        for encode in (raster_to_bmp, raster_to_png):
+            with pytest.raises(ValueError):
+                encode(raster)
+
+    def test_a_denormal_page_size_does_not_reach_round(self) -> None:
+        """The smallest positive float there is: the density is ``inf``, which
+        used to reach ``round()`` and raise ``OverflowError`` instead."""
+        with pytest.raises(ValueError):
+            raster_to_bmp(self._square_page(5e-324))
+
+    def test_the_pdf_states_no_integer_density_and_is_unaffected(self) -> None:
+        """Why the ceiling lives in the shared *encoding* layer and not in
+        ``require_renderable()``: the PDF writes its ``MediaBox`` in points as
+        a decimal, so it has no such limit, and a check on the IR would have
+        refused a raster this container can encode."""
+        assert raster_to_pdf(self._square_page(1e-9)).startswith(b"%PDF")
+
+    @pytest.mark.parametrize("raster", _CASES)
+    def test_no_real_page_comes_anywhere_near_the_ceiling(self, raster) -> None:
+        """The pages the product actually produces are six orders of magnitude
+        below it — the check cannot start refusing ordinary output."""
+        for density in pixels_per_metre(raster):
+            assert density < MAX_PIXELS_PER_METRE // 1000
