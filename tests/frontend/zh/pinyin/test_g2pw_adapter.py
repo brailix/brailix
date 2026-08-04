@@ -37,18 +37,51 @@ def test_missing_g2pw_surfaces_missing_extra_error(monkeypatch):
 
 
 class TestNormalizePredictorOutput:
+    def test_the_shape_g2pw_actually_returns(self):
+        """``G2PWConverter`` batches: a list with one result per sentence.
+
+        Verified against the real 589 MB model —
+        ``conv(["我在重庆"])`` returns
+        ``[['wo3', 'zai4', 'chong2', 'qing4']]``. Reading that outer list as
+        the syllables made ``len(syllables)`` 1 for every input, so the
+        per-character alignment saw a divergence every time and cleared every
+        reading: the engine rendered braille byte-for-byte identical to
+        ``resolver="null"`` and the scheduled smoke job called it a pass.
+        """
+        py, conf = _normalize_predictor_output([["wo3", "zai4", "chong2"]])
+        assert py == ["wo3", "zai4", "chong2"]
+        assert conf is None
+
+    def test_a_character_with_no_reading_keeps_its_slot(self):
+        # g2pW seeds each sentence with ``[None] * len(sentence)`` and fills
+        # in what it knows, so a None is a real answer — and dropping it would
+        # shorten the list and misalign every character after it.
+        py, _ = _normalize_predictor_output([["wo3", None, "chong2"]])
+        assert py == ["wo3", None, "chong2"]
+
     def test_tuple_form(self):
-        py, conf = _normalize_predictor_output((["wo3", "zai4"], [0.9, 0.95]))
+        # An injected predictor may also report confidences; the shipped
+        # converter never does (its ``__call__`` returns predictions alone).
+        py, conf = _normalize_predictor_output(
+            ([["wo3", "zai4"]], [[0.9, 0.95]])
+        )
         assert py == ["wo3", "zai4"]
         assert conf == [0.9, 0.95]
 
-    def test_list_only_form(self):
+    def test_flat_form_from_an_injected_predictor(self):
+        # Not what g2pW returns, but unambiguous — the entries are strings, so
+        # this is one sentence's syllables rather than a batch of sentences.
         py, conf = _normalize_predictor_output(["wo3", "zai4"])
         assert py == ["wo3", "zai4"]
         assert conf is None
 
     def test_tuple_with_none_confidence(self):
-        py, conf = _normalize_predictor_output((["a"], None))
+        py, conf = _normalize_predictor_output(([["a"]], None))
+        assert conf is None
+
+    def test_empty_output(self):
+        py, conf = _normalize_predictor_output([])
+        assert py == []
         assert conf is None
 
 
@@ -58,10 +91,23 @@ class TestNormalizePredictorOutput:
 
 
 def _predictor(syllables, confidences=None):
-    def call(_text):
+    """A stand-in shaped like the real ``G2PWConverter``.
+
+    It used to take a bare sentence string and answer with a flat list of
+    syllables — an interface g2pW has never had. Every test below passed
+    against it while the shipped engine, called the way it really works,
+    produced no readings at all. So the stand-in now insists on the batch
+    call and answers in the batch shape.
+    """
+
+    def call(sentences):
+        assert isinstance(sentences, list), (
+            f"G2PWConverter takes a list of sentences; the adapter called it "
+            f"with {type(sentences).__name__}"
+        )
         if confidences is None:
-            return syllables
-        return (syllables, confidences)
+            return [syllables]
+        return ([syllables], [confidences])
 
     return call
 
@@ -154,10 +200,14 @@ class TestLoaderWithFakeModule:
         """When ``g2pw`` is importable, ``_load`` builds the resolver
         around a fresh :class:`G2PWConverter` instance."""
         fake_module = types.ModuleType("g2pw")
+        asked = {}
 
         class _FakeConverter:
-            def __call__(self, _text: str):
-                return (["wo3"], [0.95])
+            def __init__(self, *, style: str = "bopomofo", **_: object) -> None:
+                asked["style"] = style
+
+            def __call__(self, sentences):
+                return [["wo3"] * len(s) for s in sentences]
 
         fake_module.G2PWConverter = _FakeConverter
         monkeypatch.setitem(sys.modules, "g2pw", fake_module)
@@ -167,9 +217,12 @@ class TestLoaderWithFakeModule:
         adapter = resolver_registry.get("g2pw")
         assert isinstance(adapter, G2pwPinyinResolver)
         assert callable(adapter.predictor)
-        py, conf = _normalize_predictor_output(adapter.predictor("我"))
+        # The converter's own default is bopomofo (``ㄨㄛ3``), which no reader
+        # of ``ChineseToken.pinyin`` understands, so the adapter has to ask.
+        assert asked["style"] == "pinyin"
+        py, conf = _normalize_predictor_output(adapter.predictor(["我"]))
         assert py == ["wo3"]
-        assert conf == [0.95]
+        assert conf is None
 
     def test_load_wraps_model_download_failure_as_missing_extra(
         self, monkeypatch

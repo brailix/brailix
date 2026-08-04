@@ -23,6 +23,13 @@ permissions:
 jobs:
   smoke:
     name: ${{ matrix.adapter }} (${{ matrix.kind }})
+    # Upstream only. A fork inherits this file and its schedule, so it runs the
+    # same multi-gigabyte install on its own clock for a result nobody reads —
+    # and the failure step below cannot even file its issue, because a fork
+    # normally has Issues disabled, so every red run reds twice for two
+    # unrelated reasons. Guarding the job (rather than switching the schedule
+    # off by hand in each fork's settings) keeps the answer in the file.
+    if: github.repository == 'brailix/brailix'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -53,22 +60,66 @@ jobs:
         run: |
           uv run python - <<'PY'
           import os
+
           from brailix import Pipeline
+          from brailix.core.context import FrontendContext
+          from brailix.frontend import tokenize_zh
 
+          SENTENCE = "我在重庆"
+          BLANK = "⠀"  # the empty braille cell
           name, kind = os.environ["ADAPTER"], os.environ["KIND"]
-          # Exercise only the engine under test: pair the analyzer with a
-          # no-op resolver (and vice versa) so a hanlp run doesn't also
-          # download g2pw's model, and each leg fails for exactly one reason.
-          kwargs = {kind: name}
-          if kind == "analyzer":
-              kwargs["resolver"] = "null"
-          else:
-              kwargs["analyzer"] = "char"
 
-          pipe = Pipeline(profile="cn_current", **kwargs)
-          out = pipe.translate_text("我在重庆").render()
-          assert out, f"{name}: empty braille output"
-          print(f"OK {name} ({kind}): {out}")
+          # Each leg asserts what its own engine CONTRIBUTES, which is not the
+          # same question for the two kinds — and asking the easy question
+          # instead is how this job stayed green on a broken engine for weeks.
+          # It used to run both legs through the Pipeline and `assert out`,
+          # i.e. "the render is a non-empty string". A resolver that loads but
+          # produces no readings renders as blank cells, and a string of blank
+          # cells is non-empty, so g2pw passed while emitting output identical
+          # to `resolver="null"` — the one thing it must never be mistaken for.
+          if kind == "analyzer":
+              # An analyzer's contribution is the segmentation, and pairing it
+              # with the null resolver (so this leg never downloads g2pw's
+              # model) means the braille is legitimately all blank here. So
+              # look at the tokens instead: they must cover the input exactly,
+              # and at least one merge must have happened — a fallback to
+              # per-character segmentation returns one token per character.
+              ctx = FrontendContext(
+                  profile="cn_current", options={"zh_analyzer": name}
+              )
+              tokens = tokenize_zh(SENTENCE, ctx)
+              surfaces = [t.surface for t in tokens]
+              assert "".join(surfaces) == SENTENCE, (
+                  f"{name}: tokens {surfaces} do not reconstruct {SENTENCE!r}"
+              )
+              assert len(tokens) < len(SENTENCE), (
+                  f"{name}: {len(tokens)} tokens for {len(SENTENCE)} characters "
+                  f"({surfaces}) — nothing was merged, which is what a silent "
+                  f"fallback to character segmentation looks like"
+              )
+              detail = "/".join(surfaces)
+          else:
+              # A resolver's contribution is the readings, and readings are
+              # exactly what turns blank cells into braille.
+              result = Pipeline(
+                  profile="cn_current", analyzer="char", **{kind: name}
+              ).translate_text(SENTENCE)
+              out = result.render()
+              assert out, f"{name}: empty braille output"
+              assert set(out) - {BLANK}, (
+                  f"{name}: every cell is blank (U+2800), which is byte-for-byte "
+                  f"what resolver='null' produces — the engine loaded but "
+                  f"contributed no readings"
+              )
+              codes = sorted({w.code for w in result.warnings})
+              assert not codes, (
+                  f"{name}: translation raised {codes} — a reading that misaligns "
+                  f"is reported as a warning and then dropped, so a clean render "
+                  f"is not on its own evidence that the engine worked"
+              )
+              detail = out
+
+          print(f"OK {name} ({kind}): {detail}")
           PY
 
       - name: Open an issue on failure

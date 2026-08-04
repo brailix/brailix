@@ -44,7 +44,13 @@ g2pm = ["g2pM", "numpy"]
 # g2pw (0.1.1) imports torch.utils.data at import time yet declares only
 # onnxruntime/tqdm/transformers — same upstream gap as g2pM's numpy above,
 # so we declare torch here; environments that also install hanlp masked it.
-g2pw = ["g2pw", "torch"]   # deep polyphone model (downloads a model on first use)
+# ``requests`` is that same gap once more: g2pw's model download does
+# ``import requests`` at module import. It rode in transitively for years
+# because transformers<5 depends on requests, so it is a fresh install
+# resolving transformers 5.x that fails — at ``import g2pw``, before any of
+# this adapter runs. An undeclared dependency only ever masked by someone
+# else's.
+g2pw = ["g2pw", "torch", "requests"]  # deep polyphone model (downloads on first use)
 pypinyin = ["pypinyin"]    # light, offline, dictionary-based
 
 # Math sources:

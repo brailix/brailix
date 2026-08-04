@@ -89,7 +89,12 @@ def _fake_g2pw(boom: BaseException) -> types.ModuleType:
     mod = types.ModuleType("g2pw")
 
     class _Converter:
-        def __init__(self) -> None:
+        # ``**_`` because the adapter constructs this with ``style="pinyin"``.
+        # A signature that refuses it raises TypeError *first*, which is not a
+        # PROGRAMMING_ERROR — so the wide ``except`` below would convert it to
+        # a candidate-unavailable signal and this test would watch the wrong
+        # exception be swallowed, reporting nothing.
+        def __init__(self, **_: object) -> None:
             raise boom
 
     mod.G2PWConverter = _Converter  # type: ignore[attr-defined]
