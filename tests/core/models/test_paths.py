@@ -7,7 +7,10 @@ front-end) calls into.  The two failure surfaces worth pinning down:
 * path goes to the right place in each mode (frozen → exe parent,
   dev → cwd),
 * auto-mkdir is idempotent and rejects names that would escape the
-  ``models/`` root.
+  ``models/`` root,
+* whichever candidate comes back can actually hold a file — and when
+  neither can, the caller is told so here instead of finding out inside
+  a model download.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from unittest import mock
 
 import pytest
 
+from brailix.core.errors import ConfigurationError
 from brailix.core.models.paths import get_model_dir, get_models_root
 
 
@@ -64,6 +68,32 @@ class TestGetModelsRoot:
         root = get_models_root()
         assert root.is_dir()
 
+    def test_the_returned_directory_can_actually_hold_a_file(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The promise the name makes, checked the only way that holds on
+        every platform: write into what comes back.
+
+        ``os.access(W_OK)`` was the old check and answers a different question
+        — on POSIX it ignores the search permission a directory also needs to
+        take new entries, and on Windows it reads a read-only attribute and
+        never sees the ACL that denies the write.
+        """
+        monkeypatch.delattr(sys, "frozen", raising=False)
+        monkeypatch.chdir(tmp_path)
+        root = get_models_root()
+        (root / "weights.bin").write_bytes(b"x")
+        assert (root / "weights.bin").read_bytes() == b"x"
+
+    def test_the_write_probe_leaves_nothing_behind(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.delattr(sys, "frozen", raising=False)
+        monkeypatch.chdir(tmp_path)
+        root = get_models_root()
+        get_models_root()  # a second call probes again
+        assert list(root.iterdir()) == []
+
     def test_falls_back_to_user_data_when_portable_unwritable(
         self, tmp_path: Path, monkeypatch
     ) -> None:
@@ -81,6 +111,61 @@ class TestGetModelsRoot:
         root = get_models_root()
         assert root == tmp_path / "appdata" / "brailix" / "models"
         assert root.is_dir()
+
+    def test_a_fallback_that_cannot_hold_a_file_is_not_returned(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The gap the shared check closes.
+
+        A fallback that *exists* and accepts ``mkdir`` but refuses the first
+        file written into it — a read-only home, a ``LOCALAPPDATA`` pointing at
+        a drive that is no longer mounted the same way — used to be returned
+        unexamined, because only the portable candidate was ever verified. The
+        caller then failed inside a model download, several layers from the
+        directory choice that caused it.
+        """
+        import tempfile as tempfile_mod
+
+        import brailix.core.models.paths as paths_mod
+
+        blocker = tmp_path / "blocker"
+        blocker.write_bytes(b"")
+        monkeypatch.setattr(paths_mod, "_portable_root", lambda: blocker / "sub")
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+        fallback = tmp_path / "appdata" / "brailix" / "models"
+
+        real_probe = tempfile_mod.NamedTemporaryFile
+
+        def refuse_the_fallback(*args, **kwargs):
+            if Path(kwargs.get("dir", ".")) == fallback:
+                raise PermissionError(13, "Permission denied")
+            return real_probe(*args, **kwargs)
+
+        monkeypatch.setattr(
+            tempfile_mod, "NamedTemporaryFile", refuse_the_fallback
+        )
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            get_models_root()
+        message = str(excinfo.value)
+        assert str(blocker / "sub" / "models") in message, message
+        assert str(fallback) in message, message
+
+    def test_raises_when_neither_candidate_can_be_created(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Both blocked: the error names both places rather than letting a
+        bare ``PermissionError`` out of the fallback's ``mkdir``."""
+        import brailix.core.models.paths as paths_mod
+
+        blocker = tmp_path / "blocker"
+        blocker.write_bytes(b"")  # a file in the way of every child path
+        monkeypatch.setattr(paths_mod, "_portable_root", lambda: blocker / "sub")
+        monkeypatch.setenv("LOCALAPPDATA", str(blocker / "appdata"))
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            get_models_root()
+        assert "no writable models directory" in str(excinfo.value)
 
 
 class TestGetModelDir:

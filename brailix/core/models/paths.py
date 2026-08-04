@@ -28,14 +28,22 @@ right error condition (the failure modes that matter are missing
 *files inside it*, surfaced by the adapter's own
 ``_ensure_model_installed`` check raising
 :class:`~brailix.core.errors.ModelNotInstalledError`).
+
+Both candidates are checked the same way — by writing a file into
+them — and if neither can hold one, that *is* an error condition:
+:class:`~brailix.core.errors.ConfigurationError` naming both paths,
+raised here where the choice was made rather than later inside a
+download.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
+from brailix.core.errors import ConfigurationError
 from brailix.core.paths import validate_resource_component
 
 _MODELS_DIRNAME = "models"
@@ -72,18 +80,42 @@ def _user_data_root() -> Path:
     return Path.home() / ".local" / "share" / "brailix"
 
 
-def _make_writable_dir(path: Path) -> bool:
-    """Create ``path`` (with parents) and report whether it's usable.
+def _make_usable_dir(path: Path) -> bool:
+    """Create ``path`` (with parents) and report whether a model can be
+    written into it.
 
     Returns ``False`` instead of raising when the directory can't be
     created (read-only parent, a file in the way) so the caller can fall
     back to another location.
+
+    The question is "can a downloader put a file here", and the only answer
+    that is true on every platform this ships to is **writing one**. This
+    used to ask :func:`os.access` for ``W_OK``, which answers a narrower
+    question on POSIX — creating an entry in a directory needs search
+    permission too, so a ``0o600`` directory passed and every later
+    ``open()`` in it failed — and barely answers it at all on Windows, the
+    product's own target, where the check reads a read-only *attribute* and
+    is blind to the ACL that actually denies the write. A corporate install
+    under ``C:/Program Files`` is exactly that case: ``W_OK`` says yes, the
+    first model download says ``PermissionError``, and the fallback that
+    exists for precisely this situation never runs.
+
+    The probe file is deleted on close (that is
+    :class:`~tempfile.NamedTemporaryFile`'s own contract, and its name is
+    unique per call, so concurrent callers — threads, or a second process
+    started while the first is probing — cannot collide or delete each
+    other's).
     """
     try:
         path.mkdir(parents=True, exist_ok=True)
     except OSError:
         return False
-    return os.access(path, os.W_OK)
+    try:
+        with tempfile.NamedTemporaryFile(dir=path, prefix=".brailix-probe-"):
+            pass
+    except OSError:
+        return False
+    return True
 
 
 def get_models_root() -> Path:
@@ -93,15 +125,34 @@ def get_models_root() -> Path:
     else the cwd) so a copied portable bundle carries its weights. Falls
     back to a per-user data directory when that root is read-only.
 
+    Both candidates go through the *same* check, which is what makes the
+    return value mean what this line says. The fallback used to be a bare
+    ``mkdir`` whose result was returned unexamined: when it was the one that
+    could not be written to — a read-only home, ``LOCALAPPDATA`` pointed at a
+    stale drive — the caller got a path back, believed the promise above, and
+    failed later inside a model download, with an error naming a weights file
+    rather than the directory choice that produced it.
+
+    Raises :class:`~brailix.core.errors.ConfigurationError` naming both
+    candidates when neither can hold a file. Nothing downstream can proceed
+    without somewhere to put a model, and stating which two places were tried
+    is the difference between a fixable report and a bare ``PermissionError``.
+
     Safe to call from any thread / process — :meth:`Path.mkdir` with
-    ``exist_ok=True`` is idempotent.
+    ``exist_ok=True`` is idempotent, and the write probe is per-call.
     """
     portable = _portable_root() / _MODELS_DIRNAME
-    if _make_writable_dir(portable):
+    if _make_usable_dir(portable):
         return portable
     fallback = _user_data_root() / _MODELS_DIRNAME
-    fallback.mkdir(parents=True, exist_ok=True)
-    return fallback
+    if _make_usable_dir(fallback):
+        return fallback
+    raise ConfigurationError(
+        f"no writable models directory: neither {portable} (beside the "
+        f"application / working directory) nor {fallback} (the per-user data "
+        f"directory) can hold a file. Point LOCALAPPDATA / XDG_DATA_HOME at a "
+        f"writable location, or run from a directory this process may write to."
+    )
 
 
 def get_model_dir(name: str) -> Path:
