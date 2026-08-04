@@ -43,6 +43,46 @@ def _is_internal_import_error(exc: ImportError) -> bool:
     return name is not None and name.split(".")[0] == "brailix"
 
 
+def _normalize_probe(
+    name: str, probe: str | tuple[str, ...] | None
+) -> tuple[str, ...]:
+    """``probe`` as a tuple of module names, refusing anything else.
+
+    A bare string is one module; any other iterable is taken as a sequence of
+    them (a plugin computing ``probe`` from a list should not have to convert
+    it). ``None`` and an empty sequence both mean "declares nothing", which
+    :meth:`Registry.available` answers ``True`` to.
+
+    The names are never imported here — :func:`importlib.util.find_spec` does
+    that later, if anyone asks — so this is the last place a wrong *type* can
+    be caught while the caller is still on the stack.
+    """
+    if probe is None:
+        return ()
+    if isinstance(probe, str):
+        candidates: tuple[object, ...] = (probe,)
+    else:
+        try:
+            candidates = tuple(probe)
+        except TypeError:
+            raise TypeError(
+                f"probe for adapter {name!r} must be a module name or an "
+                f"iterable of them, got {type(probe).__name__} ({probe!r})"
+            ) from None
+    for module in candidates:
+        if not isinstance(module, str):
+            raise TypeError(
+                f"probe for adapter {name!r} must name modules as str, got "
+                f"{type(module).__name__} ({module!r})"
+            )
+        if not module:
+            raise ValueError(
+                f"probe for adapter {name!r} contains an empty module name; "
+                f"omit probe entirely to declare no third-party dependency"
+            )
+    return tuple(str(module) for module in candidates)
+
+
 class Registry[T]:
     """Lazy-loading registry mapping a string name to an adapter
     instance.
@@ -135,12 +175,51 @@ class Registry[T]:
         is one this registry cannot rule out, and hiding it would be worse
         than offering it.
 
+        Every argument is checked **here**, at the line that gets it wrong,
+        because this is a third party's entry point into the library and the
+        registration outlives the call by arbitrarily long. An adapter author
+        who writes ``probe=(123,)`` (or a tuple built from a config file that
+        yielded an ``int``) was storing a value nobody read until a front-end
+        asked what was installed — and :meth:`available_names` walks *every*
+        registration, so ``find_spec(123)`` raising ``AttributeError`` took
+        down the whole engine list, not just the one adapter. One plugin's
+        typo, and the picker cannot be built at all. The same argument covers
+        the rest: a non-callable ``loader`` fails at first ``get``, an empty
+        ``name`` registers an adapter nobody can select, and a non-string
+        ``extra`` reaches the user as a broken "pip install" line.
+
+        An empty ``probe`` tuple means what omitting it means — the adapter
+        declares no third-party module — so it normalises to no probe rather
+        than being rejected; a caller that computes ``probe=tuple(deps)``
+        should not have to special-case an empty ``deps``.
+
         Thread-safe: the loader swap, the stale-cache eviction and the
         ``extra`` update land together under the lock, so a concurrent
         :meth:`get` sees either the whole old registration or the whole new
         one — never a new loader still paired with the previous cached
-        instance.
+        instance. The checks run *before* the lock is taken: a rejected
+        registration must leave the registry exactly as it was, and validating
+        first is what guarantees that without a rollback path.
         """
+        if not isinstance(name, str):
+            raise TypeError(
+                f"adapter name must be a str, got {type(name).__name__} "
+                f"({name!r})"
+            )
+        if not name:
+            raise ValueError("adapter name must not be empty")
+        if not callable(loader):
+            raise TypeError(
+                f"loader for adapter {name!r} must be callable, got "
+                f"{type(loader).__name__}"
+            )
+        if extra is not None and (not isinstance(extra, str) or not extra):
+            raise ValueError(
+                f"extra for adapter {name!r} must be a non-empty str naming a "
+                f"pip extras group, got {extra!r}"
+            )
+        probes = _normalize_probe(name, probe)
+
         with self._lock:
             self._loaders[name] = loader
             self._cache.pop(name, None)
@@ -148,10 +227,8 @@ class Registry[T]:
                 self._extras[name] = extra
             else:
                 self._extras.pop(name, None)
-            if probe is not None:
-                self._probes[name] = (
-                    (probe,) if isinstance(probe, str) else tuple(probe)
-                )
+            if probes:
+                self._probes[name] = probes
             else:
                 self._probes.pop(name, None)
             self._generation += 1

@@ -675,6 +675,103 @@ class TestAvailabilityProbe:
         assert reg.available("x") is True
 
 
+class TestRegistrationMetadataIsChecked:
+    """``register`` is a third party's entry point, so its arguments are
+    checked where they are passed.
+
+    The registration outlives the call: whatever it stores is read much later,
+    by code that never saw the plugin. A ``probe=(123,)`` sat there until a
+    front-end asked what was installed, and then broke *discovery itself* —
+    :meth:`available_names` walks every registration, so ``find_spec(123)``
+    raising ``AttributeError`` meant no engine list could be built at all. One
+    plugin's typo, every engine gone, and the traceback points at
+    ``importlib``.
+    """
+
+    def test_a_bad_probe_cannot_be_registered_at_all(self) -> None:
+        reg: Registry[object] = Registry("probe")
+        with pytest.raises(TypeError) as excinfo:
+            reg.register("bad", lambda: object(), probe=(123,))
+        assert "bad" in str(excinfo.value)
+
+    def test_a_non_iterable_probe_names_the_adapter(self) -> None:
+        reg: Registry[object] = Registry("probe")
+        with pytest.raises(TypeError) as excinfo:
+            reg.register("bad", lambda: object(), probe=123)  # type: ignore[arg-type]
+        assert "bad" in str(excinfo.value)
+
+    @pytest.mark.parametrize("probe", ["", ("json", "")])
+    def test_an_empty_module_name_is_refused(self, probe) -> None:
+        reg: Registry[object] = Registry("probe")
+        with pytest.raises(ValueError):
+            reg.register("bad", lambda: object(), probe=probe)
+
+    def test_one_bad_plugin_no_longer_breaks_the_whole_engine_list(
+        self,
+    ) -> None:
+        """The failure that mattered: discovery is a list comprehension over
+        every registration, so a value only *one* adapter got wrong took the
+        others down with it."""
+        reg: Registry[object] = Registry("probe")
+        reg.register("good", lambda: object(), probe="json")
+        with pytest.raises(TypeError):
+            reg.register("plugin", lambda: object(), probe=(123,))
+        assert reg.names() == ["good"]
+        assert reg.available_names() == ["good"]
+
+    def test_a_refused_registration_changes_nothing(self) -> None:
+        """Validation runs before the lock, so there is no half-applied
+        registration to roll back — the previous one is still whole."""
+        reg: Registry[object] = Registry("probe")
+        reg.register("x", GoodGreeter, probe="json")
+        generation = reg.generation
+        with pytest.raises(TypeError):
+            reg.register("x", GoodGreeter, probe=(None,))
+        assert reg.generation == generation
+        assert reg.available("x") is True
+        assert isinstance(reg.get("x"), GoodGreeter)
+
+    def test_an_empty_probe_tuple_means_the_same_as_omitting_it(self) -> None:
+        # A plugin computing ``probe=tuple(deps)`` from an empty ``deps`` is
+        # saying "no third-party dependency", not "nothing is available".
+        reg: Registry[object] = Registry("probe")
+        reg.register("pure", lambda: object(), probe=())
+        assert reg.available("pure") is True
+
+    def test_any_iterable_of_module_names_is_accepted(self) -> None:
+        reg: Registry[object] = Registry("probe")
+        reg.register("listed", lambda: object(), probe=["json", "struct"])  # type: ignore[arg-type]
+        assert reg.available("listed") is True
+
+    def test_a_nameless_adapter_is_refused(self) -> None:
+        reg: Registry[object] = Registry("probe")
+        with pytest.raises(ValueError):
+            reg.register("", lambda: object())
+        with pytest.raises(TypeError):
+            reg.register(None, lambda: object())  # type: ignore[arg-type]
+        assert reg.names() == []
+
+    def test_a_loader_that_is_not_callable_is_refused_at_registration(
+        self,
+    ) -> None:
+        # It used to be accepted and fail at the first ``get`` — in a
+        # front-end, that is a translation run rather than a plugin's own
+        # startup.
+        reg: Registry[object] = Registry("probe")
+        with pytest.raises(TypeError):
+            reg.register("x", "not a callable")  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("extra", ["", 123])
+    def test_an_extra_that_cannot_be_a_pip_group_is_refused(
+        self, extra
+    ) -> None:
+        # ``extra`` is quoted verbatim into the "pip install brailix[...]"
+        # line a MissingExtraError shows the user.
+        reg: Registry[object] = Registry("probe")
+        with pytest.raises(ValueError):
+            reg.register("x", lambda: object(), extra=extra)
+
+
 class TestShippedAdaptersDeclareUsableProbes:
     """A probe naming the wrong module is worse than none: it reports a
     working engine missing, and a front-end then hides it (or a stored
