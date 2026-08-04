@@ -1067,7 +1067,26 @@ _PUBLIC_WORDING_ALLOWED = {
 # The vocabulary an internal module uses instead, established by
 # ``brailix.frontend``'s own subsystem table: "subsystem entry point" for a
 # vertical's single way in, "package"/"module entry point" for a file's.
-_PUBLIC_WORDING = re.compile(r"public\s+entry\s+point", re.IGNORECASE)
+#
+# The nouns after "public" are the ones that name *a way in* — the thing whose
+# scope is in question. "public entry point" was the only spelling checked, and
+# the identical claim in other words walked past: ``brailix.pipeline`` said the
+# frontend subsystems each have a "single-callable public interface" while
+# ``brailix.frontend``, of the same functions, said "orchestration entry
+# points, not published API".
+#
+# Deliberately NOT here: bare "public API" and "public surface". Those name the
+# compatibility promise itself rather than one entry point, and the facades,
+# ``brailix/__init__``'s policy statement and a good deal of test prose use
+# them correctly ("Not public API", "the public surface is ``Pipeline``'s
+# ``translate_*`` methods"). A check that flagged those would be answered by
+# rewording true sentences, which is how a guard stops being read. Chasing
+# every synonym is the wrong direction anyway: the point is that internal
+# modules have one vocabulary for this, and it is the one above.
+_PUBLIC_WORDING = re.compile(
+    r"public\s+(?:entry\s+point|interface|parse\s+(?:entry|function))",
+    re.IGNORECASE,
+)
 
 
 def _public_wording_offenders(root: Path) -> list[str]:
@@ -1145,6 +1164,39 @@ def test_the_public_wording_allowlist_is_still_accurate() -> None:
             f"defines it must stop calling it a public entry point "
             f"(_PUBLIC_WORDING_ALLOWED)"
         )
+
+
+class TestTheWordingDetector:
+    """The scan runs on real files, so a clean tree and a pattern that stopped
+    matching produce the same green. These pin what it looks for."""
+
+    @pytest.mark.parametrize(
+        "phrase",
+        [
+            "its own public entry point",
+            "# Public entry points",
+            "a single-callable public interface",
+            "math and music each expose one public parse function",
+            "one public parse entry per subsystem",
+        ],
+    )
+    def test_each_spelling_of_the_claim_is_caught(self, phrase: str) -> None:
+        assert _PUBLIC_WORDING.search(phrase), phrase
+
+    @pytest.mark.parametrize(
+        "phrase",
+        [
+            "Not public API: callers go through Pipeline.translate_block",
+            "Nothing here is public API",
+            "The public surface is the translate_* / parse_* methods",
+        ],
+    )
+    def test_the_promise_nouns_are_left_alone(self, phrase: str) -> None:
+        """"public API" / "public surface" name the compatibility promise, not
+        one entry point, and internal modules use them truthfully — usually to
+        deny having one. Flagging those would be answered by rewording correct
+        sentences."""
+        assert not _PUBLIC_WORDING.search(phrase), phrase
 
 
 class TestTheFacadeBindingDetector:

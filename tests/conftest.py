@@ -2,12 +2,16 @@
 
 Defines the ``requires`` marker: tag a test — or a whole class — with
 ``@pytest.mark.requires("<module>")`` and it is skipped when that optional
-adapter dependency is not installed.  This keeps the minimal / per-extra CI
-tiers green: an adapter test that asserts real conversion output turns into a
-clean *skip* when its extra is absent, instead of a spurious failure.  It also
-makes the tiers selectable — ``-m "requires"`` / ``-m "not requires"`` — for a
-per-dependency job matrix.  The tier layout is documented in
-``[tool.pytest.ini_options]`` in pyproject.toml.
+adapter dependency is not installed.  What it keeps green is a **partial
+install** — a checkout with the dev group and one or two extras, which is how
+the suite is usually run while working on a single vertical: an adapter test
+that asserts real conversion output turns into a clean *skip* when its extra
+is absent, instead of a spurious failure.  CI installs the adapter extras the
+suite exercises, so little skips there; the heavyweight neural engines (hanlp,
+g2pw) are the deliberate exception, smoke-tested on their own schedule rather
+than made a condition of every run.  The marker doubles as a selector —
+``-m "requires"`` / ``-m "not requires"`` — for running only the
+dependency-free half.
 
 **"Installed" here means findable, not importable**, and the difference is
 worth stating rather than glossing.  The check is

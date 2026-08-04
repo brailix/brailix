@@ -3,9 +3,10 @@
 Wires together segmentation, normalization, language-specific
 processing (Chinese tokenize + pinyin), math parsing, and the Backend
 dispatcher into one :meth:`Pipeline.translate_text` call. Each
-frontend subsystem has its own single-callable public interface
-(see :mod:`brailix.frontend`); this module is just orchestration
-plus the optional name-override knobs.
+frontend subsystem has its own single-callable subsystem entry point
+(see :mod:`brailix.frontend`, which is also where the line between
+those entry points and the published surface is drawn); this module
+is just orchestration plus the optional name-override knobs.
 
 Rendering is **deferred**: :meth:`translate_text` returns a
 :class:`TranslationResult` carrying the parsed IR and the braille IR,
@@ -134,6 +135,17 @@ from brailix.ir.inline import MathInline
 # ``brailix.pipeline`` beside ``Pipeline`` itself, tab-completed there, and a
 # downstream author had no way to tell them apart from the API.
 # ``tests/test_public_api.py`` enforces exactly that line.
+#
+# The standard-library and typing imports above (``os``, ``ET``, ``Path``,
+# ``dataclass``, ``Mapping``, ...) stay plain too, and that is the same
+# decision rather than an oversight in it. They are nobody's promise to break —
+# ``from brailix.pipeline import Path`` hands back ``pathlib.Path`` — and every
+# implementation module in the package holds them the same way:
+# ``brailix.ir.document`` carries ``dataclass``, ``brailix.core.span`` carries
+# ``Iterable``. Aliasing them *here* would close no surface; it would only make
+# one module unlike its neighbours. Where the rule does bite is the facades,
+# which exist only to be a surface and so carry nothing but their API —
+# ``test_a_facade_namespace_holds_no_foreign_plain_binding`` holds them to it.
 from brailix.pipeline._fingerprint import (
     asset_resolver_identity as _asset_resolver_identity,
 )
