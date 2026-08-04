@@ -54,9 +54,14 @@ def test_default_pipeline_uses_g2pw_when_available(monkeypatch):
     fake_g2pw = types.ModuleType("g2pw")
 
     class _FakeConverter:
-        def __call__(self, text):
-            assert text == "\u6211"
-            return (["wo3"], [0.98])
+        # Shaped like the real ``G2PWConverter``: built with a style, called
+        # with a LIST of sentences, answering one result list per sentence.
+        def __init__(self, *, style: str = "bopomofo", **_: object) -> None:
+            assert style == "pinyin", style
+
+        def __call__(self, sentences):
+            assert sentences == ["\u6211"], sentences
+            return [["wo3"]]
 
     fake_g2pw.G2PWConverter = _FakeConverter
     monkeypatch.setitem(sys.modules, "g2pM", None)  # so g2pw wins the chain

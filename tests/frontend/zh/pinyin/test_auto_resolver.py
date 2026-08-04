@@ -50,9 +50,19 @@ def test_auto_prefers_g2pw_when_available(monkeypatch):
     fake_pypinyin = types.ModuleType("pypinyin")
 
     class _FakeConverter:
-        def __call__(self, text):
-            assert text == "\u6211\u5728"
-            return (["wo3", "zai4"], [0.96, 0.95])
+        # Mirrors the real ``G2PWConverter``: constructed with a style, called
+        # with a LIST of sentences, and answering with one result list per
+        # sentence and no confidences at all.
+        def __init__(self, *, style: str = "bopomofo", **_: object) -> None:
+            assert style == "pinyin", (
+                f"the adapter must ask for pinyin; the converter's own default "
+                f"is bopomofo, which no consumer of ChineseToken.pinyin reads "
+                f"(got {style!r})"
+            )
+
+        def __call__(self, sentences):
+            assert sentences == ["\u6211\u5728"], sentences
+            return [["wo3", "zai4"]]
 
     def fail_if_called(*args, **kwargs):
         raise AssertionError("pypinyin should not be used when g2pw is available")
@@ -70,7 +80,9 @@ def test_auto_prefers_g2pw_when_available(monkeypatch):
     )
 
     assert [t.pinyin for t in out] == ["wo3", "zai4"]
-    assert [t.confidence for t in out] == [0.96, 0.95]
+    # None, not a number: the shipped converter computes confidences and then
+    # returns only the predictions, so nothing real ever fills this in.
+    assert [t.confidence for t in out] == [None, None]
 
 
 def test_auto_falls_through_when_g2pw_model_load_fails(monkeypatch):
