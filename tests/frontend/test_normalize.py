@@ -3,12 +3,12 @@ import pytest
 
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
-from brailix.frontend.normalize import (
+from brailix.frontend.normalization import (
     DefaultNormalizer,
     _peel_marker_if_starts_with,
     normalizer_registry,
 )
-from brailix.frontend.segment import DefaultSegmenter
+from brailix.frontend.segmentation import DefaultSegmenter
 from brailix.ir.document import Paragraph
 from brailix.ir.inline import (
     Date,

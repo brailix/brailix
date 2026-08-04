@@ -15,8 +15,8 @@ import pytest
 from brailix.core.config import load_profile
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
-from brailix.frontend.normalize import DefaultNormalizer
-from brailix.frontend.segment import (
+from brailix.frontend.normalization import DefaultNormalizer
+from brailix.frontend.segmentation import (
     _IPA_DISTINCT_CHARS,
     DefaultSegmenter,
     _qualifies_as_phonetic,

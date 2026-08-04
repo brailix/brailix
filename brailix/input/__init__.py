@@ -58,6 +58,7 @@ from dataclasses import dataclass as _dataclass
 from dataclasses import field as _field
 from pathlib import Path as _Path
 
+from brailix.core._xml import xml_root_element as _xml_root_element
 from brailix.input.docx import parse_doc, parse_docx
 from brailix.input.limits import (
     DEFAULT_INPUT_LIMITS,
@@ -118,117 +119,25 @@ _MUSIC_SUFFIXES = _MUSIC_SUFFIXES_ALL - _SNIFFED_XML_SUFFIXES
 _MUSICXML_ROOTS = frozenset({"score-partwise", "score-timewise"})
 
 
-def _skip_quoted(text: str, i: int) -> int:
-    """Index just past the string literal opening at ``text[i]`` (a quote),
-    or the end of the text when it is never closed."""
-    end = text.find(text[i], i + 1)
-    return len(text) if end < 0 else end + 1
-
-
-def _skip_internal_subset(text: str, i: int) -> int:
-    """Index just past the ``]`` closing the internal DTD subset that opens at
-    ``text[i] == "["``.
-
-    Not ``text.find("]")``: a subset is markup, and a ``]`` inside one of its
-    declarations closes nothing. It can sit in an attribute default
-    (``<!ATTLIST part id CDATA "a]b">``), in an entity value, or in a comment
-    — and taking the first one for the end of the subset then leaves the scan
-    inside the DOCTYPE, where the next quoted ``>`` reads as the end of the
-    declaration and the root element is never seen. So quotes, comments and
-    processing instructions are skipped whole, and bracket depth is counted
-    (a ``<![INCLUDE[ … ]]>`` conditional section nests one level).
-    """
-    n = len(text)
-    depth = 0
-    while i < n:
-        ch = text[i]
-        if ch in "\"'":
-            i = _skip_quoted(text, i)
-        elif text.startswith("<!--", i):
-            end = text.find("-->", i + 4)
-            i = n if end < 0 else end + 3
-        elif text.startswith("<?", i):
-            end = text.find("?>", i + 2)
-            i = n if end < 0 else end + 2
-        elif ch == "[":
-            depth += 1
-            i += 1
-        elif ch == "]":
-            depth -= 1
-            i += 1
-            if depth == 0:
-                return i
-        else:
-            i += 1
-    return n
-
-
-def _xml_root_element(text: str) -> str:
-    """The name of ``text``'s first start element, or ``""``.
-
-    A deliberately small hand-written prologue scanner rather than a real
-    parser. Everything before the root element is skippable — whitespace, the
-    ``<?xml?>`` declaration and other processing instructions, comments, and a
-    ``<!DOCTYPE …>`` whose internal ``[…]`` subset may itself contain ``>`` or
-    ``]`` inside quotes and comments (:func:`_skip_internal_subset`) — and once
-    the first ``<name`` is reached there is nothing left to decide. Feeding the
-    document to :mod:`xml.etree` instead would expand entities declared in that
-    internal subset before this function ever returned, which is a parser to
-    point at untrusted input only deliberately; this reads the head and stops.
-
-    A namespace prefix is dropped (``<mx:score-partwise>`` reports
-    ``score-partwise``). MusicXML is not namespaced, so this only makes the
-    answer harder to get wrong.
-    """
-    i, n = 0, len(text)
-    while i < n:
-        while i < n and text[i].isspace():
-            i += 1
-        if i >= n or text[i] != "<":
-            return ""
-        if text.startswith("<!--", i):
-            end = text.find("-->", i + 4)
-            if end < 0:
-                return ""
-            i = end + 3
-        elif text.startswith("<?", i):
-            end = text.find("?>", i + 2)
-            if end < 0:
-                return ""
-            i = end + 2
-        elif text.startswith("<!", i):
-            # DOCTYPE (or any other markup declaration): find its closing
-            # ``>``, skipping over quoted strings — a public identifier can
-            # contain one — and over a whole internal subset if present.
-            i += 2
-            while i < n and text[i] != ">":
-                if text[i] in "\"'":
-                    i = _skip_quoted(text, i)
-                elif text[i] == "[":
-                    i = _skip_internal_subset(text, i)
-                else:
-                    i += 1
-            i += 1
-        else:
-            start = i + 1
-            j = start
-            while j < n and not (text[j].isspace() or text[j] in "/>"):
-                j += 1
-            name = text[start:j]
-            return name.rsplit(":", 1)[-1]
-    return ""
-
-
 def _looks_like_musicxml(text: str) -> bool:
     """True if ``text`` opens a MusicXML score document.
 
-    Decided by the **root element** (:func:`_xml_root_element`), not by
-    whether the two score tag names appear somewhere near the top. The
-    substring test this replaces was wrong in both directions: a plain XML
-    document mentioning ``<score-partwise`` in a comment, a CDATA section or a
-    DTD was routed to the music adapter, while a genuine score whose
-    declaration, comments or internal DTD subset ran past the 4096-character
-    window it looked at was handed to the plain-text parser instead.
+    Decided by the **root element**
+    (:func:`~brailix.core._xml.xml_root_element`), not by whether the two
+    score tag names appear somewhere near the top. The substring test this
+    replaces
+    was wrong in both directions: a plain XML document mentioning
+    ``<score-partwise`` in a comment, a CDATA section or a DTD was routed to
+    the music adapter, while a genuine score whose declaration, comments or
+    internal DTD subset ran past the 4096-character window it looked at was
+    handed to the plain-text parser instead.
+
+    The prologue walk that answers it is XML plumbing, not an input-format
+    concern, and lives in :mod:`brailix.core._xml` beside the one other thing
+    that needs it — the pass-through adapters' prologue strip, which for a
+    while had a second, weaker scan of its own that mistook a ``]`` inside a
+    quoted attribute default for the end of an internal DTD subset. What is
+    MusicXML's own business, and stays here, is which root names count.
     """
     return _xml_root_element(text) in _MUSICXML_ROOTS
 

@@ -36,6 +36,7 @@ from __future__ import annotations
 import ast
 import importlib
 import re
+import types
 from pathlib import Path
 
 import pytest
@@ -405,8 +406,8 @@ _EXTENSION_SURFACE: dict[str, list[str]] = {
     "brailix.frontend.zh.tokens": ["ChineseToken"],
     "brailix.frontend.ja.analyzer": ["JapaneseAnalyzer", "JapaneseToken"],
     # The registries, at their own subsystem's path.
-    "brailix.frontend.segment": ["segmenter_registry"],
-    "brailix.frontend.normalize": ["normalizer_registry"],
+    "brailix.frontend.segmentation": ["segmenter_registry"],
+    "brailix.frontend.normalization": ["normalizer_registry"],
     "brailix.frontend.zh.analyzer.registry": ["analyzer_registry"],
     "brailix.frontend.zh.pinyin.registry": ["resolver_registry"],
     "brailix.frontend.ja.analyzer.registry": ["analyzer_registry"],
@@ -461,6 +462,38 @@ def test_extension_surface_resolves(module: str) -> None:
         f"import these by path. Keep the name, or update the guide, the "
         f"top-level policy docstring and this manifest together."
     )
+
+
+@pytest.mark.parametrize("module", sorted(_EXTENSION_SURFACE))
+def test_an_extension_module_is_reachable_as_a_module(module: str) -> None:
+    """A promised extension path must resolve to a *module* the way anybody
+    would actually write it.
+
+    :func:`test_extension_surface_resolves` above goes through
+    ``importlib.import_module``, which reads ``sys.modules`` directly — so it
+    passes even when the ordinary spelling does not. Two of these paths were in
+    exactly that state: ``brailix.frontend`` bound ``segment`` and
+    ``normalize`` as functions, and a package attribute wins over a same-named
+    submodule, so ``import brailix.frontend.segment as m`` handed back the
+    function and ``m.segmenter_registry`` raised ``AttributeError`` at the one
+    path the extension guide names. The from-import form worked, the dotted
+    form did not, and nothing here could tell the difference.
+
+    ``exec`` of a real ``import`` statement, because that is the thing under
+    test: the attribute lookup the statement performs on the parent package is
+    precisely what a helper taking the module name would skip.
+    """
+    namespace: dict[str, object] = {}
+    exec(f"import {module} as m", namespace)  # noqa: S102 — the statement IS the test
+    resolved = namespace["m"]
+    assert isinstance(resolved, types.ModuleType), (
+        f"`import {module}` resolved to {type(resolved).__name__}, not a "
+        f"module — a name bound on the parent package is shadowing the "
+        f"submodule, so an extender following the guide gets the wrong object."
+    )
+    assert resolved.__name__ == module
+    for name in _EXTENSION_SURFACE[module]:
+        assert hasattr(resolved, name)
 
 
 # Modules whose ``__all__`` serves a second audience as well: a language's

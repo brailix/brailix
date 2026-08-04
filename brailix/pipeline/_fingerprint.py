@@ -242,8 +242,8 @@ def _compilation_registries() -> tuple[Any, ...]:
         )
         from brailix.frontend.math.registry import math_source_registry
         from brailix.frontend.music.registry import music_source_registry
-        from brailix.frontend.normalize import normalizer_registry
-        from brailix.frontend.segment import segmenter_registry
+        from brailix.frontend.normalization import normalizer_registry
+        from brailix.frontend.segmentation import segmenter_registry
         from brailix.frontend.zh.analyzer.registry import (
             analyzer_registry as zh_analyzer_registry,
         )

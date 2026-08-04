@@ -1,9 +1,9 @@
 """Pass-through MathML adapter.
 
-Input is already MathML, so the adapter only validates that the string
-parses as well-formed XML and returns it. Malformed input is wrapped
-inside a single ``<merror>`` document so the normalizer + backend
-produce a clean ``MATH_ERROR`` warning rather than crashing.
+Input is already MathML, so the adapter only decodes it (if it arrived as
+bytes), validates that it parses as well-formed XML, and returns it. Malformed
+input is wrapped inside a single ``<merror>`` document so the normalizer +
+backend produce a clean ``MATH_ERROR`` warning rather than crashing.
 """
 
 from __future__ import annotations
@@ -11,23 +11,29 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
-from brailix.core._xml import safe_fromstring
+from brailix.core._xml import XmlDecodeError, decode_xml_bytes, safe_fromstring
 from brailix.core.context import MathContext
 from brailix.frontend.math.utils import _strip_math_delimiters, merror_wrap
 
 
 @dataclass(slots=True)
 class MathMLSourceAdapter:
-    """Trivial adapter: accept MathML in, give MathML out."""
+    """Trivial adapter: accept MathML in, give MathML out.
+
+    Bytes are decoded by XML's own encoding rules
+    (:func:`~brailix.core._xml.decode_xml_bytes`) rather than as UTF-8 only:
+    the :class:`~brailix.core.protocols.MathSourceAdapter` contract takes
+    ``str | bytes``, and bytes of XML say what encoding they are in.
+    """
 
     source: str = "mathml"
 
     def to_mathml(self, formula: str | bytes, ctx: MathContext | None = None) -> str:
         if isinstance(formula, bytes):
             try:
-                formula = formula.decode("utf-8")
-            except UnicodeDecodeError:
-                return merror_wrap(repr(formula), reason="non-utf8 bytes")
+                formula = decode_xml_bytes(formula)
+            except XmlDecodeError as e:
+                return merror_wrap(repr(formula), reason=f"undecodable bytes: {e}")
         text = formula.strip()
         if not text:
             return merror_wrap("", reason="empty input")

@@ -28,7 +28,7 @@ from hypothesis import strategies as st
 
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
-from brailix.frontend.segment import DefaultSegmenter
+from brailix.frontend.segmentation import DefaultSegmenter
 from brailix.ir.document import Paragraph
 from brailix.ir.inline import Segment
 

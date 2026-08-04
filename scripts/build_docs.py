@@ -109,7 +109,7 @@ def facade_specs() -> list[str]:
     """The module specs to hand pdoc: the facade, and nothing under it.
 
     Naming a package makes pdoc walk into it, so ``brailix.frontend`` drags
-    in the submodules its ``__all__`` names (``brailix.frontend.segment``,
+    in the submodules its ``__all__`` names (``brailix.frontend.segmentation``,
     ``...normalize``) and the reference would document their internals —
     exactly the "reachable, not supported" code the facade exists to keep
     out. Rather than hand-maintain an exclusion list that goes stale the

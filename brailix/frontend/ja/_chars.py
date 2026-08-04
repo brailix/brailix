@@ -8,7 +8,7 @@ re-exports the analyzer, which would otherwise import back into it).
 
 from __future__ import annotations
 
-from brailix.frontend.segment import _category
+from brailix.frontend.segmentation import _category
 
 
 def _is_kana(ch: str) -> bool:

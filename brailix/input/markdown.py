@@ -494,7 +494,7 @@ def _consume_dollar_math(cur: _LineCursor) -> MathBlock | None:
 def _infer_math_source(body: str) -> str:
     """Pick the math source dialect for a ``$$...$$`` body.
 
-    Mirrors the inline detector in :mod:`brailix.frontend.normalize`:
+    Mirrors the inline detector in :mod:`brailix.frontend.normalization`:
     a body that starts with ``<math`` is MathML (typically synthesised
     by the Word import path); anything else is LaTeX. The discriminator
     is structural — LaTeX grammar can't begin with an XML element, so

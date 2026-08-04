@@ -378,7 +378,7 @@ class TestTranslateDate:
 
     def test_year_only(self, ctx, profile):
         # Frontend Normalizer is responsible for filling in pinyin on
-        # Date markers (see frontend/normalize._marker). The Backend
+        # Date markers (see frontend/normalization._marker). The Backend
         # itself is language-agnostic and only translates what the IR
         # already carries, so this test mirrors what the Normalizer
         # would produce.

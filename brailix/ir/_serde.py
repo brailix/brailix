@@ -35,8 +35,10 @@ existence — it holds no IR types, only the plumbing the type modules share.
 from __future__ import annotations
 
 import functools
+import sys
 import types
 import typing
+import warnings
 from dataclasses import fields
 from typing import TYPE_CHECKING, Any
 
@@ -247,6 +249,78 @@ def _runtime_types(annotation: Any) -> tuple[type, ...] | None:
     return (annotation,) if isinstance(annotation, type) else None
 
 
+def _resolve_hints(cls: type) -> dict[str, Any]:
+    """``cls``'s annotations resolved to runtime objects, per field.
+
+    ``typing.get_type_hints`` resolves a class **all at once**: one annotation
+    it cannot evaluate — a name a refactor moved, a forward reference to a type
+    that is only imported under ``TYPE_CHECKING`` at the wrong place — and it
+    raises for the whole class. Catching that and returning ``{}``, which is
+    what this used to do, turns one unresolvable annotation into *no wire-type
+    checking at all* for that node type: every field of it silently stops being
+    validated, and the payload shapes :func:`check_wire_value` exists to stop
+    (a ``source`` that is a list, an ``ordered`` that is the string ``"false"``)
+    load successfully again. Nothing fails, nothing says so.
+
+    So a failure degrades **per field** instead: each annotation is resolved on
+    its own, and only the ones that genuinely cannot be resolved go unchecked.
+    The rest of the class keeps its guard.
+
+    Resolved by handing ``get_type_hints`` a one-field throwaway class rather
+    than by evaluating the annotation here. The same resolver then answers both
+    paths — nested forward references, the implicit ``Optional`` on a
+    ``None`` default, ``ClassVar`` — instead of a second, weaker evaluator that
+    agrees with it right up until it doesn't. (``"int"`` written as a string
+    literal is stored by PEP 563 as ``'"int"'``, two levels of quoting deep;
+    a plain ``eval`` returns the *string* ``int`` and silently drops the
+    field's check. Which is the bug this whole function is about, one level in.)
+    """
+    try:
+        return typing.get_type_hints(cls)
+    except Exception as exc:  # noqa: BLE001 — degrade per field, see below
+        _report_unresolved_annotations(cls, exc)
+    module = sys.modules.get(cls.__module__)
+    globalns = getattr(module, "__dict__", {})
+    localns = dict(vars(cls))
+    hints: dict[str, Any] = {}
+    for f in fields(cls):
+        probe = type(
+            "_OneField",
+            (),
+            {"__annotations__": {f.name: f.type}, "__module__": cls.__module__},
+        )
+        try:
+            hints.update(typing.get_type_hints(probe, globalns, localns))
+        except Exception:  # noqa: BLE001, S112 — this one field goes unchecked
+            continue
+    return hints
+
+
+def _report_unresolved_annotations(cls: type, exc: Exception) -> None:
+    """Say — loudly, once — that an IR dataclass's annotations stopped
+    resolving.
+
+    A production document load must not die because a type checker's view of
+    the IR broke, so this is a warning rather than a raise. It has to be
+    *something*, though: the silent ``return {}`` it replaces meant the only
+    evidence was validation quietly no longer happening.
+
+    A :class:`RuntimeWarning` because the standard library's own filters show
+    it by default and pytest turns it into a visible entry (and into an error
+    under ``-W error``), so the first CI run after the breaking change reports
+    it. ``tests/ir/test_wire_types.py`` asserts every IR dataclass resolves
+    cleanly, which is the check that should catch it before then.
+    """
+    warnings.warn(
+        f"{cls.__module__}.{cls.__qualname__}: type annotations could not be "
+        f"resolved ({exc!r}); per-field wire-type validation degrades to "
+        f"whatever still resolves. This is a declaration bug in the IR, not "
+        f"bad input.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
 @functools.cache
 def _wire_types(cls: type) -> dict[str, tuple[type, ...]]:
     """Per-field runtime types for ``cls``, derived from its annotations.
@@ -254,16 +328,14 @@ def _wire_types(cls: type) -> dict[str, tuple[type, ...]]:
     Derived rather than hand-listed, so a field added to an IR dataclass is
     covered the moment it is declared — a hand-written table is a table that
     is one field out of date the first time anybody adds one. Cached per
-    class: ``typing.get_type_hints`` re-resolves the module namespace on every
-    call, and a document load asks this once per field per node.
+    class: resolving annotations re-walks the module namespace on every call,
+    and a document load asks this once per field per node.
 
     Fields whose annotation this module cannot check are simply absent from
-    the result.
+    the result — and, since :func:`_resolve_hints` degrades per field, one
+    such field no longer takes the rest of its class down with it.
     """
-    try:
-        hints = typing.get_type_hints(cls)
-    except Exception:  # noqa: BLE001 — an unresolvable hint just means no check
-        return {}
+    hints = _resolve_hints(cls)
     out: dict[str, tuple[type, ...]] = {}
     for f in fields(cls):
         if str(f.type) in _UNCHECKED_ANNOTATIONS:

@@ -20,9 +20,11 @@ passes :meth:`InputLimits.unlimited`.
 The archive-internal caps (a single ``.mxl`` / ``.docx`` member's
 decompressed size, the member count, the total inflated bytes — the
 zip-bomb defence) live with their respective adapters
-(:mod:`brailix.frontend.music.adapters.mxl`, :mod:`brailix.input.docx`);
-this module owns only the *outer* whole-file budget those adapters can't
-see because it applies before their format is even known.
+(:mod:`brailix.frontend.music.adapters.mxl`, :mod:`brailix.input.docx`), over
+one shared reading of the ZIP central directory
+(:mod:`brailix.core._zip`); this module owns only the *outer* whole-file
+budget those adapters can't see because it applies before their format is
+even known.
 """
 
 from __future__ import annotations

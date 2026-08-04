@@ -28,9 +28,14 @@ class TestRoundTrip:
         result = adapter.to_mathml("  <math><mi>x</mi></math>  ")
         assert result == "<math><mi>x</mi></math>"
 
-    def test_bytes_decoded_as_utf8(self, adapter):
-        src = b"<math><mn>1</mn></math>"
-        assert adapter.to_mathml(src) == "<math><mn>1</mn></math>"
+    def test_bytes_decoded_by_xml_encoding_rules(self, adapter):
+        # UTF-8 is the *default*, not the contract: what the bytes say they are
+        # wins. Every encoding rule is covered across all three XML verticals
+        # in tests/frontend/test_xml_source_bytes.py; this pins that this
+        # adapter takes bytes at all.
+        assert adapter.to_mathml(b"<math><mn>1</mn></math>") == (
+            "<math><mn>1</mn></math>"
+        )
 
 
 class TestSoftFailures:
@@ -46,13 +51,18 @@ class TestSoftFailures:
         assert err is not None
         assert "parse error" in err.get("data-reason", "")
 
-    def test_invalid_utf8_bytes_yields_merror(self, adapter):
-        # Bytes that don't decode as UTF-8 still produce a tidy merror.
-        out = adapter.to_mathml(b"\xff\xfeabc")
+    def test_undecodable_bytes_yield_merror(self, adapter):
+        # Bytes that decode under no XML encoding rule still produce a tidy
+        # merror. This test used to feed ``b"\xff\xfeabc"`` and call it
+        # "invalid UTF-8" — but ``\xff\xfe`` is the UTF-16LE byte order mark,
+        # so the case it pinned was a *legal encoding* being rejected, and the
+        # assertion made that the contract. The bytes below are undecodable
+        # under every rule, which is the case the soft failure is really for.
+        out = adapter.to_mathml(b"<math>\xff\xfd\xfe</math>")
         root = ET.fromstring(out)
         err = root.find(".//{http://www.w3.org/1998/Math/MathML}merror")
         assert err is not None
-        assert err.get("data-reason") == "non-utf8 bytes"
+        assert "undecodable bytes" in err.get("data-reason", "")
 
     def test_merror_wrap_escapes_xml_chars(self):
         out = merror_wrap("a & b < c", reason="testing")

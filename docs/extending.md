@@ -156,7 +156,7 @@ A different braille standard is **data, not code**: a profile JSON plus its reso
 
 Supporting a new language (Japanese, Korean, and so on) is additive — the orchestrator stays language-agnostic, and you register at a few seams plus add resources. In brief:
 
-1. **Segmenter** (`Segmenter` protocol) — recognize the writing system and cut prose into typed segments; register in `frontend.segment.segmenter_registry` under the language subtag.
+1. **Segmenter** (`Segmenter` protocol) — recognize the writing system and cut prose into typed segments; register in `frontend.segmentation.segmenter_registry` under the language subtag.
 2. **Frontend** (`LanguageFrontend` protocol) — turn a prose run into inline IR (segment, annotate the reading, build nodes); declare the `prose_types` it consumes; register in `frontend.language_frontend_registry`. Two optional declarations make the language visible where a user picks one: `display_name` (the English name a listing shows) and `adapters`, a `{family: () -> list[str]}` mapping naming what can be chosen for this language in each family — `"analyzer"` for the segmentation or morphological engine, `"resolver"` for a reading engine where the language has one. `brailix --list-analyzers` and any engine picker read them through `frontend.list_language_adapters`, so a language that declares them appears there with no change to the front-end:
 
     ```python

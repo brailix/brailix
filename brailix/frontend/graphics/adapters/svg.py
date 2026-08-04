@@ -1,8 +1,8 @@
 """Pass-through SVG adapter.
 
-Input is already SVG, so the adapter only strips a leading XML
-declaration / DOCTYPE (which ElementTree rejects in fragment form) and
-validates that the remainder parses as well-formed XML, then returns it.
+Input is already SVG, so the adapter only decodes it (if it arrived as bytes),
+strips the prologue, and validates that the remainder parses as well-formed
+XML, then returns it.
 Malformed input is wrapped inside a single empty ``<svg>`` carrying a
 ``data-bk-error`` attribute so the normalizer + backend produce a clean
 soft-failure (a blank raster) rather than crashing — mirroring the math
@@ -18,13 +18,27 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from xml.sax.saxutils import escape, quoteattr
 
-from brailix.core._xml import safe_fromstring, strip_xml_invalid_chars, strip_xml_prolog
+from brailix.core._xml import (
+    XmlDecodeError,
+    decode_xml_bytes,
+    safe_fromstring,
+    strip_xml_invalid_chars,
+    strip_xml_prolog,
+)
 from brailix.core.context import GraphicsContext
 
 
 @dataclass(slots=True)
 class SVGSourceAdapter:
-    """Trivial adapter: accept SVG in, give SVG out."""
+    """Trivial adapter: accept SVG in, give SVG out.
+
+    Bytes are decoded by XML's own encoding rules
+    (:func:`~brailix.core._xml.decode_xml_bytes`) rather than as UTF-8 only,
+    and the prologue is stripped so a DOCTYPE with an internal subset does not
+    run into the ``<!ENTITY`` refusal in
+    :func:`~brailix.core._xml.safe_fromstring` — which is exactly what every
+    Illustrator export carries.
+    """
 
     source: str = "svg"
 
@@ -33,9 +47,9 @@ class SVGSourceAdapter:
     ) -> str:
         if isinstance(src, bytes):
             try:
-                src = src.decode("utf-8")
-            except UnicodeDecodeError:
-                return svg_error_wrap(repr(src), reason="non-utf8 bytes")
+                src = decode_xml_bytes(src)
+            except XmlDecodeError as e:
+                return svg_error_wrap(repr(src), reason=f"undecodable bytes: {e}")
         text = src.strip()
         if not text:
             return svg_error_wrap("", reason="empty input")
@@ -45,6 +59,8 @@ class SVGSourceAdapter:
         except ET.ParseError as e:
             return svg_error_wrap(text, reason=f"parse error: {e}")
         return text
+
+
 def svg_error_wrap(surface: str, *, reason: str) -> str:
     """Build a minimal SVG document carrying a soft-failure marker.
 

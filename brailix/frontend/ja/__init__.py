@@ -24,7 +24,7 @@ from brailix.core.span import Span
 from brailix.frontend.ja._chars import _is_kana as _is_kana  # re-export
 from brailix.frontend.ja._chars import _ja_category
 from brailix.frontend.ja.analyzer import analyze, tokens_to_inline
-from brailix.frontend.segment import _segment_text, segmenter_registry
+from brailix.frontend.segmentation import _segment_text, segmenter_registry
 from brailix.ir.inline import Connector, Number, Word
 
 if TYPE_CHECKING:

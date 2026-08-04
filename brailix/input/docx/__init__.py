@@ -94,6 +94,7 @@ from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
+from brailix.core._zip import zip_entry_count_exceeds
 from brailix.core.errors import (
     UNREADABLE_ZIP_MEMBER_ERRORS,
     MissingExtraError,
@@ -172,8 +173,19 @@ def _read_docx_bytes(p: Path, limits: InputLimits) -> bytes:
 def _preflight_docx_archive(data: bytes, p: Path) -> None:
     """Reject a bomb-like ``.docx`` before python-docx reads it.
 
-    Counts the *actual* decompressed bytes of each member (chunked, then
-    discarded — peak cost is one chunk, not the whole part) and aborts
+    The member *count* is read first, off the End Of Central Directory record
+    (:func:`~brailix.core._zip.zip_entry_count_exceeds`) — before
+    :class:`zipfile.ZipFile` is constructed at all. It used to be checked from
+    ``zf.infolist()``, which is the list the constructor builds by parsing the
+    entire central directory: by then every ``ZipInfo`` the cap would have
+    rejected already exists. A few hundred kilobytes of archive can declare
+    millions of zero-length entries, and the whole cost lands inside that
+    constructor. The ``infolist()`` check below stays as well, on the entries
+    that really turned up — the EOCD states a claim, and a claim is not a
+    guarantee.
+
+    Then the *actual* decompressed bytes of each member are counted (chunked,
+    then discarded — peak cost is one chunk, not the whole part), aborting
     mid-inflate once a member or the running total crosses its cap, mirroring
     :func:`brailix.frontend.music.adapters.mxl._read_member_capped`.
     ``ZipInfo.file_size`` is only advisory — a crafted archive can understate
@@ -196,6 +208,12 @@ def _preflight_docx_archive(data: bytes, p: Path) -> None:
     with the ``.mxl`` reader, which had the full set while this had one
     (:data:`~brailix.core.errors.UNREADABLE_ZIP_MEMBER_ERRORS`).
     """
+    declared = zip_entry_count_exceeds(data, _MAX_DOCX_MEMBERS)
+    if declared is not None:
+        raise ParseError(
+            f"not a valid .docx file: {p} ({declared} members declared, "
+            f"over the {_MAX_DOCX_MEMBERS} limit)"
+        )
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             members = [i for i in zf.infolist() if not i.is_dir()]
