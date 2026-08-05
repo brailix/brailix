@@ -966,7 +966,7 @@ class TestCompileConfigIsImmutable:
         regression."""
         from dataclasses import fields as dc_fields
 
-        from brailix.pipeline import _FROZEN_CONFIG_FIELDS
+        from brailix.pipeline._pipeline import _FROZEN_CONFIG_FIELDS
 
         public = {
             f.name for f in dc_fields(Pipeline) if f.init and not f.name.startswith("_")
