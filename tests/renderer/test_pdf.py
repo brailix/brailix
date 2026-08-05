@@ -69,9 +69,21 @@ class TestStructure:
         assert b"/Width 8" in pdf and b"/Height 6" in pdf
 
     def test_mediabox_is_physical_size_in_points(self):
-        # 10 mm → 10 / 25.4 * 72 ≈ 28.35 pt.
+        # 10 mm → 10 / 25.4 * 72 = 28.346456... pt, written to six decimals.
         pdf = raster_to_pdf(_raster(page_mm=10.0))
-        assert b"/MediaBox [0 0 28.35 28.35]" in pdf
+        assert b"/MediaBox [0 0 28.346457 28.346457]" in pdf
+
+    def test_the_content_transform_matches_the_mediabox(self):
+        # The box and the image transform describe the same page; if they
+        # disagree the drawing prints at the wrong size, which is the one
+        # failure mode nobody sees until it is on paper.
+        pdf = raster_to_pdf(_raster(page_mm=10.0))
+        assert b"q 28.346457 0 0 28.346457 0 0 cm" in pdf
+
+    def test_a_whole_number_of_points_keeps_no_decimal_point(self):
+        # 25.4 mm is exactly 72 pt — the compact spelling stays compact.
+        pdf = raster_to_pdf(_raster(page_mm=25.4))
+        assert b"/MediaBox [0 0 72 72]" in pdf
 
 
 class TestMultiPage:
@@ -113,6 +125,42 @@ class TestMultiPage:
             raster_to_pdf(_raster(w, h))
         with pytest.raises(ValueError):
             rasters_to_pdf([_raster(8, 6), _raster(w, h)])
+
+
+class TestTinyButLegalPages:
+    """A raster is legal with any finite positive millimetre pair, and the
+    pixel grid says nothing about how small that pair is. So "positive pixels"
+    — all ``require_renderable`` can see — is not the same question as "a page
+    this format can state", and the second one is answered here.
+    """
+
+    def test_a_tenth_of_a_millimetre_page_still_has_a_real_mediabox(self):
+        # 0.001 mm ≈ 0.002835 pt. At two decimals this wrote /MediaBox
+        # [0 0 0.00 0.00] — a zero-area page, produced after the check whose
+        # comment said it prevented exactly that, and accepted by readers as
+        # an empty page rather than refused.
+        pdf = raster_to_pdf(_raster(page_mm=0.001))
+        assert b"/MediaBox [0 0 0.002835 0.002835]" in pdf
+        assert b"[0 0 0.00 0.00]" not in pdf
+
+    def test_the_same_page_encodes_as_bmp_and_png_too(self):
+        # The three renderers are three containers around one image, so a page
+        # one of them accepts and another silently degrades is the drift the
+        # shared encoding conventions exist to prevent. BMP / PNG state this
+        # page's density fine (8e6 px/m, inside the 32-bit header field), so
+        # the PDF must not be the odd one out.
+        from brailix.renderer.bmp import raster_to_bmp
+        from brailix.renderer.png import raster_to_png
+
+        r = _raster(page_mm=0.001)
+        assert raster_to_bmp(r)[:2] == b"BM"
+        assert raster_to_png(r)[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_a_page_too_small_to_write_is_refused_naming_the_field(self):
+        # Past the decimals a PDF number carries, the honest answer is a
+        # refusal naming the field to fix — not a page that reads as empty.
+        with pytest.raises(ValueError, match="page_width_mm"):
+            raster_to_pdf(_raster(page_mm=1e-9))
 
 
 class TestRenderer:

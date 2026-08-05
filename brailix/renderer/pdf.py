@@ -13,7 +13,10 @@ the raster's physical millimetre dimensions, and the image is drawn to fill
 it, so the PDF prints the graphic at the right physical size — the same one
 the PNG / BMP renderers stamp as pixels-per-metre, since they derive their
 density from those same millimetres
-(:mod:`brailix.renderer._raster_encoding`).
+(:mod:`brailix.renderer._raster_encoding`). Writing that size is this
+format's own limit, and where its own refusal lives: a page too small to
+state in PDF's decimal notation is rejected here (:func:`_positive_pt`), the
+way a page too dense for a 32-bit density header is rejected there.
 """
 
 from __future__ import annotations
@@ -36,10 +39,49 @@ def _mm_to_pt(mm: float) -> float:
     return mm / _MM_PER_INCH * _PT_PER_INCH
 
 
+# Decimal places a non-integer PDF number is written to. Six, not the two
+# this used to use, because two is not enough to *state* every page this
+# renderer legally accepts: a raster may carry any finite positive millimetre
+# pair (:class:`~brailix.ir.tactile.TactileRaster`), and 0.001 mm is 0.00283
+# pt — which ``f"{v:.2f}"`` writes as ``0.00``. The page then had a zero-area
+# ``/MediaBox``, the exact thing ``require_renderable`` is called above to
+# prevent, produced *after* it passed. (PDF has no exponent notation, so
+# precision is the only lever; six places is well inside the five decimal
+# digits readers are specified to keep, and costs a few bytes.)
+_DECIMALS = 6
+
+
 def _num(value: float) -> str:
-    """Compact PDF number: integers without a decimal point, else two
-    decimals (PDF doesn't accept exponent notation)."""
-    return str(int(value)) if float(value).is_integer() else f"{value:.2f}"
+    """Compact PDF number: integers without a decimal point, else up to
+    :data:`_DECIMALS` decimals with trailing zeros stripped."""
+    if float(value).is_integer():
+        return str(int(value))
+    text = f"{value:.{_DECIMALS}f}".rstrip("0").rstrip(".")
+    # Everything below the last decimal place rounded away. Only reachable
+    # for a page under ~4e-7 mm, and the caller is told which field to fix
+    # rather than handed a page PDF readers treat as empty.
+    return text or "0"
+
+
+def _positive_pt(mm: float, field: str) -> str:
+    """``mm`` as a PDF number in points, refusing one that serializes to zero.
+
+    The physical-size counterpart of
+    :func:`~brailix.renderer._raster_encoding._axis_density`, which refuses a
+    page whose pixel density no container header can *hold*: this refuses one
+    whose size no PDF number can *state*. Both sit at the encoder, because the
+    IR is right to accept any finite positive measurement — the limit belongs
+    to the format, and each format has its own.
+    """
+    text = _num(_mm_to_pt(mm))
+    if float(text) <= 0:
+        raise ValueError(
+            f"{field}={mm!r} is {_mm_to_pt(mm):.3g} pt, which rounds to "
+            f"{text} at the {_DECIMALS} decimals a PDF number is written to; "
+            f"a zero-size /MediaBox is not a page. Give the raster the page "
+            f"size it is really drawn at"
+        )
+    return text
 
 
 def rasters_to_pdf(rasters: Sequence[TactileRaster]) -> bytes:
@@ -64,7 +106,7 @@ def rasters_to_pdf(rasters: Sequence[TactileRaster]) -> bytes:
         f"<< /Type /Pages /Kids [{kids}] /Count {len(rasters)} >>".encode("ascii"),
     ]
     for page_id, raster in zip(page_ids, rasters, strict=True):
-        raster.require_renderable()  # no zero-area /MediaBox pages
+        raster.require_renderable()  # no zero-pixel image XObject
         image_id, content_id = page_id + 1, page_id + 2
         w, h = raster.width, raster.height
         # The image is mapped onto the unit square with its first row at the
@@ -72,13 +114,19 @@ def rasters_to_pdf(rasters: Sequence[TactileRaster]) -> bytes:
         # raster's row-major top-to-bottom data needs no flip, just the
         # raised→dark invert.
         image_data = _zlib.compress(bytes(raster.data).translate(INVERT_LEVELS), 9)
-        w_pt = _mm_to_pt(raster.page_width_mm)
-        h_pt = _mm_to_pt(raster.page_height_mm)
-        content = f"q {_num(w_pt)} 0 0 {_num(h_pt)} 0 0 cm /Im0 Do Q".encode("ascii")
+        # Serialized once and reused for the /MediaBox and the content
+        # stream's ``cm``: the two describe the same page, and a page whose
+        # box and image transform disagree prints the drawing at the wrong
+        # size. Both are checked to be positive as they are written, which
+        # ``require_renderable`` above cannot do — it sees the pixel grid,
+        # not the decimals this file rounds the millimetres to.
+        w_pt_text = _positive_pt(raster.page_width_mm, "page_width_mm")
+        h_pt_text = _positive_pt(raster.page_height_mm, "page_height_mm")
+        content = f"q {w_pt_text} 0 0 {h_pt_text} 0 0 cm /Im0 Do Q".encode("ascii")
         objects.append(
             (
-                f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {_num(w_pt)} "
-                f"{_num(h_pt)}] /Resources << /XObject << /Im0 {image_id} 0 R "
+                f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w_pt_text} "
+                f"{h_pt_text}] /Resources << /XObject << /Im0 {image_id} 0 R "
                 f">> >> /Contents {content_id} 0 R >>"
             ).encode("ascii")
         )
