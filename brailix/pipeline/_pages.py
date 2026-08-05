@@ -6,7 +6,7 @@ shape as the module-level :func:`brailix.pipeline.translate_graphic`.
 Page composition is its own concern:
 it consumes the block-level compile primitive (:meth:`Pipeline.
 translate_block`) and the tactile backend's compositor, and owns nothing
-else — keeping it out of ``pipeline/__init__.py`` stops the orchestrator
+else — keeping it out of ``pipeline/_pipeline.py`` stops the orchestrator
 module from absorbing layout logic.
 
 Not public API: callers go through

@@ -376,7 +376,7 @@ class TestMathtypeFallbackForwarding:
         # feature to brailix.input.parse_file. cn_current ships no value, so the
         # "off" default reaches the call. Spy on the module-level _parse_file so
         # the assertion doesn't depend on a real document or the docx extra.
-        import brailix.pipeline as pipeline_mod
+        import brailix.pipeline._pipeline as pipeline_mod
         from brailix.ir.document import DocumentIR
         from brailix.pipeline import Pipeline
 

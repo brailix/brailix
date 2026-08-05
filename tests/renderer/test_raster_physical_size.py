@@ -224,12 +224,33 @@ class TestADensityNoHeaderCanHold:
         with pytest.raises(ValueError):
             raster_to_bmp(self._square_page(5e-324))
 
-    def test_the_pdf_states_no_integer_density_and_is_unaffected(self) -> None:
+    def test_the_pdf_encodes_a_page_the_density_headers_refuse(self) -> None:
         """Why the ceiling lives in the shared *encoding* layer and not in
-        ``require_renderable()``: the PDF writes its ``MediaBox`` in points as
-        a decimal, so it has no such limit, and a check on the IR would have
-        refused a raster this container can encode."""
-        assert raster_to_pdf(self._square_page(1e-9)).startswith(b"%PDF")
+        ``require_renderable()``: the PDF writes a decimal ``MediaBox``, not an
+        integer density, so its limit is a different one — and a check on the
+        IR would refuse a page this container can still state.
+
+        The page is chosen to sit in the band between the two limits: 1 px
+        across 3e-7 mm is 3.3e9 pixels per metre (past what either header can
+        hold) and 0.00000085 pt (which a PDF number carries). Both halves are
+        asserted, so the case cannot quietly drift to one side.
+
+        The previous version of this test used a 1e-9 mm page and asserted
+        only that the bytes began with ``%PDF``. They did — with ``/MediaBox
+        [0 0 0.00 0.00]``, because the numbers were written to two decimals.
+        The claim it was making ("this container can encode it") was false at
+        the one place it mattered, and the assertion could not see it.
+        """
+        raster = self._square_page(3e-7)
+        for encode in (raster_to_bmp, raster_to_png):
+            with pytest.raises(ValueError):
+                encode(raster)
+
+        pdf = raster_to_pdf(raster)
+        match = re.search(rb"/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]", pdf)
+        assert match is not None, "no /MediaBox in the PDF"
+        assert float(match.group(1)) > 0
+        assert float(match.group(2)) > 0
 
     @pytest.mark.parametrize("raster", _CASES)
     def test_no_real_page_comes_anywhere_near_the_ceiling(self, raster) -> None:

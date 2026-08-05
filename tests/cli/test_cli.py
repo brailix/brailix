@@ -351,7 +351,11 @@ def test_a_language_that_cannot_load_does_not_break_the_listing(capsys):
     from brailix.frontend import language_frontend_registry
 
     def _needs_a_wheel():
-        raise ImportError("No module named 'klingonlib'", name="klingonlib")
+        # The exception a real absent package raises — the registry rewrites
+        # only this one into the install hint the assertions below read.
+        raise ModuleNotFoundError(
+            "No module named 'klingonlib'", name="klingonlib"
+        )
 
     with language_frontend_registry.overriding(
         "tlh", _needs_a_wheel, extra="klingon"

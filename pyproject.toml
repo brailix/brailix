@@ -97,10 +97,19 @@ sudachi = ["sudachipy", "sudachidict-core"]  # Sudachi (reading_form)
 
 # Every tool + each language's default analyzer. The heavier Japanese
 # engines (fugashi / sudachi) stay opt-in — install them explicitly.
+#
+# Every requirement of every extra folded in here is listed *directly*, never
+# left to arrive through another one: that is the same undeclared-dependency
+# trap the notes above describe, one level up. ``requests`` is the case that
+# proved it — the [g2pw] extra names it because g2pw imports it at module
+# import, and this list did not, so ``brailix[all]`` was relying on
+# transformers<5 pulling it in. Resolve transformers 5.x and the import fails
+# for an install that asked for everything. A packaging guard checks the
+# subset relation on every release, in both directions.
 all = [
     "hanlp", "transformers<4.55",  # pin rides along with hanlp — see the [hanlp] extra
     "thulac", "jieba",
-    "g2pM", "numpy", "g2pw", "torch", "pypinyin",
+    "g2pM", "numpy", "g2pw", "torch", "requests", "pypinyin",
     "janome",
     "latex2mathml",
     "python-docx", "lxml", "olefile",
@@ -178,7 +187,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-ra --strict-markers"
 markers = [
-    "requires(module): skip unless the named optional-dependency module is *findable* (importlib.util.find_spec — the module is not imported, so a package present but broken does not skip); lets a partial install run green; e.g. `@pytest.mark.requires('latex2mathml')`. CI installs every extra (see .github/workflows/ci.yml), so nothing skips there.",
+    "requires(module): skip unless the named optional-dependency module is *findable* (importlib.util.find_spec — the module is not imported, so a package present but broken does not skip); lets a partial install run green; e.g. `@pytest.mark.requires('latex2mathml')`. The main CI job installs the extras the ordinary suite needs (see .github/workflows/ci.yml); the multi-gigabyte neural engines — hanlp and g2pw — are deliberately not among them and are covered by the scheduled heavyweight-adapters workflow, so their tests skip on a pull request.",
 ]
 
 # Mutation-testing scope (mutmut; see the verify dependency group). The

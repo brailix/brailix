@@ -158,13 +158,18 @@ File names below follow what is actually in the repo.
 brailix/
 ├── brailix/
 │   ├── __init__.py
-│   ├── pipeline/             # end-to-end entry (translate_text / translate_document / translate_block)
+│   ├── pipeline/             # end-to-end entry package (__init__ is a pure facade: the eight names in __all__, nothing else)
+│   │   ├── _pipeline.py      # the Pipeline orchestrator + module-level translate_graphic (translate_text / translate_document / translate_block / translate_document_to_pages / translate_math_inline)
+│   │   ├── _results.py / _helpers.py      # result value types; standalone helpers such as block_hash
+│   │   ├── _fingerprint.py / _session.py  # compilation-configuration digest; one run's session state
+│   │   ├── _incremental.py / _pages.py    # block-level incremental compile; mixed-page composition
+│   │   └── frontend_driver.py             # frontend driver (segment → normalize → route → populate)
 │   ├── core/                 # shared types, contexts, errors, config loading, registries
-│   │   ├── context.py        # FrontendContext / BackendContext / MathContext / MusicContext
+│   │   ├── context.py        # FrontendContext / BackendContext / MathContext / MusicContext / GraphicsContext
 │   │   ├── errors.py         # ParseError / WarningCollector / RunMode
 │   │   ├── span.py           # Span utilities, source-position tracking for IR nodes
 │   │   ├── registry.py       # generic name→loader registry (lazy load + MissingExtraError)
-│   │   ├── protocols.py      # Segmenter / Normalizer / Adapter / LanguageFrontend / LanguageBackend / Renderer
+│   │   ├── protocols.py      # Segmenter / Normalizer / LanguageFrontend / LanguageBackend / MathSourceAdapter / MusicSourceAdapter / GraphicSourceAdapter / InlineTextTranslator / GraphicAssetResolver / Renderer
 │   │   ├── _xml.py           # shared XML helpers (safe_fromstring: parsing with entity expansion off; byte decoding by XML's own encoding rules; prologue scan to the root element)
 │   │   ├── _zip.py           # ZIP declared member count (EOCD / ZIP64) — one fact, read by docx and mxl before either opens the container
 │   │   ├── chars.py          # irregular-character sets (one authority, consumed by the backend and by front-ends)

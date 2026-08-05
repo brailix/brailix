@@ -433,12 +433,18 @@ def test_no_manifest_lists_a_name_twice() -> None:
     manifest of the public surface should at least be able to say what it
     contains: a reader counting the published inline nodes against
     ``brailix.ir`` got two different numbers and no check disagreed.
+
+    :data:`_PIPELINE_ALL` is checked here too, because it is a manifest by the
+    same definition (a hand-written list of names, compared as a set) and was
+    simply not on the list — the one that pins the namespace the top-level
+    package re-exports from.
     """
     dupes = {
         f"{label}[{module!r}]": sorted({n for n in names if names.count(n) > 1})
         for label, manifest in (
             ("_FACADE", _FACADE),
             ("_EXTENSION_SURFACE", _EXTENSION_SURFACE),
+            ("_PIPELINE_ALL", {"brailix.pipeline": _PIPELINE_ALL}),
         )
         for module, names in manifest.items()
         if len(names) != len(set(names))
@@ -594,6 +600,17 @@ _EXTENSION_TYPE_MODULES = frozenset(
 )
 
 
+# The one promised registry that is a plain ``dict`` by design: a boundary
+# handler is a bare callable with no protocol to validate, so there is nothing
+# for a :class:`Registry` to do that a mapping does not. Named by its full
+# path rather than allowed by shape — "any dict counts as a registry" would
+# pass a real :class:`Registry` that had *degraded* into one (a module-level
+# ``some_registry = {}`` left behind by a refactor), which is exactly the
+# regression the check below exists to catch, in exactly the place an
+# extender's ``.register(...)`` would then fail.
+_DICT_REGISTRIES = frozenset({"brailix.frontend.boundary_registry"})
+
+
 def test_every_registry_in_the_extension_surface_is_a_registry() -> None:
     """A promised registry name must still be something you can ``register``
     on — the promise is the capability, not just the attribute."""
@@ -606,12 +623,34 @@ def test_every_registry_in_the_extension_surface_is_a_registry() -> None:
         mod = importlib.import_module(module)
         for name in names:
             obj = getattr(mod, name)
-            # ``boundary_registry`` is a plain dict by design (a handler is a
-            # bare callable, with no protocol to validate), so accept either
-            # shape as long as it can take a registration.
-            if not isinstance(obj, (Registry, dict)):
-                bad.append(f"{module}.{name} is {type(obj).__name__}")
-    assert not bad, f"extension surface entries that aren't registries: {bad}"
+            if isinstance(obj, Registry):
+                continue
+            if f"{module}.{name}" in _DICT_REGISTRIES and isinstance(obj, dict):
+                continue
+            bad.append(f"{module}.{name} is {type(obj).__name__}")
+    assert not bad, (
+        f"extension surface entries that aren't registries: {bad} — a "
+        f"promised registry must still take a registration. If a name is "
+        f"deliberately a plain mapping, add its fully-qualified path to "
+        f"_DICT_REGISTRIES with the reason."
+    )
+
+
+def test_the_dict_registry_exception_is_still_needed() -> None:
+    """Each name allowed to be a plain mapping is checked to still *be* one.
+
+    An exception that outlives its reason stops being an exception and starts
+    being a hole: if ``boundary_registry`` became a real
+    :class:`~brailix.core.registry.Registry`, the entry would go on excusing
+    whatever else took its name.
+    """
+    for path in _DICT_REGISTRIES:
+        module, _, name = path.rpartition(".")
+        obj = getattr(importlib.import_module(module), name)
+        assert isinstance(obj, dict), (
+            f"{path} is no longer a plain dict — drop it from "
+            f"_DICT_REGISTRIES"
+        )
 
 
 def test_every_brailix_type_a_protocol_names_has_a_supported_import() -> None:
@@ -733,9 +772,18 @@ _PIPELINE_ALL = [
 
 
 def test_pipeline_all_is_pinned() -> None:
+    """Compared as **lists**, not sets.
+
+    The set form answered "the same names" and nothing about how many times
+    each is written, so a name listed twice in ``__all__`` — which
+    ``import *`` and every reader take as one promise made twice — passed
+    unnoticed, in the one list this file exists to pin. Order is part of it
+    for the same reason: the manifest here is meant to be read against the
+    module side by side.
+    """
     import brailix.pipeline as pipeline
 
-    assert set(pipeline.__all__) == set(_PIPELINE_ALL)
+    assert list(pipeline.__all__) == _PIPELINE_ALL
 
 
 # Names a facade may bind without underscore despite not being in ``__all__``.
@@ -806,15 +854,12 @@ def test_facade_binds_no_unpublished_brailix_name(module: str) -> None:
     ``brailix``, a relative import always names a brailix module, whatever it
     resolves to, so no resolution is needed to answer the question this asks.
 
-    **Not applied to ``brailix.pipeline``**, which is an implementation module
-    rather than a facade — it imports ``Span``, ``DocumentIR`` and two dozen
-    others because it *uses* them, and aliasing every one would be noise for a
-    module nobody is directed to import from. What matters there is narrower
-    and is checked by
-    :func:`test_pipeline_namespace_offers_nothing_that_is_not_published_somewhere`:
-    it may re-expose a name some supported path already carries, but not one
-    that is published nowhere, because that name exists at no other address and
-    so reads as its own API.
+    ``brailix.pipeline`` is held to the same rule by
+    :func:`test_pipeline_publishes_its_all_and_binds_nothing_else` rather than
+    from this list, because it is not a *documented* facade — nobody is sent
+    there — while still being the address the top-level package re-exports
+    from, and the one every traceback names. The rule is identical; only the
+    manifest differs (:data:`_PIPELINE_ALL`, not :data:`_FACADE`).
     """
     import importlib.util
 
@@ -835,7 +880,7 @@ def test_facade_binds_no_unpublished_brailix_name(module: str) -> None:
     )
 
 
-def test_pipeline_namespace_offers_nothing_that_is_not_published_somewhere() -> None:
+def test_pipeline_publishes_its_all_and_binds_nothing_else() -> None:
     """``__all__`` governs ``import *`` and the generated reference — it does
     not stop ``from brailix.pipeline import CompilationSession``.
 
@@ -847,34 +892,33 @@ def test_pipeline_namespace_offers_nothing_that_is_not_published_somewhere() -> 
     was quietly contradicting, along with the frontend driver, ``compile_block``,
     ``compose_document_pages`` and the four fingerprint functions.
 
-    The bar is **nothing new resolves here**, not "nothing but ``__all__``".
-    ``brailix.pipeline`` is an implementation module rather than a facade: it
-    imports ``Paragraph``, ``Span``, ``DocumentIR`` and two dozen more because
-    it *uses* them, and every one of those is already supported at the address
-    the documentation sends people to. Reaching one of them through this module
-    is untidy; it is not a new promise, and aliasing them all would be noise.
+    The bar here is the strict one the documented facades are held to:
+    **nothing but ``__all__``**. It used to be the weaker "nothing NEW
+    resolves here", which let ``Paragraph``, ``Span``, ``DocumentIR``,
+    ``BackendContext``, ``InputLimits``, ``MathInline`` and two dozen more
+    keep their plain names on the reasoning that each is already supported at
+    ``brailix.ir`` / ``brailix.core`` / ``brailix.input``, so reaching one
+    through here was untidy rather than a new promise. Both halves of that are
+    true and it still left ``from brailix.pipeline import Paragraph``
+    working — an import path a downstream author can come to depend on, at the
+    one internal address the top-level package re-exports from and every
+    traceback and "go to definition" lands on. Deleting the binding would then
+    break code that had every reason to think it was fine.
 
-    What counts is a name published *nowhere* — and the previous version of
-    this check could not see those. It asked whether the object's
-    ``__module__`` started with ``brailix.pipeline``, a proxy for "our own
-    internal" that let four names through: ``load_profile`` and
-    ``translate_document``, entry points belonging to other layers, and the two
-    ``BackendContext.options`` keys, which are backend wire protocol. All four
-    sat at ``brailix.pipeline`` next to ``Pipeline`` with nothing to mark them
-    apart. This asks the question directly instead.
+    What changed is that the module stopped having to choose. The
+    orchestrator's implementation moved to
+    :mod:`brailix.pipeline._pipeline`, where it imports the types it uses
+    under their own names, and this package became a facade that binds its
+    eight published names and nothing else — so the strict rule costs no
+    underscores at all.
 
     Read from the source, like the facade check — and through the same
     :func:`_unpublished_bindings`, so the relative spelling counts here too:
     a re-exported *constant* has no ``__module__`` to trace, and those are
-    exactly the ones a runtime check misses — the two option keys are strings.
+    exactly the ones a runtime check misses (the two ``BackendContext``
+    option keys this once let through are strings).
     """
     import importlib.util
-
-    published = {
-        name
-        for names in (*_FACADE.values(), *_EXTENSION_SURFACE.values())
-        for name in names
-    }
 
     import brailix.pipeline as pipeline
 
@@ -882,16 +926,51 @@ def test_pipeline_namespace_offers_nothing_that_is_not_published_somewhere() -> 
     assert spec is not None and spec.origin is not None
     leaked = _unpublished_bindings(
         Path(spec.origin).read_text(encoding="utf-8"),
-        published | set(pipeline.__all__),
+        set(pipeline.__all__),
     )
 
     assert not leaked, (
-        f"brailix.pipeline binds names no documented surface publishes: "
-        f"{leaked} — import them as ``from ._module import X as _X`` so the "
-        f"package namespace offers nothing a third party cannot already get "
-        f"from a supported path, or publish them (in _FACADE / "
-        f"_EXTENSION_SURFACE, or in __all__ and _PIPELINE_ALL) as a deliberate "
-        f"promise"
+        f"brailix.pipeline binds brailix names it does not publish: {leaked}\n"
+        f"It is a facade: the implementation lives in "
+        f"``brailix.pipeline._pipeline`` and the helpers in their own "
+        f"modules, which is where in-repo callers import them from. Add the "
+        f"name to __all__ and _PIPELINE_ALL as a deliberate promise, or take "
+        f"the import out of the facade."
+    )
+
+
+def test_pipeline_namespace_at_runtime_holds_nothing_unpublished() -> None:
+    """The runtime half of the same rule, for the same reason the facades get
+    one: a name can reach a package namespace in ways no import statement
+    shows — an alias assignment, a class defined in place, an attribute set by
+    something else at import time.
+
+    Submodules under their own name are exempt, because binding them is not a
+    choice: ``from brailix.pipeline.frontend_driver import FrontendDriver as
+    _FrontendDriver`` sets ``frontend_driver`` on the package whether anyone
+    wanted it or not.
+    """
+    import brailix.pipeline as pipeline
+
+    published = set(pipeline.__all__)
+    leaked: list[str] = []
+    for name, value in vars(pipeline).items():
+        if (
+            name.startswith("_")
+            or name in published
+            or name in _UNAVOIDABLE_BINDINGS
+        ):
+            continue
+        if isinstance(value, types.ModuleType):
+            if value.__name__.rsplit(".", 1)[-1] == name:
+                continue
+        owner = getattr(value, "__module__", None) or getattr(
+            type(value), "__module__", ""
+        )
+        leaked.append(f"{name} (from {owner})")
+
+    assert not leaked, (
+        f"brailix.pipeline resolves names it does not publish: {leaked}"
     )
 
 

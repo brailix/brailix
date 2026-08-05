@@ -1,4 +1,4 @@
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import pytest
 
@@ -208,6 +208,55 @@ class TestProtocolValidation:
         reg.get("bad")
 
 
+class TestANoneAdapterIsRefused:
+    """"An adapter is never ``None``" is what the lock-free fast path is
+    built on — ``_cache.get(name)`` reads ``None`` as *not cached* — so it
+    has to be a check, not a comment.
+
+    A protocol-configured registry already refused one (nothing conforms to a
+    Protocol with methods); a registry declaring no protocol cached it, and
+    then every later ``get`` walked the locked slow path to be handed the same
+    nothing. The plugin that returned it was long gone by the time the
+    ``AttributeError`` surfaced, several layers into a translation run.
+    """
+
+    def test_a_loader_returning_none_raises_naming_the_adapter(self):
+        reg: Registry[Greeter] = Registry("greeters")
+        reg.register("empty", lambda: None)
+        with pytest.raises(TypeError) as ei:
+            reg.get("empty")
+        assert "empty" in str(ei.value)
+        assert "greeters" in str(ei.value)
+
+    def test_the_refusal_repeats_rather_than_caching_none(self):
+        # Nothing was cached, so the next call re-runs the loader and fails
+        # the same way — no half-registered state to explain.
+        calls: list[int] = []
+
+        def loader():
+            calls.append(1)
+            return None
+
+        reg: Registry[Greeter] = Registry("greeters")
+        reg.register("empty", loader)
+        for _ in range(2):
+            with pytest.raises(TypeError):
+                reg.get("empty")
+        assert len(calls) == 2
+
+    def test_the_none_refusal_wins_over_the_protocol_message(self):
+        # A protocol-configured registry rejected None already, but as "does
+        # not conform to protocol Greeter" — true, and the least useful way to
+        # say it: the loader returned nothing at all, which is a different
+        # repair from a missing method. The specific message is the one to
+        # keep, so the None check runs first.
+        reg: Registry[Greeter] = Registry("greeters", protocol=Greeter)
+        reg.register("empty", lambda: None)
+        with pytest.raises(TypeError) as ei:
+            reg.get("empty")
+        assert "None" in str(ei.value)
+
+
 class TestLazyImportFailure:
     def test_import_error_with_extra_becomes_missing_extra(self):
         # A genuinely-absent optional dependency raises ModuleNotFoundError
@@ -273,6 +322,52 @@ class TestLazyImportFailure:
         with pytest.raises(ImportError) as ei:
             reg.get("hanlp")
         assert not isinstance(ei.value, MissingExtraError)
+
+    def test_a_missing_symbol_from_an_installed_package_propagates(self):
+        # The dependency IS installed; a version of it simply no longer has
+        # the symbol (``from transformers import BertTokenizer`` after an
+        # upstream removal). CPython raises a plain ImportError — not a
+        # ModuleNotFoundError — and still sets ``name`` to the *package*, so
+        # wrapping every ImportError told the user to install something they
+        # already had, and buried the real error behind advice that could not
+        # work. Only "the module is not there at all" is a missing extra.
+        import sys
+        import types
+
+        installed = types.ModuleType("installed_but_changed")
+        sys.modules["installed_but_changed"] = installed
+
+        def loader():
+            from installed_but_changed import removed_symbol  # noqa: F401
+
+            return GoodGreeter()
+
+        reg: Registry[Greeter] = Registry("zh_analyzer")
+        reg.register("adapter", loader, extra="someextra")
+        try:
+            with pytest.raises(ImportError) as ei:
+                reg.get("adapter")
+        finally:
+            del sys.modules["installed_but_changed"]
+        assert not isinstance(ei.value, MissingExtraError)
+        assert not isinstance(ei.value, ModuleNotFoundError)
+        # The original message survives, so the real cause is readable.
+        assert "removed_symbol" in str(ei.value)
+
+    def test_a_missing_submodule_is_still_a_missing_extra(self):
+        # The other half of the same rule: ``import pkg.sub`` where nothing is
+        # installed raises ModuleNotFoundError, which is exactly the case the
+        # extras hint answers. Narrowing the wrap must not cost this.
+        def loader():
+            import not_installed_anywhere_at_all.sub  # noqa: F401
+
+            return GoodGreeter()
+
+        reg: Registry[Greeter] = Registry("zh_analyzer")
+        reg.register("adapter", loader, extra="someextra")
+        with pytest.raises(MissingExtraError) as ei:
+            reg.get("adapter")
+        assert ei.value.missing_module == "not_installed_anywhere_at_all"
 
     def test_import_error_without_extra_propagates(self):
         def loader():
@@ -739,9 +834,21 @@ class TestRegistrationMetadataIsChecked:
         assert reg.available("pure") is True
 
     def test_any_iterable_of_module_names_is_accepted(self) -> None:
+        # No ``type: ignore`` here on purpose: the signature says
+        # ``str | Iterable[str] | None``, which is what the docstring and the
+        # implementation have always meant. It used to say ``tuple``, so the
+        # one shape a plugin most naturally computes — a list — type-checked
+        # as an error while working perfectly at runtime.
         reg: Registry[object] = Registry("probe")
-        reg.register("listed", lambda: object(), probe=["json", "struct"])  # type: ignore[arg-type]
+        reg.register("listed", lambda: object(), probe=["json", "struct"])
         assert reg.available("listed") is True
+
+    def test_a_generator_of_module_names_is_accepted(self) -> None:
+        # "Any iterable" includes a one-shot one: ``_normalize_probe`` reads
+        # it exactly once, into a tuple, before anything can consume it twice.
+        reg: Registry[object] = Registry("probe")
+        reg.register("gen", lambda: object(), probe=(m for m in ("json",)))
+        assert reg.available("gen") is True
 
     def test_a_nameless_adapter_is_refused(self) -> None:
         reg: Registry[object] = Registry("probe")
@@ -772,33 +879,118 @@ class TestRegistrationMetadataIsChecked:
             reg.register("x", lambda: object(), extra=extra)
 
 
+def _shipped_registries() -> list[Registry[Any]]:
+    """Every registry that ships adapters behind an optional extra."""
+    from brailix.frontend.graphics.registry import graphic_source_registry
+    from brailix.frontend.ja.analyzer.registry import (
+        analyzer_registry as ja_analyzer_registry,
+    )
+    from brailix.frontend.math.registry import math_source_registry
+    from brailix.frontend.music.registry import music_source_registry
+    from brailix.frontend.zh.analyzer.registry import analyzer_registry
+    from brailix.frontend.zh.pinyin.registry import resolver_registry
+
+    return [
+        analyzer_registry,
+        resolver_registry,
+        ja_analyzer_registry,
+        math_source_registry,
+        music_source_registry,
+        graphic_source_registry,
+    ]
+
+
+def _imported_top_level_modules(module_name: str) -> set[str]:
+    """Top-level module names ``module_name``'s source imports, at any depth.
+
+    ``ast.walk``, not the module body: an adapter imports its library *inside*
+    the loader — that laziness is the whole point of the registry — so a scan
+    of top-level statements would find nothing to compare a probe against.
+    Read statically, so an adapter whose extra is not installed is covered
+    exactly like one whose extra is.
+    """
+    import ast
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.find_spec(module_name)
+    assert spec is not None and spec.origin is not None, module_name
+    tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
+
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add(alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+            names.add(node.module.split(".")[0])
+    return names
+
+
 class TestShippedAdaptersDeclareUsableProbes:
     """A probe naming the wrong module is worse than none: it reports a
     working engine missing, and a front-end then hides it (or a stored
     setting is reset off it) for no reason. The ``g2pm`` extra installs the
     ``g2pM`` module, so guessing the module from the extra is exactly the
-    mistake available to make here."""
+    mistake available to make here.
 
-    def test_a_probe_agrees_with_actually_loading_the_adapter(self) -> None:
-        from brailix.core.errors import CANDIDATE_UNAVAILABLE_ERRORS
-        from brailix.frontend.zh.analyzer.registry import analyzer_registry
-        from brailix.frontend.zh.pinyin.registry import resolver_registry
+    Checked **without loading anything**, which is not a convenience but the
+    contract. :meth:`Registry.available` answers "is the module findable",
+    explicitly *not* "will the adapter load" — an installed package whose
+    model has not been downloaded, or one beside a dependency version the
+    adapter refuses, is available and un-loadable at the same time, by design.
+    A test that loaded every engine and asserted the two agreed therefore went
+    red on a correct probe in exactly the environments the distinction exists
+    for, while making the ordinary suite read a hundred-megabyte model per
+    engine — to check a fact that is written in the source.
 
-        for reg in (analyzer_registry, resolver_registry):
+    What is written there is the real relationship: ``probe`` names the
+    third-party module the loader imports. Both halves are read off the tree.
+    """
+
+    def test_every_probe_names_a_module_its_adapter_imports(self) -> None:
+        mismatches: list[str] = []
+        for reg in _shipped_registries():
             for name in reg.names():
-                if name == "auto":
-                    continue  # resolves by delegation, not by its own import
-                try:
-                    reg.get(name)
-                except CANDIDATE_UNAVAILABLE_ERRORS:
-                    loadable = False
-                else:
-                    loadable = True
-                assert reg.available(name) is loadable, (
-                    f"{reg.subsystem}:{name} probe says "
-                    f"{reg.available(name)} but loading says {loadable} — "
-                    f"the declared probe module is wrong"
-                )
+                # ``_probes`` / ``_loaders``: this is the class's own test, and
+                # there is deliberately no public accessor — a probe is an
+                # answer ``available`` gives, not a value callers read back.
+                probes = reg._probes.get(name)
+                if not probes:
+                    continue  # declares no third-party dependency
+                adapter_module = reg._loaders[name].__module__
+                imported = _imported_top_level_modules(adapter_module)
+                for probe in probes:
+                    if probe.split(".")[0] not in imported:
+                        mismatches.append(
+                            f"{reg.subsystem}:{name} probes {probe!r} but "
+                            f"{adapter_module} imports {sorted(imported)}"
+                        )
+        assert not mismatches, (
+            "declared probes that name a module their adapter never imports "
+            "— `available` would report a working engine missing (or an "
+            "absent one present):\n  " + "\n  ".join(mismatches)
+        )
+
+    def test_the_scan_finds_the_lazy_imports_it_is_reading(self) -> None:
+        """The check above passes both on a clean tree and on a scan that
+        stopped finding anything, so pin that it really sees a loader-level
+        import — the shape every adapter uses."""
+        found = _imported_top_level_modules(
+            "brailix.frontend.zh.pinyin.adapters.g2pm"
+        )
+        assert "g2pM" in found
+
+    def test_at_least_one_registry_still_declares_probes(self) -> None:
+        """...and that there is something to check at all: if every probe were
+        dropped, the loop above would iterate over nothing and pass."""
+        probed = [
+            name
+            for reg in _shipped_registries()
+            for name in reg.names()
+            if reg._probes.get(name)
+        ]
+        assert len(probed) >= 10, probed
 
 
 def test_overriding_restores_the_probe_too() -> None:

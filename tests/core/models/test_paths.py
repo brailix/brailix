@@ -187,6 +187,88 @@ class TestGetModelDir:
         assert (tmp_path / "models").is_dir()
         assert (tmp_path / "models" / "g2pw").is_dir()
 
+    def test_the_returned_model_dir_can_actually_hold_a_file(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.delattr(sys, "frozen", raising=False)
+        monkeypatch.chdir(tmp_path)
+        d = get_model_dir("hanlp")
+        (d / "weights.bin").write_bytes(b"x")
+        assert (d / "weights.bin").read_bytes() == b"x"
+
+    def test_the_write_probe_leaves_nothing_behind(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.delattr(sys, "frozen", raising=False)
+        monkeypatch.chdir(tmp_path)
+        d = get_model_dir("hanlp")
+        get_model_dir("hanlp")  # a second call probes again
+        assert list(d.iterdir()) == []
+
+    def test_an_unwritable_model_dir_falls_back_though_the_root_is_fine(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The gap one level below the root check.
+
+        ``models/`` can take a file while ``models/hanlp/`` — already there,
+        left by an aborted download or locked by an admin — cannot. Deriving
+        the model directory from ``get_models_root()`` alone returned that
+        directory anyway: the root's promise was kept, the model's was not,
+        and the failure arrived later as a ``PermissionError`` naming a
+        weights file rather than the directory that caused it.
+        """
+        import tempfile as tempfile_mod
+
+        monkeypatch.delattr(sys, "frozen", raising=False)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+        locked = tmp_path / "models" / "hanlp"
+        locked.mkdir(parents=True)
+
+        real_probe = tempfile_mod.NamedTemporaryFile
+
+        def refuse_the_locked_dir(*args, **kwargs):
+            if Path(kwargs.get("dir", ".")) == locked:
+                raise PermissionError(13, "Permission denied")
+            return real_probe(*args, **kwargs)
+
+        monkeypatch.setattr(
+            tempfile_mod, "NamedTemporaryFile", refuse_the_locked_dir
+        )
+
+        d = get_model_dir("hanlp")
+        assert d == tmp_path / "appdata" / "brailix" / "models" / "hanlp"
+        assert d.is_dir()
+
+    def test_raises_naming_both_when_no_model_dir_can_hold_a_file(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Only when *neither* candidate works — the same shape (and the same
+        two paths) the root reports, one level down."""
+        import tempfile as tempfile_mod
+
+        monkeypatch.delattr(sys, "frozen", raising=False)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+        portable = tmp_path / "models" / "hanlp"
+        fallback = tmp_path / "appdata" / "brailix" / "models" / "hanlp"
+
+        real_probe = tempfile_mod.NamedTemporaryFile
+
+        def refuse_both(*args, **kwargs):
+            if Path(kwargs.get("dir", ".")) in (portable, fallback):
+                raise PermissionError(13, "Permission denied")
+            return real_probe(*args, **kwargs)
+
+        monkeypatch.setattr(tempfile_mod, "NamedTemporaryFile", refuse_both)
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            get_model_dir("hanlp")
+        message = str(excinfo.value)
+        assert "hanlp" in message, message
+        assert str(portable) in message, message
+        assert str(fallback) in message, message
+
     @pytest.mark.parametrize("bad", ["", "..", ".", "a/b", "a\\b", "C:foo"])
     def test_rejects_path_escapes(
         self, bad: str, tmp_path: Path, monkeypatch

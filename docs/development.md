@@ -67,13 +67,16 @@ It documents exactly the modules the manifest above pins, and pdoc honours `__al
 
 ```
 brailix/
-  pipeline/     end-to-end entry (translate_text / translate_document / translate_block)
+  pipeline/     end-to-end entry (translate_text / translate_document / translate_block /
+                translate_document_to_pages / translate_graphic)
   core/         shared types, contexts, errors, config loading, registries, protocols
   input/        document input adapters (plain / markdown / docx / music_xml)
-  frontend/     text -> structured IR (segment, normalize, zh, ja, math, music)
-  ir/           DocumentIR / InlineIR / BrailleIR
-  backend/      IR -> BrailleIR (dispatch + number / latin / punct / zh / ja / math / music)
-  renderer/     BrailleIR -> output (unicode / brf / cells / layout)
+  frontend/     source -> structured IR (segment, normalize, zh, ja, math, music, graphics)
+  ir/           DocumentIR / InlineIR / BrailleIR / TactileRaster
+  backend/      IR -> output-domain IR (dispatch + number / latin / punct / zh / ja / math /
+                music; tactile/ rasterizes a graphic tree and composes mixed pages)
+  renderer/     output-domain IR -> bytes (unicode / brf / cells / layout for braille;
+                bmp / png / pdf / tactile_preview for a tactile raster)
   profiles/     braille standards (cn_current, cn_ncb, ja_current)
   resources/    braille rule tables (shared at the top; region/scheme-specific below)
 tests/          backend / core / frontend / golden / input / integration / ir / renderer / resources

@@ -1,0 +1,1326 @@
+"""The :class:`Pipeline` orchestrator and the module-level graphics entry.
+
+The body behind :mod:`brailix.pipeline`, which is the address both are
+published at. That package is a facade holding exactly its ``__all__``, and
+this file is why it can be: an implementation module imports the two dozen
+types it works with (``Paragraph``, ``Span``, ``DocumentIR``,
+``BackendContext``...), and every one of those would otherwise resolve at
+``brailix.pipeline`` beside :class:`Pipeline` — the right object at an
+address that never promised it. Separating the two closes that without
+dressing the implementation in underscores; see :mod:`brailix.pipeline` for
+the package layout and the rest of the reasoning.
+
+Nothing here is imported by path from outside the package: ``from brailix
+import Pipeline`` and ``from brailix.pipeline import Pipeline`` are the
+supported spellings, and both land on this class.
+
+:data:`_frontend_parse_math_tree` / :data:`_frontend_parse_graphic_tree` are
+the real frontend entry points this module calls directly
+(:meth:`Pipeline.translate_math_inline` and :func:`translate_graphic`); the
+per-block parses go through the frontend driver's injected parsers instead.
+"""
+
+from __future__ import annotations
+
+import xml.etree.ElementTree as _ET
+from dataclasses import dataclass as _dataclass
+from dataclasses import field as _field
+from dataclasses import replace as _replace
+from pathlib import Path as _Path
+from types import MappingProxyType as _MappingProxyType
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+
+from brailix.backend.block import translate_document as _translate_document
+from brailix.core.config import BrailleProfile
+from brailix.core.config import load_profile as _load_profile
+from brailix.core.context import (
+    GRAPHIC_ASSET_RESOLVER_KEY as _GRAPHIC_ASSET_RESOLVER_KEY,
+)
+from brailix.core.context import (
+    INLINE_TEXT_TRANSLATOR_KEY as _INLINE_TEXT_TRANSLATOR_KEY,
+)
+from brailix.core.context import (
+    BackendContext,
+    FrontendContext,
+    GraphicsContext,
+    MathContext,
+)
+from brailix.core.errors import (
+    RunMode,
+    WarningCollector,
+    normalize_run_mode,
+)
+from brailix.core.span import Span
+from brailix.frontend import parse_math_tree as _frontend_parse_math_tree
+from brailix.frontend.graphics import (
+    parse_graphic_tree as _frontend_parse_graphic_tree,
+)
+from brailix.input import DEFAULT_INPUT_LIMITS, InputLimits
+from brailix.input import parse_file as _parse_file
+from brailix.input import parse_markdown as _parse_markdown
+from brailix.input import parse_plain as _parse_plain
+from brailix.ir.braille import BrailleCell
+from brailix.ir.document import Block, DocumentIR, Paragraph
+from brailix.ir.inline import MathInline
+
+# Brailix names above stay plain — ``Paragraph``, ``Span``, ``DocumentIR``,
+# ``BackendContext`` and the rest are imported because this module *uses*
+# them, and it is not an address anybody is sent to: ``brailix.pipeline`` is,
+# and it now holds its ``__all__`` and nothing else. That separation is what
+# buys the readability here; an implementation module dressing two dozen
+# supported types in underscores would have been noise paid to protect a
+# namespace this file no longer is.
+#
+# The sibling-module imports below keep their underscore aliases anyway,
+# because those names ARE internal wherever they are read from, and the alias
+# says so at the use site. Each stays importable from the module that defines
+# it, which is where in-repo callers take it from and where docstrings point.
+#
+# Names from outside brailix are a different rule and a tree-wide one: no
+# module in the package binds one plainly, whether or not anyone is sent to
+# it — "go to definition" on ``Pipeline`` lands here, and an editor completes
+# whatever resolves. Runtime ones are aliased (``_ET``, ``_dataclass``); a
+# name only ever written in an annotation is imported under ``if
+# _TYPE_CHECKING:`` below, where it is not a binding at all.
+# ``test_no_module_binds_a_foreign_name_under_a_plain_name`` checks every
+# module in the package for it.
+from brailix.pipeline._fingerprint import (
+    asset_resolver_identity as _asset_resolver_identity,
+)
+from brailix.pipeline._fingerprint import (
+    compilation_fingerprint as _compilation_fingerprint,
+)
+from brailix.pipeline._fingerprint import (
+    fold_runtime_identity as _fold_runtime_identity,
+)
+from brailix.pipeline._fingerprint import (
+    registries_generation as _registries_generation,
+)
+from brailix.pipeline._helpers import _block_surface
+from brailix.pipeline._incremental import _DEFAULT_INLINE_TACTILE_PROFILE
+from brailix.pipeline._incremental import compile_block as _compile_block
+from brailix.pipeline._pages import (
+    compose_document_pages as _compose_document_pages,
+)
+from brailix.pipeline._results import (
+    CompiledBlock,
+    GraphicResult,
+    TactilePageResult,
+    TranslationResult,
+    TreeSubcache,
+)
+from brailix.pipeline._session import CompilationSession as _CompilationSession
+from brailix.pipeline._session import _InlineTextTranslator
+from brailix.pipeline._session import warn_epoch_changed as _warn_epoch_changed
+from brailix.pipeline.frontend_driver import FrontendDriver as _FrontendDriver
+
+if _TYPE_CHECKING:
+    import os
+    from collections.abc import Callable, Mapping, Sequence
+    from typing import Any
+
+    from brailix.backend.tactile.profile import TactileProfile
+    from brailix.core.protocols import GraphicAssetResolver
+
+# What this module defines and :mod:`brailix.pipeline` re-exports. The result
+# types are imported above because the code below returns them, not published
+# from here: they are the ``_results`` module's, and the facade takes them
+# straight from there.
+__all__ = [
+    "Pipeline",
+    "translate_graphic",
+]
+
+
+# The Pipeline fields that are read ONCE, at construction: they are hashed
+# into ``_fingerprint_base`` and copied into the FrontendDriver, so nothing
+# re-reads them afterwards. Assigning one on a live pipeline therefore lands
+# in one of two failure modes, both silent:
+#
+# * the write is simply ignored (``resolver`` / ``analyzer`` / a *rebound*
+#   ``user_pinyin_dict`` — the driver keeps its own copy), or
+# * it half-applies (``mode`` — each new session reads it, but the
+#   fingerprint does not move, so a cache keyed on ``source_hash`` serves
+#   braille compiled under the other configuration).
+#
+# Either way the caller silently gets output that doesn't match the
+# configuration they think they set, which is exactly the "same cache key,
+# different compile behaviour" hole the fingerprint exists to close. So the
+# fields are read-only after ``__post_init__`` and reconfiguring means
+# building a new pipeline (``dataclasses.replace``), which recomputes the
+# digest and rebuilds the driver.
+#
+# NOT in here, and deliberately assignable:
+#
+# * ``asset_resolver`` — documented as late-bindable (a front-end attaches a
+#   document's assets to an already-built pipeline). Its identity folds into
+#   :attr:`Pipeline.fingerprint` on every read and the session re-syncs it
+#   onto the driver, so both failure modes above are closed for it.
+# * ``default_renderer`` — chooses an *output encoding* after compilation;
+#   it can't change a compiled block, so it is outside the fingerprint's
+#   remit by construction.
+_FROZEN_CONFIG_FIELDS: frozenset[str] = frozenset(
+    {
+        "profile",
+        "mode",
+        "analyzer",
+        "resolver",
+        "user_pinyin_dict",
+        "user_seg_dict",
+        "profile_features",
+        "extra_profile_paths",
+    }
+)
+
+
+def _freeze_seg_dict(
+    raw: Mapping[str, Sequence[str]],
+) -> dict[str, tuple[str, ...]]:
+    """Immutable ``surface → pieces`` snapshot, skipping unusable entries.
+
+    A personal dictionary reaches a Pipeline from a hand-edited file or a
+    front-end's own store, so an entry can be *any* shape, and freezing it
+    used to be written as ``{k: tuple(v) for k, v in raw.items()}`` — which
+    raises ``TypeError`` on ``{"国家": None}`` at ``Pipeline(...)``. That is
+    the wrong failure for this input: one unusable line must not stop an
+    application from constructing a pipeline at all, which is the same
+    "silently skip the record" policy
+    :func:`~brailix.frontend.zh.analyzer._user_dict.normalize_seg_dict`
+    states for the consuming side.
+
+    This is a **structural** filter, and only that: an entry survives if it
+    could describe *some* division (a string surface, a non-string sequence
+    of strings). Whether it describes a division of *its own key* — pieces
+    that spell the surface, a surface long enough to divide — is the
+    language's rule, and stays with the language's tokenizer post-pass. The
+    two are not redundant: this one runs before the fingerprint and decides
+    what a pipeline *holds*, so it can afford to know nothing about Chinese.
+
+    A bare string value is refused rather than read: ``{"国家": "国家"}``
+    would iterate to ``("国", "家")``, i.e. silently mean the exact opposite
+    of what it looks like (*cut it apart* where the author wrote *this is one
+    word*). Pieces are written as a sequence — ``("国家",)`` — and anything
+    else is too ambiguous to guess at.
+    """
+    frozen: dict[str, tuple[str, ...]] = {}
+    for surface, pieces in raw.items():
+        if not isinstance(surface, str) or isinstance(pieces, (str, bytes)):
+            continue
+        try:
+            parts = tuple(pieces)
+        except TypeError:
+            continue
+        if not all(isinstance(p, str) for p in parts):
+            continue
+        frozen[surface] = parts
+    return frozen
+
+
+# ---------------------------------------------------------------------------
+# Pipeline
+# ---------------------------------------------------------------------------
+
+
+@_dataclass(slots=True)
+class Pipeline:
+    """Convenience wrapper for the default end-to-end flow.
+
+    Configuration is **all by name**. Every adapter family is selected
+    by a string that resolves through the corresponding internal
+    registry; default ``"auto"`` lets the system pick the best
+    installed candidate without user intervention.
+
+    Field meaning:
+
+    * ``profile`` — **required**; JSON profile name under
+      :mod:`brailix.profiles` (the braille standard, e.g. ``cn_current``
+      / ``cn_ncb`` / ``ja_current``). Drives table selection and runtime
+      features. There is no built-in default — the caller always chooses.
+    * ``mode`` — diagnostic policy (see :class:`RunMode`).
+    * ``analyzer`` — word-segmentation engine for **the profile's
+      language**, not for one fixed language: the driver hands it to the
+      ``LanguageFrontend`` selected by the active profile's language
+      subtag, so a Chinese profile reads it as a Chinese tokenizer
+      (``auto`` / ``char`` / ``jieba`` / ``thulac`` / ``hanlp``) and a
+      Japanese one as a Japanese morphological analyzer (``auto`` /
+      ``kana`` / ``janome`` / ``fugashi`` / ``sudachi``). A new prose
+      language reuses this same field — which is why the name says
+      ``analyzer`` and not a script. Which names a given language offers is
+      the language's own declaration, read through
+      :func:`brailix.frontend.list_language_adapters`; a name belonging to
+      another language is rejected against the active one rather than
+      accepted here and failed on deeper in.
+    * ``resolver`` — reading engine for the profile's language, **where it
+      has one**. Chinese is the case that does: a pinyin resolver
+      (``auto`` / ``null`` / ``pypinyin`` / ``g2pm`` / ``g2pw``) runs after
+      segmentation. Japanese has no separate resolver family — a kana
+      reading comes out of its analyzer — so on a Japanese profile this
+      field has nothing to select, and setting it is a usage error rather
+      than a flag carried into the run and read by nobody.
+    * ``user_pinyin_dict`` — optional ``surface → reading`` overrides
+      layered on top of ``resolver`` (a proofreading front-end's personal
+      dictionary). Chinese-specific, as its name says and as ``resolver``
+      effectively is: the pinyin post-pass is what consumes it.
+      Multi-char surfaces only; empty = no-op.
+    * ``user_seg_dict`` — optional ``surface → pieces`` overrides layered
+      on top of ``analyzer``, the same idea applied to word division:
+      ``{"国家": ("国家",)}`` says *this is one word*, ``{"国家通用":
+      ("国家", "通用")}`` says *cut it here*. Consumed by the tokenizer
+      post-pass. Kept separate from ``user_pinyin_dict`` because separate
+      subsystems read them; a front-end may still show its user one
+      dictionary. Multi-char surfaces whose pieces spell the surface;
+      empty = no-op. An entry too malformed to hold at all — pieces that
+      are not a sequence of strings — is dropped as this pipeline is built
+      (:func:`_freeze_seg_dict`), so a hand-edited dictionary with one bad
+      line still yields a usable pipeline.
+    * ``profile_features`` — optional overrides for the loaded profile's
+      **feature flags**, keyed by the dotted names the profile documents
+      them under (``{"zh.tone": False}`` turns off Chinese tone cells).
+      Everything else about the profile — every table, its language, its
+      name — is untouched: this is *the same standard with a flag set
+      differently*, which is what a front-end offering the choice as a
+      setting needs. The in-memory sibling of dropping a same-named
+      profile JSON on ``extra_profile_paths``, and strictly narrower.
+      Folded into :attr:`fingerprint` like everything else that changes
+      the output (the digest hashes the profile's resolved content, and
+      the override is part of it by the time it is taken). Empty = the
+      profile exactly as it ships. A value must be a JSON **scalar** —
+      a container is refused with :class:`~brailix.core.ConfigurationError`,
+      since the dotted key already addresses a nested flag (see
+      :func:`~brailix.core.config._helpers._feature_merge`).
+    * ``default_renderer`` — forwarded to every
+      :class:`TranslationResult` so :meth:`TranslationResult.render`
+      knows what to use when called without arguments.
+
+    Configuration is also **read-only once constructed**. Every field above
+    except ``default_renderer`` and ``asset_resolver`` is consumed once, in
+    ``__post_init__``, to build the frontend driver and the compilation
+    :attr:`fingerprint`; assigning one afterwards would change what compiles
+    (or nothing at all) while the fingerprint stayed put, so it raises
+    :class:`AttributeError` instead. Reconfigure by deriving a new pipeline::
+
+        from dataclasses import replace
+
+        strict = replace(pipe, mode="strict")
+
+    which recomputes the digest and rebuilds the driver. ``user_pinyin_dict``
+    is held as a read-only view of a defensive copy for the same reason —
+    mutating the dictionary you passed in cannot reach a built pipeline.
+
+    :meth:`translate_text` is the simplest entry point; the rest of the
+    public surface is :meth:`translate_document` / :meth:`translate_file`
+    / :meth:`translate_block` / :meth:`translate_math_inline` /
+    :meth:`translate_graphic` / :meth:`parse_text` / :meth:`parse_file`.
+    To plug in a new adapter, register it with the matching internal
+    registry under a name of your choice, then construct a Pipeline with
+    that name — no Pipeline code changes needed.
+    """
+
+    profile: str
+    mode: RunMode | str = RunMode.NORMAL
+    # The engine families a caller genuinely chooses between, each defaulting
+    # to the ``auto`` adapter — an ordinary registered adapter that picks for
+    # you, not a sentinel this class interprets. Written here as the literal
+    # it is: these declarations ARE the library's defaults, and anything that
+    # needs to know them (the CLI's ``--help``, a front-end's preferences)
+    # reads them off this dataclass rather than keeping a copy that can drift.
+    #
+    # Segmenter and normalizer are deliberately NOT fields. They ship one
+    # implementation per language, and which one applies follows from
+    # ``profile.language`` with nothing left to decide — recognising a
+    # writing system is a property of the language, not a strategy with
+    # trade-offs the way picking jieba over HanLP is. A knob whose value is
+    # determined by another field is not configuration; it is a second place
+    # for the same fact to be wrong. Adding a language still registers them
+    # (ARCHITECTURE#arch-language-slots), and a caller who really wants to
+    # name one can still do it through ``ctx.options`` on the frontend
+    # entry points.
+    analyzer: str = "auto"
+    resolver: str = "auto"
+    # Personal pinyin dictionary (user-authored surface→reading map),
+    # layered on top of whichever resolver runs: the zh frontend applies
+    # it as a post-pass so the user's explicit reading wins for every
+    # document.  Multi-char keys only (single-char readings are too
+    # context-dependent to force globally).  Empty by default → pure no-op,
+    # so the bare library and every test that omits it are unaffected.
+    #
+    # Taken as a defensive copy behind a read-only view (see
+    # ``_freeze_config``): the mapping is hashed into the compilation
+    # fingerprint at construction, so an in-place ``pipe.user_pinyin_dict[w]
+    # = r`` would change the braille while the fingerprint — and every
+    # ``source_hash`` derived from it — stayed put.
+    user_pinyin_dict: Mapping[str, str] = _field(default_factory=dict)
+    # Personal segmentation dictionary (user-authored surface→pieces map),
+    # layered on top of whichever analyzer runs: the zh frontend applies it
+    # as a post-pass, so a word division the user pinned wins for every
+    # document.  A one-piece value folds tokens into a word (``{"国家":
+    # ("国家",)}``), a multi-piece value cuts one apart (``{"国家通用":
+    # ("国家", "通用")}``) — one mapping for both fixes.  Multi-char keys
+    # whose pieces spell the key; anything else is dropped on read.  Empty
+    # by default → pure no-op.
+    #
+    # Separate from ``user_pinyin_dict`` because separate subsystems consume
+    # them (the analyzer must not import the resolver — ARCHITECTURE#arch-mediators).
+    # A front-end is free to present both as one "my dictionary" to its user.
+    #
+    # Same defensive copy behind a read-only view, for the same reason.
+    user_seg_dict: Mapping[str, Sequence[str]] = _field(default_factory=dict)
+    # Feature-flag overrides applied to the loaded profile, keyed by the
+    # dotted names ``BrailleProfile.feature`` reads (``"zh.tone"``).
+    #
+    # A profile's JSON settles the *standard*; a few of its flags are
+    # genuinely a caller's choice within that standard — whether Current
+    # Chinese Braille marks tone on every syllable or on none is the case
+    # that brought this in, and it is a checkbox in a proofreading
+    # front-end, not a reason to ship a second profile or to make the user
+    # hand-edit JSON. Kept generic (any flag, any language) rather than one
+    # field per knob: the orchestrator has no business knowing which flags
+    # exist, and the profile already documents them.
+    #
+    # Same defensive copy behind a read-only view as the dictionaries above,
+    # for the same reason — the merged result is hashed into the
+    # fingerprint at construction.
+    #
+    # That copy is shallow, and a shallow copy is enough here only because a
+    # flag's value is required to be a scalar: ``_feature_merge`` refuses a
+    # container, so there is nothing inside the mapping left for the caller
+    # to reach back into and edit after the fingerprint was taken. (The
+    # neighbouring ``user_seg_dict`` answers the same hazard the other way —
+    # its values are legitimately sequences, so it freezes them.)
+    profile_features: Mapping[str, Any] = _field(default_factory=dict)
+    # Unlike the frontend families there is no ``auto`` here, deliberately:
+    # a renderer choice is an OUTPUT FORMAT, and no amount of probing can
+    # tell whether the caller wanted BRF or a PDF. ``unicode`` is the one
+    # format that is readable without a device.
+    default_renderer: str = "unicode"
+    # User-folder profile directories injected by the caller so a portable
+    # build can ship with its own profile drops.
+    # ``load_profile`` searches these first; same-named user profile
+    # shadows the builtin.  Kept as a tuple so the dataclass stays
+    # hashable / frozen-friendly even though :class:`Pipeline` itself
+    # is mutable.
+    extra_profile_paths: tuple[str, ...] = ()
+    # Resolves a graphic's asset reference (``media/image1.png``) to raw
+    # bytes when the referenced image lives in the document rather than on
+    # disk — an image imported from a ``.docx`` rides in memory. Injected onto
+    # every ``GraphicsContext`` the pipeline builds (inline ``graphic-image``
+    # fences and standalone ``translate_graphic`` alike), so the ``image``
+    # source adapter can inline it as a ``data:`` URI. ``None`` (the default)
+    # leaves the adapter to read the reference as a filesystem path — the bare
+    # library and every test that omits it are unaffected. See
+    # :class:`~brailix.core.protocols.GraphicAssetResolver`. (Its own parenthesis, name then
+    # section: the export deletes a citation of an unpublished note whole, and
+    # can only do that when the reference is the entire parenthetical.)
+    asset_resolver: GraphicAssetResolver | None = None
+    _profile: BrailleProfile = _field(init=False, default=None)  # type: ignore[assignment]
+    _frontend: _FrontendDriver = _field(init=False, default=None)  # type: ignore[assignment]
+    # The configuration-only digest (compilation_fingerprint) plus the
+    # cached fold of it with the registry-generation snapshot it was last
+    # combined with — see the ``fingerprint`` property.
+    _fingerprint_base: str = _field(init=False, default="")
+    _fingerprint: str = _field(init=False, default="")
+    _fingerprint_env: tuple[tuple[int, ...], str] | None = _field(
+        init=False, default=None
+    )
+    # Flipped at the end of ``__post_init__``: until then the dataclass's own
+    # ``__init__`` and the normalisation below are still writing the fields,
+    # and they must go through.
+    _configured: bool = _field(init=False, default=False)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Reject writes to :data:`_FROZEN_CONFIG_FIELDS` on a built pipeline.
+
+        See that constant for why each field is (or isn't) on the list. The
+        error is an :class:`AttributeError` — the standard "this attribute is
+        read-only" signal, the same one
+        :class:`dataclasses.FrozenInstanceError` subclasses — so it is never
+        mistaken for the soft-failure path an adapter error takes, and the
+        frontend's ``PROGRAMMING_ERRORS`` ladder re-raises it rather than
+        degrading it to a warning.
+        """
+        if name in _FROZEN_CONFIG_FIELDS and getattr(self, "_configured", False):
+            raise AttributeError(
+                f"Pipeline.{name} is read-only after construction: it is "
+                "baked into the compilation fingerprint and copied into the "
+                "frontend at build time, so assigning it would change what "
+                "compiles (or silently nothing) while `fingerprint` — and "
+                "every `CompiledBlock.source_hash` folded from it — stayed "
+                "put. Derive a reconfigured pipeline instead: "
+                f"`dataclasses.replace(pipeline, {name}=...)`. "
+                "(`asset_resolver` and `default_renderer` stay assignable.)"
+            )
+        # ``object.__setattr__``, not ``super().__setattr__``: ``slots=True``
+        # makes the decorator build a *replacement* class, while the implicit
+        # ``__class__`` cell a zero-argument ``super()`` closes over still
+        # points at the original — so ``super()`` raises TypeError on every
+        # instance of the class that actually exists. (The same reason
+        # ``dataclasses`` emits ``object.__setattr__`` for frozen slotted
+        # classes.)
+        object.__setattr__(self, name, value)
+
+    def __post_init__(self) -> None:
+        self.mode = normalize_run_mode(self.mode)
+        # Defensive copy behind a read-only view: the caller keeps their own
+        # dictionary and may go on editing it, but this pipeline's digest was
+        # computed from the contents at *this* moment, so it must hold a
+        # snapshot nobody else can reach — and one it cannot edit either.
+        self.user_pinyin_dict = _MappingProxyType(dict(self.user_pinyin_dict))
+        # Same, plus each value is frozen to a tuple: a ``MappingProxyType``
+        # over a copied dict protects the mapping, not the LISTS inside it,
+        # so a caller who kept ``{"国家通用": ["国家", "通用"]}`` could still
+        # append to that list and change what this pipeline segments — past
+        # a fingerprint computed from the old contents. Entries too malformed
+        # to freeze are skipped rather than raised on (see
+        # :func:`_freeze_seg_dict`), so what the fingerprint below hashes is
+        # exactly what this pipeline holds.
+        self.user_seg_dict = _MappingProxyType(
+            _freeze_seg_dict(self.user_seg_dict)
+        )
+        self.profile_features = _MappingProxyType(dict(self.profile_features))
+        # Accept ``Path`` objects too — keeping the dataclass field type
+        # as ``tuple[str, ...]`` simplifies serialization, but the caller
+        # naturally passes :class:`pathlib.Path`.
+        # Unconditional: guarding this on truthiness left an EMPTY list as the
+        # caller's own mutable object, still reachable from both sides. The
+        # field then contradicted its declared ``tuple[str, ...]``, a caller
+        # could append to it (or to their own list) and silently change a
+        # "read-only after construction" pipeline's public configuration, and
+        # ``dataclasses.replace`` would carry the appended paths into the
+        # derived pipeline as if they had been configured all along.
+        self.extra_profile_paths = tuple(
+            str(p) for p in self.extra_profile_paths
+        )
+        self._profile = _load_profile(
+            self.profile,
+            extra_search_paths=[_Path(p) for p in self.extra_profile_paths]
+            or None,
+        ).with_features(self.profile_features)
+        self._frontend = _FrontendDriver(
+            profile=self.profile,
+            profile_obj=self._profile,
+            analyzer=self.analyzer,
+            resolver=self.resolver,
+            user_pinyin_dict=self.user_pinyin_dict,
+            user_seg_dict=self.user_seg_dict,
+            asset_resolver=self.asset_resolver,
+        )
+        # Compilation-configuration identity (see
+        # :func:`~brailix.pipeline._fingerprint.compilation_fingerprint`): the
+        # configuration digest is computed once; the ``fingerprint``
+        # property folds it with the current registry-generation snapshot
+        # (re-folding only when a runtime ``register`` / ``unregister``
+        # moved a generation), and the result is folded into every block's
+        # ``source_hash`` and stamped onto the blocks this pipeline's
+        # frontend populates.
+        #
+        # Segmenter / normalizer are absent because they are no longer
+        # configuration: which one runs follows from ``profile.language``,
+        # and the profile's full resolved content is already hashed in.
+        self._fingerprint_base = _compilation_fingerprint(
+            self._profile,
+            mode=normalize_run_mode(self.mode).value,
+            analyzer=self.analyzer,
+            resolver=self.resolver,
+            user_pinyin_dict=self.user_pinyin_dict,
+            user_seg_dict=self.user_seg_dict,
+        )
+        self._frontend.fingerprint = self.fingerprint
+        # Configuration is complete and hashed: from here on the fields above
+        # are read-only (see ``__setattr__``).
+        self._configured = True
+
+    @property
+    def profile_name(self) -> str:
+        """The resolved profile's name (``BrailleProfile.name``).
+
+        The :attr:`profile` field holds the *requested* profile name;
+        this returns the loaded profile's own ``name``, which is the
+        authoritative identity to persist. Exposed so a front-end never
+        has to reach into the private ``_profile``.
+        """
+        return self._profile.name
+
+    @property
+    def profile_language(self) -> str:
+        """The resolved profile's language tag (e.g. ``"zh-CN"``).
+
+        Exposed so a front-end can record a document's language without
+        touching the private ``_profile`` — the public-API boundary.
+        """
+        return self._profile.language
+
+    @property
+    def fingerprint(self) -> str:
+        """This pipeline's compilation-configuration fingerprint.
+
+        A stable digest of everything Pipeline-level that can change the
+        compiled output for the same source text: the resolved profile's
+        content, the selected adapter names, the user pinyin and
+        segmentation dictionaries, the run mode and the brailix version —
+        see
+        :func:`~brailix.pipeline._fingerprint.compilation_fingerprint` for the exact
+        coverage and its limits.  Two pipelines with equal fingerprints
+        compile any block identically (within one process); a front-end
+        that keys a cache across pipeline reconfigurations folds this in
+        (:meth:`translate_block` already folds it into
+        :attr:`CompiledBlock.source_hash`).
+
+        Not *frozen*, though — two in-process runtime identities fold in
+        on every read:
+
+        * every compilation-relevant registry's ``generation``
+          (:func:`~brailix.pipeline._fingerprint.registries_generation`):
+          the registries allow re-registering an implementation under a
+          live name and the frontend re-resolves names on every run, so a
+          runtime ``register`` / ``unregister`` advances this fingerprint
+          (for every live Pipeline — the fold is per-registry, not
+          per-name), which flips ``source_hash`` and invalidates the
+          ``frontend_fingerprint`` stamps on previously populated IR;
+          neither a block cache nor in-place reuse can keep serving output
+          compiled by the replaced implementation.
+        * the :attr:`asset_resolver`'s identity
+          (:func:`~brailix.pipeline._fingerprint.asset_resolver_identity`):
+          what a graphic's asset reference resolves to is part of the
+          compiled output, so two pipelines over different resolvers —
+          two documents each carrying their own ``media/image1.png`` —
+          fingerprint apart, and assigning a resolver to a live pipeline
+          (``pipe.asset_resolver = ...``) advances its fingerprint.
+
+        In the steady state the snapshot comparison is a few atomic int
+        reads — no re-hashing.
+        """
+        env = (
+            _registries_generation(),
+            _asset_resolver_identity(self.asset_resolver),
+        )
+        if env != self._fingerprint_env:
+            self._fingerprint_env = env
+            self._fingerprint = _fold_runtime_identity(
+                self._fingerprint_base, env[0], env[1]
+            )
+        return self._fingerprint
+
+    # --- Public API ---------------------------------------------------
+    #
+    # The public surface is the ``translate_*`` / ``parse_*`` methods and
+    # the returned :class:`TranslationResult`. Internal stages are
+    # deliberately private: users compose by registering new adapter
+    # names through the internal registries and pointing Pipeline
+    # constructor arguments at those names.
+
+    def translate_text(self, text: str) -> TranslationResult:
+        """Translate one paragraph of text into a :class:`TranslationResult`.
+
+        The input is wrapped as a single :class:`Paragraph` block. For
+        multi-block documents (headings + lists + tables...) build a
+        :class:`DocumentIR` yourself or parse Markdown via
+        :func:`brailix.input.parse_markdown` and call
+        :meth:`translate_document`.
+
+        To mutate the IR between frontend and backend (e.g. a proofreading front-end
+        applying user overrides), use :meth:`translate_block` and pass
+        an ``ir_transformer`` — Pipeline keeps no override / workflow
+        concept, that lives in the front-end layer.
+
+        The returned ``ir`` is populated through the same lifecycle
+        :meth:`translate_document` uses, so it carries the same provenance:
+        raw ``text``, plus the :attr:`fingerprint` stamp that says which
+        configuration built its children. Handing it to another pipeline
+        re-runs the frontend when that pipeline would compile it differently.
+        It used to be assembled here instead — a bare ``Paragraph`` holding
+        only ``children`` — which is indistinguishable from hand-built IR, the
+        one shape the population contract reuses verbatim. A second pipeline
+        with its own resolver / user dictionary / profile content therefore
+        emitted braille built from THIS pipeline's tokenization and readings,
+        with no warning and no way for the caller to see it had happened.
+        """
+        session = _CompilationSession.begin(self)
+        paragraph = Paragraph(text=text)
+        self._frontend.populate_block(paragraph, session.frontend_ctx)
+        doc = DocumentIR(metadata=self._ir_metadata(), blocks=[paragraph])
+        braille_doc = _translate_document(doc, session.backend_ctx, self._profile)
+        # Same integrity check the block-level compile runs: a registration
+        # that landed mid-run leaves this result a blend of two adapter
+        # generations, whichever entry point produced it.
+        session.report_epoch_drift()
+        return TranslationResult(
+            text=text,
+            ir=doc,
+            braille_ir=braille_doc,
+            warnings=session.warnings,
+            default_renderer=self.default_renderer,
+        )
+
+    def translate_math_inline(self, surface: str, source: str) -> str:
+        """Translate a single inline math formula to a Unicode-braille string.
+
+        Convenience for one-off / live-preview callers (a CLI, or a proofreading
+        front-end's math editor) that hold a raw formula plus its source format
+        (``"latex"`` / ``"mathml"`` / ``"asciimath"`` / ...) and want braille
+        without reassembling the math frontend + backend + renderer by hand —
+        keeping them off ``brailix.backend`` internals.
+
+        Inline mode (matches how an inline :class:`MathInline` renders). Parse
+        / adapter failures and unsupported constructs surface as the usual
+        soft-failure cells; warnings go to a throwaway collector so a preview
+        never pollutes the caller's diagnostics. Returns ``""`` when the
+        formula doesn't parse into a tree at all.
+        """
+        from brailix.backend.math import translate as _math_translate
+        from brailix.renderer.unicode_braille import cell_to_char
+
+        surface = surface.strip()
+        if not surface:
+            return ""
+        # NORMAL regardless of the pipeline's own mode: a strict-mode
+        # collector RAISES on the first warning, which would turn the
+        # documented "failures surface as soft-failure cells" preview
+        # contract into a StrictModeError crash for any formula with an
+        # unknown symbol.
+        silent = WarningCollector(mode=RunMode.NORMAL)
+        math_ctx = MathContext(
+            source=source, mode="inline", profile=self.profile, warnings=silent
+        )
+        tree = _frontend_parse_math_tree(surface, math_ctx)
+        if tree is None:
+            return ""
+        node = MathInline(surface=surface, source=source, math=tree)
+        backend_ctx = BackendContext(
+            profile=self.profile,
+            # NORMAL, not self.mode — the context's __post_init__
+            # re-stamps its mode onto the shared collector, which would
+            # silently undo the NORMAL collector above.
+            mode=RunMode.NORMAL,
+            warnings=silent,
+            # Inject the inline-text translator so embedded text — a
+            # \text{...} / <mtext> run, esp. Chinese — renders through the
+            # zh / latin path instead of failing per-char. Without it a
+            # live preview drops to blank cells + warnings for any text.
+            # Bound with NO host collector: preview diagnostics are
+            # discarded by contract.
+            options={
+                _INLINE_TEXT_TRANSLATOR_KEY: _InlineTextTranslator(self)
+            },
+        )
+        cells = _math_translate(node, backend_ctx, self._profile)
+        return "".join(cell_to_char(c) for c in cells)
+
+    def translate_graphic(
+        self,
+        source: str | bytes,
+        *,
+        source_format: str = "svg",
+        tactile_profile: str | TactileProfile = "generic",
+        braille_profile: str | None = None,
+        label_translator: Callable[[str], list[BrailleCell]] | None = None,
+        record_provenance: bool = False,
+        warnings: WarningCollector | None = None,
+    ) -> GraphicResult:
+        """Compile a tactile graphic into a :class:`GraphicResult`.
+
+        Convenience delegation to the module-level
+        :func:`translate_graphic` — a graphic's own compile needs no
+        braille standard (its product is a raster, not cells), so the
+        real entry is Pipeline-free. Going through a Pipeline buys one
+        thing: when ``braille_profile`` matches this pipeline's own
+        profile, ``<text>`` labels translate through **this** pipeline's
+        text path instead of spinning up a second one.
+
+        See :func:`translate_graphic` for the parameter contract.
+        """
+        # The collector is resolved BEFORE the label translator so labels
+        # can report into the same diagnostics the graphic compile returns.
+        warns = (
+            warnings
+            if warnings is not None
+            else WarningCollector(mode=self.mode)
+        )
+        translator = label_translator
+        if translator is None and braille_profile is not None:
+            translator = self._graphic_label_translator(braille_profile, warns)
+        return translate_graphic(
+            source,
+            source_format=source_format,
+            tactile_profile=tactile_profile,
+            label_translator=translator,
+            record_provenance=record_provenance,
+            warnings=warns,
+            mode=self.mode,
+            # An image graphic's reference resolves against this pipeline's
+            # document assets (a figure edited in isolation still shows its
+            # embedded picture in the live preview).
+            asset_resolver=self.asset_resolver,
+        )
+
+    # (The shared GraphicBlock rasterising tail lives in
+    # :func:`brailix.pipeline._incremental.rasterize_graphic_block`.)
+
+    def _graphic_label_translator(
+        self, braille_profile: str, host_warnings: WarningCollector
+    ) -> Callable[[str], list[BrailleCell]]:
+        """A ``text → braille cells`` translator for graphic labels, backed by
+        the requested braille standard.
+
+        Reuses this pipeline's own text path when ``braille_profile`` matches
+        :attr:`profile` (no second Pipeline); otherwise spins a sub-pipeline on
+        that standard. Either way it routes through ``_translate_inline_text``
+        bound to ``host_warnings`` — the graphic compile's own collector — so
+        a label's diagnostics land in the graphic's report (tagged
+        ``domain="graphic_label"``) under the host mode policy, instead of
+        being silently discarded.
+
+        The sub-pipeline is derived with :func:`dataclasses.replace` so it
+        **inherits every configured adapter** — analyzer, resolver, the
+        user's dictionaries, extra profile search paths, asset resolver —
+        and only the braille standard differs.
+        Building a bare ``Pipeline(profile=braille_profile)`` here instead
+        would silently drop that config, so a label in a non-document braille
+        standard would tokenize / read differently from the surrounding body
+        (a user pinyin-dictionary entry would go missing, a custom profile on
+        an ``extra_profile_paths`` drop would fail to load) — the
+        "Profile-driven, adapter-replaceable" contract requires the whole
+        parent configuration to ride along, not just the default path."""
+        pipe = (
+            self
+            if braille_profile == self.profile
+            else _replace(self, profile=braille_profile)
+        )
+        return _InlineTextTranslator(pipe, host_warnings, "graphic_label")
+
+    def translate_document(self, doc: DocumentIR) -> TranslationResult:
+        """Translate a pre-built :class:`DocumentIR` end-to-end.
+
+        Each block is walked: if it carries raw ``text`` and no
+        ``children``, the frontend runs over its text to populate
+        ``children``; if it already has ``children`` they're used as-is
+        (so callers can hand-build IR for tests). Composite containers
+        (List, Table) recurse into their ``items`` / ``rows`` /
+        ``cells`` for the same treatment.
+
+        Returns a :class:`TranslationResult` with the populated IR and
+        the rendered :class:`BrailleDocument`. The original ``doc`` is
+        **mutated in place** — children are filled where they were
+        missing — so subsequent re-translations skip the frontend
+        cost. That reuse is guarded by provenance, not just text: blocks
+        this (or any) pipeline populated are stamped with its
+        :attr:`fingerprint`, and re-translating through a
+        differently-configured pipeline (another resolver, user
+        dictionary, profile content...) drops and rebuilds their children
+        instead of reusing semantic IR built under the old configuration.
+        Hand-built children (never stamped) are used as-is.
+        """
+        session = _CompilationSession.begin(self)
+        # Stamp the pipeline's identity onto the (possibly hand-built) doc
+        # so the result is self-describing the same way translate_text /
+        # parse_* leave it.  The backend reads ``self._profile`` directly,
+        # so this is for the IR metadata's consumers, not the translation;
+        # other caller metadata keys are preserved (``profile_requested``
+        # is re-derived, not preserved — a stale one from a previous
+        # pipeline must not outlive this stamp).
+        doc.metadata.pop("profile_requested", None)
+        doc.metadata.update(self._ir_metadata())
+        for block in doc.blocks:
+            self._frontend.populate_block(block, session.frontend_ctx)
+        braille_doc = _translate_document(doc, session.backend_ctx, self._profile)
+        session.report_epoch_drift()
+        # The surface for a multi-block document is the concatenation
+        # of every block's text — useful for proofread output but not
+        # always semantically meaningful (no separator between blocks).
+        rebuilt_text = "\n".join(
+            _block_surface(b) for b in doc.blocks
+        )
+        return TranslationResult(
+            text=rebuilt_text,
+            ir=doc,
+            braille_ir=braille_doc,
+            warnings=session.warnings,
+            default_renderer=self.default_renderer,
+        )
+
+    def translate_document_to_pages(
+        self,
+        doc: DocumentIR,
+        *,
+        tactile_profile: str | TactileProfile = _DEFAULT_INLINE_TACTILE_PROFILE,
+        margin_mm: float | None = None,
+        item_gap_mm: float | None = None,
+    ) -> TactilePageResult:
+        """Lay a braille document with embedded figures onto tactile pages.
+
+        The mixed-layout output: each
+        block is compiled through the **same** incremental pipeline every other
+        path uses (:meth:`translate_block`) — a text block yields braille
+        cells, a :class:`~brailix.ir.document.GraphicBlock` yields a
+        :class:`~brailix.ir.tactile.TactileRaster` (G1). Text cells are wrapped
+        to the page's cell width by the layout renderer, then the tactile
+        backend's page compositor stamps them as **real braille dots** and
+        blits the figures into the flow, paginating onto one raster per page
+        (output model A — the page *is* a raster; there is no BRF for a mixed
+        page). The result exports through the existing tactile renderers.
+
+        ``tactile_profile`` names a tactile profile (page size + DPI + braille
+        dot geometry + interline pitch) or is an already-loaded
+        :class:`~brailix.TactileProfile` (the top-level package publishes the
+        type and its loader); it drives the page geometry. Figures are rasterised at the G1 default (``"generic"``)
+        and placed at their true millimetre size, so they land correctly
+        whatever page profile is chosen — a document-/block-level figure
+        profile is a later refinement (plan §3). ``margin_mm`` and
+        ``item_gap_mm`` default to one cell advance and one interline pitch.
+
+        Braille state does not leak across blocks (ARCHITECTURE#arch-boundaries), so
+        compiling block-by-block is sound. The document is **mutated in place**
+        (children filled where missing), like :meth:`translate_document`.
+        """
+        return _compose_document_pages(
+            self,
+            doc,
+            tactile_profile=tactile_profile,
+            margin_mm=margin_mm,
+            item_gap_mm=item_gap_mm,
+        )
+
+    def translate_file(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        limits: InputLimits = DEFAULT_INPUT_LIMITS,
+    ) -> TranslationResult:
+        """Read ``path`` and translate end-to-end.
+
+        Convenience wrapper over :func:`brailix.input.parse_file` +
+        :meth:`translate_document`. The input is dispatched by suffix
+        (Markdown, Word ``.docx`` / ``.doc``, MusicXML / ``.mxl`` /
+        score MIDI / ABC, else plain text — see :meth:`parse_file` and
+        :func:`brailix.input.parse_file` for the full table). The
+        Pipeline's own ``profile`` and language are baked into the
+        resulting :class:`DocumentIR`'s metadata so the
+        :class:`TranslationResult` is indistinguishable from one
+        produced by :meth:`translate_text` on the same source.
+
+        ``limits`` bounds the input file's size and its decoded text (see
+        :meth:`parse_file`).
+
+        IO errors propagate as-is (:class:`FileNotFoundError`,
+        :class:`~brailix.input.InputTooLargeError`,
+        :class:`UnicodeDecodeError`, ``PermissionError``); pre-parse
+        the file yourself and call :meth:`translate_document` if you
+        need to catch them at a different layer.
+        """
+        doc = self.parse_file(path, limits=limits)
+        return self.translate_document(doc)
+
+    def parse_text(
+        self,
+        text: str,
+        *,
+        format: str = "plain",
+    ) -> DocumentIR:
+        """Parse ``text`` into a :class:`DocumentIR` without translating.
+
+        ``format`` selects the adapter: ``"plain"`` (one paragraph) or
+        ``"markdown"`` (the Markdown subset described under
+        :func:`brailix.input.parse_markdown` — headings, lists,
+        quotes, code blocks, ``$$...$$`` math, tables). The Pipeline's
+        ``profile`` and ``language`` are baked into the resulting IR
+        metadata so a follow-up :meth:`translate_document` matches what
+        :meth:`translate_text` / :meth:`translate_file` would have
+        produced on the same input.
+
+        Use this when you need the unpopulated :class:`DocumentIR` to
+        drive incremental compilation block-by-block (the incremental-compilation
+        pattern a front-end uses) instead of running frontend + backend in one
+        shot. Pair with :meth:`translate_block` for the per-block
+        compile step.
+        """
+        if format == "markdown":
+            doc = _parse_markdown(
+                text,
+                language=self._profile.language,
+                profile=self._profile.name,
+            )
+            # Same identity stamp translate_* uses — adds
+            # ``profile_requested`` when this pipeline was built from an
+            # alias, so a parsed-then-persisted doc matches a translated one.
+            doc.metadata.update(self._ir_metadata())
+            return doc
+        if format == "plain":
+            doc = _parse_plain(
+                text,
+                language=self._profile.language,
+                profile=self._profile.name,
+            )
+            doc.metadata.update(self._ir_metadata())
+            return doc
+        if format == "musicxml":
+            # Wrap raw MusicXML text as a single ScoreBlock so any
+            # caller using parse_text can route .musicxml
+            # through the same block-level compile path it uses for
+            # markdown / plain. ``populate_music_block`` will parse
+            # the inner XML into a MusicInline tree at compile time.
+            from brailix.ir.document import ScoreBlock
+
+            return DocumentIR(
+                metadata=self._ir_metadata(),
+                blocks=[ScoreBlock(text=text, source="musicxml")],
+            )
+        raise ValueError(
+            f"unknown parse format: {format!r} "
+            "(expected 'plain' / 'markdown' / 'musicxml')"
+        )
+
+    def parse_file(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        limits: InputLimits = DEFAULT_INPUT_LIMITS,
+    ) -> DocumentIR:
+        """Read ``path`` as UTF-8 / bytes and parse to :class:`DocumentIR`.
+
+        Suffix dispatch matches :func:`brailix.input.parse_file`:
+        ``.md`` / ``.markdown`` → Markdown adapter; ``.docx`` /
+        ``.docm`` → :func:`brailix.input.parse_docx`; ``.doc`` →
+        :func:`brailix.input.parse_doc`; ``.musicxml`` / ``.mxl`` (and
+        a ``.xml`` that sniffs as a score) → :func:`brailix.input.parse_musicxml`;
+        ``.mid`` / ``.midi`` → :func:`brailix.input.parse_score_file`;
+        ``.abc`` → :func:`brailix.input.parse_deferred_score`;
+        everything else (including ``.txt`` and no suffix) → plain. The
+        Pipeline's ``profile`` and ``language`` are baked into the IR
+        metadata.
+
+        ``limits`` bounds both the input file's size and the decoded text
+        every adapter hands the frontend (see
+        :class:`brailix.input.InputLimits`): the default is generous, a
+        service handling untrusted uploads tightens it, and
+        :meth:`~brailix.input.InputLimits.unlimited` opts out.
+
+        Use this when you need the unpopulated :class:`DocumentIR`
+        from a file for incremental compilation (the incremental-compilation
+        pattern a front-end uses). For the end-to-end one-shot, call
+        :meth:`translate_file`.
+        """
+        doc = _parse_file(
+            path,
+            language=self._profile.language,
+            profile=self._profile.name,
+            mathtype_fallback=self._profile.feature(
+                "input.docx.mathtype_fallback", "off"
+            ),
+            chem_detection=self._profile.feature(
+                "input.docx.detect_chemistry", False
+            ),
+            limits=limits,
+        )
+        # Same identity stamp translate_* uses (see :meth:`parse_text`).
+        doc.metadata.update(self._ir_metadata())
+        return doc
+
+    def translate_block(
+        self,
+        block: Block,
+        *,
+        ir_transformer: Callable[[DocumentIR], None] | None = None,
+        tree_subcache: TreeSubcache | None = None,
+    ) -> CompiledBlock:
+        """Translate a single :class:`Block` end-to-end (frontend +
+        backend) and return a :class:`CompiledBlock`.
+
+        The **incremental compilation primitive** a front-end uses:
+        re-compile one paragraph / heading /
+        list-item without touching the rest of the document. The
+        returned :class:`CompiledBlock` carries the populated IR,
+        braille output, warnings, and a stable ``source_hash`` for
+        cache keying.
+
+        Block-level translation is sound because braille state
+        (number_sign, capital indicator, math state machine) **does
+        not leak** across block boundaries — see ARCHITECTURE#arch-boundaries.
+
+        ``ir_transformer`` is an optional in-place mutation hook that
+        runs between frontend and backend.  The compiler doesn't care
+        what semantics the caller attaches to it: a proofreading
+        front-end wraps its override-application pass here; a different
+        front-end could plug in glossary rewrites or auto-fix passes.
+        The transformer receives a singleton :class:`DocumentIR`
+        wrapping ``block`` so it can use absolute ``block_path`` like
+        ``(0, child_idx, ...)``.
+
+        ``tree_subcache`` is an optional parsed-tree cache shared by the
+        math, music and graphic frontends: keys are ``(domain, identity,
+        source, surface, salt)`` (``domain`` ∈ ``{"math", "music",
+        "graphic"}``; ``identity`` is the producing pipeline's
+        :attr:`fingerprint`; ``salt`` is ``""`` for math, the parse mode for
+        music and the asset resolver's identity for graphics — see
+        :data:`TreeSubcache`), values are the normalised
+        MathML / MusicXML :class:`ET.Element` trees from a previous
+        compile.  When the frontend encounters a math / music node whose
+        key matches an entry, it reuses the cached tree instead of
+        re-running the adapter — typically the caller passes the prior
+        :class:`CompiledBlock`\\ 's ``tree_subcache`` so an edit that
+        leaves a formula / score unchanged (e.g. an override) doesn't
+        trigger a re-parse (block-level cache covers the whole-block
+        case; this covers the "block changed but the embedded tree
+        didn't" case — decisive for large scores, which are one block
+        whose 4MB tree would otherwise re-parse on every override edit).
+        Threading one pool through differently-configured pipelines is safe
+        (the ``identity`` slot keys them apart) but shares nothing; the
+        returned :class:`CompiledBlock.tree_subcache` always reflects
+        what was actually parsed during this compile (a superset / equal
+        subset of the input, never empty when math or music exists).
+
+        Entries are shared **by identity**, and a hit also lands the cached
+        tree on the returned IR (``MathInline.math`` / ``MusicInline.score``
+        / ``GraphicInline.svg``), so an ``ir_transformer`` that edits one of
+        those trees in place writes into the pool and corrupts every later
+        compile that hits the same entry. Clone-then-replace instead: deep-copy
+        the tree, edit the copy, assign it back onto the node. See
+        :data:`TreeSubcache` for the full immutability contract.
+
+        Pipeline keeps **no cache of its own** — the caller consults its
+        own block cache via ``source_hash`` before calling this method. The
+        hash covers ``(block surface, resolved profile, structure)`` plus
+        this pipeline's compilation :attr:`fingerprint` (profile content,
+        adapter selection, user dictionary, mode, brailix version), so it is
+        safe as a cache key on its own: a same-text Heading and Paragraph,
+        or two differently-shaped tables, hash apart — and so do the same
+        block compiled by two differently-configured pipelines. Callers that
+        ALSO want override-aware cache keys compose ``source_hash`` with
+        their own override-list salt at the caller layer.
+
+        The backend always re-runs; the frontend does not, when it safely can
+        skip: a block that already has ``children`` is treated as already
+        frontend-processed and :meth:`FrontendDriver.populate_block`
+        short-circuits over it (the parsed math / music tree can't be rebuilt
+        from flattened children, so re-running would lose it). ``block.text`` is
+        the authoritative raw source, though, so this skip is **guarded**, two
+        ways: if you mutate ``block.text`` on a block whose ``children`` were
+        built from the old text, populate detects the mismatch (the
+        reconstructed child surface no longer equals ``block.text``), drops the
+        stale children, and re-runs the frontend on the current text — so the
+        re-compile reflects your edit and ``source_hash`` changes with it,
+        rather than silently reusing stale braille. And if the children were
+        populated by a **differently-configured** pipeline (its
+        :attr:`fingerprint` differs — another resolver, user dictionary,
+        profile content...), populate likewise drops and rebuilds them, so
+        handing one parsed document to two pipelines really compiles it under
+        each one's configuration. Only hand-built children (never stamped by a
+        pipeline) are used as-is, per the hand-built-IR contract. Passing a
+        fresh, unpopulated block each call is still the cheapest path (an
+        editing front-end re-parses source into fresh blocks anyway); the
+        guards only make reuse *safe*, not free.
+        """
+        return _compile_block(
+            self,
+            block,
+            ir_transformer=ir_transformer,
+            tree_subcache=tree_subcache,
+        )
+
+    # --- Internal: per-pipeline identity ------------------------------
+    #
+    # (Per-run state construction lives in
+    # :meth:`brailix.pipeline._session.CompilationSession.begin`.)
+
+    def _ir_metadata(self) -> dict[str, Any]:
+        """Self-describing identity stamped onto every IR this pipeline
+        produces.
+
+        ``profile`` is the **resolved** identity — the loaded
+        :attr:`BrailleProfile.name`, the authoritative name to persist —
+        matching what the backend stamps onto the
+        :class:`~brailix.ir.braille.BrailleDocument`, so
+        ``result.ir.metadata["profile"] ==
+        result.braille_ir.metadata["profile"]`` always holds. The
+        *requested* name (this pipeline's :attr:`profile` field) rides
+        along as ``profile_requested`` only when it differs — an alias, or
+        a user-folder profile whose JSON declares its own ``name`` — so
+        the common case serializes exactly as before.
+        """
+        md: dict[str, Any] = {
+            "language": self._profile.language,
+            "profile": self._profile.name,
+        }
+        if self.profile != self._profile.name:
+            md["profile_requested"] = self.profile
+        return md
+
+    def _translate_inline_text(
+        self,
+        text: str,
+        *,
+        host_warnings: WarningCollector | None = None,
+        domain: str | None = None,
+        host_span: Span | None = None,
+    ) -> list[BrailleCell]:
+        """Translate a run of text to braille cells via the zh / latin
+        text path — injected on ``BackendContext.options`` (wrapped in
+        :class:`_InlineTextTranslator`) so backend handlers can render
+        embedded prose: music ``<words>`` directions and inline lyrics,
+        math ``\\text{...}`` / ``<mtext>`` runs, chemistry reaction
+        conditions, graphic ``<text>`` labels.
+
+        Runs a throwaway frontend + backend over a one-paragraph doc.
+        The inner :class:`BackendContext` deliberately omits the
+        translator, so a (text-only) run can't recurse back into music.
+        The nested run itself always executes in NORMAL mode against a
+        private collector — its cells' documented soft-failure behaviour
+        must not change shape mid-run — and what happens to the collected
+        diagnostics is the caller's contract:
+
+        * ``host_warnings`` given (every **document compile**): each
+          nested warning is re-emitted into it, so the host run's own
+          mode policy applies — STRICT raises :class:`StrictModeError`,
+          NORMAL records, LENIENT downgrades. Embedded text can no longer
+          degrade silently while the final report stays empty. Re-emitted
+          warnings drop their nested-document spans (meaningless — they
+          are 0-based offsets of the throwaway paragraph) in favour of
+          ``host_span`` (the embedding node's span, when the call site
+          supplies one) and carry ``anchor`` keys ``embedded_text`` (the
+          embedded run) plus ``domain`` (the embedding construct, e.g.
+          ``music_words`` / ``math_text`` / ``graphic_label``) so a
+          front-end can attribute them.
+        * ``host_warnings`` omitted (**preview** paths, e.g.
+          :meth:`translate_math_inline`): diagnostics are discarded, the
+          documented never-pollutes-the-caller preview contract.
+        """
+        if not text.strip():
+            return []
+        # NORMAL regardless of the pipeline's own mode: a strict-mode
+        # collector raises on the FIRST warning mid-translation, which would
+        # abandon the nested run half-emitted; collecting privately and
+        # re-emitting below preserves strict semantics (the host collector
+        # raises at the merge) without changing the nested run's shape.
+        warnings = WarningCollector(mode=RunMode.NORMAL)
+        # NORMAL on the contexts too, not just the collector — their
+        # __post_init__ re-stamps the context mode onto the shared
+        # collector, which would silently undo the line above.
+        ctx = FrontendContext(
+            profile=self.profile,
+            mode=RunMode.NORMAL,
+            warnings=warnings,
+            options=self._frontend.frontend_options(),
+        )
+        children = self._frontend.run_frontend(text, ctx)
+        paragraph = Paragraph(children=children, span=Span(0, len(text)))
+        doc = DocumentIR(blocks=[paragraph])
+        backend_ctx = BackendContext(
+            profile=self.profile, mode=RunMode.NORMAL, warnings=warnings
+        )
+        braille_doc = _translate_document(doc, backend_ctx, self._profile)
+        if host_warnings is not None:
+            embedded = text if len(text) <= 60 else text[:57] + "..."
+            for w in warnings:
+                anchor = dict(w.anchor) if w.anchor else {}
+                anchor.setdefault("embedded_text", embedded)
+                if domain is not None:
+                    anchor.setdefault("domain", domain)
+                host_warnings.emit(
+                    _replace(w, span=host_span, anchor=anchor)
+                )
+        return braille_doc.all_cells()
+
+
+# (The _InlineTextTranslator binding class lives in
+# :mod:`brailix.pipeline._session`; it is imported above because both entry
+# points below construct one.)
+
+
+# ---------------------------------------------------------------------------
+# Module-level tactile-graphics entry
+# ---------------------------------------------------------------------------
+
+
+def translate_graphic(
+    source: str | bytes,
+    *,
+    source_format: str = "svg",
+    tactile_profile: str | TactileProfile = "generic",
+    braille_profile: str | None = None,
+    label_translator: Callable[[str], list[BrailleCell]] | None = None,
+    record_provenance: bool = False,
+    warnings: WarningCollector | None = None,
+    mode: RunMode | str = RunMode.NORMAL,
+    asset_resolver: GraphicAssetResolver | None = None,
+) -> GraphicResult:
+    """Compile a tactile graphic into a :class:`GraphicResult`.
+
+    The tactile vertical's standalone entry: the **graphics frontend**
+    (:data:`_frontend_parse_graphic_tree`, the same single-callable shape as
+    math / music) normalises the source (``source_format`` ∈ ``svg`` /
+    ``primitives`` / ``figure`` / ``image``) into the SVG-tree IR, and the
+    **tactile backend** rasterises that tree into a
+    :class:`~brailix.ir.tactile.TactileRaster`. Concrete bytes (``.bmp`` /
+    ``.png`` / ``.pdf`` / U+2800 preview) come from
+    :meth:`GraphicResult.render` through the shared ``renderer_registry``.
+
+    A module-level function, not a :class:`Pipeline` method, because a
+    graphic's own compile needs **no braille standard** — its product is a
+    raster, not cells (math / music, whose product *is* braille, keep their
+    Pipeline entries). Only ``<text>`` label translation touches braille:
+    pass ``braille_profile`` (a braille standard; a label pipeline is built
+    on it) or a ready ``label_translator`` callable — with neither, labels
+    are warned (``GRAPHICS_LABEL_NO_PROFILE``) and skipped.
+    :meth:`Pipeline.translate_graphic` delegates here, wiring its own text
+    path as the label translator when the standards match.
+
+    ``tactile_profile`` names a built-in tactile profile (mm adaptation params
+    + DPI) or is an already-loaded :class:`~brailix.TactileProfile` — that type
+    and its loader, :func:`~brailix.load_tactile_profile`, are published from
+    the top-level package beside this function. ``record_provenance``
+    records which pixels each SVG element drew for an editor's cross-pane
+    highlight (off by default — export pays nothing). Bytes input goes to
+    the source adapters as-is; they own the decode and its soft-failure.
+    ``asset_resolver`` resolves an ``image`` source's reference to
+    in-document bytes (see
+    :class:`~brailix.core.protocols.GraphicAssetResolver`);
+    ``None`` leaves it to read a filesystem path.
+    """
+    from brailix.backend.tactile import rasterize
+    from brailix.backend.tactile.profile import load_tactile_profile
+
+    # The same epoch-integrity check the Pipeline entry points run, done by
+    # hand because a graphic's compile is Pipeline-free and so has no
+    # CompilationSession to hang it on. It matters most for a figure with
+    # ``<text>`` labels: each label is a full nested text compile, so a
+    # registration landing part-way through leaves some labels translated by
+    # the outgoing implementation and the rest by its replacement.
+    generation = _registries_generation()
+    warns = (
+        warnings
+        if warnings is not None
+        else WarningCollector(mode=normalize_run_mode(mode))
+    )
+    gctx = GraphicsContext(
+        source=source_format,
+        warnings=warns,
+        options=(
+            {_GRAPHIC_ASSET_RESOLVER_KEY: asset_resolver}
+            if asset_resolver is not None
+            else {}
+        ),
+    )
+    tree = _frontend_parse_graphic_tree(source, gctx)
+    if tree is None:  # a monkeypatched / fake frontend may return None
+        tree = _ET.Element("svg", {"data-bk-error": "no graphic tree"})
+
+    translator = label_translator
+    if translator is None and braille_profile is not None:
+        # Bound to this graphic's own collector: a label's diagnostics are
+        # part of the graphic's report (domain="graphic_label"), and the
+        # collector's mode drives the policy (strict raises).
+        translator = _InlineTextTranslator(
+            Pipeline(profile=braille_profile, mode=mode),
+            warns,
+            "graphic_label",
+        )
+
+    prof = (
+        load_tactile_profile(tactile_profile)
+        if isinstance(tactile_profile, str)
+        else tactile_profile
+    )
+    raster = rasterize(
+        tree, prof, warns, translator, record_provenance=record_provenance
+    )
+    if _registries_generation() != generation:
+        _warn_epoch_changed(warns)
+    return GraphicResult(raster=raster, svg_tree=tree, warnings=warns)
