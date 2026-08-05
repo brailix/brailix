@@ -62,8 +62,14 @@ class TestAdapterMissing:
         # A loader whose import fails, registered with an ``extra=`` hint,
         # surfaces as MissingExtraError at get() time — the real path a
         # Pillow-less install hits for the ``image`` source.
+        #
+        # ModuleNotFoundError, because that is what ``import PIL`` raises when
+        # Pillow is absent, and it is the only ImportError the registry reads
+        # as "install the extra" (a plain one means the package is there and
+        # something inside it broke). A bare ``ImportError`` here made the
+        # double *less* like the path it claims to reproduce.
         def _loader() -> object:
-            raise ImportError("no such dependency")
+            raise ModuleNotFoundError("No module named 'PIL'", name="PIL")
 
         with graphic_source_registry.overriding(
             "_test_missing_extra", _loader, extra="graphics"

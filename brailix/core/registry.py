@@ -6,8 +6,11 @@ register a **loader callable**, not the instance itself, so that the
 underlying third-party library (HanLP, g2pW, latex2mathml, ...) is
 imported only when the adapter is first requested.
 
-A loader that fails with :class:`ImportError` is reported as a
-:class:`MissingExtraError` carrying the pip extras hint the user needs.
+A loader whose optional dependency is genuinely absent — a
+:class:`ModuleNotFoundError` — is reported as a :class:`MissingExtraError`
+carrying the pip extras hint the user needs. Any other :class:`ImportError`
+means the dependency is there and something about it is wrong, so it
+propagates untouched (see :meth:`Registry.get`).
 
 The registry can also validate that loaded instances conform to a
 :func:`typing.runtime_checkable` Protocol, catching adapter authors
@@ -24,30 +27,27 @@ from typing import TYPE_CHECKING as _TYPE_CHECKING
 from brailix.core.errors import MissingExtraError, UnknownAdapterError
 
 if _TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
 
 
-def _is_internal_import_error(exc: ImportError) -> bool:
+def _is_internal_import_error(exc: ModuleNotFoundError) -> bool:
     """True when ``exc`` points at a *brailix* module — an adapter-internal
     import bug, not a missing optional third-party dependency.
 
     The distinguishing signal is the top-level package of the module the
     import failed on (``exc.name``): a ``brailix.*`` name means the adapter's
-    own loader tried to import a renamed / mistyped internal module, or hit a
-    circular import — a code bug the user cannot fix by installing an extra.
-    Anything else (an external package such as ``hanlp`` / ``PIL``, or a name
-    the interpreter didn't record) is left to the caller's ``extra`` handling,
-    preserving the "missing optional dependency → MissingExtraError" behaviour.
-    ``from x import y`` failures where ``y`` is absent set ``name`` to the
-    module ``x`` too, so a self-referential ``from brailix... import`` cycle is
-    caught the same way.
+    own loader tried to import a renamed / mistyped internal module — a code
+    bug the user cannot fix by installing an extra. Anything else (an external
+    package such as ``hanlp`` / ``PIL``, or a name the interpreter didn't
+    record) is left to the caller's ``extra`` handling, preserving the
+    "missing optional dependency → MissingExtraError" behaviour.
     """
     name = exc.name
     return name is not None and name.split(".")[0] == "brailix"
 
 
 def _normalize_probe(
-    name: str, probe: str | tuple[str, ...] | None
+    name: str, probe: str | Iterable[str] | None
 ) -> tuple[str, ...]:
     """``probe`` as a tuple of module names, refusing anything else.
 
@@ -155,7 +155,7 @@ class Registry[T]:
         loader: Callable[[], T],
         *,
         extra: str | None = None,
-        probe: str | tuple[str, ...] | None = None,
+        probe: str | Iterable[str] | None = None,
     ) -> None:
         """Register an adapter under ``name``.
 
@@ -252,11 +252,12 @@ class Registry[T]:
         KeyError
             If ``name`` is not registered.
         MissingExtraError
-            If the loader fails with ``ImportError`` and an ``extra``
-            was declared.
+            If the loader fails with ``ModuleNotFoundError`` — the dependency
+            is genuinely absent — and an ``extra`` was declared. Any other
+            ``ImportError`` propagates unchanged.
         TypeError
             If a protocol was specified and the loaded instance does
-            not conform.
+            not conform, or if the loader returned ``None``.
         """
         # Fast path: a cache hit needs no lock. ``dict.get`` is a SINGLE
         # atomic operation under the GIL, so it can't tear against a
@@ -264,8 +265,9 @@ class Registry[T]:
         # ``clear_cache`` — it returns either a fully-constructed adapter or
         # ``None``. (A separate ``name in _cache`` test followed by
         # ``_cache[name]`` could race: the key can be popped between the two,
-        # raising KeyError.) Adapters are never ``None``, so ``None``
-        # unambiguously means "not cached — take the slow path".
+        # raising KeyError.) An adapter is never ``None`` — the slow path
+        # refuses one below rather than caching it — so ``None`` here
+        # unambiguously means "not cached, take the slow path".
         cached = self._cache.get(name)
         if cached is not None:
             return cached
@@ -282,17 +284,35 @@ class Registry[T]:
                 )
             try:
                 instance = self._loaders[name]()
-            except ImportError as e:
+            # ``ModuleNotFoundError`` ONLY, not ``ImportError``, and the
+            # difference is the whole classification. "pip install
+            # brailix[<extra>]" is the right advice for exactly one failure:
+            # the module isn't there. Its sibling — an ImportError raised
+            # *from inside* a module that imported fine — means the package IS
+            # installed and something about it is wrong: ``from transformers
+            # import BertTokenizer`` after the symbol was removed, a circular
+            # import, an adapter's own broken import. Those carry the outer
+            # package's name in ``exc.name`` too, so wrapping every
+            # ImportError sent a user with an up-to-date install off to
+            # re-install a dependency they already had, and hid the real
+            # error's traceback behind advice that could not work.
+            # :class:`~brailix.core.errors.IncompatibleDependencyError` is the
+            # answer for the *known* version breakages (an adapter raises it
+            # explicitly, and an ``auto`` chain skips past it); an unexplained
+            # one propagates, which is the same line
+            # :data:`~brailix.core.errors.CANDIDATE_UNAVAILABLE_ERRORS` draws —
+            # a load failure nobody has characterised is a bug to see, not a
+            # candidate to silently step over.
+            except ModuleNotFoundError as e:
                 extra = self._extras.get(name)
-                # An ``extra`` was declared, but not every ImportError from the
-                # loader means the optional dependency is missing: the adapter
-                # module itself may have a broken import — a renamed / mistyped
-                # internal module, or a circular import — even when the extra IS
-                # installed. Blindly wrapping those as "pip install
-                # brailix[<extra>]" sends the user chasing a dependency that is
-                # already there. Only wrap when the failure is NOT an adapter-
-                # internal one; otherwise re-raise the original error with its
-                # traceback intact so the real bug is visible.
+                # An ``extra`` was declared, but the missing module may still
+                # be the adapter's own — a renamed / mistyped internal
+                # module — even when the extra IS installed. Blindly wrapping
+                # that as "pip install brailix[<extra>]" sends the user chasing
+                # a dependency that is already there. Only wrap when the
+                # failure is NOT an adapter-internal one; otherwise re-raise
+                # the original error with its traceback intact so the real bug
+                # is visible.
                 if extra is not None and not _is_internal_import_error(e):
                     raise MissingExtraError(
                         adapter=name,
@@ -300,6 +320,23 @@ class Registry[T]:
                         missing_module=e.name,
                     ) from e
                 raise
+            # ``None`` is refused rather than cached, because the fast path
+            # above reads a ``None`` from ``_cache.get`` as "not cached" — so a
+            # loader returning one would send every later ``get`` down the
+            # locked slow path to be handed the same nothing, and the comment
+            # promising "adapters are never None" would be a claim with no
+            # check behind it. It is also what every caller assumes: an
+            # adapter is dereferenced immediately, and a ``None`` surfaces as
+            # an ``AttributeError`` deep in a translation run, far from the
+            # plugin that returned it. A protocol-configured registry already
+            # rejected it (nothing conforms); this holds the same line when no
+            # protocol was declared.
+            if instance is None:
+                raise TypeError(
+                    f"loader for adapter {name!r} in subsystem "
+                    f"{self.subsystem!r} returned None; a loader must return "
+                    f"the adapter instance"
+                )
             if self.protocol is not None and not isinstance(
                 instance, self.protocol
             ):

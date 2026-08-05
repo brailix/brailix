@@ -161,8 +161,13 @@ class TestMissingExtraPath:
     a missing optional dependency does."""
 
     def test_missing_extra_warns_with_install_hint(self):
+        # ModuleNotFoundError: what ``import partitura`` really raises when the
+        # extra is not installed, and the only ImportError shape the registry
+        # turns into an install hint.
         def _loader():
-            raise ImportError("synthetic: optional dependency absent")
+            raise ModuleNotFoundError(
+                "No module named 'partitura'", name="partitura"
+            )
 
         with music_source_registry.overriding("fake-optional", _loader, extra="midi"):
             ctx = MusicContext(profile="cn_current", source="fake-optional")
