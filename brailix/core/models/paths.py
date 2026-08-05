@@ -34,6 +34,11 @@ them — and if neither can hold one, that *is* an error condition:
 :class:`~brailix.core.errors.ConfigurationError` naming both paths,
 raised here where the choice was made rather than later inside a
 download.
+
+:func:`get_model_dir` runs that same check on the model's **own**
+directory rather than inheriting the root's answer: a writable
+``models/`` says nothing about a ``models/<name>/`` that is already
+there and read-only.
 """
 
 from __future__ import annotations
@@ -118,6 +123,21 @@ def _make_usable_dir(path: _Path) -> bool:
     return True
 
 
+def _candidate_roots() -> tuple[_Path, _Path]:
+    """The two ``models/`` locations, in preference order.
+
+    One list, read by both entry points below, so "where could a model go"
+    is stated once. :func:`get_models_root` probes the roots themselves;
+    :func:`get_model_dir` probes ``<root>/<name>`` under each — a distinction
+    that matters, since a writable root does not make every directory already
+    inside it writable.
+    """
+    return (
+        _portable_root() / _MODELS_DIRNAME,
+        _user_data_root() / _MODELS_DIRNAME,
+    )
+
+
 def get_models_root() -> _Path:
     """Return a writable ``models/`` directory, creating it on first call.
 
@@ -141,10 +161,9 @@ def get_models_root() -> _Path:
     Safe to call from any thread / process — :meth:`Path.mkdir` with
     ``exist_ok=True`` is idempotent, and the write probe is per-call.
     """
-    portable = _portable_root() / _MODELS_DIRNAME
+    portable, fallback = _candidate_roots()
     if _make_usable_dir(portable):
         return portable
-    fallback = _user_data_root() / _MODELS_DIRNAME
     if _make_usable_dir(fallback):
         return fallback
     raise ConfigurationError(
@@ -176,11 +195,34 @@ def get_model_dir(name: str) -> _Path:
 
     ``ConfigurationError`` is what propagates, and it subclasses
     :class:`ValueError`, so the documented contract above is unchanged.
+
+    The write probe is on ``models/<name>/`` **itself**, not on the root it
+    sits in, because "the root can hold a file" does not answer for a
+    directory that is already there: an aborted download's leftovers, a stray
+    ACL, an admin who locked one engine's folder. Deriving the answer from
+    :func:`get_models_root` meant this returned that directory anyway and the
+    failure surfaced later, inside the download, as a ``PermissionError``
+    naming a weights file — the exact shape the root probe was added to
+    remove, one level down.
+
+    Same two candidates as the root, in the same order, so one unusable
+    model directory falls back to the per-user data location instead of
+    failing outright; the error naming both is reserved for when neither can
+    hold a file.
     """
     validate_resource_component(name, "model")
-    target = get_models_root() / name
-    target.mkdir(parents=True, exist_ok=True)
-    return target
+    candidates = tuple(root / name for root in _candidate_roots())
+    for target in candidates:
+        if _make_usable_dir(target):
+            return target
+    portable, fallback = candidates
+    raise ConfigurationError(
+        f"no writable directory for model {name!r}: neither {portable} "
+        f"(beside the application / working directory) nor {fallback} (the "
+        f"per-user data directory) can hold a file. A directory that already "
+        f"exists may be read-only; remove it or fix its permissions, or point "
+        f"LOCALAPPDATA / XDG_DATA_HOME at a writable location."
+    )
 
 
 __all__ = ("get_models_root", "get_model_dir")
