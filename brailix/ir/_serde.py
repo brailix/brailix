@@ -20,13 +20,28 @@ repair from landing on one side again.
 **The deserialization boundary's contract.** A payload is arbitrary decoded
 JSON — it comes off disk, off a wire, out of a hand-edited file — so no field
 in it is known to have the type the dataclass declares. Every loader here
-therefore answers any shape with exactly one of two outcomes: a built object,
-or a :class:`ValueError` naming the field and what it should have been.
-Anything else means the wrong shape travelled far enough to fail somewhere it
-cannot be diagnosed — ``"blocks": null`` raising ``TypeError: 'NoneType'
-object is not iterable`` from inside a comprehension, or a ``MathBlock`` whose
-``source`` is a list reaching a registry lookup and raising ``unhashable
-type``, three layers from the file that said so.
+therefore answers any shape with a built object or a rejection that **names
+the field**, and there are exactly two rejections, meaning two different
+things:
+
+* :class:`ValueError` — that field's *shape* is not one this payload may
+  carry: a ``blocks`` that is not a list, a ``source`` that is not a string,
+  a span that is not two integers. Almost everything here raises this one.
+* :class:`TypeError` — that nested node is the wrong *class*: a ``Paragraph``
+  in ``Table.rows``, a ``Word`` in ``Quantity.number``. Raised by
+  :func:`typed_child`, the one check about node identity rather than wire
+  shape, and deliberately the same signal a caller assembling the tree in
+  code gets for the same mistake.
+
+Anything outside that pair means the wrong shape travelled far enough to fail
+somewhere it cannot be diagnosed — ``"blocks": null`` raising ``TypeError:
+'NoneType' object is not iterable`` from inside a comprehension, or a
+``MathBlock`` whose ``source`` is a list reaching a registry lookup and raising
+``unhashable type``, three layers from the file that said so.
+``tests/ir/test_ir_schema.py`` pins the pair (``_DOCUMENTED_REJECTIONS``), and
+this paragraph promised only the first of them for a while — which read as a
+rule ``typed_child`` was breaking, rather than the two-part contract the
+boundary actually keeps.
 
 Private to the IR layer: nothing here is API, and neither is the module's
 existence — it holds no IR types, only the plumbing the type modules share.

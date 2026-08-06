@@ -164,9 +164,17 @@ class Registry[T]:
         so installation cost is paid only when the adapter is used.
 
         ``extra`` is the pip extras group that provides the required
-        third-party dependency. If the loader raises ``ImportError``,
-        the registry re-raises as :class:`MissingExtraError` pointing
-        at ``extra``.
+        third-party dependency, quoted in the :class:`MissingExtraError`
+        :meth:`get` raises when the loader's dependency turns out to be
+        missing. Which load failures count as "missing" is one policy with one
+        owner — see :meth:`get`, and the module docstring for the summary — so
+        it is not restated here: ``ModuleNotFoundError`` becomes a
+        :class:`MissingExtraError`, every other ``ImportError`` propagates
+        untouched. This paragraph used to say "if the loader raises
+        ``ImportError``", which is the rule the library had before the two
+        were separated, and reading it here was enough to conclude that an
+        adapter whose installed dependency is *broken* would be reported as
+        one that is absent.
 
         ``probe`` names the third-party module(s) the loader imports, so
         :meth:`available` can answer "is this installed?" **without running
