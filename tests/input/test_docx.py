@@ -2234,9 +2234,10 @@ class TestArchiveResourceCaps:
 
         Read from ``zf.infolist()``, it measured a cost already paid: the
         constructor parses the whole central directory and allocates a
-        ``ZipInfo`` per entry, so an archive declaring millions of zero-length
-        members was fully indexed and only then refused. The declared count now
-        comes off the End Of Central Directory record first.
+        ``ZipInfo`` per entry, so an archive holding hundreds of thousands of
+        zero-length members was fully indexed and only then refused. The count
+        now comes from a walk of that directory that stops one record past the
+        cap and allocates nothing.
         """
         p = tmp_path / "many.docx"
         self._write_zip(p, {f"part{i}.xml": b"x" for i in range(200)})
@@ -2251,7 +2252,35 @@ class TestArchiveResourceCaps:
                 super().__init__(*args, **kwargs)
 
         monkeypatch.setattr(docx_adapter._zipfile, "ZipFile", _Tripwire)
-        with pytest.raises(ParseError, match="200 members declared"):
+        with pytest.raises(ParseError, match="more than 8 members"):
+            _preflight_docx_archive(p.read_bytes(), p)
+        assert not opened
+
+    def test_an_understated_archive_is_refused_before_the_directory_too(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # The count the End Of Central Directory *claims* is written by the
+        # same party the cap exists to constrain, and ``ZipFile`` never reads
+        # it — it walks the directory by size. An archive that keeps 200
+        # records behind a one-entry claim has to be refused on the records.
+        p = tmp_path / "liar.docx"
+        self._write_zip(p, {f"part{i}.xml": b"x" for i in range(200)})
+        blob = bytearray(p.read_bytes())
+        eocd = blob.rfind(b"PK\x05\x06")
+        struct.pack_into("<HH", blob, eocd + 8, 1, 1)  # "one member", honest
+        p.write_bytes(bytes(blob))
+        monkeypatch.setattr(docx_adapter, "_MAX_DOCX_MEMBERS", 8)
+
+        opened = False
+
+        class _Tripwire(zipfile.ZipFile):
+            def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+                nonlocal opened
+                opened = True
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(docx_adapter._zipfile, "ZipFile", _Tripwire)
+        with pytest.raises(ParseError, match="more than 8 members"):
             _preflight_docx_archive(p.read_bytes(), p)
         assert not opened
 
@@ -2275,21 +2304,23 @@ class TestArchiveResourceCaps:
                 super().__init__(*args, **kwargs)
 
         monkeypatch.setattr(docx_adapter._zipfile, "ZipFile", _Tripwire)
-        with pytest.raises(ParseError, match="20000 members declared"):
+        with pytest.raises(ParseError, match="more than 8192 members"):
             _preflight_docx_archive(p.read_bytes(), p)
         assert not opened
 
     def test_the_infolist_count_still_applies(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        # The EOCD states a claim, and a claim is not a guarantee: an archive
-        # that under-declares must still be caught by the count taken from the
-        # entries that really turned up.
+        # The preflight is a mirror of what ``ZipFile`` does with the same
+        # bytes, and a mirror can drift — a stdlib that located or stepped
+        # through the directory differently would leave the count unspoken. The
+        # backstop on the entries that really turned up is what covers that, so
+        # the preflight is silenced here to reach it.
         p = tmp_path / "liar.docx"
         self._write_zip(p, {f"part{i}.xml": b"x" for i in range(5)})
         monkeypatch.setattr(docx_adapter, "_MAX_DOCX_MEMBERS", 2)
         monkeypatch.setattr(
-            docx_adapter, "zip_entry_count_exceeds", lambda data, limit: None
+            docx_adapter, "zip_entry_count_exceeds", lambda data, limit: False
         )
         with pytest.raises(ParseError, match="5 members"):
             _preflight_docx_archive(p.read_bytes(), p)

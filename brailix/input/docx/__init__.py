@@ -85,12 +85,15 @@ Subpackage layout
 from __future__ import annotations
 
 import io as _io
+import os as _os
 import shutil as _shutil
 import subprocess as _subprocess
 import tempfile as _tempfile
 import zipfile as _zipfile
+from collections.abc import Iterable as _Iterable
+from collections.abc import Iterator as _Iterator
 from pathlib import Path as _Path
-from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Any as _Any
 
 from brailix.core._zip import zip_entry_count_exceeds
 from brailix.core.errors import (
@@ -104,11 +107,6 @@ from brailix.input.docx._ole import _build_ole_blob_map, _is_equation_ole
 from brailix.input.docx._xml import _INLINE_MATH_CLOSE, _INLINE_MATH_OPEN
 from brailix.input.limits import DEFAULT_INPUT_LIMITS, InputLimits
 from brailix.ir.document import Block, DocumentIR
-
-if _TYPE_CHECKING:
-    import os
-    from collections.abc import Iterable, Iterator
-    from typing import Any
 
 __all__ = (
     "parse_docx",
@@ -176,16 +174,17 @@ def _read_docx_bytes(p: _Path, limits: InputLimits) -> bytes:
 def _preflight_docx_archive(data: bytes, p: _Path) -> None:
     """Reject a bomb-like ``.docx`` before python-docx reads it.
 
-    The member *count* is read first, off the End Of Central Directory record
-    (:func:`~brailix.core._zip.zip_entry_count_exceeds`) — before
-    :class:`zipfile.ZipFile` is constructed at all. It used to be checked from
-    ``zf.infolist()``, which is the list the constructor builds by parsing the
-    entire central directory: by then every ``ZipInfo`` the cap would have
-    rejected already exists. A few hundred kilobytes of archive can declare
-    millions of zero-length entries, and the whole cost lands inside that
-    constructor. The ``infolist()`` check below stays as well, on the entries
-    that really turned up — the EOCD states a claim, and a claim is not a
-    guarantee.
+    The member *count* is checked first, by walking the central directory
+    itself (:func:`~brailix.core._zip.zip_entry_count_exceeds`) — before
+    :class:`zipfile.ZipFile` is constructed at all, and stopping one record
+    past the cap. It used to be checked from ``zf.infolist()``, which is the
+    list the constructor builds by parsing that whole directory: by then every
+    ``ZipInfo`` the cap would have rejected already exists. A few megabytes of
+    archive hold tens of thousands of records, and the whole cost of turning
+    those into objects lands inside that constructor. The ``infolist()`` check
+    below stays as a backstop: the walk is a mirror of what the constructor
+    does, and a mirror can drift if :mod:`zipfile` ever locates or steps
+    through the directory differently.
 
     Then the *actual* decompressed bytes of each member are counted (chunked,
     then discarded — peak cost is one chunk, not the whole part), aborting
@@ -211,11 +210,10 @@ def _preflight_docx_archive(data: bytes, p: _Path) -> None:
     with the ``.mxl`` reader, which had the full set while this had one
     (:data:`~brailix.core.errors.UNREADABLE_ZIP_MEMBER_ERRORS`).
     """
-    declared = zip_entry_count_exceeds(data, _MAX_DOCX_MEMBERS)
-    if declared is not None:
+    if zip_entry_count_exceeds(data, _MAX_DOCX_MEMBERS):
         raise ParseError(
-            f"not a valid .docx file: {p} ({declared} members declared, "
-            f"over the {_MAX_DOCX_MEMBERS} limit)"
+            f"not a valid .docx file: {p} (more than {_MAX_DOCX_MEMBERS} "
+            f"members)"
         )
     try:
         with _zipfile.ZipFile(_io.BytesIO(data)) as zf:
@@ -260,7 +258,7 @@ def _preflight_docx_archive(data: bytes, p: _Path) -> None:
 
 
 def parse_docx(
-    path: str | os.PathLike[str],
+    path: str | _os.PathLike[str],
     *,
     language: str,
     profile: str,
@@ -554,7 +552,7 @@ def _parse_docx_via_libreoffice(
     )
 
 
-def _count_equation_oles(body: Any) -> int:
+def _count_equation_oles(body: _Any) -> int:
     """Count the ``<o:OLEObject>`` elements whose ProgID marks an equation.
 
     Shares its recognition rule with the per-object resolver via
@@ -568,7 +566,7 @@ def _count_equation_oles(body: Any) -> int:
     return sum(1 for elem in body.iter() if _is_equation_ole(elem))
 
 
-def _iter_block_texts(blocks: Iterable[Block]) -> Iterator[str]:
+def _iter_block_texts(blocks: _Iterable[Block]) -> _Iterator[str]:
     """Yield the raw ``text`` of every block, descending into container
     blocks (``List.items``, ``Table.rows`` / ``TableRow.cells``).
 
@@ -631,7 +629,7 @@ def _mtef_recovery_needed(result: DocumentIR, equation_oles: int) -> bool:
 
 
 def parse_doc(
-    path: str | os.PathLike[str],
+    path: str | _os.PathLike[str],
     *,
     language: str,
     profile: str,
