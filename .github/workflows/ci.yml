@@ -85,6 +85,26 @@ jobs:
           --extra docx --extra music --extra graphics --extra graphics-svg-raster
           --extra ja --extra fugashi --extra sudachi
 
+      # Resolving an extra is not the same as being able to import it, and the
+      # difference is invisible here: every adapter test is guarded by
+      # ``importorskip``, so a wheel that installs but fails to load — a broken
+      # binary extension, a data package that unpacked wrong — turns its tests
+      # into SKIPPED and this job stays green while that adapter goes
+      # unexercised. ``uv sync`` fails loudly on a resolution failure and says
+      # nothing at all about this one.
+      #
+      # The five named are the ones where that silence would be total: each is
+      # reached only through its own adapter, so nothing else in the suite
+      # would notice its absence. The rest of the extras (docx, lxml, jieba,
+      # pypinyin, Pillow) are load-bearing for hundreds of tests, which fail
+      # rather than skip, so listing them here would only add ways for this
+      # step to be wrong.
+      - name: Verify the optional engines actually import
+        run: >-
+          uv run python -c
+          "import fugashi, sudachipy, mido, partitura, abc_xml_converter;
+          print('optional engines present')"
+
       # Branch-coverage gate. ``[tool.coverage.run]`` in pyproject already sets
       # ``branch = true`` and ``source = ["brailix"]``; here we fail the build
       # if a change drags core coverage below 94% (it currently sits around
