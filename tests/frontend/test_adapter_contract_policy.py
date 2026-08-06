@@ -105,11 +105,15 @@ def _pinyin_ctx(**options: Any) -> FrontendContext:
     )
 
 
-def _zh_out(tokens: Any) -> Any:
-    """Run ``tokenize`` with an adapter returning ``tokens``."""
+def _zh_out(tokens: Any, text: str = "") -> Any:
+    """Run ``tokenize`` with an adapter returning ``tokens``.
+
+    ``text`` overrides the analyzed text for the cases that turn on how long
+    it is — a span is only "past the end" of something.
+    """
     with zh_registry.overriding(_PROBE, lambda: _FakeAnalyzer(tokens)):
         ctx = _zh_ctx()
-        return tokenize(ZH_TEXT, ctx), ctx
+        return tokenize(text or ZH_TEXT, ctx), ctx
 
 
 def _ja_out(tokens: Any) -> Any:
@@ -179,6 +183,41 @@ class TestChineseAnalyzerBoundary:
         # Documented: ``_local_spans`` synthesises coordinates from a running
         # cursor for adapters that omit them.
         tokens, _ = _zh_out([ChineseToken("国家"), ChineseToken("通用")])
+        assert [t.surface for t in tokens] == ["国家", "通用"]
+
+    def test_a_spanless_token_before_a_backward_span_is_refused(self) -> None:
+        """The mix the two halves of the check could not see between them.
+
+        Every token here is individually fine — one has no span at all, the
+        other's span is in range — and the ordering rule compared only the
+        explicit ones, of which there is one. But the synthesis that runs
+        afterwards lays the first token out over ``[0, 3)`` from the cursor,
+        and the second then claims ``[1, 2)``: overlapping, backwards
+        coordinates in the IR, from an analysis that passed the boundary whose
+        job is to refuse exactly that.
+        """
+        with pytest.raises(FrontendContractError, match="before the previous"):
+            _zh_out(
+                [ChineseToken("国家通"), ChineseToken("家", span=Span(1, 2))],
+                text="国家通用",
+            )
+
+    def test_spanless_surfaces_that_do_not_fit_the_text_are_refused(
+        self,
+    ) -> None:
+        # Same rule from the other side: laid out end to end, these two run
+        # past the four characters that were analyzed, so the coordinates every
+        # cell would inherit describe nothing.
+        with pytest.raises(FrontendContractError, match="past the end"):
+            _zh_out(
+                [ChineseToken("国家通"), ChineseToken("用方案")],
+                text="国家通用",
+            )
+
+    def test_a_spanless_run_that_does_fit_is_laid_out_in_order(self) -> None:
+        tokens, _ = _zh_out(
+            [ChineseToken("国家"), ChineseToken("通用")], text="国家通用"
+        )
         assert [t.surface for t in tokens] == ["国家", "通用"]
 
     def test_touching_spans_are_legal(self) -> None:
@@ -350,6 +389,48 @@ class TestPinyinResolverBoundary:
         # What ``null`` does; identity is not what is being checked.
         out = self._resolve(rewrite=lambda toks: toks)
         assert [t.surface for t in out] == ["国家", "通用"]
+
+    def test_a_pinyin_that_is_not_a_string_is_refused(self) -> None:
+        """The half the boundary was not checking at all.
+
+        Everything a resolver may *not* change was compared against a
+        snapshot; the two fields it may change went through unread. A
+        non-string reading travelled to the backend's syllable parser and
+        became an ``AttributeError`` from ``.strip()`` — several layers from
+        the adapter that produced it, and not a
+        :class:`FrontendContractError` anyone was catching.
+        """
+        from dataclasses import replace
+
+        with pytest.raises(FrontendContractError, match="pinyin: str | None"):
+            self._resolve(
+                rewrite=lambda toks: [replace(t, pinyin=123) for t in toks]
+            )
+
+    @pytest.mark.parametrize("bad", ["high", True, float("nan"), 1.5, -0.1])
+    def test_a_confidence_that_is_not_a_probability_is_refused(
+        self, bad: object
+    ) -> None:
+        # It is compared against a threshold to decide whether to warn, so a
+        # string breaks the comparison, a ``bool`` is an int in disguise, a
+        # ``NaN`` loses every comparison silently, and a number outside
+        # [0, 1] is not the quantity the threshold means.
+        from dataclasses import replace
+
+        with pytest.raises(FrontendContractError, match="confidence"):
+            self._resolve(
+                rewrite=lambda toks: [replace(t, confidence=bad) for t in toks]
+            )
+
+    def test_an_integral_confidence_is_stored_as_the_declared_float(
+        self,
+    ) -> None:
+        from dataclasses import replace
+
+        out = self._resolve(
+            rewrite=lambda toks: [replace(t, confidence=1) for t in toks]
+        )
+        assert [type(t.confidence) for t in out] == [float, float]
 
 
 class TestTheShippedAdaptersSatisfyTheirOwnContract:

@@ -280,15 +280,36 @@ def _iter_inline_math_spans(text: str) -> Iterator[tuple[int, int, str]]:
             i += 2
             continue
         close = text.find("$", i + 1)
-        if close == -1 or "\n" in text[i + 1 : close]:
+        if close == -1 or text.find("\n", i + 1, close) != -1:
             i += 1
             continue
         yield (i, close + 1, "math_inline")
         i = close + 1
 
 
-def _qualifies_as_phonetic(inner: str) -> bool:
-    """Whether a delimited region's content looks like an IPA transcription.
+def _next_occurrence(text: str, ch: str, after: int, cache: dict[str, int]) -> int:
+    """First index of ``ch`` at or after ``after``, or ``-1``.
+
+    Remembered per character, because the callers walk a cursor forward and
+    would otherwise re-scan the same tail once per step. The cached index is
+    still the answer for any later cursor that has not passed it — there is
+    nothing between the position it was found from and itself — and a ``-1``
+    is permanent, which is what turns a line of unmatched openers from a
+    quadratic re-scan into one pass.
+    """
+    found = cache.get(ch, -2)
+    if found != -1 and found < after:
+        found = text.find(ch, after)
+        cache[ch] = found
+    return found
+
+
+def _qualifies_as_phonetic(text: str, start: int, end: int) -> bool:
+    """Whether ``text[start:end]`` looks like an IPA transcription.
+
+    Takes offsets rather than the substring: a candidate is tested at every
+    delimiter the scanner passes, and slicing out the content to reject it on
+    its first character copied the whole region each time.
 
     True only when every non-space character is phonetic-class — an ASCII
     letter or an IPA-distinct character (:data:`_IPA_DISTINCT_CHARS`) —
@@ -300,10 +321,11 @@ def _qualifies_as_phonetic(inner: str) -> bool:
     — but almost every English transcription carries a schwa / ɪ / æ / ː /
     ŋ / ʃ, so in practice this captures real phonetics and nothing else.
     """
-    if not inner:
+    if start >= end:
         return False
     has_distinct = False
-    for ch in inner:
+    for pos in range(start, end):
+        ch = text[pos]
         if ch.isspace():
             continue
         if ch in _IPA_DISTINCT_CHARS:
@@ -324,32 +346,55 @@ def _iter_phonetic_spans(text: str) -> Iterator[tuple[int, int, str]]:
     that doesn't look like IPA (a path, a footnote ref) is left as plain
     text — the opener just advances by one, so a genuine transcription
     later on the same line is still found.
+
+    "Advances by one" is why the closer and newline searches are cached
+    (:func:`_next_occurrence`) instead of re-run: this walks every block of
+    ordinary prose, the caller's whole-text ceiling is tens of millions of
+    characters, and a run of unmatched openers otherwise re-scanned the rest
+    of the text once per opener.
     """
     i = 0
     n = len(text)
+    seen: dict[str, int] = {}
     while i < n:
         close_ch = _PHONETIC_DELIMITERS.get(text[i])
         if close_ch is None:
             i += 1
             continue
-        close = text.find(close_ch, i + 1)
-        if close == -1 or "\n" in text[i + 1 : close]:
+        close = _next_occurrence(text, close_ch, i + 1, seen)
+        newline = _next_occurrence(text, "\n", i + 1, seen)
+        if close == -1 or (newline != -1 and newline < close):
             i += 1
             continue
-        if _qualifies_as_phonetic(text[i + 1 : close]):
+        if _qualifies_as_phonetic(text, i + 1, close):
             yield (i, close + 1, "phonetic_inline")
             i = close + 1
         else:
             i += 1
 
 
-def _overlaps_any(
-    span: tuple[int, int, str], others: list[tuple[int, int, str]]
-) -> bool:
-    """True if ``span`` shares any character range with one in ``others``
-    (half-open intervals)."""
-    start, end, _ = span
-    return any(start < o_end and o_start < end for o_start, o_end, _ in others)
+def _drop_overlapping(
+    candidates: Iterator[tuple[int, int, str]],
+    others: list[tuple[int, int, str]],
+) -> Iterator[tuple[int, int, str]]:
+    """Yield the candidates that share no character range with ``others``.
+
+    Both sides arrive sorted by start and internally disjoint, so one index
+    walks ``others`` forward across the whole stream rather than restarting per
+    candidate: a text alternating math islands and phonetic candidates used to
+    cost one full scan of every math span per phonetic span.
+    """
+    at = 0
+    total = len(others)
+    for span in candidates:
+        start, end, _ = span
+        while at < total and others[at][1] <= start:
+            at += 1
+        # ``others[at]`` is the first one that could reach this candidate;
+        # everything after it starts later still, so one comparison decides.
+        if at < total and others[at][0] < end:
+            continue
+        yield span
 
 
 def _find_protected_regions(text: str) -> list[tuple[int, int, str]]:
@@ -365,9 +410,7 @@ def _find_protected_regions(text: str) -> list[tuple[int, int, str]]:
     """
     math_spans = list(_iter_inline_math_spans(text))
     spans = list(math_spans)
-    for span in _iter_phonetic_spans(text):
-        if not _overlaps_any(span, math_spans):
-            spans.append(span)
+    spans.extend(_drop_overlapping(_iter_phonetic_spans(text), math_spans))
     spans.sort(key=lambda s: s[0])
     return spans
 

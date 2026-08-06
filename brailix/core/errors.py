@@ -8,17 +8,15 @@ mode promotes warnings to :class:`StrictModeError`.
 from __future__ import annotations
 
 import zlib as _zlib
+from collections.abc import Callable as _Callable
+from collections.abc import Iterator as _Iterator
 from dataclasses import dataclass as _dataclass
 from dataclasses import field as _field
 from dataclasses import replace as _replace
 from enum import Enum as _Enum
-from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import NoReturn as _NoReturn
 
 from brailix.core.span import Span
-
-if _TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
-    from typing import NoReturn
 
 
 class RunMode(str, _Enum):  # noqa: UP042 — keep (str, Enum) __str__/serialization semantics
@@ -444,10 +442,10 @@ class _FrozenAnchor(dict):  # type: ignore[type-arg]
         super().__init__(*args, **kwargs)
         self._sealed = True
 
-    def __setitem__(self, key: str, value: str) -> NoReturn:
+    def __setitem__(self, key: str, value: str) -> _NoReturn:
         raise TypeError(self._MESSAGE)
 
-    def __delitem__(self, key: str) -> NoReturn:
+    def __delitem__(self, key: str) -> _NoReturn:
         raise TypeError(self._MESSAGE)
 
     # ``object`` rather than dict's own narrower parameter, so no spelling of
@@ -458,19 +456,19 @@ class _FrozenAnchor(dict):  # type: ignore[type-arg]
     def __ior__(self, other: object) -> _FrozenAnchor:  # type: ignore[misc]
         raise TypeError(self._MESSAGE)
 
-    def clear(self) -> NoReturn:
+    def clear(self) -> _NoReturn:
         raise TypeError(self._MESSAGE)
 
-    def pop(self, *args: object, **kwargs: object) -> NoReturn:
+    def pop(self, *args: object, **kwargs: object) -> _NoReturn:
         raise TypeError(self._MESSAGE)
 
-    def popitem(self) -> NoReturn:
+    def popitem(self) -> _NoReturn:
         raise TypeError(self._MESSAGE)
 
-    def setdefault(self, *args: object, **kwargs: object) -> NoReturn:
+    def setdefault(self, *args: object, **kwargs: object) -> _NoReturn:
         raise TypeError(self._MESSAGE)
 
-    def update(self, *args: object, **kwargs: object) -> NoReturn:
+    def update(self, *args: object, **kwargs: object) -> _NoReturn:
         raise TypeError(self._MESSAGE)
 
     def __reduce__(self) -> tuple[object, ...]:
@@ -660,7 +658,7 @@ class WarningCollector:
             )
         )
 
-    def __iter__(self) -> Iterator[Warning]:
+    def __iter__(self) -> _Iterator[Warning]:
         return iter(self.warnings)
 
     def __len__(self) -> int:
@@ -672,7 +670,7 @@ class WarningCollector:
     def by_code(self, code: str) -> list[Warning]:
         return [w for w in self.warnings if w.code == code]
 
-    def discard(self, predicate: Callable[[Warning], bool]) -> int:
+    def discard(self, predicate: _Callable[[Warning], bool]) -> int:
         """Drop every stored warning matching ``predicate``; return how
         many were removed.
 

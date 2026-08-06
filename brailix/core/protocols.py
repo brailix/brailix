@@ -19,15 +19,33 @@ also write unit tests for adapter behaviour.
 
 from __future__ import annotations
 
+from collections.abc import Collection as _Collection
+from collections.abc import Iterable as _Iterable
 from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Any as _Any
 from typing import Protocol as _Protocol
 from typing import runtime_checkable as _runtime_checkable
 
-if _TYPE_CHECKING:
-    from collections.abc import Collection, Iterable
-    from typing import Any
+from brailix.core.config import BrailleProfile as _BrailleProfile
 
-    from brailix.core.config import BrailleProfile
+# The two families below are the ONLY annotations in the package that a
+# runtime introspector cannot read back, and both are deferred by a rule that
+# outranks introspection:
+#
+# * ``brailix.ir`` — ``brailix.core`` may *annotate* against the IR but must
+#   never import it at runtime, because IR imports core and the reverse edge
+#   would close a cycle and turn ``import brailix.ir`` into "load the whole
+#   compiler" (``tests/test_core_layering.py::
+#   test_core_does_not_import_ir_at_runtime``);
+# * ``brailix.core.context`` — it imports *this* module at runtime for its own
+#   accessor annotations, so binding it back here is the same cycle one layer
+#   in.
+#
+# Everything else this module annotates against is bound above, aliased, so
+# ``typing.get_type_hints`` reads it. The exemption is registered and its
+# extent checked in ``tests/test_public_api.py`` — a *new* deferred name that
+# is not from one of those two modules fails there.
+if _TYPE_CHECKING:
     from brailix.core.context import BackendContext, FrontendContext
     from brailix.ir.braille import (
         BrailleCell,
@@ -87,7 +105,7 @@ class Normalizer(_Protocol):
 
     def normalize(
         self,
-        segments: Iterable[Segment],
+        segments: _Iterable[Segment],
         ctx: FrontendContext | None = None,
     ) -> list[NormalizedItem]: ...
 
@@ -133,7 +151,7 @@ class LanguageFrontend(_Protocol):
       subtag.
     """
 
-    prose_types: Collection[str]
+    prose_types: _Collection[str]
 
     def process(
         self, surface: str, base: int, ctx: FrontendContext
@@ -165,7 +183,7 @@ class LanguageBackend(_Protocol):
     """
 
     def translate_word(
-        self, node: Word, ctx: BackendContext, profile: BrailleProfile
+        self, node: Word, ctx: BackendContext, profile: _BrailleProfile
     ) -> list[BrailleCell]: ...
 
     def translate_date_marker(
@@ -173,7 +191,7 @@ class LanguageBackend(_Protocol):
         marker: HanziMarker,
         follows_number: bool,
         ctx: BackendContext,
-        profile: BrailleProfile,
+        profile: _BrailleProfile,
     ) -> list[BrailleCell]:
         """Translate a date marker (年/月/日/号/时/分/秒, …) to cells.
 
@@ -364,7 +382,7 @@ class Renderer(_Protocol):
 
     name: str
 
-    def render(self, ir: Any) -> Any: ...
+    def render(self, ir: _Any) -> _Any: ...
 
 
 # Forward declarations for context types that are defined in

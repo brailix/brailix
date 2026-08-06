@@ -52,9 +52,17 @@ brailix.core.span import Span``), so the library can reorganise its
 internals without breaking you.
 
 Everything else is internal: reachable, unsupported, and free to move
-between releases. That deliberately includes :mod:`brailix.pipeline`, which
-is where :class:`Pipeline` is implemented — the names worth depending on
-are re-exported here.
+between releases. That deliberately includes :mod:`brailix.pipeline`, the
+package :class:`Pipeline` is assembled in — the names worth depending on are
+re-exported here, and here is where to import them from.
+
+One qualification, because that package's own docstring could be read as
+promising more than this one does: what ``brailix.pipeline`` resolves to *is*
+pinned by the test suite, exactly and in order. That is not a second supported
+address; it is a guard on the namespace a third party can reach, which stops
+private helpers accumulating in it (they had) and stops the list growing by
+accident. The compatibility promise is this package's ``__all__`` and the
+facades named above — one list, one place.
 
 Each facade's ``__all__`` **is** the promise, and it is pinned by an exact
 manifest in the test suite: a name cannot go missing without failing a

@@ -38,13 +38,13 @@ _READ_CHUNK = 1024 * 1024
 # ...and cap what the whole archive can cost, which the per-member cap alone
 # does not. Two budgets, both of which ``.docx`` has had and this did not:
 #
-# * the member COUNT, read off the End Of Central Directory record before
-#   ``ZipFile`` is constructed (:func:`~brailix.core._zip.zip_entry_count_exceeds`).
-#   A few hundred KB of archive can declare millions of zero-length entries,
-#   and the whole cost of turning those into ``ZipInfo`` objects lands inside
-#   the constructor — so a count taken from ``infolist()`` afterwards is a
-#   measurement, not a limit. A ``.mxl`` holds a score, a container manifest
-#   and perhaps a handful of images; 1024 is already far past generous.
+# * the member COUNT, taken by walking the central directory before ``ZipFile``
+#   is constructed (:func:`~brailix.core._zip.zip_entry_count_exceeds`) and
+#   stopping one record past the cap. The whole cost of turning those records
+#   into ``ZipInfo`` objects lands inside the constructor — so a count taken
+#   from ``infolist()`` afterwards is a measurement, not a limit. A ``.mxl``
+#   holds a score, a container manifest and perhaps a handful of images; 1024
+#   is already far past generous.
 # * the CUMULATIVE decompressed bytes across every member this adapter reads.
 #   Only two are read on the happy path (the manifest and the rootfile), so
 #   this is the belt to the per-member cap's braces — but "how many members
@@ -119,15 +119,15 @@ class MxlSourceAdapter:
             return MusicXMLSourceAdapter().to_musicxml(src, ctx)
         if not src:
             return music_error_wrap("", reason="empty .mxl payload")
-        declared = zip_entry_count_exceeds(src, _MAX_MEMBERS)
-        if declared is not None:
+        if zip_entry_count_exceeds(src, _MAX_MEMBERS):
             # Before ``ZipFile``, deliberately: this is the one check whose
-            # whole value is being cheaper than parsing the central directory.
+            # whole value is being cheaper than the central directory the
+            # constructor is about to turn into objects.
             return music_error_wrap(
                 "",
                 reason=(
-                    f".mxl declares {declared} members, over the "
-                    f"{_MAX_MEMBERS} limit (possible zip bomb)"
+                    f".mxl holds more than {_MAX_MEMBERS} members "
+                    "(possible zip bomb)"
                 ),
             )
         budget = _Budget()
@@ -211,11 +211,10 @@ def _fallback_xml_entry(zf: _zipfile.ZipFile) -> str | None:
     """Scan the archive for a plausible MusicXML entry when
     container.xml is missing or malformed.
 
-    Bounded by :data:`_MAX_MEMBERS`, like the declared count checked before the
-    archive was opened. The entries really present can be fewer than the count
-    the End Of Central Directory claimed (that is a claim, not a guarantee) but
-    they can also be more, and this walk is the one place that would otherwise
-    touch all of them.
+    Bounded by :data:`_MAX_MEMBERS`, like the count taken before the archive
+    was opened. The preflight walks the same records this does, so the two
+    agree — but this is the one place that would otherwise touch every entry,
+    and a bound it carries itself does not depend on that agreement holding.
     """
     for index, info in enumerate(zf.infolist()):
         if index >= _MAX_MEMBERS:

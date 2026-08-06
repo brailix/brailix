@@ -1486,3 +1486,36 @@ class TestRegistration:
         # Returns a string by default.
         seq = BrailleSequence(cells=[BrailleCell(dots=(1,))])
         assert isinstance(r.render(seq), str)
+
+
+class TestMidAtomSplitScaling:
+    """Splitting inside one enormous atom stays linear in it.
+
+    An atom wider than the line is cut a line at a time, and the remainder
+    used to be re-sliced each round — copying every cell still to come, once
+    per line of them. Quadratic in the atom's width, on the ordinary path for
+    any unbroken run (a long URL, a formula with no break opportunity, a table
+    row flattened into one block).
+
+    The size below is a fuse, not a benchmark: re-slicing 200k cells 5000
+    times is minutes of work, while the cursor version is milliseconds, so the
+    budget has no margin to tune.
+    """
+
+    def test_a_two_hundred_thousand_cell_atom_lays_out_promptly(self):
+        import time
+
+        cells = _word(200_000)
+        renderer = LayoutRenderer(
+            options=LayoutOptions(line_width=40, paragraph_indent=0)
+        )
+        started = time.perf_counter()
+        out = renderer.render(BrailleDocument(blocks=[BrailleBlock(cells=cells)]))
+        assert time.perf_counter() - started < 5.0
+
+        # And the split itself is unchanged: every line is at most the line
+        # width, and every cell survives into some line.
+        lines = out.split("\n")
+        assert all(len(ln) <= 40 for ln in lines)
+        body = "".join(lines).replace(_hyphen_char(), "")
+        assert len(body) == 200_000

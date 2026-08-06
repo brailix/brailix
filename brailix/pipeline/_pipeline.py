@@ -22,15 +22,20 @@ per-block parses go through the frontend driver's injected parsers instead.
 
 from __future__ import annotations
 
+import os as _os
 import xml.etree.ElementTree as _ET
+from collections.abc import Callable as _Callable
+from collections.abc import Mapping as _Mapping
+from collections.abc import Sequence as _Sequence
 from dataclasses import dataclass as _dataclass
 from dataclasses import field as _field
 from dataclasses import replace as _replace
 from pathlib import Path as _Path
 from types import MappingProxyType as _MappingProxyType
-from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Any as _Any
 
 from brailix.backend.block import translate_document as _translate_document
+from brailix.backend.tactile.profile import TactileProfile as _TactileProfile
 from brailix.core.config import BrailleProfile
 from brailix.core.config import load_profile as _load_profile
 from brailix.core.context import (
@@ -49,6 +54,9 @@ from brailix.core.errors import (
     RunMode,
     WarningCollector,
     normalize_run_mode,
+)
+from brailix.core.protocols import (
+    GraphicAssetResolver as _GraphicAssetResolver,
 )
 from brailix.core.span import Span
 from brailix.frontend import parse_math_tree as _frontend_parse_math_tree
@@ -79,11 +87,18 @@ from brailix.ir.inline import MathInline
 # Names from outside brailix are a different rule and a tree-wide one: no
 # module in the package binds one plainly, whether or not anyone is sent to
 # it — "go to definition" on ``Pipeline`` lands here, and an editor completes
-# whatever resolves. Runtime ones are aliased (``_ET``, ``_dataclass``); a
-# name only ever written in an annotation is imported under ``if
-# _TYPE_CHECKING:`` below, where it is not a binding at all.
+# whatever resolves. They are aliased instead (``_ET``, ``_dataclass``,
+# ``_Mapping``), and **the annotations spell the alias**. Moving an
+# annotation-only import under ``if TYPE_CHECKING:`` looks like the cheaper
+# answer and is not one: ``from __future__ import annotations`` defers
+# *evaluation*, it does not conjure the name back when something evaluates the
+# annotation later, so ``typing.get_type_hints(Pipeline)`` — which schema
+# generators, dependency injectors and documentation tools all call — fails
+# with ``NameError`` on a class the manifest calls public.
 # ``test_no_module_binds_a_foreign_name_under_a_plain_name`` checks every
-# module in the package for it.
+# module in the package for the binding rule, and
+# ``test_public_annotations_resolve_at_runtime`` checks the public surface for
+# the other half.
 from brailix.pipeline._fingerprint import (
     asset_resolver_identity as _asset_resolver_identity,
 )
@@ -113,14 +128,6 @@ from brailix.pipeline._session import CompilationSession as _CompilationSession
 from brailix.pipeline._session import _InlineTextTranslator
 from brailix.pipeline._session import warn_epoch_changed as _warn_epoch_changed
 from brailix.pipeline.frontend_driver import FrontendDriver as _FrontendDriver
-
-if _TYPE_CHECKING:
-    import os
-    from collections.abc import Callable, Mapping, Sequence
-    from typing import Any
-
-    from brailix.backend.tactile.profile import TactileProfile
-    from brailix.core.protocols import GraphicAssetResolver
 
 # What this module defines and :mod:`brailix.pipeline` re-exports. The result
 # types are imported above because the code below returns them, not published
@@ -174,7 +181,7 @@ _FROZEN_CONFIG_FIELDS: frozenset[str] = frozenset(
 
 
 def _freeze_seg_dict(
-    raw: Mapping[str, Sequence[str]],
+    raw: _Mapping[str, _Sequence[str]],
 ) -> dict[str, tuple[str, ...]]:
     """Immutable ``surface → pieces`` snapshot, skipping unusable entries.
 
@@ -349,7 +356,7 @@ class Pipeline:
     # fingerprint at construction, so an in-place ``pipe.user_pinyin_dict[w]
     # = r`` would change the braille while the fingerprint — and every
     # ``source_hash`` derived from it — stayed put.
-    user_pinyin_dict: Mapping[str, str] = _field(default_factory=dict)
+    user_pinyin_dict: _Mapping[str, str] = _field(default_factory=dict)
     # Personal segmentation dictionary (user-authored surface→pieces map),
     # layered on top of whichever analyzer runs: the zh frontend applies it
     # as a post-pass, so a word division the user pinned wins for every
@@ -364,7 +371,7 @@ class Pipeline:
     # A front-end is free to present both as one "my dictionary" to its user.
     #
     # Same defensive copy behind a read-only view, for the same reason.
-    user_seg_dict: Mapping[str, Sequence[str]] = _field(default_factory=dict)
+    user_seg_dict: _Mapping[str, _Sequence[str]] = _field(default_factory=dict)
     # Feature-flag overrides applied to the loaded profile, keyed by the
     # dotted names ``BrailleProfile.feature`` reads (``"zh.tone"``).
     #
@@ -387,7 +394,7 @@ class Pipeline:
     # to reach back into and edit after the fingerprint was taken. (The
     # neighbouring ``user_seg_dict`` answers the same hazard the other way —
     # its values are legitimately sequences, so it freezes them.)
-    profile_features: Mapping[str, Any] = _field(default_factory=dict)
+    profile_features: _Mapping[str, _Any] = _field(default_factory=dict)
     # Unlike the frontend families there is no ``auto`` here, deliberately:
     # a renderer choice is an OUTPUT FORMAT, and no amount of probing can
     # tell whether the caller wanted BRF or a PDF. ``unicode`` is the one
@@ -411,7 +418,7 @@ class Pipeline:
     # :class:`~brailix.core.protocols.GraphicAssetResolver`. (Its own parenthesis, name then
     # section: the export deletes a citation of an unpublished note whole, and
     # can only do that when the reference is the entire parenthetical.)
-    asset_resolver: GraphicAssetResolver | None = None
+    asset_resolver: _GraphicAssetResolver | None = None
     _profile: BrailleProfile = _field(init=False, default=None)  # type: ignore[assignment]
     _frontend: _FrontendDriver = _field(init=False, default=None)  # type: ignore[assignment]
     # The configuration-only digest (compilation_fingerprint) plus the
@@ -427,7 +434,7 @@ class Pipeline:
     # and they must go through.
     _configured: bool = _field(init=False, default=False)
 
-    def __setattr__(self, name: str, value: Any) -> None:
+    def __setattr__(self, name: str, value: _Any) -> None:
         """Reject writes to :data:`_FROZEN_CONFIG_FIELDS` on a built pipeline.
 
         See that constant for why each field is (or isn't) on the list. The
@@ -710,9 +717,9 @@ class Pipeline:
         source: str | bytes,
         *,
         source_format: str = "svg",
-        tactile_profile: str | TactileProfile = "generic",
+        tactile_profile: str | _TactileProfile = "generic",
         braille_profile: str | None = None,
-        label_translator: Callable[[str], list[BrailleCell]] | None = None,
+        label_translator: _Callable[[str], list[BrailleCell]] | None = None,
         record_provenance: bool = False,
         warnings: WarningCollector | None = None,
     ) -> GraphicResult:
@@ -757,7 +764,7 @@ class Pipeline:
 
     def _graphic_label_translator(
         self, braille_profile: str, host_warnings: WarningCollector
-    ) -> Callable[[str], list[BrailleCell]]:
+    ) -> _Callable[[str], list[BrailleCell]]:
         """A ``text → braille cells`` translator for graphic labels, backed by
         the requested braille standard.
 
@@ -841,7 +848,7 @@ class Pipeline:
         self,
         doc: DocumentIR,
         *,
-        tactile_profile: str | TactileProfile = _DEFAULT_INLINE_TACTILE_PROFILE,
+        tactile_profile: str | _TactileProfile = _DEFAULT_INLINE_TACTILE_PROFILE,
         margin_mm: float | None = None,
         item_gap_mm: float | None = None,
     ) -> TactilePageResult:
@@ -881,7 +888,7 @@ class Pipeline:
 
     def translate_file(
         self,
-        path: str | os.PathLike[str],
+        path: str | _os.PathLike[str],
         *,
         limits: InputLimits = DEFAULT_INPUT_LIMITS,
     ) -> TranslationResult:
@@ -970,7 +977,7 @@ class Pipeline:
 
     def parse_file(
         self,
-        path: str | os.PathLike[str],
+        path: str | _os.PathLike[str],
         *,
         limits: InputLimits = DEFAULT_INPUT_LIMITS,
     ) -> DocumentIR:
@@ -1018,7 +1025,7 @@ class Pipeline:
         self,
         block: Block,
         *,
-        ir_transformer: Callable[[DocumentIR], None] | None = None,
+        ir_transformer: _Callable[[DocumentIR], None] | None = None,
         tree_subcache: TreeSubcache | None = None,
     ) -> CompiledBlock:
         """Translate a single :class:`Block` end-to-end (frontend +
@@ -1120,7 +1127,7 @@ class Pipeline:
     # (Per-run state construction lives in
     # :meth:`brailix.pipeline._session.CompilationSession.begin`.)
 
-    def _ir_metadata(self) -> dict[str, Any]:
+    def _ir_metadata(self) -> dict[str, _Any]:
         """Self-describing identity stamped onto every IR this pipeline
         produces.
 
@@ -1135,7 +1142,7 @@ class Pipeline:
         a user-folder profile whose JSON declares its own ``name`` — so
         the common case serializes exactly as before.
         """
-        md: dict[str, Any] = {
+        md: dict[str, _Any] = {
             "language": self._profile.language,
             "profile": self._profile.name,
         }
@@ -1233,13 +1240,13 @@ def translate_graphic(
     source: str | bytes,
     *,
     source_format: str = "svg",
-    tactile_profile: str | TactileProfile = "generic",
+    tactile_profile: str | _TactileProfile = "generic",
     braille_profile: str | None = None,
-    label_translator: Callable[[str], list[BrailleCell]] | None = None,
+    label_translator: _Callable[[str], list[BrailleCell]] | None = None,
     record_provenance: bool = False,
     warnings: WarningCollector | None = None,
     mode: RunMode | str = RunMode.NORMAL,
-    asset_resolver: GraphicAssetResolver | None = None,
+    asset_resolver: _GraphicAssetResolver | None = None,
 ) -> GraphicResult:
     """Compile a tactile graphic into a :class:`GraphicResult`.
 

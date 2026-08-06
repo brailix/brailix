@@ -10,6 +10,7 @@ lazily prefers ``g2pm`` → ``g2pw`` → ``pypinyin`` → ``null``).
 
 from __future__ import annotations
 
+import math as _math
 from dataclasses import replace as _replace
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 from typing import Protocol as _Protocol
@@ -117,6 +118,25 @@ def _check_resolver_output(
     token it could not read) is named here instead of surfacing later as
     braille that does not match the source.
 
+    **The two fields it may change are checked too**, which is the half that
+    was missing: everything a resolver is forbidden to touch was compared, and
+    the only two it is *allowed* to touch went through unread.
+    ``ChineseToken`` declares ``pinyin: str | None`` and
+    ``confidence: float | None``, and a resolver returning ``pinyin=123``
+    reached the backend's syllable parser, which called ``.strip()`` on it —
+    an ``AttributeError`` from a module several layers from the adapter that
+    caused it, past every caller catching
+    :class:`~brailix.core.errors.BrailixError`. A boundary that names the
+    adapter and the token index is exactly what this function is for.
+
+    ``confidence`` is a probability: the g2pW adapter compares it against a
+    0.75 threshold to decide whether to warn, so a value outside ``[0, 1]``
+    (or a ``NaN``, which fails every comparison silently) is not a confidence,
+    it is a number that will read as one. An ``int`` is accepted and stored as
+    the ``float`` the field declares — ``1`` is a legitimate certainty, and a
+    field typed ``float`` holding an ``int`` is the kind of thing that reaches
+    JSON before anyone notices.
+
     Identity is deliberately NOT required: the ``null`` resolver returns the
     caller's own token objects while the others build fresh ones with
     :func:`dataclasses.replace`, and both are correct.
@@ -145,6 +165,38 @@ def _check_resolver_output(
                 f"surface={now.surface!r} span={now.span} pos={now.pos!r}; "
                 f"only pinyin and confidence may change"
             )
+        if now.pinyin is not None and not isinstance(now.pinyin, str):
+            raise FrontendContractError(
+                f"pinyin resolver {adapter!r} gave token {i} "
+                f"({now.surface!r}) pinyin {now.pinyin!r} of type "
+                f"{type(now.pinyin).__name__}; ChineseToken declares "
+                f"pinyin: str | None"
+            )
+        if now.confidence is not None:
+            now.confidence = _checked_confidence(now, i, adapter)
+
+
+def _checked_confidence(
+    token: ChineseToken, index: int, adapter: str
+) -> float:
+    """``token.confidence`` as a probability, or raise naming the adapter."""
+    value = token.confidence
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise FrontendContractError(
+            f"pinyin resolver {adapter!r} gave token {index} "
+            f"({token.surface!r}) confidence {value!r} of type "
+            f"{type(value).__name__}; ChineseToken declares "
+            f"confidence: float | None"
+        )
+    number = float(value)
+    if not _math.isfinite(number) or not 0.0 <= number <= 1.0:
+        raise FrontendContractError(
+            f"pinyin resolver {adapter!r} gave token {index} "
+            f"({token.surface!r}) confidence {number}; a confidence is a "
+            f"probability in [0, 1] — it is compared against a threshold to "
+            f"decide whether to warn about the reading"
+        )
+    return number
 
 
 def list_resolvers() -> list[str]:

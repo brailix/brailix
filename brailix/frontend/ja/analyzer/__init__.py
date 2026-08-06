@@ -29,17 +29,14 @@ the dictionary's pronunciation field (janome ``phonetic``, fugashi UniDic
 from __future__ import annotations
 
 from dataclasses import dataclass as _dataclass
-from typing import TYPE_CHECKING as _TYPE_CHECKING
 from typing import Protocol as _Protocol
 from typing import runtime_checkable as _runtime_checkable
 
+from brailix.core.context import FrontendContext as _FrontendContext
 from brailix.core.errors import FrontendContractError
 from brailix.core.span import Span
 from brailix.frontend.ja._chars import _is_kana
 from brailix.ir.inline import InlineNode, Space, Word
-
-if _TYPE_CHECKING:
-    from brailix.core.context import FrontendContext
 
 
 @_dataclass(slots=True)
@@ -72,7 +69,7 @@ class JapaneseAnalyzer(_Protocol):
     name: str
 
     def analyze(
-        self, text: str, ctx: FrontendContext | None = None
+        self, text: str, ctx: _FrontendContext | None = None
     ) -> list[JapaneseToken]: ...
 
 
@@ -90,7 +87,7 @@ _DEFAULT_ANALYZER: str = "auto"
 
 
 def analyze(
-    text: str, ctx: FrontendContext | None = None
+    text: str, ctx: _FrontendContext | None = None
 ) -> list[JapaneseToken]:
     """Tokenize a Japanese run into :class:`JapaneseToken`.
 
@@ -112,7 +109,7 @@ def analyze(
 
 
 def _check_analyzer_output(
-    tokens: object, text: str, adapter: str, ctx: FrontendContext | None
+    tokens: object, text: str, adapter: str, ctx: _FrontendContext | None
 ) -> None:
     """Verify what an analyzer adapter returned before anything consumes it.
 

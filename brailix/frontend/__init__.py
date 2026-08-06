@@ -91,6 +91,7 @@ from typing import TYPE_CHECKING as _TYPE_CHECKING
 from brailix.core.errors import MissingExtraError as _MissingExtraError
 from brailix.core.protocols import LanguageFrontend as _LanguageFrontend
 from brailix.core.registry import Registry as _Registry
+from brailix.frontend import _deprecated_paths
 from brailix.frontend.ja import analyze as _ja_analyze
 from brailix.frontend.ja import ja_boundary as _ja_boundary
 from brailix.frontend.ja import tokens_to_inline as _ja_tokens_to_inline
@@ -446,3 +447,12 @@ __all__ = (
     "list_language_adapters",
     "boundary_registry",
 )
+
+# The two addresses the registries used to live at, resolvable until 0.2 and
+# warning when read. Last, after everything above is bound: the shims forward
+# to the modules this package imports, and registering them earlier would just
+# widen the window in which one could be read half-built. See
+# :mod:`brailix.frontend._deprecated_paths` for why they are module objects
+# rather than files — a file would replace the ``segment`` function published
+# above the moment anything imported it.
+_deprecated_paths.install()

@@ -95,16 +95,15 @@ def apply_user_seg_dict(
     """
     if not seg_dict or not tokens:
         return tokens
-    # Longest key bounds how far a run has to reach before it can't match.
-    max_key_len = max(len(k) for k in seg_dict)
-    if max_key_len < _MIN_SURFACE_LEN:
+    trie, longest = _prefix_trie(seg_dict)
+    if longest < _MIN_SURFACE_LEN:
         return tokens
 
     out: list[ChineseToken] = []
     i = 0
     n = len(tokens)
     while i < n:
-        pieces, run_end = _longest_match_at(tokens, i, seg_dict, max_key_len)
+        pieces, run_end = _longest_match_at(tokens, i, seg_dict, trie)
         if pieces is None:
             out.append(tokens[i])
             i += 1
@@ -114,30 +113,83 @@ def apply_user_seg_dict(
     return out
 
 
+def _prefix_trie(
+    seg_dict: Mapping[str, Sequence[str]],
+) -> tuple[dict[str, object], int]:
+    """A character trie over the keys, plus the longest key's length.
+
+    The scan below extends a run one token at a time and has to know when to
+    stop. "Until the surface is longer than the longest key in the dictionary"
+    was the wrong bound, and the only one available without this: it is a
+    property of the whole dictionary rather than of the text at hand, so one
+    long entry — a legitimate one, and nothing rejected it — made **every**
+    token position accumulate up to that length, re-copying the growing string
+    each step. Quadratic in the longest key, once per token: a synthetic
+    8000-token block took over twenty seconds.
+
+    Descending this answers the question that actually decides it — "can any
+    key still extend what has been read" — in one dictionary lookup per
+    character, so a run stops at the first character no entry continues with,
+    which in ordinary text is the first one. A trie rather than a set of
+    prefix *strings* because the prefixes of one very long key are quadratic in
+    its length to store, and the point here is that a long key costs nothing
+    it does not use.
+
+    ``longest`` reproduces the old "nothing here could match anything" exit for
+    a dictionary of single characters, which the rewrite rule refuses
+    (:data:`_MIN_SURFACE_LEN`).
+    """
+    root: dict[str, object] = {}
+    longest = 0
+    for key in seg_dict:
+        if not isinstance(key, str) or not key:
+            continue
+        longest = max(longest, len(key))
+        node = root
+        for ch in key:
+            child = node.get(ch)
+            if child is None:
+                child = {}
+                node[ch] = child
+            node = child  # type: ignore[assignment]
+    return root, longest
+
+
 def _longest_match_at(
     tokens: list[ChineseToken],
     start: int,
     seg_dict: Mapping[str, Sequence[str]],
-    max_key_len: int,
+    trie: dict[str, object],
 ) -> tuple[Sequence[str] | None, int]:
     """Longest dictionary hit for the run beginning at ``tokens[start]``.
 
     Returns ``(pieces, end_index)`` — the replacement and the exclusive end
     of the consumed run — or ``(None, start)`` when nothing matches.
 
-    Extends the run one token at a time, stopping early at a source gap
-    (see :func:`apply_user_seg_dict`) or once the accumulated surface is
-    longer than any key. Keeps the last hit rather than the first, so
+    Extends the run one token at a time, stopping at a source gap (see
+    :func:`apply_user_seg_dict`) or as soon as the characters read leave the
+    trie — no key continues that way, so no longer run can match either (see
+    :func:`_prefix_trie`). Keeps the last hit rather than the first, so
     ``国家`` and ``国家通用`` both present resolves to the longer one.
     """
     best: Sequence[str] | None = None
     best_end = start
     acc = ""
+    node: dict[str, object] | None = trie
     j = start
-    while j < len(tokens) and len(acc) < max_key_len:
+    while j < len(tokens) and node:
         if j > start and not _source_adjacent(tokens[j - 1], tokens[j]):
             break
-        acc += tokens[j].surface
+        surface = tokens[j].surface
+        for ch in surface:
+            node = node.get(ch)  # type: ignore[assignment]
+            if node is None:
+                break
+        if node is None:
+            # This token already leaves the trie, so it is not part of any
+            # match: stop without consuming it.
+            break
+        acc += surface
         j += 1
         hit = seg_dict.get(acc)
         if hit:

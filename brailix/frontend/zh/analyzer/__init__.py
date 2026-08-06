@@ -178,6 +178,17 @@ def _check_analyzer_output(
     proofreader should be told; the document is still translatable, which is
     why it is not an error.
 
+    **What is checked is the span each token ends up with**, not only the ones
+    the adapter wrote down. Skipping ``span=None`` and comparing the explicit
+    ones to each other checks an ordering nothing downstream ever sees:
+    :func:`_local_spans` runs *after* this and fills the gaps from a cursor, so
+    a spanless token followed by an explicit span that points backwards passed
+    every check here and then produced ``(0,3)``, ``(3,3)``, ``(1,2)`` — the
+    exact overlap-and-run-backwards this function exists to refuse, assembled
+    out of two halves that were each fine on their own. So the cursor runs
+    here, in the same pass, and order and range are decided on the coordinates
+    the IR will carry.
+
     Checked for every adapter, built-in ones included: "trust ours, check
     theirs" would make the invariant untestable through the normal path, and
     the cost is one pass over a list that was just built. The surface
@@ -205,27 +216,35 @@ def _check_analyzer_output(
                 f"surface: str and pos: str | None"
             )
         span = tok.span
-        if span is None:
-            continue
-        if not isinstance(span, Span):
+        if span is not None and not isinstance(span, Span):
             raise FrontendContractError(
                 f"zh analyzer {adapter!r} token {i} ({tok.surface!r}) has span "
                 f"{span!r} of type {type(span).__name__}, not a Span"
             )
-        if span.end > len(text):
+        # The coordinates this token will actually carry: its own, or the ones
+        # :func:`_local_spans` is about to lay out from the same cursor.
+        if span is not None:
+            effective = span
+        else:
+            start = 0 if end_of_previous is None else end_of_previous
+            effective = Span(start, start + len(tok.surface))
+        if effective.end > len(text):
+            written = "has span" if span is not None else "is laid out at"
             raise FrontendContractError(
-                f"zh analyzer {adapter!r} token {i} ({tok.surface!r}) has span "
-                f"{span} reaching past the end of the {len(text)}-character "
-                f"text it analyzed"
+                f"zh analyzer {adapter!r} token {i} ({tok.surface!r}) "
+                f"{written} {effective}, reaching past the end of the "
+                f"{len(text)}-character text it analyzed"
             )
-        if end_of_previous is not None and span.start < end_of_previous:
+        if end_of_previous is not None and effective.start < end_of_previous:
             raise FrontendContractError(
                 f"zh analyzer {adapter!r} token {i} ({tok.surface!r}) starts at "
-                f"{span.start}, before the previous token ended at "
+                f"{effective.start}, before the previous token ended at "
                 f"{end_of_previous}; tokens must be ordered and non-overlapping"
             )
-        end_of_previous = span.end
-        if ctx is not None and (
+        end_of_previous = effective.end
+        # Only an adapter's *own* span can misdescribe the source; a
+        # synthesised one is this module's guess and says nothing about it.
+        if span is not None and ctx is not None and (
             span.length != len(tok.surface)
             or not text.startswith(tok.surface, span.start)
         ):
@@ -340,11 +359,12 @@ def _local_spans(tokens: list[ChineseToken]) -> list[Span]:
     A token whose adapter *did* give a span always wins, even where that
     contradicts the cursor: coordinates that came from a real analyzer are
     evidence about the source text, and a guess derived from surface lengths
-    is not. That deference is only affordable because the span has already
-    been checked: :func:`_check_analyzer_output` refuses an adapter's spans
-    outright if they leave the text or overlap each other, so what arrives
-    here disagrees with the cursor at worst about *which* characters a token
-    covers, never about whether the coordinates describe a source at all.
+    is not. That deference is only affordable because the result of this
+    layout has already been checked: :func:`_check_analyzer_output` runs the
+    same cursor over the same tokens and refuses the whole analysis if the
+    coordinates that come out of it leave the text or run backwards — which is
+    what mixing spanless tokens with explicit spans could otherwise produce,
+    with each half looking correct in isolation.
     """
     spans: list[Span] = []
     cursor = 0

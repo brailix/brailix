@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import struct
 import zipfile
 
 import pytest
@@ -144,7 +145,7 @@ class TestMxlArchiveCaps:
                 zf.writestr(name, data)
         return buf.getvalue()
 
-    def test_declared_member_count_is_refused_before_the_archive_opens(
+    def test_member_count_is_refused_before_the_archive_opens(
         self, monkeypatch
     ) -> None:
         import brailix.frontend.music.adapters.mxl as mxl_mod
@@ -163,19 +164,46 @@ class TestMxlArchiveCaps:
 
         monkeypatch.setattr(mxl_mod._zipfile, "ZipFile", _Tripwire)
         out = MxlSourceAdapter().to_musicxml(payload)
-        assert "declares 200 members" in out
+        assert "more than 8 members" in out
+        assert not opened
+
+    def test_an_understated_archive_is_refused_on_its_records(
+        self, monkeypatch
+    ) -> None:
+        # The End Of Central Directory count is written by the same party the
+        # cap exists to constrain, and ``ZipFile`` never reads it. 200 real
+        # records behind a one-entry claim still have to be refused.
+        import brailix.frontend.music.adapters.mxl as mxl_mod
+        from brailix.frontend.music.adapters.mxl import MxlSourceAdapter
+
+        payload = bytearray(self._archive({f"p{i}": b"" for i in range(200)}))
+        eocd = payload.rfind(b"PK\x05\x06")
+        struct.pack_into("<HH", payload, eocd + 8, 1, 1)
+        monkeypatch.setattr(mxl_mod, "_MAX_MEMBERS", 8)
+
+        opened = False
+
+        class _Tripwire(zipfile.ZipFile):
+            def __init__(self, *args, **kwargs):
+                nonlocal opened
+                opened = True
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(mxl_mod._zipfile, "ZipFile", _Tripwire)
+        out = MxlSourceAdapter().to_musicxml(bytes(payload))
+        assert "more than 8 members" in out
         assert not opened
 
     def test_a_zero_length_member_flood_is_cheap_to_refuse(self) -> None:
         # Under the real 1024 cap: tens of thousands of empty entries, a few
-        # hundred KB on disk, refused off the central-directory record instead
-        # of one ``ZipInfo`` per entry.
+        # hundred KB on disk, refused after a bounded walk of the central
+        # directory instead of one ``ZipInfo`` per entry.
         from brailix.frontend.music.adapters.mxl import MxlSourceAdapter
 
         payload = self._archive({f"p{i}": b"" for i in range(20_000)})
         assert len(payload) < 2 * 1024 * 1024
         out = MxlSourceAdapter().to_musicxml(payload)
-        assert "declares 20000 members" in out
+        assert "more than 1024 members" in out
 
     def test_cumulative_budget_bounds_the_whole_archive(
         self, monkeypatch

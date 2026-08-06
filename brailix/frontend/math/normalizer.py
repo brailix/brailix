@@ -141,13 +141,20 @@ def _drop_presentational(elem: _ET.Element) -> None:
     Runs before :func:`_collapse_singleton_mrows` so a renamed
     single-child wrapper collapses away like any other ``<mrow>``.
     """
+    # Collect, then replace the children once. ``Element.remove`` searches the
+    # child list and shifts everything after the hit, so dropping k of n
+    # children one call at a time is O(n·k) — and the elements this runs over
+    # are as wide as the formula, which nothing caps (the depth limit says
+    # nothing about width).
+    kept: list[_ET.Element] = []
+    dropped = False
     for child in list(elem):
         if (
             (child.tag == "mspace" and child.get("linebreak") != "newline")
             or child.tag == "mphantom"
             or _is_invisible_mo(child)
         ):
-            elem.remove(child)
+            dropped = True
             continue
         _drop_presentational(child)
         if child.tag in ("mstyle", "mpadded"):
@@ -156,6 +163,9 @@ def _drop_presentational(elem: _ET.Element) -> None:
                 k for k in child.attrib if not k.startswith("data-bk-")
             ]:
                 del child.attrib[key]
+        kept.append(child)
+    if dropped:
+        elem[:] = kept
 
 
 def _collapse_singleton_mrows(elem: _ET.Element) -> None:
@@ -180,12 +190,12 @@ def _collapse_singleton_mrows(elem: _ET.Element) -> None:
             new_children.append(grand)
         else:
             new_children.append(child)
-    # Replace the element's children, preserving order.
+    # Replace the element's children, preserving order — in one slice
+    # assignment. Removing them one by one shifted the rest of the list per
+    # call, so a single collapsed wrapper in a wide row cost a quadratic
+    # rebuild of every sibling beside it.
     if new_children != list(elem):
-        for c in list(elem):
-            elem.remove(c)
-        for c in new_children:
-            elem.append(c)
+        elem[:] = new_children
 
 
 # Binary operators / relations whose *immediate* repetition (``==``, ``<<``,
@@ -295,10 +305,7 @@ def _rewrite_degree_circle(elem: _ET.Element) -> None:
         else:
             new_children.append(child)
     if changed:
-        for c in list(elem):
-            elem.remove(c)
-        for c in new_children:
-            elem.append(c)
+        elem[:] = new_children
 
 
 def _inherit_provenance(target: _ET.Element, source: _ET.Element) -> None:

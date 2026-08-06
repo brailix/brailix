@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Iterator as _Iterator
 from dataclasses import dataclass as _dataclass
 from dataclasses import field as _field
+from operator import index as _index
 from typing import Any as _Any
 
 from brailix.core.span import Span
@@ -29,14 +30,17 @@ from brailix.ir import _serde
 # ---------------------------------------------------------------------------
 
 
-def _reject_non_int_dot(dot: _Any, dots: tuple[_Any, ...]) -> None:
-    """Raise unless ``dot`` is a genuine (non-``bool``) integer.
+def _int_dots(dots: tuple[_Any, ...]) -> tuple[int, ...]:
+    """``dots`` as plain ``int``\\ s, or raise naming the offending element.
 
     Split out of :meth:`BrailleCell.__post_init__` so the case that always
     holds costs one ``type(...) is int`` identity test per dot — a cell is
-    built for every character of every compile — and only a value that fails it
-    pays for the full decision. An ``int`` subclass other than ``bool`` is
-    accepted, matching :func:`brailix.core.span.Span`'s rule for offsets.
+    built for every character of every compile — and only a tuple holding
+    something else pays for the full decision. What counts as an integer is the
+    **integer protocol** (``__index__``), the same rule
+    :func:`brailix.core.span.Span` applies to offsets, so an
+    :class:`enum.IntEnum` and a ``numpy.int64`` are both dot positions and both
+    are kept as the ``int`` they stand for.
 
     The two rejections it exists for fail very differently without it. A
     ``float`` passes the ``1 <= d <= 8`` range test and only breaks at
@@ -46,19 +50,29 @@ def _reject_non_int_dot(dot: _Any, dots: tuple[_Any, ...]) -> None:
     a cell that renders as dot 1, and a document round-trips with a dot nobody
     wrote.
     """
-    if isinstance(dot, bool) or not isinstance(dot, int):
-        raise ValueError(
-            f"invalid dot {dot!r} in {dots!r}: dot positions must be "
-            f"integers 1..8, not {type(dot).__name__}"
-        )
+    out = []
+    for dot in dots:
+        if isinstance(dot, bool):
+            raise ValueError(
+                f"invalid dot {dot!r} in {dots!r}: dot positions must be "
+                f"integers 1..8, not bool"
+            )
+        try:
+            out.append(_index(dot))
+        except TypeError:
+            raise ValueError(
+                f"invalid dot {dot!r} in {dots!r}: dot positions must be "
+                f"integers 1..8, not {type(dot).__name__}"
+            ) from None
+    return tuple(out)
 
 
 @_dataclass(slots=True, frozen=True)
 class BrailleCell:
     """One braille cell.
 
-    ``dots`` is a tuple of dot positions — genuine integers 1..8, no
-    duplicates — normalised to ascending
+    ``dots`` is a tuple of dot positions — integers 1..8, no
+    duplicates — normalised to plain ``int`` and to ascending
     order in :meth:`__post_init__` so a cell's identity is its dot *set*:
     ``(2, 1)`` and ``(1, 2)`` compare equal and hash alike, matching the
     order-free unicode rendering. Frozen so cells are hashable and safe to
@@ -99,22 +113,28 @@ class BrailleCell:
     source_text: str | None = None
 
     def __post_init__(self) -> None:
-        for d in self.dots:
+        dots = self.dots
+        for d in dots:
             # Element TYPE before element value: the range test below compares
             # against ints and so says nothing useful about a dot that is not
-            # one (see :func:`_reject_non_int_dot`).
+            # one (see :func:`_int_dots`).
             if type(d) is not int:
-                _reject_non_int_dot(d, self.dots)
+                dots = _int_dots(dots)
+                break
+        for d in dots:
             if not (1 <= d <= 8):
                 raise ValueError(f"invalid dot {d}; must be 1..8")
-        if len(set(self.dots)) != len(self.dots):
-            raise ValueError(f"duplicate dots in {self.dots!r}")
+        if len(set(dots)) != len(dots):
+            raise ValueError(f"duplicate dots in {dots!r}")
         # Canonicalise dot order so equality / hashing match the cell's
         # rendering semantics: a cell *is* its dot set (the unicode renderer
         # OR-s the bits, order-free), so (2, 1) and (1, 2) must compare equal
         # and share a hash. frozen=True → write through object.__setattr__.
-        ordered = tuple(sorted(self.dots))
-        if ordered != self.dots:
+        # ``dots is not self.dots`` means a foreign integer scalar was
+        # normalised, which tuple equality alone would not show — a
+        # ``numpy.int64`` 1 compares equal to a plain 1.
+        ordered = tuple(sorted(dots))
+        if dots is not self.dots or ordered != self.dots:
             object.__setattr__(self, "dots", ordered)
 
     @property

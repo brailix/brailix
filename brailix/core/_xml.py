@@ -182,7 +182,6 @@ _XML_DECL_SIGNATURES: tuple[tuple[bytes, str], ...] = (
 _XML_DECL_ENCODING = _re.compile(
     rb"""\bencoding\s*=\s*["']([A-Za-z][A-Za-z0-9._-]*)["']"""
 )
-_XML_DECL_SCAN_BYTES = 1024
 
 
 def _decode_as(raw: bytes, codec: str, how: str) -> str:
@@ -195,10 +194,20 @@ def _decode_as(raw: bytes, codec: str, how: str) -> str:
 
 
 def _declared_encoding(raw: bytes) -> str | None:
-    """The encoding named by ``raw``'s XML declaration, or ``None``."""
+    """The encoding named by ``raw``'s XML declaration, or ``None``.
+
+    The search for the declaration's end is over the whole payload, not a
+    window into it. A 1024-byte cap looks like a cheap guard and is a
+    correctness bug: XML puts no length limit on a declaration, so a legal
+    document whose ``?>`` sits past the cap read as "no declaration", fell back
+    to UTF-8 and failed to decode — while an XML parser handed the same bytes
+    parses them. The scan is linear and the payload is already bounded by the
+    caller's own size limits, so a second, invented bound here bought nothing
+    and refused real input.
+    """
     if not raw.startswith(b"<?xml"):
         return None
-    end = raw.find(b"?>", 0, _XML_DECL_SCAN_BYTES)
+    end = raw.find(b"?>")
     if end < 0:
         return None
     match = _XML_DECL_ENCODING.search(raw, 0, end)
