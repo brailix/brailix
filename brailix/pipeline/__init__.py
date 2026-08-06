@@ -25,12 +25,14 @@ Typical usage::
 Package layout
 --------------
 
-**This file is a facade and holds nothing else.** What resolves at
+**This file re-exports and holds nothing else.** What resolves at
 ``brailix.pipeline`` is exactly :data:`__all__` — the orchestrator, the
 module-level graphics entry, the result / value types and the cache-key
 digest — because an import path is an address a third party can reach, and
 the top-level package takes its own re-exports from here, so this is the one
-internal namespace that reads like a published one. It used to carry the
+internal namespace that reads like a published one. It is not one: the
+supported address for every name below is :mod:`brailix` itself (see that
+package's docstring, which is the single authority on what is supported). It used to carry the
 orchestrator's implementation as well, and with it ``Paragraph``, ``Span``,
 ``DocumentIR``, ``BackendContext`` and two dozen more names it merely *used*:
 each of those is supported at ``brailix.ir`` / ``brailix.core``, so reaching
@@ -93,12 +95,18 @@ from brailix.pipeline._results import (
     TreeSubcache,
 )
 
-# The stable surface of this package — and, since nothing else is bound here,
-# the whole of what ``brailix.pipeline`` resolves. Nothing underscore-prefixed
-# belongs in it: a name that says "private" while sitting in a list that says
-# "public" is a contradiction a third party would resolve in the wrong
-# direction. ``tests/test_public_api.py`` pins both halves — this list, and
-# that the namespace holds nothing beyond it.
+# Everything this package resolves to, since nothing else is bound here.
+# Nothing underscore-prefixed belongs in it: a name that says "private" while
+# sitting in a list that says "public" is a contradiction a third party would
+# resolve in the wrong direction. ``tests/test_public_api.py`` pins both
+# halves — this list, and that the namespace holds nothing beyond it.
+#
+# **Pinned is not the same as supported.** The address to import these from is
+# the top-level :mod:`brailix` package, which is what the documentation names
+# and what the compatibility promise covers; this path is internal like every
+# path outside the facades. It is pinned anyway because it is reachable, and
+# because it is exactly where private helpers accumulated before a review
+# caught them.
 __all__ = [
     "Pipeline",
     "translate_graphic",

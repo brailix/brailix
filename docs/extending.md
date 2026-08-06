@@ -25,7 +25,9 @@ Each token's `span` is what makes the result traceable: it says which characters
 3. A span reaching past the end of the text you were given.
 4. Spans that overlap each other or run backwards. Consecutive tokens must be ordered, so each token starts at or after the point where the previous one ended.
 
-Two things are deliberately allowed. You may omit spans entirely, in which case brailix lays them out from a running cursor. And a token's surface need not be the text its span points at: a tokenizer that normalises its input (full-width digits to half-width, say) legitimately reports a word that is not in the source as written, and brailix records that as a `TOKEN_SPAN_MISMATCH` warning rather than failing the document, because the braille is still correct even though the coordinates for that one word are approximate.
+Rules 3 and 4 are applied to the span each token *ends up with*, which matters if you omit some. You may omit spans — brailix lays the missing ones out from a running cursor — but the check runs that cursor too, so a spanless token followed by a span pointing back into it is refused even though each token would look correct on its own. If you supply spans at all, supplying them for every token is the way to be sure of what you are claiming.
+
+One thing is deliberately allowed: a token's surface need not be the text its span points at. A tokenizer that normalises its input (full-width digits to half-width, say) legitimately reports a word that is not in the source as written, and brailix records that as a `TOKEN_SPAN_MISMATCH` warning rather than failing the document, because the braille is still correct even though the coordinates for that one word are approximate.
 
 The worked example below keeps a cursor so its spans stay ordered, and handles the case that produces most of these violations in practice: `str.find` returning `-1` for a word the tokenizer changed.
 
@@ -85,6 +87,8 @@ Add a matching `lac = ["lac"]` extra in `pyproject.toml` so the `extra="lac"` hi
 ## Add a pinyin engine
 
 The protocol is `PinyinResolver`: `name` plus `resolve(tokens, ctx)`. The resolver fills each token's `pinyin` field (numeric-tone form) and must not change token boundaries or types; low-confidence readings should be reported through `ctx.warnings`. Register with `resolver_registry` from `brailix.frontend.zh.pinyin.registry`, then select it with `Pipeline(profile="cn_current", resolver="your-name")`.
+
+The two fields you may write are checked on the way back, with the same `FrontendContractError` naming your adapter and the token: `pinyin` is a string or `None`, and `confidence` is a probability — a finite number in `[0, 1]`, since brailix compares it against a threshold to decide whether to warn about the reading. An integer is accepted and stored as the `float` the field declares. Everything else about a token — how many there are, their order, surface, span and `pos` — is compared against what you were handed.
 
 "Must not change boundaries or types" is checked, not merely asked for. brailix compares the tokens you return against the ones it handed you, and raises `FrontendContractError` if the number of tokens, their order, or any surface, span or part-of-speech tag has moved. The two fields a resolver owns are `pinyin` and `confidence`; return the same tokens with those filled in, either by building fresh ones with `dataclasses.replace` or by handing back the list you were given. Segmentation belongs to the analyzer, so a word you would rather see divided differently is a matter for a `ChineseAnalyzer`, not for a resolver that splits it on the way past.
 
