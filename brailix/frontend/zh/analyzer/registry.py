@@ -43,3 +43,11 @@ def _register_builtin() -> None:
 
 
 _register_builtin()
+
+
+# A registry module is on the **extension surface** (see :mod:`brailix`): the
+# address an adapter author registers a loader with. It publishes the registry
+# and nothing else — ``ChineseAnalyzer`` is promised from
+# :mod:`brailix.frontend.zh.analyzer` and ``Registry`` is internal machinery,
+# yet ``from ... import *`` handed out both until this list said otherwise.
+__all__ = ("analyzer_registry",)

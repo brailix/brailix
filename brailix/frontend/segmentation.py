@@ -505,3 +505,13 @@ def segment(block, ctx: FrontendContext | None = None) -> list[Segment]:
     if ctx is not None and ctx.options:
         name = ctx.options.get("segmenter", AUTO_SEGMENTER)
     return segmenter_registry.get(name).segment(block, ctx)
+
+
+# This module publishes its registry — promised on the **extension surface**
+# (see :mod:`brailix`), which is where a third-party segmenter registers — and
+# the subsystem entry point the orchestrator calls, which the
+# :mod:`brailix.frontend` facade re-exports. The concrete adapters, the
+# adapter-name constants and the character-class helpers are internal, and
+# ``from ... import *`` was offering all of them (along with ``Block``,
+# ``Segment``, ``Span`` and ``Registry``) until this list said otherwise.
+__all__ = ("segmenter_registry", "segment")

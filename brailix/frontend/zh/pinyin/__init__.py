@@ -11,11 +11,16 @@ lazily prefers ``g2pm`` → ``g2pw`` → ``pypinyin`` → ``null``).
 from __future__ import annotations
 
 from dataclasses import replace as _replace
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 from typing import Protocol as _Protocol
 from typing import runtime_checkable as _runtime_checkable
 
 from brailix.core.context import FrontendContext
+from brailix.core.errors import FrontendContractError
 from brailix.frontend.zh.tokens import ChineseToken
+
+if _TYPE_CHECKING:
+    from brailix.core.span import Span
 
 # The ``auto`` adapter's registered name — what a caller who names
 # nothing gets. Matches the corresponding :class:`brailix.Pipeline`
@@ -35,6 +40,12 @@ class PinyinResolver(_Protocol):
     :class:`~brailix.core.errors.WarningCollector`. ``ctx`` may be ``None``
     so callers (notably the ``auto`` delegating adapter) can pass through
     whatever they received.
+
+    "Must not change boundaries or types" is enforced, not merely stated:
+    :func:`annotate` compares what comes back against what went in and raises
+    :class:`~brailix.core.errors.FrontendContractError` if the count, order,
+    surfaces, spans or POS moved (see :func:`_check_resolver_output`).
+    ``pinyin`` and ``confidence`` are the two fields a resolver owns.
 
     Lives here rather than in :mod:`brailix.core.protocols`: a reading engine
     is a Chinese concern — the language declares what can be chosen for it —
@@ -70,12 +81,70 @@ def annotate(
 
     from brailix.frontend.zh.pinyin.registry import resolver_registry
 
+    # Snapshotted BEFORE the call, not compared against ``tokens`` after it:
+    # the ``null`` resolver hands back the caller's own objects, so a resolver
+    # that rewrote a surface in place would be comparing each token with
+    # itself and every check would pass.
+    identity = [(t.surface, t.span, t.pos) for t in tokens]
     resolved = resolver_registry.get(name).resolve(tokens, ctx)
+    _check_resolver_output(identity, resolved, name)
     if user_dict:
         _apply_user_dict(resolved, user_dict)
         if ctx is not None:
             _suppress_low_confidence(ctx, user_dict)
     return resolved
+
+
+def _check_resolver_output(
+    before: list[tuple[str, Span | None, str | None]],
+    after: object,
+    adapter: str,
+) -> None:
+    """Verify a resolver annotated the tokens rather than rewriting them.
+
+    :class:`PinyinResolver` says in as many words that a resolver "must not
+    change token boundaries or types" — a rule that was stated in three
+    docstrings and checked nowhere, while :func:`annotate` handed the
+    adapter's return value straight back to the orchestrator. The registry is
+    open, so the tokens a third party returns become the document: the
+    surfaces get written as braille, the spans become every resulting cell's
+    source coordinates, and the POS rides into the IR.
+
+    A resolver fills in readings. It may therefore change ``pinyin`` and
+    ``confidence`` and nothing else — not the number of tokens, not their
+    order, not a surface, span or POS. Each of those is checked against the
+    list that went in, so a resolver that silently re-segments (or drops a
+    token it could not read) is named here instead of surfacing later as
+    braille that does not match the source.
+
+    Identity is deliberately NOT required: the ``null`` resolver returns the
+    caller's own token objects while the others build fresh ones with
+    :func:`dataclasses.replace`, and both are correct.
+    """
+    if not isinstance(after, list):
+        raise FrontendContractError(
+            f"pinyin resolver {adapter!r} returned {type(after).__name__}, not "
+            f"a list of ChineseToken"
+        )
+    if len(after) != len(before):
+        raise FrontendContractError(
+            f"pinyin resolver {adapter!r} returned {len(after)} tokens for "
+            f"{len(before)} given; a resolver fills in readings, it does not "
+            f"re-segment"
+        )
+    for i, (was, now) in enumerate(zip(before, after, strict=True)):
+        if not isinstance(now, ChineseToken):
+            raise FrontendContractError(
+                f"pinyin resolver {adapter!r} returned {type(now).__name__} at "
+                f"index {i}, not a ChineseToken"
+            )
+        if (now.surface, now.span, now.pos) != was:
+            raise FrontendContractError(
+                f"pinyin resolver {adapter!r} changed token {i} from "
+                f"surface={was[0]!r} span={was[1]} pos={was[2]!r} to "
+                f"surface={now.surface!r} span={now.span} pos={now.pos!r}; "
+                f"only pinyin and confidence may change"
+            )
 
 
 def list_resolvers() -> list[str]:

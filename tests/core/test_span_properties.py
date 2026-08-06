@@ -36,10 +36,23 @@ def spans(draw: st.DrawFn) -> Span:
     return Span(start, start + length)
 
 
+# Scalar soup for the *type* dimension of the contract: what a malformed
+# persisted document could smuggle into a ``span`` field, and equally what a
+# caller can hand the constructor directly. Shared by both — the two paths are
+# held to one contract, so they are generated from one strategy.
+_JUNK_SCALARS = st.one_of(
+    st.none(),
+    st.booleans(),
+    st.integers(-5, 5),
+    st.floats(allow_nan=False, allow_infinity=False),
+    st.text(max_size=3),
+)
+
+
 class TestConstruction:
     @given(start=st.integers(-_MAX, _MAX), end=st.integers(-_MAX, _MAX))
     def test_valid_iff_ordered_and_nonnegative(self, start: int, end: int) -> None:
-        # The constructor's whole contract: accept exactly the half-open
+        # The constructor's ORDER contract: accept exactly the half-open
         # ranges ``0 <= start <= end``, reject everything else loudly.
         if 0 <= start <= end:
             s = Span(start, end)
@@ -48,6 +61,53 @@ class TestConstruction:
         else:
             with pytest.raises(ValueError):
                 Span(start, end)
+
+    @given(start=_JUNK_SCALARS, end=_JUNK_SCALARS)
+    def test_direct_construction_takes_exactly_the_types_from_tuple_does(
+        self, start: object, end: object
+    ) -> None:
+        """The **type** half of the same contract, over mixed scalars.
+
+        The generator above draws integers only, so the whole type dimension of
+        the direct constructor went untested and the two construction paths
+        were free to disagree — which they did. ``Span.from_tuple`` refused a
+        ``bool`` and a ``float`` while ``Span(True, True)`` and
+        ``Span(1.5, 2.5)`` were built and travelled on: a boolean offset
+        silently reads as position 1, and a float one flows into slicing,
+        merging, serialization and proofreading jumps. One class, one contract,
+        whichever way a span is built — so this asserts the constructor accepts
+        a value **iff** :meth:`Span.from_tuple` accepts the pair containing it.
+        """
+        # ``and`` short-circuits, so the order comparison is only reached once
+        # both offsets are known to be genuine ints.
+        ok = all(
+            isinstance(v, int) and not isinstance(v, bool) for v in (start, end)
+        ) and 0 <= start <= end
+        if ok:
+            assert Span(start, end).to_tuple() == (start, end)
+        else:
+            with pytest.raises(ValueError):
+                Span(start, end)
+            with pytest.raises(ValueError):
+                Span.from_tuple([start, end])
+
+    def test_an_int_subclass_that_is_not_bool_is_still_an_offset(self) -> None:
+        """The rejection is of ``bool`` specifically, not of subclassing.
+
+        ``isinstance`` has always been the deserialization boundary's test, so
+        an :class:`enum.IntEnum` (or a numpy integer) is a legitimate offset;
+        the fast ``type(...) is int`` path in the constructor must fall through
+        to the full check rather than reject it.
+        """
+        import enum
+
+        class Offset(enum.IntEnum):
+            START = 2
+            END = 5
+
+        span = Span(Offset.START, Offset.END)
+        assert (span.start, span.end) == (2, 5)
+        assert span.length == 3
 
 
 class TestMerge:
@@ -151,19 +211,12 @@ class TestShift:
             assert s.shift(offset).start == s.start + offset
 
 
-# Payload soup for the JSON boundary: things a malformed persisted document
-# could plausibly smuggle into a ``span`` field.
-_junk_scalars = st.one_of(
-    st.none(),
-    st.booleans(),
-    st.integers(-5, 5),
-    st.floats(allow_nan=False, allow_infinity=False),
-    st.text(max_size=3),
-)
+# Payload soup for the JSON boundary: the scalars above, plus the container
+# shapes a ``span`` field can arrive in.
 _payloads = st.one_of(
-    _junk_scalars,
-    st.lists(_junk_scalars, max_size=4),
-    st.tuples(_junk_scalars, _junk_scalars),
+    _JUNK_SCALARS,
+    st.lists(_JUNK_SCALARS, max_size=4),
+    st.tuples(_JUNK_SCALARS, _JUNK_SCALARS),
 )
 
 

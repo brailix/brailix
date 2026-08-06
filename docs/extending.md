@@ -18,6 +18,17 @@ The protocol is `ChineseAnalyzer`: an object with a `name` and an `analyze(text,
 
 Import the IR and core types from the shallow facades (`brailix.ir`, `brailix.core`) the way any other caller does — those are the names the [API reference](https://brailix.github.io/brailix/) pins. The protocols and the registries sit deeper, at `brailix.core.protocols` and each subsystem's own path, since a registry belongs with the pluggable family it serves. One core type sits deeper too: `BrailleProfile`, which every `LanguageBackend` method takes, is imported from `brailix.core.config`, the sub-package that owns profile loading. That extension surface carries the same compatibility promise as the facades and is pinned by its own manifest in the test suite, so neither a registry path nor that type can be renamed out from under your adapter — everything else under those subsystems (the built-in adapters, the normalizers, the dispatch tables) stays internal.
 
+Each token's `span` is what makes the result traceable: it says which characters of `text` the token was read from, and every braille cell produced from that token inherits those coordinates as the source a proofreader jumps back to. brailix therefore checks the tokens as they come back from your `analyze`, and refuses four things outright with a `FrontendContractError` naming your adapter and the offending token.
+
+1. A result that is not a list of `ChineseToken`.
+2. A token whose `surface` is not a string, or whose `pos` is neither a string nor `None`.
+3. A span reaching past the end of the text you were given.
+4. Spans that overlap each other or run backwards. Consecutive tokens must be ordered, so each token starts at or after the point where the previous one ended.
+
+Two things are deliberately allowed. You may omit spans entirely, in which case brailix lays them out from a running cursor. And a token's surface need not be the text its span points at: a tokenizer that normalises its input (full-width digits to half-width, say) legitimately reports a word that is not in the source as written, and brailix records that as a `TOKEN_SPAN_MISMATCH` warning rather than failing the document, because the braille is still correct even though the coordinates for that one word are approximate.
+
+The worked example below keeps a cursor so its spans stay ordered, and handles the case that produces most of these violations in practice: `str.find` returning `-1` for a word the tokenizer changed.
+
 ```python
 # mypkg/lac_adapter.py
 from brailix.core import Span
@@ -29,12 +40,26 @@ class LacAnalyzer:
     name = "lac"
 
     def analyze(self, text, ctx=None):
-        words = _run_lac(text)           # your tokenizer
         out, cursor = [], 0
-        for w in words:
+        for w in _run_lac(text):                 # your tokenizer
             start = text.find(w, cursor)
-            out.append(ChineseToken(surface=w, pos=None, span=Span(start, start + len(w))))
-            cursor = start + len(w)
+            if start < 0:
+                # Your tokenizer changed this word, so it is not in the source
+                # as written. Anchor it at the cursor and say so — building
+                # Span(-1, ...) raises, and guessing silently would send a
+                # proofreader to the wrong character.
+                start = cursor
+                if ctx is not None:
+                    ctx.warnings.warn(
+                        code="LAC_WORD_NOT_IN_TEXT",
+                        message=f"lac returned {w!r}, absent from the source at {cursor}",
+                        surface=w,
+                        span=Span(cursor, cursor),
+                        source="lac",
+                    )
+            end = min(start + len(w), len(text))
+            out.append(ChineseToken(surface=w, pos=None, span=Span(start, end)))
+            cursor = end                          # keeps the spans ordered
         return out
 
 
@@ -44,6 +69,8 @@ def _load():
 
 analyzer_registry.register("lac", _load, extra="lac")
 ```
+
+Searching from `cursor` rather than from the start of the text is what makes a repeated word resolve to the right occurrence: in `很好，很好` the second `很好` is found at position three, not at position zero again.
 
 Once registered, select it by name — a `Pipeline` always names its braille standard as well, since there is no default profile:
 
@@ -58,6 +85,8 @@ Add a matching `lac = ["lac"]` extra in `pyproject.toml` so the `extra="lac"` hi
 ## Add a pinyin engine
 
 The protocol is `PinyinResolver`: `name` plus `resolve(tokens, ctx)`. The resolver fills each token's `pinyin` field (numeric-tone form) and must not change token boundaries or types; low-confidence readings should be reported through `ctx.warnings`. Register with `resolver_registry` from `brailix.frontend.zh.pinyin.registry`, then select it with `Pipeline(profile="cn_current", resolver="your-name")`.
+
+"Must not change boundaries or types" is checked, not merely asked for. brailix compares the tokens you return against the ones it handed you, and raises `FrontendContractError` if the number of tokens, their order, or any surface, span or part-of-speech tag has moved. The two fields a resolver owns are `pinyin` and `confidence`; return the same tokens with those filled in, either by building fresh ones with `dataclasses.replace` or by handing back the list you were given. Segmentation belongs to the analyzer, so a word you would rather see divided differently is a matter for a `ChineseAnalyzer`, not for a resolver that splits it on the way past.
 
 ## Add a math source format
 

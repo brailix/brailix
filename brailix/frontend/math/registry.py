@@ -72,3 +72,9 @@ def _register_builtin() -> None:
 
 
 _register_builtin()
+
+
+# See :mod:`brailix.frontend.zh.analyzer.registry`: a registry module publishes
+# its registry and nothing else. ``MathSourceAdapter`` is promised from
+# :mod:`brailix.core.protocols`, ``Registry`` is internal machinery.
+__all__ = ("math_source_registry",)

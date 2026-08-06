@@ -44,3 +44,9 @@ def _register_builtin() -> None:
 
 
 _register_builtin()
+
+
+# See :mod:`brailix.frontend.zh.analyzer.registry`: a registry module publishes
+# its registry and nothing else. ``PinyinResolver`` is promised from
+# :mod:`brailix.frontend.zh.pinyin`, ``Registry`` is internal machinery.
+__all__ = ("resolver_registry",)

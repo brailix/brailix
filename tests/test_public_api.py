@@ -124,6 +124,7 @@ _FACADE: dict[str, list[str]] = {
         "BackendContractError",
         "BrailixError",
         "ConfigurationError",
+        "FrontendContractError",
         "IncompatibleDependencyError",
         "IncompatibleRendererError",
         "MissingExtraError",
@@ -531,6 +532,19 @@ _SUBSYSTEM_ENTRY_POINTS: dict[str, set[str]] = {
         "list_resolvers",
         "available_resolvers",
     },
+    # Japanese's counterpart of the Chinese entry above. Shorter because the
+    # language has one subsystem and no resolver: there is no
+    # ``available_analyzers`` picker and no span-shifting helper.
+    "brailix.frontend.ja.analyzer": {
+        "analyze",
+        "list_analyzers",
+        "tokens_to_inline",
+    },
+    # The two language-neutral frontend stages. Each is promised here for its
+    # registry and publishes the stage function the orchestrator calls, which
+    # the ``brailix.frontend`` facade re-exports under the same name.
+    "brailix.frontend.segmentation": {"segment"},
+    "brailix.frontend.normalization": {"normalize"},
 }
 
 
@@ -550,9 +564,24 @@ def test_extension_module_publishes_no_more_than_it_promises(module: str) -> Non
     lying to the guard; the guard simply never asked.
 
     Equality rather than a subset check, so a name cannot be promised here and
-    then quietly dropped from ``__all__`` either. A module with no ``__all__``
-    is the normal shape for a registry module (there is no facade to publish
-    from) and passes: what it offers is pinned by the presence check above.
+    then quietly dropped from ``__all__`` either.
+
+    **A missing ``__all__`` fails.** It used to return early — "the normal
+    shape for a registry module, and what it offers is pinned by the presence
+    check above" — which quietly exempted eight of the sixteen modules on this
+    manifest from the only check that looks the other way. What they published
+    in the meantime is what an exemption always turns out to have been hiding:
+    ``brailix.frontend.ja.analyzer`` handed ``Span``, ``InlineNode``, ``Space``
+    and ``Word`` to ``import *`` at an address the extension guide sends
+    adapter authors to; every registry module offered ``Registry`` and its
+    subsystem's protocol; ``brailix.backend.dispatch`` offered two dozen IR
+    node types. None of it was ever promised, and the presence check cannot
+    see any of it — it only asks whether the promised names are still there.
+
+    The rule this restores is the top-level policy's own: ``__all__`` *is* the
+    promise, so a module that makes one has to state it. Writing the list is
+    also the cheapest half of the fix — it costs one literal per module and it
+    is what ``import *`` reads.
 
     Modules that are *also* end-user facades (``brailix.frontend``,
     ``brailix.renderer`` — they carry a registry as well as their own surface)
@@ -568,10 +597,14 @@ def test_extension_module_publishes_no_more_than_it_promises(module: str) -> Non
     """
     mod = importlib.import_module(module)
     published = getattr(mod, "__all__", None)
-    if published is None:
-        return
     expected = set(_EXTENSION_SURFACE[module]) | _SUBSYSTEM_ENTRY_POINTS.get(
         module, set()
+    )
+    assert published is not None, (
+        f"{module} is on the extension manifest but declares no __all__, so "
+        f"``from {module} import *`` publishes every non-underscore name it "
+        f"binds — implementation imports included — and no check can say what "
+        f"it promises. Add ``__all__ = {tuple(sorted(expected))!r}``."
     )
     assert set(published) == expected, (
         f"{module}.__all__ is {sorted(published)} but the extension manifest "

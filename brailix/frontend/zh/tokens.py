@@ -38,7 +38,9 @@ class ChineseToken:
 
     The ``pinyin`` field is initially ``None`` and filled in by a
     :class:`~brailix.frontend.zh.pinyin.PinyinResolver`. The resolver
-    must not change the token's surface or span.
+    must not change the token's surface or span — checked at
+    :func:`brailix.frontend.zh.pinyin.annotate`, which compares the tokens
+    coming back against the ones it handed over.
     """
 
     surface: str

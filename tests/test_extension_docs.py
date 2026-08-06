@@ -30,6 +30,7 @@ every check below vacuous while still passing.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import re
 from pathlib import Path
@@ -314,6 +315,151 @@ def test_no_extension_document_names_a_retired_type(doc: tuple[str, str]) -> Non
         f"_LEGACY_TYPE_ALIASES) and belong in that note, not in a description "
         f"of the model an extender writes against."
     )
+
+
+# ---------------------------------------------------------------------------
+# The guide's analyzer example is RUN, against the boundary it has to satisfy
+# ---------------------------------------------------------------------------
+#
+# The backend example above is checked for the shape of its method set, which
+# is all a Protocol can be checked against. An analyzer example needs more than
+# that, because what makes one wrong is not its methods but the *tokens* it
+# produces: the guide's version searched with ``text.find`` and built
+# ``Span(start, start + len(w))`` from the result without ever testing it, so
+# the first word the tokenizer normalised returned ``-1`` and the reader's
+# adapter died inside ``Span.__post_init__`` — in library code, for a mistake
+# the guide had handed them. Nothing here could see it: the checks read
+# imports, method sets and signatures, none of which the example got wrong.
+#
+# So this one is executed, exactly as the document prints it, and driven
+# through the real ``tokenize`` boundary with the inputs that break a naive
+# alignment loop: a repeated word, a word the tokenizer rewrote, and a word
+# running off the end of the text.
+
+
+@contextlib.contextmanager
+def _guide_analyzer_module(text: str, rel: str):  # noqa: ANN201
+    """Execute the guide's analyzer example, yielding its namespace.
+
+    ``_run_lac`` is the one name the example leaves to the reader (it stands
+    for their tokenizer), so it is injected; everything else in the block —
+    the imports, the class, and the ``analyzer_registry.register`` line — is
+    the document's own code, run as written. That registration is real, which
+    is why the whole exec sits inside ``Registry.overriding()``: the example's
+    own line is what puts ``"lac"`` in the registry for the body of the test,
+    and the snapshot takes it back out again afterwards.
+    """
+    from brailix.frontend.zh.analyzer.registry import analyzer_registry
+
+    blocks = [b for b in _CODE_FENCE.findall(text) if "analyzer_registry.register" in b]
+    assert len(blocks) == 1, (
+        f"{rel}: found {len(blocks)} code blocks registering a Chinese "
+        f"analyzer, expected exactly one — the scan went stale, so the check "
+        f"below is passing on nothing"
+    )
+    with analyzer_registry.overriding():
+        namespace: dict[str, object] = {"_run_lac": lambda t: []}
+        exec(blocks[0], namespace)  # noqa: S102 — running the example IS the test
+        assert analyzer_registry.has("lac"), (
+            f"{rel}: the example's own registration line did not take effect"
+        )
+        yield namespace
+
+
+@pytest.mark.parametrize("doc", _guides(), ids=lambda d: d[0])
+def test_the_guides_analyzer_example_survives_its_own_alignment_cases(
+    doc: tuple[str, str],
+) -> None:
+    """The example, run over the inputs that produce mis-aligned tokens.
+
+    Each case asserts the *frontend contract* the library now enforces at
+    ``tokenize``, so a future edit to the guide that reintroduces a naive
+    ``find`` loop fails here rather than in a plugin author's installation.
+    """
+    from brailix.core.context import FrontendContext
+    from brailix.core.errors import FrontendContractError
+    from brailix.frontend.zh.analyzer import tokenize
+
+    rel, text = doc
+    cases = [
+        # A repeated word: the second 很好 must resolve to its own occurrence,
+        # which is what searching from the cursor buys.
+        ("很好，很好", ["很好", "，", "很好"], [(0, 2), (2, 3), (3, 5)]),
+        # A word the tokenizer rewrote (full-width to half-width): not in the
+        # source as written, so ``find`` returns -1. The naive version built
+        # Span(-1, 2) here and raised.
+        ("ＡＢＣ好", ["ABC", "好"], [(0, 3), (3, 4)]),
+        # A rewritten word at the very end, longer than what is left of the
+        # text: the span has to be clamped, not run past it.
+        ("好", ["好好好"], [(0, 1)]),
+        # Nothing at all: an empty text must not produce a token either.
+        ("", [], []),
+    ]
+
+    with _guide_analyzer_module(text, rel) as namespace:
+        for source, words, expected in cases:
+            namespace["_run_lac"] = lambda _t, _w=words: list(_w)
+            ctx = FrontendContext("cn_current", options={"zh_analyzer": "lac"})
+            try:
+                tokens = tokenize(source, ctx)
+            except FrontendContractError as exc:  # pragma: no cover - the bug
+                pytest.fail(
+                    f"{rel}: the guide's analyzer example violates the "
+                    f"frontend contract on {source!r} → {words}: {exc}"
+                )
+            assert [t.span.to_tuple() for t in tokens] == expected, (
+                f"{rel}: on {source!r} → {words}"
+            )
+            assert [t.surface for t in tokens] == words
+
+
+@pytest.mark.parametrize("doc", _guides(), ids=lambda d: d[0])
+def test_the_guides_analyzer_example_reports_what_it_could_not_place(
+    doc: tuple[str, str],
+) -> None:
+    """Anchoring a rewritten word at the cursor is a guess, and the example
+    has to say so — otherwise a proofreader is sent to those characters with
+    no indication that the coordinates are approximate.
+
+    Two warnings are expected and both are wanted: the adapter's own, which
+    names the word its tokenizer invented, and brailix's ``TOKEN_SPAN_MISMATCH``
+    from the boundary check, which is what a reader gets from *any* adapter
+    whose surfaces do not match the source.
+    """
+    from brailix.core.context import FrontendContext
+    from brailix.frontend.zh.analyzer import tokenize
+
+    rel, text = doc
+    ctx = FrontendContext("cn_current", options={"zh_analyzer": "lac"})
+    with _guide_analyzer_module(text, rel) as namespace:
+        namespace["_run_lac"] = lambda _t: ["ABC", "好"]
+        tokenize("ＡＢＣ好", ctx)
+
+    codes = [w.code for w in ctx.warnings]
+    assert "TOKEN_SPAN_MISMATCH" in codes, f"{rel}: {codes}"
+    assert any(w.code.endswith("_WORD_NOT_IN_TEXT") for w in ctx.warnings), (
+        f"{rel}: the example placed a word it could not find without warning "
+        f"about it: {codes}"
+    )
+
+
+def test_the_naive_alignment_loop_really_does_break() -> None:
+    """The shape the guide used to print, kept as the reason the one above is
+    written the way it is.
+
+    Without this, the example could quietly go back to ``Span(start, start +
+    len(w))`` on a checkout where no test input happens to be normalised, and
+    every check would stay green.
+    """
+    from brailix.core.span import Span
+
+    text, words = "ＡＢＣ好", ["ABC", "好"]
+    cursor = 0
+    with pytest.raises(ValueError):
+        for w in words:
+            start = text.find(w, cursor)
+            Span(start, start + len(w))  # start == -1 on the first word
+            cursor = start + len(w)
 
 
 class TestTheDocumentScans:
