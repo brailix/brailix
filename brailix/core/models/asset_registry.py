@@ -20,12 +20,9 @@ side effect of creating directories in the wrong cwd.
 from __future__ import annotations
 
 import threading as _threading
+from collections.abc import Callable as _Callable
 from dataclasses import dataclass as _dataclass
-from typing import TYPE_CHECKING as _TYPE_CHECKING
-
-if _TYPE_CHECKING:
-    from collections.abc import Callable
-    from pathlib import Path
+from pathlib import Path as _Path
 
 
 @_dataclass(frozen=True)
@@ -39,9 +36,9 @@ class ModelAsset:
 
     name: str
     display_name_key: str
-    install_dir_factory: Callable[[], Path]
+    install_dir_factory: _Callable[[], _Path]
 
-    def install_dir(self) -> Path:
+    def install_dir(self) -> _Path:
         """Resolve the install directory.  May create the parent ``models/<...>/``."""
         return self.install_dir_factory()
 

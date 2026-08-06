@@ -7,37 +7,52 @@ back to its source characters.
 
 from __future__ import annotations
 
+from collections.abc import Iterable as _Iterable
 from dataclasses import dataclass as _dataclass
-from typing import TYPE_CHECKING as _TYPE_CHECKING
-
-if _TYPE_CHECKING:
-    from collections.abc import Iterable
-    from typing import Any
+from operator import index as _index
+from typing import Any as _Any
 
 
-def _reject_non_int_offsets(start: Any, end: Any) -> None:
-    """Raise unless both offsets are genuine (non-``bool``) integers.
+def _int_offset(value: _Any, start: _Any, end: _Any) -> int:
+    """The offset ``value`` stands for, as a plain ``int``, or raise.
 
     Split out of :meth:`Span.__post_init__` so the path that always holds
     costs two ``type(...) is int`` identity tests and nothing else: a Span is
     built for every token, every inline node and every braille cell of every
     compile, so the check has to be effectively free in the case where it
     passes. Only a value that fails the fast test reaches this function, which
-    then decides whether it is a legitimate ``int`` subclass or a rejection.
+    then decides whether it is a legitimate integer or a rejection.
 
-    An ``int`` subclass that is not ``bool`` (an :class:`enum.IntEnum`, a numpy
-    integer) is accepted, matching what ``isinstance`` has always allowed at
-    the deserialization boundary. ``bool`` is refused despite being one, for
-    the same reason :func:`brailix.ir._serde.check_wire_value` refuses it:
-    ``Span(True, True)`` would silently become ``Span(1, 1)`` and point the
-    cell↔source map at a character the caller never named.
+    "Integer" means the **integer protocol** — ``__index__``, the one Python
+    itself uses to decide whether something can be a list index — not ``int``
+    ancestry. An :class:`enum.IntEnum` passes either way; a ``numpy.int64``
+    passes only this way, and it was named as acceptable long before it was
+    (``isinstance(numpy.int64(1), int)`` is ``False``). Anything a caller can
+    slice a string with can name a span in that string.
+
+    ``bool`` is refused despite implementing the protocol, for the same reason
+    :func:`brailix.ir._serde.check_wire_value` refuses it: ``Span(True, True)``
+    would silently become ``Span(1, 1)`` and point the cell↔source map at a
+    character the caller never named. (``numpy.bool_`` needs no special case —
+    numpy dropped ``__index__`` from it for the same reason.)
+
+    The return value is a plain ``int``, not the object handed in: a span is
+    the compiler's provenance currency and travels into JSON, into cell
+    metadata and into arithmetic with other spans, so what a foreign scalar
+    means is kept and the scalar itself is not.
     """
-    for value in (start, end):
-        if not isinstance(value, int) or isinstance(value, bool):
-            raise ValueError(
-                f"span offsets must be integers, not {type(value).__name__}; "
-                f"got start={start!r} end={end!r}"
-            )
+    if isinstance(value, bool):
+        raise ValueError(
+            f"span offsets must be integers, not bool; "
+            f"got start={start!r} end={end!r}"
+        )
+    try:
+        return _index(value)
+    except TypeError:
+        raise ValueError(
+            f"span offsets must be integers, not {type(value).__name__}; "
+            f"got start={start!r} end={end!r}"
+        ) from None
 
 
 @_dataclass(frozen=True, slots=True)
@@ -61,7 +76,10 @@ class Span:
         # True)`` quietly became offset 1. Span is the compiler's provenance
         # currency — one contract, wherever a span comes from.
         if type(self.start) is not int or type(self.end) is not int:
-            _reject_non_int_offsets(self.start, self.end)
+            start, end = self.start, self.end
+            # frozen=True → write the normalised offsets through __setattr__.
+            object.__setattr__(self, "start", _int_offset(start, start, end))
+            object.__setattr__(self, "end", _int_offset(end, start, end))
         if self.start < 0 or self.end < self.start:
             raise ValueError(f"invalid span: start={self.start} end={self.end}")
 
@@ -90,16 +108,16 @@ class Span:
         return (self.start, self.end)
 
     @classmethod
-    def from_tuple(cls, value: Any) -> Span:
+    def from_tuple(cls, value: _Any) -> Span:
         """Build a Span from a 2-element ``[start, end]`` sequence — the shape
         a span round-trips as, whether in JSON (a list) or in memory (a tuple).
 
         Raises :class:`ValueError` on any other shape (wrong length, not a
         sequence, non-integer elements) so a malformed payload fails loudly at
         the IR boundary instead of silently smuggling a non-Span into a
-        ``span`` field. Offsets must be genuine ``int``\\ s: a ``float`` like
-        ``3.9`` is rejected rather than truncated to ``3`` (which would point
-        the cell↔source map at the wrong character), and ``bool`` (an ``int``
+        ``span`` field. Offsets must be integers: a ``float`` like ``3.9`` is
+        rejected rather than truncated to ``3`` (which would point the
+        cell↔source map at the wrong character), and ``bool`` (an ``int``
         subclass) is rejected too. This is the single canonical JSON-to-Span
         entry point; the IR deserializers route every span through it.
 
@@ -115,7 +133,7 @@ class Span:
         return cls(start, end)
 
 
-def merge_spans(spans: Iterable[Span]) -> Span | None:
+def merge_spans(spans: _Iterable[Span]) -> Span | None:
     """Return the bounding span of an iterable, or None if empty."""
     it = iter(spans)
     try:

@@ -48,15 +48,12 @@ score suffix can never become a hole in a service's character budget.
 
 from __future__ import annotations
 
+import os as _os
 from pathlib import Path as _Path
-from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import MusicContext
 from brailix.input.limits import DEFAULT_INPUT_LIMITS, InputLimits
 from brailix.ir.document import DocumentIR, ScoreBlock
-
-if _TYPE_CHECKING:
-    import os
 
 _MUSICXML_TEXT_SUFFIXES = frozenset({".musicxml", ".xml"})
 _MXL_SUFFIXES = frozenset({".mxl"})
@@ -87,7 +84,7 @@ DEFERRED_SCORE_SUFFIXES = frozenset(_DEFERRED_SCORE_SOURCES)
 
 
 def parse_musicxml(
-    path: str | os.PathLike[str],
+    path: str | _os.PathLike[str],
     *,
     language: str,
     profile: str,
@@ -158,7 +155,7 @@ def _score_document(text: str, *, language: str, profile: str) -> DocumentIR:
 
 
 def parse_score_file(
-    path: str | os.PathLike[str],
+    path: str | _os.PathLike[str],
     *,
     language: str,
     profile: str,
@@ -221,7 +218,7 @@ def parse_score_file(
 
 
 def parse_deferred_score(
-    path: str | os.PathLike[str],
+    path: str | _os.PathLike[str],
     *,
     language: str,
     profile: str,

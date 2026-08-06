@@ -23,18 +23,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass as _dataclass
 from dataclasses import field as _field
-from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Any as _Any
+from typing import Literal as _Literal
 
 from brailix.core.errors import RunMode, WarningCollector, normalize_run_mode
-
-if _TYPE_CHECKING:
-    from typing import Any, Literal
-
-    from brailix.core.protocols import (
-        GraphicAssetResolver,
-        InlineTextTranslator,
-    )
-    from brailix.core.span import Span
+from brailix.core.protocols import (
+    GraphicAssetResolver as _GraphicAssetResolver,
+)
+from brailix.core.protocols import (
+    InlineTextTranslator as _InlineTextTranslator,
+)
+from brailix.core.span import Span as _Span
 
 # ---------------------------------------------------------------------------
 # Frontend
@@ -55,7 +54,7 @@ class FrontendContext:
     profile: str
     mode: RunMode | str = RunMode.NORMAL
     warnings: WarningCollector = _field(default_factory=WarningCollector)
-    options: dict[str, Any] = _field(default_factory=dict)
+    options: dict[str, _Any] = _field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.mode = normalize_run_mode(self.mode)
@@ -71,7 +70,7 @@ class FrontendContext:
         # :meth:`child` inherits the parent's mode, so binding is a no-op.
         self.warnings.bind_mode(self.mode)
 
-    def child(self, **overrides: Any) -> FrontendContext:
+    def child(self, **overrides: _Any) -> FrontendContext:
         """Create a derived context that shares the same warnings
         collector but overrides specific fields.
 
@@ -81,11 +80,11 @@ class FrontendContext:
         not straddle two run modes. Give the child its own collector if it
         genuinely needs a different mode.
         """
-        # Annotated as dict[str, Any] so ``**base`` matches the
+        # Annotated as dict[str, _Any] so ``**base`` matches the
         # heterogeneous parameter types of FrontendContext — without
         # the annotation, mypy infers dict[str, object] (invariant)
         # and rejects the spread against str / RunMode / Collector.
-        base: dict[str, Any] = {
+        base: dict[str, _Any] = {
             "profile": self.profile,
             "mode": self.mode,
             "warnings": self.warnings,
@@ -109,7 +108,7 @@ class MathContext:
     state (display vs inline, surrounding text) stays local.
     """
 
-    mode: Literal["inline", "display"] = "inline"
+    mode: _Literal["inline", "display"] = "inline"
     # ``"plain"`` means *undeclared*, not a dialect: it is registered (see
     # :mod:`brailix.frontend.math.adapters.plain`) and soft-fails to an
     # ``<merror>`` rather than guessing, so a default-constructed context is
@@ -119,7 +118,7 @@ class MathContext:
     profile: str = _field(kw_only=True)  # required; no built-in default standard
     surrounding_text: tuple[str, str] | None = None  # (before, after)
     warnings: WarningCollector = _field(default_factory=WarningCollector)
-    options: dict[str, Any] = _field(default_factory=dict)
+    options: dict[str, _Any] = _field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +136,7 @@ class MusicContext:
     own context so per-fragment state stays local.
     """
 
-    mode: Literal["inline", "block", "score"] = "block"
+    mode: _Literal["inline", "block", "score"] = "block"
     source: str = "plain"  # musicxml / mxl / midi / abc / plain
     profile: str = _field(kw_only=True)  # required; no built-in default standard
     # No transposition / octave-inference / lyrics knobs live here: those
@@ -147,7 +146,7 @@ class MusicContext:
     # cache on it — so the context never advertises a setting that does nothing.
     surrounding_text: tuple[str, str] | None = None  # (before, after)
     warnings: WarningCollector = _field(default_factory=WarningCollector)
-    options: dict[str, Any] = _field(default_factory=dict)
+    options: dict[str, _Any] = _field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -180,9 +179,9 @@ class GraphicsContext:
 
     source: str = "svg"  # svg / primitives / image / chart / ...
     warnings: WarningCollector = _field(default_factory=WarningCollector)
-    options: dict[str, Any] = _field(default_factory=dict)
+    options: dict[str, _Any] = _field(default_factory=dict)
 
-    def asset_resolver(self) -> GraphicAssetResolver | None:
+    def asset_resolver(self) -> _GraphicAssetResolver | None:
         """The caller-injected asset resolver, or ``None``.
 
         The ``image`` source adapter calls this to turn a document-relative
@@ -224,7 +223,7 @@ class BackendContext:
     mode: RunMode | str = RunMode.NORMAL
     block_type: str = "paragraph"
     warnings: WarningCollector = _field(default_factory=WarningCollector)
-    options: dict[str, Any] = _field(default_factory=dict)
+    options: dict[str, _Any] = _field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.mode = normalize_run_mode(self.mode)
@@ -234,8 +233,8 @@ class BackendContext:
         self.warnings.bind_mode(self.mode)
 
     def inline_text_translator(
-        self, domain: str | None = None, span: Span | None = None
-    ) -> InlineTextTranslator | None:
+        self, domain: str | None = None, span: _Span | None = None
+    ) -> _InlineTextTranslator | None:
         """The Pipeline-injected inline-text translator, or ``None``.
 
         Backend handlers that embed prose (music ``<words>`` / lyrics,

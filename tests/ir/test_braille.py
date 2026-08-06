@@ -210,6 +210,25 @@ class TestMalformedDots:
     def test_genuine_ints_still_build(self):
         assert BrailleCell(dots=(3, 1)).dots == (1, 3)
 
+    def test_a_foreign_integer_scalar_is_a_dot_and_is_normalised(self):
+        """A dot is whatever implements ``__index__``, like a span offset.
+
+        The tuple has to be *normalised*, not merely accepted: a
+        ``numpy.int64`` 1 compares equal to a plain 1, so a cell that kept the
+        scalar would look right in every assertion here and still serialise a
+        ``numpy`` object into ``to_dict()``.
+        """
+        np = pytest.importorskip("numpy")
+
+        cell = BrailleCell(dots=(np.int64(3), np.uint8(1)))
+        assert cell.dots == (1, 3)
+        assert all(type(d) is int for d in cell.dots)
+        assert cell.to_dict()["dots"] == [1, 3]
+        assert cell == BrailleCell(dots=(1, 3))
+        assert hash(cell) == hash(BrailleCell(dots=(1, 3)))
+        with pytest.raises(ValueError):
+            BrailleCell(dots=(np.float64(1.0),))
+
 
 class TestMalformedSourceSpan:
     def test_from_dict_rejects_malformed_source_span(self):

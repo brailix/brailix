@@ -15,20 +15,17 @@ own data arrives through instead, and its own backend is what interprets it.
 
 from __future__ import annotations
 
+from collections.abc import Mapping as _Mapping
 from dataclasses import dataclass as _dataclass
 from dataclasses import field as _field
 from dataclasses import replace as _replace
-from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Any as _Any
 
 from brailix.core.config._helpers import (
     _feature_keys_to_try,
     _feature_lookup,
     _feature_merge,
 )
-
-if _TYPE_CHECKING:
-    from collections.abc import Mapping
-    from typing import Any
 
 
 @_dataclass(slots=True)
@@ -41,7 +38,7 @@ class BrailleProfile:
     # the loader raises if a profile omits it.
     language: str
     cell: str = "six_dot"
-    features: dict[str, Any] = _field(default_factory=dict)
+    features: dict[str, _Any] = _field(default_factory=dict)
 
     # Punctuation values are *cell sequences* — one entry may map to
     # several cells (e.g. the Chinese full stop 。 = ⠐⠆ is two cells). Same shape as
@@ -117,7 +114,7 @@ class BrailleProfile:
     # Declarative, non-cells rule sections per music topic (e.g.
     # ``chord_symbols`` -> ``kind_spec`` -> chord-kind emit recipes),
     # loaded from ``_``-prefixed sections the cells loader skips.
-    music_specs: dict[str, dict[str, Any]] = _field(default_factory=dict)
+    music_specs: dict[str, dict[str, _Any]] = _field(default_factory=dict)
     # English IPA phonetic table: IPA phoneme string -> cell sequence
     # (``"tʃ" -> ((2,3,4,5),(1,5,6))``). Multi-character phonemes
     # (diphthongs eɪ / affricates tʃ / long vowels iː) are stored whole;
@@ -157,7 +154,7 @@ class BrailleProfile:
     #
     # Distinct from :attr:`music_specs`, which is the same idea scoped to a
     # music topic rather than to a language.
-    lang_specs: dict[str, dict[str, Any]] = _field(default_factory=dict)
+    lang_specs: dict[str, dict[str, _Any]] = _field(default_factory=dict)
     # Per-instance lazy cache for letter() results. Excluded from
     # ``__eq__`` / ``__repr__``: it's runtime-populated memoization, so two
     # profiles built from identical tables must stay equal (and hashable as
@@ -168,7 +165,7 @@ class BrailleProfile:
 
     # -- Features -----------------------------------------------------
 
-    def feature(self, key: str, default: Any = None) -> Any:
+    def feature(self, key: str, default: _Any = None) -> _Any:
         """Look up a feature by name.
 
         Supports both new dotted form (``"math.simplify_fraction"``)
@@ -190,7 +187,7 @@ class BrailleProfile:
                 return value
         return default
 
-    def with_features(self, overrides: Mapping[str, Any]) -> BrailleProfile:
+    def with_features(self, overrides: _Mapping[str, _Any]) -> BrailleProfile:
         """A copy of this profile with ``overrides`` written into its features.
 
         Keys are the same dotted paths :meth:`feature` reads
@@ -240,7 +237,7 @@ class BrailleProfile:
         lang = self.language.split("-")[0]
         return self.lang_tables.get(lang, {}).get(name, {})
 
-    def lang_spec(self, name: str, default: Any = None) -> Any:
+    def lang_spec(self, name: str, default: _Any = None) -> _Any:
         """Per-language **non-cell** rule record ``name``, or ``default``.
 
         :meth:`lang_table`'s counterpart for the rules that are not a
@@ -434,6 +431,20 @@ class BrailleProfile:
         """
         return self.math_functions.get(name)
 
+    def math_function_max_name_len(self) -> int:
+        """Longest key in the function table (``0`` when empty).
+
+        The upper bound for the backend's greedy longest-match over a run of
+        single-character ``<mi>`` elements — the shape MTEF and per-letter OMML
+        produce. Without it the scan tries every remaining length at every
+        start, which is cubic in the run and unbounded by the profile: a
+        200-symbol expression of bare letters spent a quarter of a second
+        proving that no prefix of it spells ``sin``. The table decides how far
+        a match may reach, exactly as :meth:`phonetic_max_symbol_len` does for
+        IPA.
+        """
+        return max((len(key) for key in self.math_functions), default=0)
+
     def math_function_big_op(self, name: str) -> bool:
         """Whether a function name acts as a "big operator" (its
         sub/superscripts go above/below rather than alongside).
@@ -503,7 +514,7 @@ class BrailleProfile:
         entries of a kind (e.g. every note pitch / time value)."""
         return self.music.get(topic, {})
 
-    def music_spec(self, topic: str, section: str) -> Any:
+    def music_spec(self, topic: str, section: str) -> _Any:
         """Return a declarative rule section for a music topic, or ``None``.
 
         Unlike :meth:`music_cell` / :meth:`music_topic` (cell tables),

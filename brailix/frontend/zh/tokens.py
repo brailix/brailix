@@ -23,12 +23,9 @@ types live under that language, not on a shared layer.
 from __future__ import annotations
 
 from dataclasses import dataclass as _dataclass
-from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Any as _Any
 
 from brailix.core.span import Span
-
-if _TYPE_CHECKING:
-    from typing import Any
 
 
 @_dataclass(slots=True)
@@ -49,8 +46,8 @@ class ChineseToken:
     pinyin: str | None = None
     confidence: float | None = None
 
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {"surface": self.surface}
+    def to_dict(self) -> dict[str, _Any]:
+        d: dict[str, _Any] = {"surface": self.surface}
         if self.pos is not None:
             d["pos"] = self.pos
         if self.span is not None:

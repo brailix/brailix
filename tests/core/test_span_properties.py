@@ -79,9 +79,10 @@ class TestConstruction:
         a value **iff** :meth:`Span.from_tuple` accepts the pair containing it.
         """
         # ``and`` short-circuits, so the order comparison is only reached once
-        # both offsets are known to be genuine ints.
+        # both offsets are known to be integers.
         ok = all(
-            isinstance(v, int) and not isinstance(v, bool) for v in (start, end)
+            hasattr(v, "__index__") and not isinstance(v, bool)
+            for v in (start, end)
         ) and 0 <= start <= end
         if ok:
             assert Span(start, end).to_tuple() == (start, end)
@@ -94,10 +95,8 @@ class TestConstruction:
     def test_an_int_subclass_that_is_not_bool_is_still_an_offset(self) -> None:
         """The rejection is of ``bool`` specifically, not of subclassing.
 
-        ``isinstance`` has always been the deserialization boundary's test, so
-        an :class:`enum.IntEnum` (or a numpy integer) is a legitimate offset;
-        the fast ``type(...) is int`` path in the constructor must fall through
-        to the full check rather than reject it.
+        The fast ``type(...) is int`` path in the constructor must fall through
+        to the full check rather than reject an :class:`enum.IntEnum`.
         """
         import enum
 
@@ -108,6 +107,37 @@ class TestConstruction:
         span = Span(Offset.START, Offset.END)
         assert (span.start, span.end) == (2, 5)
         assert span.length == 3
+
+    def test_a_foreign_integer_scalar_is_an_offset_and_is_normalised(
+        self,
+    ) -> None:
+        """An integer is whatever implements ``__index__``, not whatever
+        subclasses ``int``.
+
+        ``numpy.int64`` was named as an acceptable offset while
+        ``isinstance(numpy.int64(1), int)`` was ``False`` and the constructor
+        raised on it — a promise no test held, because the test that said
+        "IntEnum (or a numpy integer)" only ever instantiated the former. A
+        real instance is the only thing that can tell those apart.
+
+        The stored offsets are plain ``int``: a span travels into JSON and into
+        arithmetic with other spans, so a foreign scalar's *value* is kept and
+        the scalar is not.
+        """
+        np = pytest.importorskip("numpy")
+
+        span = Span(np.int64(2), np.uint8(5))
+        assert (span.start, span.end) == (2, 5)
+        assert type(span.start) is int and type(span.end) is int
+        assert span.to_tuple() == (2, 5)
+        assert Span.from_tuple([np.int32(0), np.int64(1)]) == Span(0, 1)
+
+        # numpy dropped __index__ from its boolean scalar for the same reason
+        # ``bool`` is refused here, so it needs no special case of its own.
+        with pytest.raises(ValueError):
+            Span(np.True_, np.True_)
+        with pytest.raises(ValueError):
+            Span(np.float64(1.0), np.float64(2.0))
 
 
 class TestMerge:

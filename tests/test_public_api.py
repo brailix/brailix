@@ -35,8 +35,11 @@ from __future__ import annotations
 
 import ast
 import importlib
+import importlib.util
+import inspect
 import re
 import types
+import typing
 from pathlib import Path
 
 import pytest
@@ -730,8 +733,14 @@ def test_every_brailix_type_a_protocol_names_has_a_supported_import() -> None:
     assert spec is not None and spec.origin is not None
     tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
 
+    # ``alias.name``, never the local ``as`` spelling: what has to be
+    # importable is the type's real name at a supported address, and this
+    # module aliases the ones it binds at runtime (``BrailleProfile as
+    # _BrailleProfile``) to keep a plain foreign-looking name out of its own
+    # namespace. The underscore is that module's private business; the promise
+    # an extender relies on is the unprefixed name.
     named = {
-        alias.asname or alias.name
+        alias.name
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom)
         and (node.module or "").startswith("brailix")
@@ -1712,3 +1721,241 @@ def test_an_extension_module_still_resolves_everything_it_promises(
     assert not missing, (
         f"{module} no longer resolves promised extension names: {missing}"
     )
+
+
+# Addresses the extension surface promised, that have moved. Each stays
+# importable and warns until the release named beside it, at which point the
+# entry (and the shim in ``brailix.frontend._deprecated_paths``) go together.
+_MOVED_EXTENSION_PATHS: dict[str, tuple[str, str, str]] = {
+    "brailix.frontend.segment": (
+        "segmenter_registry",
+        "brailix.frontend.segmentation",
+        "0.2",
+    ),
+    "brailix.frontend.normalize": (
+        "normalizer_registry",
+        "brailix.frontend.normalization",
+        "0.2",
+    ),
+}
+
+
+@pytest.mark.parametrize("old", sorted(_MOVED_EXTENSION_PATHS))
+def test_a_moved_extension_path_still_resolves_and_says_so(old: str) -> None:
+    """A promised address that moves leaves a shim behind, not a crater.
+
+    ``brailix.frontend.segment`` / ``.normalize`` were renamed to end a name
+    collision with the facade's own :func:`~brailix.frontend.segment` function,
+    which is a real fix — but ``from brailix.frontend.segment import
+    segmenter_registry`` was in the extension manifest and *worked* (it
+    resolves through ``sys.modules``, so the collision never touched it), and
+    an adapter written against it got ``ModuleNotFoundError`` on upgrade.
+    Editing the manifest to match the new reality is not the same as keeping
+    the promise the old one made.
+
+    Both spellings are pinned here on purpose: the new path is what the
+    manifest above promises going forward, the old one is what still has to
+    resolve — to the same object — until the release named in
+    :data:`_MOVED_EXTENSION_PATHS`.
+    """
+    name, new, removed_in = _MOVED_EXTENSION_PATHS[old]
+    current = getattr(importlib.import_module(new), name)
+
+    with pytest.warns(DeprecationWarning, match=removed_in) as record:
+        legacy = getattr(importlib.import_module(old), name)
+
+    assert legacy is current, (
+        f"{old}.{name} must forward to {new}.{name}, not to a second object — "
+        f"a registry has state, and two of them means adapters registered "
+        f"through the old address are invisible through the new one."
+    )
+    assert new in str(record[0].message), (
+        "the warning has to name where the caller should import from instead"
+    )
+
+
+def test_a_moved_path_does_not_shadow_the_function_that_took_its_name() -> None:
+    """Importing the old address must not put a module where the function is.
+
+    The rename happened because ``brailix.frontend.segment`` cannot be both a
+    published function and a submodule. A shim written as a *file* would
+    resolve the old import and, as a side effect of loading, bind itself onto
+    the package under exactly the name the function holds — re-arming the
+    collision the moment anyone touched the compatibility path, for every
+    caller in the process. This is why the shims are ``sys.modules`` entries.
+    """
+    import brailix.frontend as facade
+
+    importlib.import_module("brailix.frontend.segment")
+    importlib.import_module("brailix.frontend.normalize")
+
+    assert callable(facade.segment) and not isinstance(
+        facade.segment, types.ModuleType
+    )
+    assert callable(facade.normalize) and not isinstance(
+        facade.normalize, types.ModuleType
+    )
+
+
+def _annotated_public_objects() -> list[tuple[str, object]]:
+    """Every published class / function, plus each class's public methods.
+
+    Addressed by where it is *published* rather than where it is defined,
+    because that is what the manifest promises and what a caller writes down.
+    Re-exports are visited once — the object is the thing being checked, and a
+    second address for it would only repeat the same evaluation.
+    """
+    seen: set[int] = set()
+    out: list[tuple[str, object]] = []
+    published = {**_FACADE, **_EXTENSION_SURFACE}
+    for address, names in sorted(published.items()):
+        module = importlib.import_module(address)
+        for name in names:
+            obj = getattr(module, name)
+            candidates = [(f"{address}.{name}", obj)]
+            if isinstance(obj, type):
+                for attr, member in sorted(vars(obj).items()):
+                    if attr.startswith("_"):
+                        continue
+                    if isinstance(member, (staticmethod, classmethod)):
+                        member = member.__func__
+                    elif isinstance(member, property):
+                        member = member.fget
+                    candidates.append((f"{address}.{name}.{attr}", member))
+            for at, target in candidates:
+                if not isinstance(target, type) and not inspect.isfunction(
+                    target
+                ):
+                    continue
+                if id(target) in seen:
+                    continue
+                seen.add(id(target))
+                out.append((at, target))
+    return out
+
+
+_ANNOTATED_PUBLIC = _annotated_public_objects()
+
+# The one registered exemption to the rule below, and what it is allowed to
+# cover: modules that annotate against a package they must not *import* at
+# runtime. Written as "which package the name comes from", not as a list of
+# names, so it cannot quietly grow to cover an unrelated one — the check reads
+# the module's own ``if TYPE_CHECKING:`` block to turn this into the set of
+# names it excuses (:func:`_deferred_by_layering`).
+_LAYERING_DEFERRED: dict[str, tuple[str, ...]] = {
+    # ``brailix.core`` may annotate against the IR but must never import it at
+    # runtime (``test_core_layering.test_core_does_not_import_ir_at_runtime``),
+    # and ``brailix.core.context`` imports this module at runtime for its own
+    # accessor annotations, so binding it back would close that cycle.
+    "brailix.core.protocols": ("brailix.ir", "brailix.core.context"),
+}
+
+
+def _deferred_by_layering(module: str) -> frozenset[str]:
+    """The names ``module`` is excused from resolving, read from its source."""
+    packages = _LAYERING_DEFERRED.get(module, ())
+    if not packages:
+        return frozenset()
+    spec = importlib.util.find_spec(module)
+    assert spec is not None and spec.origin is not None
+    tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
+    return frozenset(
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        for stmt in ast.walk(node)
+        if isinstance(stmt, ast.ImportFrom)
+        and any((stmt.module or "").startswith(p) for p in packages)
+        for alias in stmt.names
+    )
+
+
+def test_the_layering_exemption_is_the_cycle_it_claims_to_be() -> None:
+    """Each excused package is one the excused module genuinely cannot bind.
+
+    An exemption nobody re-derives is a comment. ``brailix.ir`` is refused to
+    ``brailix.core`` by :mod:`tests.test_core_layering`; the other half is
+    checked here, by looking for the runtime edge that makes the reverse one a
+    cycle. If ``brailix.core.context`` ever stops importing
+    ``brailix.core.protocols`` at runtime, the exemption stops being true and
+    this fails rather than quietly covering a fixable annotation.
+    """
+    for module, packages in _LAYERING_DEFERRED.items():
+        for package in packages:
+            if package.startswith("brailix.ir"):
+                continue  # owned by tests/test_core_layering.py
+            spec = importlib.util.find_spec(package)
+            assert spec is not None and spec.origin is not None
+            tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
+            imports_it = any(
+                (node.module or "") == module
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ImportFrom)
+                and not _under_type_checking(tree, node)
+            )
+            assert imports_it, (
+                f"{module} defers names from {package} to avoid a cycle, but "
+                f"{package} no longer imports {module} at runtime — there is "
+                f"no cycle left to avoid, so bind them and drop the entry."
+            )
+
+
+def _under_type_checking(tree: ast.Module, target: ast.stmt) -> bool:
+    """Whether ``target`` sits inside an ``if TYPE_CHECKING:`` block."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If) and any(
+            stmt is target for stmt in ast.walk(node)
+        ):
+            return True
+    return False
+
+
+@pytest.mark.parametrize(
+    ("address", "obj"), _ANNOTATED_PUBLIC, ids=[a for a, _ in _ANNOTATED_PUBLIC]
+)
+def test_a_published_objects_annotations_resolve_at_runtime(
+    address: str, obj: object
+) -> None:
+    """Every published signature can be read back by
+    :func:`typing.get_type_hints`.
+
+    An annotation is not only for a type checker. Dependency-injection
+    frameworks, schema and documentation generators, plugin registries and
+    ``inspect.signature(..., eval_str=True)`` all evaluate them at runtime, and
+    they evaluate them **against the defining module's globals** — so a name
+    that only exists under ``if TYPE_CHECKING:`` is not deferred, it is absent,
+    and the call raises ``NameError`` on a class the manifest calls public.
+
+    This is the other half of
+    :func:`test_no_module_binds_a_foreign_name_under_a_plain_name`, and the two
+    are satisfied together by one habit: import the foreign name **aliased**
+    (``from collections.abc import Mapping as _Mapping``) and write the alias
+    in the annotation. Nothing lands in ``dir()`` under a name that is not
+    ours, and everything still resolves. Reaching for ``TYPE_CHECKING`` to
+    satisfy the other test is what broke 29 published objects at once —
+    ``Pipeline`` on a missing ``Mapping``, ``translate_graphic`` on a missing
+    ``TactileProfile``, ``merge_spans`` on a missing ``Iterable``.
+
+    The one exemption is :data:`_LAYERING_DEFERRED`: a module that annotates
+    against a package it is forbidden to import at runtime cannot bind the
+    name, and the layer rule outranks introspection. It is registered, its
+    extent is derived from the module's own source, and
+    :func:`test_the_layering_exemption_is_the_cycle_it_claims_to_be` re-derives
+    the reason.
+    """
+    module = getattr(obj, "__module__", "?")
+    try:
+        typing.get_type_hints(obj)
+    except NameError as e:
+        excused = _deferred_by_layering(module)
+        if e.name in excused:
+            return
+        pytest.fail(
+            f"{address} has an annotation that does not resolve at runtime: "
+            f"{e}\nThe name is missing from {module}'s globals — most likely "
+            f"imported under ``if TYPE_CHECKING:``. Import it aliased "
+            f"(``... as _Name``) and spell the alias in the annotation, which "
+            f"keeps it out of that module's public namespace too. If the "
+            f"import is genuinely forbidden at runtime (a layer boundary), "
+            f"register the package in _LAYERING_DEFERRED with its reason."
+        )

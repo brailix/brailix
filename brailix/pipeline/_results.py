@@ -14,7 +14,7 @@ from dataclasses import dataclass as _dataclass
 from dataclasses import field as _field
 from datetime import UTC as _UTC
 from datetime import datetime as _datetime
-from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Any as _Any
 
 from brailix.core.errors import (
     IncompatibleRendererError,
@@ -25,9 +25,6 @@ from brailix.ir.braille import BrailleBlock, BrailleDocument
 from brailix.ir.document import Block, DocumentIR
 from brailix.ir.tactile import TactileRaster
 from brailix.renderer import renderer_registry
-
-if _TYPE_CHECKING:
-    from typing import Any
 
 # Default tactile-graphics renderer for :meth:`GraphicResult.render` — the
 # embossable 8-bit grayscale BMP master.
@@ -43,7 +40,7 @@ _BRAILLE_DOMAIN = "braille"
 _TACTILE_DOMAIN = "tactile_raster"
 
 
-def _resolve_renderer(name: str | None, default: str, expected_domain: str) -> Any:
+def _resolve_renderer(name: str | None, default: str, expected_domain: str) -> _Any:
     """Look up ``name`` (or ``default``) and verify it consumes
     ``expected_domain``.
 
@@ -106,7 +103,7 @@ class TranslationResult:
     # ``tests/frontend/test_default_adapter_names.py``.
     default_renderer: str = "unicode"
 
-    def render(self, name: str | None = None) -> Any:
+    def render(self, name: str | None = None) -> _Any:
         """Render the braille IR through the named renderer.
 
         Omitting ``name`` (or passing ``None``) uses :attr:`default_renderer`;
@@ -126,7 +123,7 @@ class TranslationResult:
         )
         return renderer.render(self.braille_ir)
 
-    def proofread_json(self) -> dict[str, Any]:
+    def proofread_json(self) -> dict[str, _Any]:
         """A JSON-ready dict mapping source text to braille IR for
         proofreading tools. Does not include any rendered output —
         consumers can render on demand if they need it."""
@@ -161,7 +158,7 @@ class GraphicResult:
     warnings: WarningCollector = _field(default_factory=WarningCollector)
     default_renderer: str = DEFAULT_TACTILE_RENDERER
 
-    def render(self, name: str | None = None) -> Any:
+    def render(self, name: str | None = None) -> _Any:
         """Render the tactile raster through the named renderer.
 
         Omitting ``name`` (or passing ``None``) uses :attr:`default_renderer`
@@ -208,7 +205,7 @@ class TactilePageResult:
     def page_count(self) -> int:
         return len(self.pages)
 
-    def render(self, name: str | None = None, *, page: int = 0) -> Any:
+    def render(self, name: str | None = None, *, page: int = 0) -> _Any:
         """Render one page (default the first) through the named renderer.
 
         Omitting ``name`` (or passing ``None``) uses :attr:`default_renderer`
@@ -222,7 +219,7 @@ class TactilePageResult:
         )
         return renderer.render(self.pages[page])
 
-    def render_all(self, name: str | None = None) -> list[Any]:
+    def render_all(self, name: str | None = None) -> list[_Any]:
         """Render every page through the named renderer, in order — one output
         per page (e.g. a list of ``.bmp`` byte strings ready to write as
         ``page-1.bmp`` … ``page-N.bmp``). ``name`` selects the renderer on the
