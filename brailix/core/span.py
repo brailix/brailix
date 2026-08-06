@@ -15,6 +15,31 @@ if _TYPE_CHECKING:
     from typing import Any
 
 
+def _reject_non_int_offsets(start: Any, end: Any) -> None:
+    """Raise unless both offsets are genuine (non-``bool``) integers.
+
+    Split out of :meth:`Span.__post_init__` so the path that always holds
+    costs two ``type(...) is int`` identity tests and nothing else: a Span is
+    built for every token, every inline node and every braille cell of every
+    compile, so the check has to be effectively free in the case where it
+    passes. Only a value that fails the fast test reaches this function, which
+    then decides whether it is a legitimate ``int`` subclass or a rejection.
+
+    An ``int`` subclass that is not ``bool`` (an :class:`enum.IntEnum`, a numpy
+    integer) is accepted, matching what ``isinstance`` has always allowed at
+    the deserialization boundary. ``bool`` is refused despite being one, for
+    the same reason :func:`brailix.ir._serde.check_wire_value` refuses it:
+    ``Span(True, True)`` would silently become ``Span(1, 1)`` and point the
+    cell↔source map at a character the caller never named.
+    """
+    for value in (start, end):
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(
+                f"span offsets must be integers, not {type(value).__name__}; "
+                f"got start={start!r} end={end!r}"
+            )
+
+
 @_dataclass(frozen=True, slots=True)
 class Span:
     """Half-open character range ``[start, end)`` into a source string.
@@ -27,6 +52,16 @@ class Span:
     end: int
 
     def __post_init__(self) -> None:
+        # Type first, order second, and BOTH on every construction path. The
+        # genuine-int rule used to live in :meth:`from_tuple` alone, so the
+        # deserialization boundary and the direct constructor promised
+        # different things about the same class: ``Span.from_tuple([1.5, 2.5])``
+        # raised while ``Span(1.5, 2.5)`` was built and travelled on into
+        # slicing, merging, shifting and proofreading jumps, and ``Span(True,
+        # True)`` quietly became offset 1. Span is the compiler's provenance
+        # currency — one contract, wherever a span comes from.
+        if type(self.start) is not int or type(self.end) is not int:
+            _reject_non_int_offsets(self.start, self.end)
         if self.start < 0 or self.end < self.start:
             raise ValueError(f"invalid span: start={self.start} end={self.end}")
 
@@ -67,16 +102,16 @@ class Span:
         the cell↔source map at the wrong character), and ``bool`` (an ``int``
         subclass) is rejected too. This is the single canonical JSON-to-Span
         entry point; the IR deserializers route every span through it.
+
+        Only the *shape* is checked here. The offsets themselves are the
+        constructor's business (:meth:`__post_init__`), which enforces the same
+        genuine-int rule for a hand-built span — so this method cannot be
+        stricter than the class, which is exactly how the two contracts drifted
+        apart while the rule was written out only here.
         """
         if not isinstance(value, (list, tuple)) or len(value) != 2:
             raise ValueError(f"span must be a 2-element sequence; got {value!r}")
         start, end = value
-        for v in (start, end):
-            if not isinstance(v, int) or isinstance(v, bool):
-                raise ValueError(
-                    f"span offsets must be integers, not {type(v).__name__}; "
-                    f"got {value!r}"
-                )
         return cls(start, end)
 
 

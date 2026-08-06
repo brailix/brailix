@@ -172,6 +172,45 @@ class TestSentinelCells:
         assert restored.role == role
 
 
+class TestMalformedDots:
+    """A dot is a genuine integer 1..8, on BOTH construction paths.
+
+    The range test (``1 <= d <= 8``) says nothing about a dot that is not an
+    int, and the two ways that used to end were both bad. A ``float`` passed
+    construction and only broke at ``1 << (d - 1)`` in the unicode renderer —
+    a ``TypeError`` about int and float, in a module that never saw the
+    payload. A ``bool`` never broke at all: ``bool`` is an ``int`` subclass, so
+    ``{"dots": [true]}`` deserialized into a cell rendering as dot 1 and the
+    document round-tripped with a dot nobody wrote.
+    """
+
+    BAD = [True, False, 1.5, 1.0, "1", None, (1,)]
+
+    @pytest.mark.parametrize("dot", BAD)
+    def test_direct_construction_rejects(self, dot):
+        with pytest.raises(ValueError):
+            BrailleCell(dots=(dot,))
+
+    @pytest.mark.parametrize("dot", BAD)
+    def test_from_dict_rejects(self, dot):
+        # ValueError, not TypeError: the IR deserialization boundary answers a
+        # payload of any shape with a built object or a ValueError naming the
+        # field (brailix.ir._serde).
+        with pytest.raises(ValueError):
+            BrailleCell.from_dict({"dots": [dot]})
+
+    def test_a_bad_dot_beside_good_ones_is_still_caught(self):
+        with pytest.raises(ValueError):
+            BrailleCell(dots=(1, True, 3))
+
+    def test_the_message_names_the_offending_value(self):
+        with pytest.raises(ValueError, match="bool"):
+            BrailleCell(dots=(True,))
+
+    def test_genuine_ints_still_build(self):
+        assert BrailleCell(dots=(3, 1)).dots == (1, 3)
+
+
 class TestMalformedSourceSpan:
     def test_from_dict_rejects_malformed_source_span(self):
         # source_span goes through the same canonical Span.from_tuple boundary;

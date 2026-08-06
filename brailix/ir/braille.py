@@ -29,11 +29,36 @@ from brailix.ir import _serde
 # ---------------------------------------------------------------------------
 
 
+def _reject_non_int_dot(dot: _Any, dots: tuple[_Any, ...]) -> None:
+    """Raise unless ``dot`` is a genuine (non-``bool``) integer.
+
+    Split out of :meth:`BrailleCell.__post_init__` so the case that always
+    holds costs one ``type(...) is int`` identity test per dot — a cell is
+    built for every character of every compile — and only a value that fails it
+    pays for the full decision. An ``int`` subclass other than ``bool`` is
+    accepted, matching :func:`brailix.core.span.Span`'s rule for offsets.
+
+    The two rejections it exists for fail very differently without it. A
+    ``float`` passes the ``1 <= d <= 8`` range test and only breaks at
+    ``1 << (d - 1)`` in the unicode renderer — a ``TypeError`` about ``int``
+    and ``float``, in a module that never saw the payload. A ``bool`` never
+    fails at all: it *is* an ``int``, so ``{"dots": [true]}`` deserializes into
+    a cell that renders as dot 1, and a document round-trips with a dot nobody
+    wrote.
+    """
+    if isinstance(dot, bool) or not isinstance(dot, int):
+        raise ValueError(
+            f"invalid dot {dot!r} in {dots!r}: dot positions must be "
+            f"integers 1..8, not {type(dot).__name__}"
+        )
+
+
 @_dataclass(slots=True, frozen=True)
 class BrailleCell:
     """One braille cell.
 
-    ``dots`` is a tuple of dot positions (1..8), normalised to ascending
+    ``dots`` is a tuple of dot positions — genuine integers 1..8, no
+    duplicates — normalised to ascending
     order in :meth:`__post_init__` so a cell's identity is its dot *set*:
     ``(2, 1)`` and ``(1, 2)`` compare equal and hash alike, matching the
     order-free unicode rendering. Frozen so cells are hashable and safe to
@@ -75,6 +100,11 @@ class BrailleCell:
 
     def __post_init__(self) -> None:
         for d in self.dots:
+            # Element TYPE before element value: the range test below compares
+            # against ints and so says nothing useful about a dot that is not
+            # one (see :func:`_reject_non_int_dot`).
+            if type(d) is not int:
+                _reject_non_int_dot(d, self.dots)
             if not (1 <= d <= 8):
                 raise ValueError(f"invalid dot {d}; must be 1..8")
         if len(set(self.dots)) != len(self.dots):
@@ -107,8 +137,11 @@ class BrailleCell:
         # carries no ``type`` tag in the wire form, so there is nothing to
         # check beyond the field shapes. ``dots`` is the one that used to
         # leak — ``tuple(None)`` and ``tuple(5)`` raise a ``TypeError`` naming
-        # neither the field nor the cell. Dot *values* are already validated
-        # in ``__post_init__``, and ``Span.from_tuple`` validates the span.
+        # neither the field nor the cell. The list's *elements* need nothing
+        # here either: ``__post_init__`` validates each dot's type and value
+        # (so ``{"dots": [true]}`` and ``{"dots": [1.5]}`` are refused at the
+        # boundary rather than deep in the renderer), and ``Span.from_tuple``
+        # validates the span.
         what = "braille cell"
         _serde.require_payload_object(payload, what)
         dots = _serde.payload_list(payload, "dots", what)
