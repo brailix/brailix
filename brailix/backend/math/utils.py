@@ -594,11 +594,19 @@ def _merge_function_name_runs(
     function name into one ``<mi>`` each. Returns the *same list object*
     when no merge applies (so callers can detect "unchanged" by identity),
     otherwise a new list.
+
+    The longest match wins, and it reaches at most as far as the profile's
+    longest function name (``math_function_max_name_len``). Without that bound
+    every start tried every remaining length, each one re-joining the
+    characters it spanned — cubic in the run, and paid in full precisely when
+    nothing matches, which is the ordinary case for a long expression of bare
+    letters. Depth is capped elsewhere; width never was.
     """
     out: list[_ET.Element] = []
     i = 0
     n = len(children)
     merged_any = False
+    max_name = -1
     while i < n:
         if not _is_single_char_mi(children[i]):
             out.append(children[i])
@@ -607,19 +615,27 @@ def _merge_function_name_runs(
         run_end = i + 1
         while run_end < n and _is_single_char_mi(children[run_end]):
             run_end += 1
+        if max_name < 0:
+            # Once per call, and only for a call that found a run at all.
+            max_name = profile.math_function_max_name_len()
         k = i
         while k < run_end:
             best_len = 0
-            for length in range(run_end - k, 1, -1):
-                name = "".join(children[k + d].text or "" for d in range(length))
-                if profile.math_function(name) is not None:
-                    best_len = length
-                    break
+            reach = min(run_end - k, max_name)
+            if reach > 1:
+                # Every element in a run is one character (that is what makes
+                # it a run), so the candidates are prefixes of one string
+                # rather than one join per length.
+                window = "".join(
+                    children[k + d].text or "" for d in range(reach)
+                )
+                for length in range(reach, 1, -1):
+                    if profile.math_function(window[:length]) is not None:
+                        best_len = length
+                        break
             if best_len > 0:
                 merged = _ET.Element("mi")
-                merged.text = "".join(
-                    children[k + d].text or "" for d in range(best_len)
-                )
+                merged.text = window[:best_len]
                 out.append(merged)
                 k += best_len
                 merged_any = True

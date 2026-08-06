@@ -91,24 +91,38 @@ class TestGuardRejectsProse:
         assert _phonetic_surfaces("[1,2,3]") == []
 
 
+def _qualifies(inner: str) -> bool:
+    """The guard, asked about a whole string.
+
+    It takes offsets into the surrounding text — a candidate is tested at
+    every delimiter the scanner walks past, and slicing the content out to
+    reject it on its first character is what made a line of unmatched openers
+    quadratic. Wrapped here so the cases below stay about the *rule*, and
+    padded on both sides so an off-by-one in the offsets cannot pass by
+    reading the whole string anyway.
+    """
+    padded = f"xx{inner}xx"
+    return _qualifies_as_phonetic(padded, 2, len(padded) - 2)
+
+
 class TestQualifiesGuard:
     def test_accepts_ipa_content(self):
-        assert _qualifies_as_phonetic("kæt")
-        assert _qualifies_as_phonetic("həˈləʊ")
-        assert _qualifies_as_phonetic("tʃiːz")
+        assert _qualifies("kæt")
+        assert _qualifies("həˈləʊ")
+        assert _qualifies("tʃiːz")
 
     def test_rejects_pure_ascii(self):
         # Documented limitation: an all-ASCII transcription isn't
         # auto-detected (it carries no IPA-distinct character).
-        assert not _qualifies_as_phonetic("pet")
-        assert not _qualifies_as_phonetic("output")
+        assert not _qualifies("pet")
+        assert not _qualifies("output")
 
     def test_rejects_digits_and_cjk(self):
-        assert not _qualifies_as_phonetic("5/17")
-        assert not _qualifies_as_phonetic("注1")
+        assert not _qualifies("5/17")
+        assert not _qualifies("注1")
 
     def test_rejects_empty(self):
-        assert not _qualifies_as_phonetic("")
+        assert not _qualifies("")
 
 
 # ---------------------------------------------------------------------------
