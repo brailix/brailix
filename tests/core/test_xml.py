@@ -150,6 +150,22 @@ class TestDecodeXmlBytes:
         doc = '<?xml version="1.0" encoding="ISO-8859-1"?><a>café</a>'
         assert decode_xml_bytes(doc.encode("iso-8859-1")) == doc
 
+    def test_a_long_declaration_is_still_a_declaration(self) -> None:
+        # XML puts no length limit on a declaration, so neither may this. The
+        # scan used to give up after 1024 bytes and report "no declaration",
+        # which sent a perfectly legal ISO-8859-1 document to the UTF-8
+        # fallback and failed it — on input ElementTree parses without
+        # complaint. Padding inside the declaration is where a real one gets
+        # long (a generator emitting attributes, or just whitespace).
+        doc = (
+            '<?xml version="1.0"'
+            + " " * 1100
+            + 'encoding="ISO-8859-1"?><a>café</a>'
+        )
+        raw = doc.encode("iso-8859-1")
+        assert raw.find(b"?>") > 1024  # the case the cap could not see
+        assert decode_xml_bytes(raw) == doc
+
     def test_an_encoding_attribute_in_the_body_is_not_read(self) -> None:
         # The scan is bounded to the declaration itself; running past ``?>``
         # would let a document's own content choose how it gets decoded.
