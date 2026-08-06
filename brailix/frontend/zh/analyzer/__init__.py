@@ -38,6 +38,7 @@ from typing import Protocol as _Protocol
 from typing import runtime_checkable as _runtime_checkable
 
 from brailix.core.context import FrontendContext
+from brailix.core.errors import FrontendContractError
 from brailix.core.span import Span
 from brailix.frontend.zh.analyzer._user_dict import (
     apply_user_seg_dict as _apply_user_seg_dict,
@@ -79,6 +80,17 @@ class ChineseAnalyzer(_Protocol):
     ``ctx`` may be ``None`` so callers (notably the ``auto`` delegating
     adapter) can pass through whatever they received without forcing
     a non-None context just to satisfy the type checker.
+
+    **What the tokens have to be.** A ``Protocol`` can only promise this
+    object has an ``analyze`` method, so the rest of the contract is checked
+    at :func:`tokenize`, where the result crosses into the library (see
+    :func:`_check_analyzer_output`): tokens come back as a ``list`` of
+    :class:`~brailix.frontend.zh.tokens.ChineseToken`, spans stay inside the
+    analyzed text, and consecutive spans are ordered and non-overlapping.
+    Omitting spans entirely is allowed (they are synthesised from a running
+    cursor); a surface that does not match the source at its span is allowed
+    too, with a warning, since a normalising tokenizer legitimately produces
+    one.
 
     Lives here rather than in :mod:`brailix.core.protocols`: a protocol whose
     signature names Chinese types is Chinese's contract, and putting it on a
@@ -126,9 +138,108 @@ def tokenize(
     from brailix.frontend.zh.analyzer.registry import analyzer_registry
 
     tokens = analyzer_registry.get(name).analyze(text, ctx)
+    _check_analyzer_output(tokens, text, name, ctx)
     if seg_dict:
         tokens = _apply_user_seg_dict(tokens, seg_dict)
     return tokens
+
+
+def _check_analyzer_output(
+    tokens: object, text: str, adapter: str, ctx: FrontendContext | None
+) -> None:
+    """Verify what an analyzer adapter returned before anything consumes it.
+
+    :class:`ChineseAnalyzer` is a ``Protocol``, so the registry can prove an
+    adapter *has* an ``analyze`` method and nothing about what comes back.
+    Everything downstream then reads the result as fact:
+    :func:`shift_token_spans` lifts the spans into document coordinates,
+    :func:`tokens_to_inline` places a word-boundary :class:`Space` at each
+    token's ``span.end``, the cross-kind boundary rules compare
+    ``prev.span.end`` with ``cur.span.start`` to decide spacing, and every
+    braille cell finally inherits those coordinates as the source it maps back
+    to. A wrong span does not crash; it produces a document whose proofreading
+    jumps land on the wrong characters.
+
+    So this is the boundary where a third party's output stops being trusted.
+    Four things are refused outright, because none of them can be a legitimate
+    analysis of anything:
+
+    * a result that is not a ``list`` of :class:`ChineseToken`;
+    * a token whose ``surface`` / ``pos`` / ``span`` is not the declared type;
+    * a span reaching past the end of the analyzed text;
+    * spans that overlap or run backwards.
+
+    ``span=None`` stays legal — :func:`_local_spans` documents synthesising
+    coordinates for an adapter that omits them — and so does a ``surface`` that
+    does not match the text the span points at, which is a *warning*
+    (``TOKEN_SPAN_MISMATCH``): an analyzer that normalises its input produces
+    exactly that, and both shipped cursor-recovery adapters (THULAC, HanLP) do
+    so deliberately. The coordinates are unreliable for that token, which a
+    proofreader should be told; the document is still translatable, which is
+    why it is not an error.
+
+    Checked for every adapter, built-in ones included: "trust ours, check
+    theirs" would make the invariant untestable through the normal path, and
+    the cost is one pass over a list that was just built. The surface
+    comparison uses ``str.startswith`` with an offset rather than a slice, so
+    it allocates nothing per token.
+    """
+    if not isinstance(tokens, list):
+        raise FrontendContractError(
+            f"zh analyzer {adapter!r} returned {type(tokens).__name__}, not a "
+            f"list of ChineseToken"
+        )
+    end_of_previous: int | None = None
+    for i, tok in enumerate(tokens):
+        if not isinstance(tok, ChineseToken):
+            raise FrontendContractError(
+                f"zh analyzer {adapter!r} returned {type(tok).__name__} at "
+                f"index {i}, not a ChineseToken"
+            )
+        if not isinstance(tok.surface, str) or not (
+            tok.pos is None or isinstance(tok.pos, str)
+        ):
+            raise FrontendContractError(
+                f"zh analyzer {adapter!r} token {i} has surface "
+                f"{tok.surface!r} / pos {tok.pos!r}; ChineseToken declares "
+                f"surface: str and pos: str | None"
+            )
+        span = tok.span
+        if span is None:
+            continue
+        if not isinstance(span, Span):
+            raise FrontendContractError(
+                f"zh analyzer {adapter!r} token {i} ({tok.surface!r}) has span "
+                f"{span!r} of type {type(span).__name__}, not a Span"
+            )
+        if span.end > len(text):
+            raise FrontendContractError(
+                f"zh analyzer {adapter!r} token {i} ({tok.surface!r}) has span "
+                f"{span} reaching past the end of the {len(text)}-character "
+                f"text it analyzed"
+            )
+        if end_of_previous is not None and span.start < end_of_previous:
+            raise FrontendContractError(
+                f"zh analyzer {adapter!r} token {i} ({tok.surface!r}) starts at "
+                f"{span.start}, before the previous token ended at "
+                f"{end_of_previous}; tokens must be ordered and non-overlapping"
+            )
+        end_of_previous = span.end
+        if ctx is not None and (
+            span.length != len(tok.surface)
+            or not text.startswith(tok.surface, span.start)
+        ):
+            ctx.warnings.warn(
+                code="TOKEN_SPAN_MISMATCH",
+                message=(
+                    f"zh analyzer {adapter!r} token {i} claims surface "
+                    f"{tok.surface!r} at {span}, where the source reads "
+                    f"{text[span.start : span.end]!r}"
+                ),
+                surface=tok.surface,
+                span=span,
+                source="frontend.zh.analyzer",
+            )
 
 
 def list_analyzers() -> list[str]:
@@ -229,7 +340,11 @@ def _local_spans(tokens: list[ChineseToken]) -> list[Span]:
     A token whose adapter *did* give a span always wins, even where that
     contradicts the cursor: coordinates that came from a real analyzer are
     evidence about the source text, and a guess derived from surface lengths
-    is not.
+    is not. That deference is only affordable because the span has already
+    been checked: :func:`_check_analyzer_output` refuses an adapter's spans
+    outright if they leave the text or overlap each other, so what arrives
+    here disagrees with the cursor at worst about *which* characters a token
+    covers, never about whether the coordinates describe a source at all.
     """
     spans: list[Span] = []
     cursor = 0

@@ -89,6 +89,37 @@ class BackendContractError(BrailixError):
     """
 
 
+class FrontendContractError(BrailixError):
+    """A frontend adapter returned tokens the rest of the compiler cannot
+    build on — the input-side counterpart of :class:`BackendContractError`.
+
+    A ``Protocol`` proves an object *has* an ``analyze`` / ``resolve`` method;
+    it cannot prove what comes back. The analyzer and resolver registries are
+    open, so this is checked where a third party's output crosses into the
+    library: a token that is not the language's token type, a ``span`` that is
+    not a :class:`~brailix.core.span.Span`, a span reaching past the end of the
+    analyzed text, spans that overlap or run backwards, a resolver that
+    changed the number, order, surface or span of the tokens it was handed.
+
+    Every one of those is a *programming* error in the adapter, never a
+    property of the user's document, so — like
+    :class:`BackendContractError` — it is raised unconditionally and no run
+    mode downgrades it. That matters more here than almost anywhere else: token
+    spans are the source coordinates every braille cell inherits, so a wrong
+    one does not crash, it produces a document whose proofreading jumps land on
+    the wrong characters and whose word spacing is decided from coordinates
+    that describe nothing.
+
+    Deliberately *not* raised for a surface that does not match the source text
+    it claims (``text[start:end] != surface``). An analyzer that normalises its
+    input legitimately produces one — the shipped THULAC and HanLP adapters do,
+    and warn about it (see
+    :func:`brailix.frontend.zh.analyzer.adapters._spans.recover_spans_by_cursor`)
+    — so that stays a warning about unreliable coordinates rather than a
+    failed compile.
+    """
+
+
 class MissingExtraError(BrailixError):
     """Raised when an adapter is requested but its optional dependency is
     not installed.

@@ -496,3 +496,11 @@ def normalize(
     if ctx is not None and ctx.options:
         name = ctx.options.get("normalizer", AUTO_NORMALIZER)
     return normalizer_registry.get(name).normalize(segments, ctx)
+
+
+# The registry (promised on the **extension surface** — see :mod:`brailix`)
+# and the subsystem entry point the orchestrator calls, mirroring
+# :mod:`brailix.frontend.segmentation`. Everything else here — the concrete
+# normalizers, ``NormalizedItem``, the unit and marker tables, and the dozen
+# IR node types this module imports to build with — is internal.
+__all__ = ("normalizer_registry", "normalize")

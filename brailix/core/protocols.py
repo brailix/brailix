@@ -377,3 +377,23 @@ if _TYPE_CHECKING:
         MathContext,
         MusicContext,
     )
+
+
+# This module is on the **extension surface** (see :mod:`brailix`): the
+# contracts an adapter author implements, promised at this path and pinned by
+# ``tests/test_public_api.py``. Every module on that surface says what it
+# publishes, for the same reason the end-user facades do — without an
+# ``__all__`` there is no promise to check, and the check that exists to say
+# "publishes no more than it promises" had nothing to compare against.
+__all__ = (
+    "Segmenter",
+    "Normalizer",
+    "LanguageFrontend",
+    "LanguageBackend",
+    "MathSourceAdapter",
+    "MusicSourceAdapter",
+    "GraphicSourceAdapter",
+    "InlineTextTranslator",
+    "GraphicAssetResolver",
+    "Renderer",
+)

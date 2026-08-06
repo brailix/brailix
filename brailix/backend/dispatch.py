@@ -226,3 +226,15 @@ def translate_node(
         source="backend.dispatch",
     )
     return []
+
+
+# One name, and it is the registry: this module is on the **extension
+# surface** (see :mod:`brailix`) as the address a third-party language backend
+# registers with, and that is the whole of what it promises. ``translate_node``
+# is the module's own entry point, called by :mod:`brailix.backend.block` and
+# :mod:`brailix.backend.number` — an explicit ``from ... import translate_node``
+# never consulted ``__all__``, so those keep working while the compatibility
+# promise stays exactly the one the manifest states. Without this list,
+# ``import *`` here also published two dozen IR node types and the whole
+# language-backend plumbing.
+__all__ = ("language_backend_registry",)

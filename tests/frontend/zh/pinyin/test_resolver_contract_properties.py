@@ -1,6 +1,6 @@
 """Property-based conformance suite for the PinyinResolver contract.
 
-:class:`brailix.core.protocols.PinyinResolver` states: *the resolver fills
+:class:`brailix.frontend.zh.pinyin.PinyinResolver` states: *the resolver fills
 the ``pinyin`` field on tokens; it must not change token boundaries or
 types*. Concretely, for ANY input: same token count, same surfaces, same
 spans, same POS, in the same order; only ``pinyin`` / ``confidence`` may be
@@ -10,6 +10,17 @@ This one generated suite runs against every *importable* registered
 resolver (adapters whose extra isn't installed skip themselves), so a new
 adapter is covered by registration alone — no more per-adapter copies of
 the same structural assertions.
+
+What it cannot cover is a resolver registered in somebody *else's*
+environment, which is what the registry exists to allow: a third-party
+adapter is never in this repository, so no test here ever runs it. That half
+is :func:`brailix.frontend.zh.pinyin.annotate`'s runtime check, which compares
+the tokens coming back against the ones it handed over and raises
+:class:`~brailix.core.errors.FrontendContractError` on any shape change. The
+two are complementary — generated inputs against the shipped adapters here,
+every input against every adapter there — and
+``tests/frontend/test_adapter_contract_policy.py`` is where the runtime one
+is exercised with deliberately misbehaving fakes.
 
 The shared char-alignment helper (:func:`resolve_by_char_alignment`) is
 additionally property-tested with a synthetic per-character converter,

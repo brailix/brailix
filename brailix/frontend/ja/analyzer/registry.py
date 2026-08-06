@@ -40,3 +40,9 @@ def _register_builtin() -> None:
 
 
 _register_builtin()
+
+
+# See :mod:`brailix.frontend.zh.analyzer.registry`: a registry module publishes
+# its registry and nothing else. ``JapaneseAnalyzer`` is promised from
+# :mod:`brailix.frontend.ja.analyzer`, ``Registry`` is internal machinery.
+__all__ = ("analyzer_registry",)
