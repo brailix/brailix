@@ -659,9 +659,16 @@ class LayoutRenderer:
                     # to mid-atom split for it.
                 # Mid-atom split — last resort.  Take as many cells as fit
                 # (minus hyphen reservation), flush with hyphen, repeat.
+                # ``rest`` is a CURSOR, not a shrinking list. Re-slicing the
+                # remainder each time (``rest = rest[slot:]``) copied every
+                # cell still to come, once per line — quadratic in the atom
+                # over a loop that runs once per line of it. This is the same
+                # trap the atom stream above already avoids with an index; it
+                # was missed here because this branch splits *inside* one atom.
                 first = atoms[start]
-                rest_cells = first
-                while rest_cells:
+                total = len(first)
+                rest = 0
+                while rest < total:
                     slot = opts.line_width - len(cur) - hyphen_width
                     if slot <= 0:
                         # Not enough room for even one cell plus the
@@ -682,20 +689,22 @@ class LayoutRenderer:
                             # cell — the old double-flush bug), so force a
                             # single cell onto this over-wide line
                             # instead.  The width overflow is unavoidable
-                            # when the indent exceeds it, but rest_cells
-                            # still shrinks so we can't spin forever.
+                            # when the indent exceeds it, but the cursor
+                            # still advances so we can't spin forever.
                             slot = 1
-                        take, rest_cells = rest_cells[:slot], rest_cells[slot:]
-                        cur.extend(take)
-                        if rest_cells:
+                        take = min(rest + slot, total)
+                        cur.extend(first[rest:take])
+                        rest = take
+                        if rest < total:
                             flush_line(
                                 with_hyphen=False,
                                 next_indent=overflow_indent(),
                             )
                         continue
-                    take, rest_cells = rest_cells[:slot], rest_cells[slot:]
-                    cur.extend(take)
-                    if rest_cells:
+                    take = min(rest + slot, total)
+                    cur.extend(first[rest:take])
+                    rest = take
+                    if rest < total:
                         flush_line(
                             with_hyphen=True, next_indent=overflow_indent()
                         )
