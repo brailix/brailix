@@ -170,6 +170,13 @@ _FACADE: dict[str, list[str]] = {
         "InputLimits",
         "InputTooLargeError",
         "DEFAULT_INPUT_LIMITS",
+        # What ``parse_file`` routes, derived from its own table. Published
+        # because the question "can this application open that file?" is asked
+        # from outside — a desktop file dialog builds its filter from it — and
+        # the answer was previously re-typed by each caller, which is how
+        # ``.abc`` and ``.mid`` became formats the library read and the
+        # desktop opened as plain text.
+        "ROUTED_SUFFIXES",
     ],
     "brailix.frontend": [
         "segment",

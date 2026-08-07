@@ -93,6 +93,15 @@ if _TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
+MARKDOWN_SUFFIXES = frozenset({".md", ".markdown"})
+"""File extensions this adapter claims.
+
+Beside the parser rather than in :mod:`brailix.input`'s routing table — the
+same place :data:`brailix.input.music_xml.MUSIC_SUFFIXES` sits — because an
+application that *presents* the formats (a file dialog's filter, a desktop
+input registry) needs to read it without importing a routing internal, and
+every such caller that cannot reach it keeps a literal copy instead."""
+
 _HEADING_RE = _re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
 _UNORDERED_RE = _re.compile(r"^([-*+])\s+(.*)$")
 _ORDERED_RE = _re.compile(r"^(\d+)[.)]\s+(.*)$")

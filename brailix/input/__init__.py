@@ -39,6 +39,16 @@ fallback rules, third-party adapters) is an application concern and
 lives there: an application can wrap these functions as registered
 adapters behind its own registry.
 
+Which extensions *this* layer routes, though, is this layer's own fact, and
+it is published — :data:`ROUTED_SUFFIXES`, plus the per-format sets beside
+each reader (``markdown.MARKDOWN_SUFFIXES``, ``docx.DOCX_SUFFIXES`` /
+``DOC_SUFFIXES``, ``music_xml.MUSIC_SUFFIXES`` / ``BINARY_SCORE_SUFFIXES`` /
+``DEFERRED_SCORE_SUFFIXES``). An application that has to *name* the formats
+otherwise re-types them, and a re-typed list is one that stops matching — a
+file dialog's filter and an application-side input registry each holding their
+own copy is how ``.abc`` and ``.mid`` came to be score routes here and plain
+text one layer up.
+
 :func:`parse_file` is the in-house convenience dispatcher, so
 GUIs / CLIs / scripts don't each reinvent ``read_text + pick parser``.
 Its routing is a **data table** (:data:`_FORMAT_ROUTES`) mapping a
@@ -59,11 +69,20 @@ from dataclasses import field as _field
 from pathlib import Path as _Path
 
 from brailix.core._xml import xml_root_element as _xml_root_element
+from brailix.input.docx import (
+    DOC_SUFFIXES as _DOC_SUFFIXES,
+)
+from brailix.input.docx import (
+    DOCX_SUFFIXES as _DOCX_SUFFIXES,
+)
 from brailix.input.docx import parse_doc, parse_docx
 from brailix.input.limits import (
     DEFAULT_INPUT_LIMITS,
     InputLimits,
     InputTooLargeError,
+)
+from brailix.input.markdown import (
+    MARKDOWN_SUFFIXES as _MARKDOWN_SUFFIXES,
 )
 from brailix.input.markdown import parse_markdown
 from brailix.input.music_xml import (
@@ -96,12 +115,16 @@ __all__ = (
     "InputLimits",
     "InputTooLargeError",
     "DEFAULT_INPUT_LIMITS",
+    "ROUTED_SUFFIXES",
 )
 
 
-_MARKDOWN_SUFFIXES = frozenset({".md", ".markdown"})
-_DOCX_SUFFIXES = frozenset({".docx", ".docm"})
-_DOC_SUFFIXES = frozenset({".doc"})
+# Which extensions each format claims now lives beside its reader
+# (``markdown.MARKDOWN_SUFFIXES``, ``docx.DOCX_SUFFIXES`` / ``DOC_SUFFIXES``,
+# ``music_xml.MUSIC_SUFFIXES`` and friends) and is imported here under private
+# aliases: this table routes with them, but a facade's namespace is a promise,
+# so what an application reads it imports from the module that owns it.
+#
 # ``.xml`` is a generic container (MathML, DocBook, arbitrary XML), so it is
 # sniffed (see ``_looks_like_musicxml``) before being handed to the music
 # adapter; non-score ``.xml`` falls back to plain text instead of producing
@@ -316,6 +339,15 @@ _FORMAT_ROUTES: tuple[tuple[frozenset[str], _Handler], ...] = (
 _SUFFIX_ROUTES: dict[str, _Handler] = {
     suffix: handler for suffixes, handler in _FORMAT_ROUTES for suffix in suffixes
 }
+
+ROUTED_SUFFIXES = frozenset(_SUFFIX_ROUTES)
+"""Every extension :func:`parse_file` routes to a format of its own.
+
+Derived from the routing table rather than listed beside it, so it cannot fall
+behind: a format added there is announced here the same day. Anything absent is
+read as plain text — the right answer for an unknown extension, the wrong one
+for a format this set would have named, which is exactly the check an
+application's file dialog wants before deciding what it can open."""
 
 
 def parse_file(

@@ -56,10 +56,13 @@ from brailix.core.context import MusicContext
 from brailix.input.limits import DEFAULT_INPUT_LIMITS, InputLimits
 from brailix.ir.document import DocumentIR, ScoreBlock
 
-_MUSICXML_TEXT_SUFFIXES = frozenset({".musicxml", ".xml"})
-_MXL_SUFFIXES = frozenset({".mxl"})
+MUSICXML_TEXT_SUFFIXES = frozenset({".musicxml", ".xml"})
+"""Bare-XML score suffixes — read as XML text, no source adapter."""
 
-MUSIC_SUFFIXES = _MUSICXML_TEXT_SUFFIXES | _MXL_SUFFIXES
+MXL_SUFFIXES = frozenset({".mxl"})
+"""The MusicXML ZIP container, unzipped at input through the ``mxl`` adapter."""
+
+MUSIC_SUFFIXES = MUSICXML_TEXT_SUFFIXES | MXL_SUFFIXES
 
 # Binary score dialects: decoded eagerly at the input boundary because the
 # text IR can't carry binary bytes (ARCHITECTURE#arch-layers rule 2 — the same
@@ -119,9 +122,9 @@ def parse_musicxml(
     """
     p = _Path(path)
     suffix = p.suffix.lower()
-    if suffix in _MXL_SUFFIXES:
+    if suffix in MXL_SUFFIXES:
         text = _unzip_mxl(limits.read_bounded(p), profile=profile)
-    elif suffix in _MUSICXML_TEXT_SUFFIXES:
+    elif suffix in MUSICXML_TEXT_SUFFIXES:
         # Decoded by XML's own rules — the byte order mark, the ``<?xml``
         # declaration's byte pattern, or the encoding it names — so a score
         # read from a file is accepted on exactly the terms the MusicXML

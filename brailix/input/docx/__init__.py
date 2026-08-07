@@ -113,6 +113,18 @@ __all__ = (
     "parse_doc",
 )
 
+DOCX_SUFFIXES = frozenset({".docx", ".docm"})
+"""Modern OOXML Word documents, read by :func:`parse_docx`."""
+
+DOC_SUFFIXES = frozenset({".doc"})
+"""Legacy binary Word documents, read by :func:`parse_doc` — which needs
+LibreOffice (``soffice``) on PATH, so an application may want to offer them
+differently."""
+
+# Both sets live beside the readers rather than in ``brailix.input``'s routing
+# table, for the reason given on ``markdown.MARKDOWN_SUFFIXES``: whoever
+# presents the formats has to be able to read which extensions they are.
+
 
 # ---------------------------------------------------------------------------
 # Archive resource caps (zip-bomb / OOM guard)

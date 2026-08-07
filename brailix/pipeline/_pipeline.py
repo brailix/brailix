@@ -180,6 +180,15 @@ _FROZEN_CONFIG_FIELDS: frozenset[str] = frozenset(
 )
 
 
+# The prose formats :meth:`Pipeline.parse_text` parses into blocks, and the
+# score dialects it wraps as a single ``ScoreBlock`` carrying that source name.
+# Kept as two sets because the second is the one that grows: a score dialect
+# that arrives as *text* (MusicXML, ABC) is stored raw and converted by the
+# frontend at compile time, so adding one is an entry here, not a branch.
+_PROSE_TEXT_FORMATS: frozenset[str] = frozenset({"plain", "markdown"})
+_SCORE_TEXT_FORMATS: frozenset[str] = frozenset({"musicxml", "abc"})
+
+
 def _freeze_seg_dict(
     raw: _Mapping[str, _Sequence[str]],
 ) -> dict[str, tuple[str, ...]]:
@@ -322,6 +331,18 @@ class Pipeline:
     registry under a name of your choice, then construct a Pipeline with
     that name — no Pipeline code changes needed.
     """
+
+    # Deliberately un-annotated: this is a class constant, and an annotated
+    # attribute on a dataclass becomes a constructor field.
+    PARSE_TEXT_FORMATS = _PROSE_TEXT_FORMATS | _SCORE_TEXT_FORMATS
+    """The ``format`` names :meth:`parse_text` accepts.
+
+    Published because :meth:`parse_text` raises on anything else rather than
+    falling back to plain, so a caller holding a *stored* format name — a
+    front-end reopening a project file whose recorded format may be stale or
+    hand-edited — has to check one before using it. The alternative is the
+    caller keeping its own copy of this set, which is a copy that stops
+    matching the day a format is added here."""
 
     profile: str
     mode: RunMode | str = RunMode.NORMAL
@@ -924,10 +945,14 @@ class Pipeline:
     ) -> DocumentIR:
         """Parse ``text`` into a :class:`DocumentIR` without translating.
 
-        ``format`` selects the adapter: ``"plain"`` (one paragraph) or
+        ``format`` selects the adapter and must be one of
+        :data:`PARSE_TEXT_FORMATS`: ``"plain"`` (one paragraph),
         ``"markdown"`` (the Markdown subset described under
         :func:`brailix.input.parse_markdown` — headings, lists,
-        quotes, code blocks, ``$$...$$`` math, tables). The Pipeline's
+        quotes, code blocks, ``$$...$$`` math, tables), or a score
+        dialect that arrives as *text* — ``"musicxml"`` and ``"abc"``,
+        each wrapped as a single ``ScoreBlock`` carrying that source
+        name. The Pipeline's
         ``profile`` and ``language`` are baked into the resulting IR
         metadata so a follow-up :meth:`translate_document` matches what
         :meth:`translate_text` / :meth:`translate_file` would have
@@ -958,21 +983,25 @@ class Pipeline:
             )
             doc.metadata.update(self._ir_metadata())
             return doc
-        if format == "musicxml":
-            # Wrap raw MusicXML text as a single ScoreBlock so any
-            # caller using parse_text can route .musicxml
-            # through the same block-level compile path it uses for
-            # markdown / plain. ``populate_music_block`` will parse
-            # the inner XML into a MusicInline tree at compile time.
+        if format in _SCORE_TEXT_FORMATS:
+            # Wrap raw score text as a single ScoreBlock so any caller using
+            # parse_text can route a score through the same block-level
+            # compile path it uses for markdown / plain.
+            # ``populate_music_block`` runs the matching source adapter at
+            # compile time: for ``musicxml`` that is the pass-through parse
+            # into a MusicInline tree, for ``abc`` the ``abc`` adapter —
+            # whose missing extra soft-fails there rather than raising here,
+            # which is the whole point of keeping a text dialect raw
+            # (ARCHITECTURE#arch-layers rule 1).
             from brailix.ir.document import ScoreBlock
 
             return DocumentIR(
                 metadata=self._ir_metadata(),
-                blocks=[ScoreBlock(text=text, source="musicxml")],
+                blocks=[ScoreBlock(text=text, source=format)],
             )
         raise ValueError(
             f"unknown parse format: {format!r} "
-            "(expected 'plain' / 'markdown' / 'musicxml')"
+            f"(expected one of {sorted(self.PARSE_TEXT_FORMATS)})"
         )
 
     def parse_file(
