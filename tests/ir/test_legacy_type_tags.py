@@ -1,114 +1,80 @@
-"""Retired inline-node type tags still load from saved documents.
+"""Retired inline-node type tags do not resolve — and nothing needs them to.
 
-A project file outlives the schema that produced it. When a node type is
-retired, every document already on disk still carries its tag — so the tag has
-to keep resolving, or opening a file saved before the change fails outright.
-That is the one failure a proofreader cannot work around: the work is in the
-file and the tool won't read it.
+There was a compatibility table in :mod:`brailix.ir.inline` mapping
+``hanzi_char`` onto :class:`~brailix.ir.inline.Word` and ``latin_acronym`` onto
+:class:`~brailix.ir.inline.LatinWord`, on the reasoning that a project file
+outlives the schema that produced it: retire a node type and every document
+already on disk still carries its tag, so the tag has to keep resolving or the
+work is in the file and the tool won't read it.
 
-Two tags exist today, both retired for the same reason — a node type that
-carried no information its surface didn't already state:
+The premise is not true of any file this library reads. A ``.blx`` project
+stores the source text and the overrides applied to it, and recompiles the
+inline IR every time it opens; ``proofread_json()`` is a write-only export.
+Across the whole tree, the only callers of the IR deserializers are the
+deserializers themselves and their own tests — no path reads inline IR back
+off disk, so no stored payload can name a retired tag.
 
-* ``hanzi_char`` — single characters, now one-character
-  :class:`~brailix.ir.inline.Word` nodes;
-* ``latin_acronym`` — all-caps Latin runs, now plain
-  :class:`~brailix.ir.inline.LatinWord` nodes (the doubled capital sign was
-  always decided from ``surface.isupper()``, never from the type).
+The table had also stopped describing what its name claimed: ``Quantity`` and
+``Percent`` were retired without entries, because neither could map losslessly
+onto anything. "Retired types" was two of four.
 
-Neither carried a field its replacement lacks, so stored payloads
-deserialize unchanged.
+So the tags are gone, and this file pins that they are gone rather than that
+they work — the same shape as any other removal here. What a retired tag gets
+is the error a misspelling gets, which is the honest answer: this library does
+not know that type.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from brailix.core.span import Span
-from brailix.ir.document import DocumentIR, Paragraph
 from brailix.ir.inline import LatinWord, Word, from_dict, inline_node_for
 
 
-class TestRetiredTagResolves:
-    def test_tag_maps_to_its_replacement(self) -> None:
-        assert inline_node_for("hanzi_char") is Word
+class TestRetiredTagsAreGone:
+    @pytest.mark.parametrize("tag", ["hanzi_char", "latin_acronym"])
+    def test_a_retired_tag_no_longer_resolves(self, tag: str) -> None:
+        with pytest.raises(KeyError, match=tag):
+            inline_node_for(tag)
 
-    def test_payload_deserializes_with_every_field_intact(self) -> None:
+    @pytest.mark.parametrize("tag", ["hanzi_char", "latin_acronym"])
+    def test_a_payload_carrying_one_is_refused_by_name(self, tag: str) -> None:
+        """Named in the error, so a caller holding IR JSON from an older build
+        is told which tag stopped existing rather than shown a bare KeyError."""
+        with pytest.raises(KeyError, match=tag):
+            from_dict({"type": tag, "surface": "我"})
+
+    def test_no_alias_table_is_left_behind(self) -> None:
+        import brailix.ir.inline as inline_mod
+
+        assert not hasattr(inline_mod, "_LEGACY_TYPE_ALIASES")
+
+
+class TestTheReplacementTypesStillCarryEverything:
+    """What the aliases were protecting is still true of the types themselves:
+    neither retired type carried a field its replacement lacks. Kept so the
+    claim above stays checked rather than remembered."""
+
+    def test_a_single_character_is_a_one_character_word(self) -> None:
         node = from_dict(
-            {
-                "type": "hanzi_char",
-                "surface": "我",
-                "span": [3, 4],
-                "reading": "wo3",
-            }
+            {"type": "word", "surface": "我", "span": [3, 4], "reading": "wo3"}
         )
         assert isinstance(node, Word)
         assert node.surface == "我"
         assert node.reading == "wo3"
-        assert node.span is not None
-        assert node.span.to_tuple() == (3, 4)
+        assert node.span is not None and node.span.to_tuple() == (3, 4)
 
-    def test_latin_acronym_maps_to_the_plain_latin_word(self) -> None:
-        assert inline_node_for("latin_acronym") is LatinWord
-
-    def test_a_saved_acronym_loads_identical_to_a_fresh_node(self) -> None:
-        """Equality of the whole node, not just its class.
-
-        Every field being equal is what makes the rest follow: the doubled
-        capital sign comes from ``surface.isupper()``, so a node that equals
-        a freshly-built one cannot translate differently.
-        """
-        loaded = from_dict(
-            {"type": "latin_acronym", "surface": "CPU", "span": [0, 3]}
-        )
-        assert loaded == LatinWord(surface="CPU", span=Span(0, 3))
-
-    def test_a_genuinely_unknown_tag_still_raises(self) -> None:
-        # The alias table must not turn into a blanket "accept anything":
-        # a tag no build ever wrote is a real error, and the message names
-        # what was actually in the file.
-        with pytest.raises(KeyError, match="not_a_real_node"):
-            inline_node_for("not_a_real_node")
+    def test_an_all_caps_run_is_a_plain_latin_word(self) -> None:
+        """The doubled capital sign comes from ``surface.isupper()``, never
+        from a type, so an acronym needs no node of its own."""
+        node = from_dict({"type": "latin_word", "surface": "CPU", "span": [0, 3]})
+        assert isinstance(node, LatinWord)
+        assert node.surface == "CPU"
 
 
-class TestWholeDocumentRoundTrip:
-    def test_a_document_saved_before_the_merge_still_loads(self) -> None:
-        """The scenario as a user meets it: an existing project file.
-
-        Built as the payload a pre-merge build would have written, rather
-        than by serializing today's IR — serializing first would only prove
-        the current writer agrees with the current reader.
-        """
-        legacy = {
-            "type": "document",
-            "metadata": {},
-            "blocks": [
-                {
-                    "type": "paragraph",
-                    "text": "我在重庆",
-                    "children": [
-                        {"type": "hanzi_char", "surface": "我", "span": [0, 1],
-                         "reading": "wo3"},
-                        {"type": "space", "surface": "", "span": [1, 1]},
-                        {"type": "hanzi_char", "surface": "在", "span": [1, 2],
-                         "reading": "zai4"},
-                        {"type": "space", "surface": "", "span": [2, 2]},
-                        {"type": "word", "surface": "重庆", "span": [2, 4],
-                         "reading": "chong2 qing4"},
-                    ],
-                }
-            ]
-        }
-        doc = DocumentIR.from_dict(legacy)
-
-        block = doc.blocks[0]
-        assert isinstance(block, Paragraph)
-        assert [c.surface for c in block.children] == ["我", "", "在", "", "重庆"]
-        words = [c for c in block.children if isinstance(c, Word)]
-        assert [w.reading for w in words] == ["wo3", "zai4", "chong2 qing4"]
-
-    def test_resaving_writes_the_current_tag(self) -> None:
-        # Nothing emits the retired tag any more, so a file quietly migrates
-        # the first time it is saved — the alias is a read-side bridge, not a
-        # format the library keeps producing.
-        node = from_dict({"type": "hanzi_char", "surface": "我"})
-        assert node.to_dict()["type"] == "word"
+def test_a_genuinely_unknown_tag_raises_the_same_way() -> None:
+    """The removal must not have turned lookup into "accept anything", and a
+    tag no build ever wrote must read the same as one that was retired — the
+    message names what was actually in the payload."""
+    with pytest.raises(KeyError, match="not_a_real_node"):
+        inline_node_for("not_a_real_node")

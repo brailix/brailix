@@ -282,17 +282,30 @@ def test_the_guides_backend_example_implements_exactly_the_protocol(
 # The current-architecture documents don't describe a retired type as current
 # ---------------------------------------------------------------------------
 
-# The retired IR type tags, read off the deserializer's compatibility table
-# rather than hand-listed: that table is the definition of "retired", and it is
-# the thing that grows when the next type folds away.
-def _retired_names() -> set[str]:
-    from brailix.ir.inline import _LEGACY_TYPE_ALIASES
+# The retired IR type tags. Hand-listed, and that is a change: this used to be
+# derived from the deserializer's compatibility table, on the reading that the
+# table WAS the definition of "retired". It was not — a type only got an entry
+# if it could map losslessly onto its replacement, so ``Quantity`` and
+# ``Percent`` retired without one and this scan never looked for them. (The
+# table has since been removed outright: nothing persists inline IR, so it
+# bridged nothing.) A list has to be extended by hand when the next type folds
+# away, which is the honest cost of naming a thing that no longer exists
+# anywhere to be read off.
+_RETIRED_TYPE_NAMES: frozenset[str] = frozenset(
+    {
+        "HanziChar",  # single characters — now a one-character Word
+        "LatinAcronym",  # all-caps runs — now a plain LatinWord
+        "Quantity",  # number + unit — now a Number beside a LatinWord
+        "Percent",  # number + % — now a Number beside a Punct
+        # The LanguageBackend method HanziChar used to require of every
+        # language. The other three were module functions, never protocol.
+        "translate_hanzi_char",
+    }
+)
 
-    names: set[str] = set()
-    for tag in _LEGACY_TYPE_ALIASES:
-        names.add("".join(part.title() for part in tag.split("_")))  # HanziChar
-        names.add(f"translate_{tag}")  # translate_hanzi_char
-    return names
+
+def _retired_names() -> set[str]:
+    return set(_RETIRED_TYPE_NAMES)
 
 
 @pytest.mark.parametrize("doc", _extension_docs(), ids=lambda d: d[0])
@@ -310,10 +323,10 @@ def test_no_extension_document_names_a_retired_type(doc: tuple[str, str]) -> Non
     assert retired, "no retired tags found — the scan broke"
     found = sorted(name for name in retired if name in text)
     assert not found, (
-        f"{rel} names retired IR types as if they were current: {found}. They "
-        f"resolve on load for old documents (brailix.ir.inline."
-        f"_LEGACY_TYPE_ALIASES) and belong in that note, not in a description "
-        f"of the model an extender writes against."
+        f"{rel} names retired IR types as if they were current: {found}. "
+        f"Nothing in the library carries them any more — see "
+        f"_RETIRED_TYPE_NAMES — so a description of the model an extender "
+        f"writes against should not either."
     )
 
 
@@ -466,12 +479,15 @@ class TestTheDocumentScans:
     """Both scans above run on real files, where a clean tree and a scan that
     stopped matching produce the same green. These pin what each one sees."""
 
-    def test_the_retired_name_scan_derives_both_spellings(self) -> None:
-        # The type name as a document writes it, and the protocol method the
-        # type used to require.
-        assert {"HanziChar", "LatinAcronym", "translate_hanzi_char"} <= (
-            _retired_names()
-        )
+    def test_the_retired_name_scan_covers_every_folded_away_type(self) -> None:
+        # The type names as a document writes them, plus the protocol method
+        # one of them used to require. Listed rather than derived — see
+        # _RETIRED_TYPE_NAMES for why — so this is what keeps the list from
+        # silently shrinking.
+        assert {
+            "HanziChar", "LatinAcronym", "Quantity", "Percent",
+            "translate_hanzi_char",
+        } <= _retired_names()
 
     def test_the_retired_name_scan_reports_a_mention(self) -> None:
         retired = _retired_names()

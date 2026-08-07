@@ -317,34 +317,21 @@ _INLINE_REGISTRY: dict[str, type[InlineNode]] = {
 }
 
 
-# Type tags that older builds wrote into saved documents, and what they are
-# read back as. A project file outlives the schema that produced it, so a
-# retired tag has to keep resolving or every document saved before the change
-# fails to open — the one failure mode a proofreader cannot work around.
-#
-# Both mappings are lossless, which is what makes them safe to read blind:
-# ``hanzi_char`` is a single-character word, and its fields (``surface`` /
-# ``span`` / ``reading``) are all fields :class:`Word` has. Nothing writes
-# either tag, so a re-saved file moves to the current one.
-_LEGACY_TYPE_ALIASES: dict[str, str] = {
-    "hanzi_char": "word",
-    # ``latin_acronym`` is an all-caps Latin word, carrying no field the plain
-    # word lacks: the backend reads no type here — the doubled capital sign
-    # comes from ``surface.isupper()``, which the payload still says — so the
-    # stored node deserializes to the same cells.
-    "latin_acronym": "latin_word",
-}
-
-
 def inline_node_for(type_name: str) -> type[InlineNode]:
     """Look up the dataclass for an inline node type name.
 
-    Retired tags from older saved documents resolve to their replacement (see
-    :data:`_LEGACY_TYPE_ALIASES`).
+    Retired tags do **not** resolve. There was a compatibility table here
+    mapping ``hanzi_char`` to :class:`Word` and ``latin_acronym`` to
+    :class:`LatinWord`, justified by "a project file outlives the schema that
+    produced it" — but no file this library reads carries inline IR. A ``.blx``
+    project stores the source text and its overrides and recompiles the IR on
+    open; the proofread JSON is a write-only export. The two tags therefore
+    bridged nothing, which is also why retiring ``Quantity`` and ``Percent``
+    added no entries: the table had stopped describing "retired" some time
+    before it was removed.
     """
-    resolved = _LEGACY_TYPE_ALIASES.get(type_name, type_name)
     try:
-        return _INLINE_REGISTRY[resolved]
+        return _INLINE_REGISTRY[type_name]
     except KeyError as e:
         raise KeyError(f"unknown inline node type: {type_name!r}") from e
 
