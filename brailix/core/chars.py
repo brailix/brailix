@@ -60,6 +60,26 @@ def fold_fullwidth(ch: str) -> str | None:
     return None
 
 
+def _fullwidth_of(ch: str) -> str:
+    """The full-width twin of a half-width ASCII character; ``ch`` itself when
+    it has none.
+
+    The inverse of :func:`fold_fullwidth`, over the same two ranges and by the
+    same ``0xFEE0`` offset. Private because it exists for one caller —
+    :data:`PERCENT_CHARS` below, which needs "the percent sign and its
+    full-width form" rather than a pair of literals. Publish it when a second
+    caller has a reason to want it.
+    """
+    if len(ch) != 1:
+        return ch
+    if ch == " ":
+        return "　"
+    cp = ord(ch)
+    if 0x21 <= cp <= 0x7E:
+        return chr(cp + 0xFEE0)
+    return ch
+
+
 def nonstandard_char_hint(text: str) -> str | None:
     """An actionable hint when ``text`` is a single non-standard character:
     a full-width ASCII variant (naming its half-width form), a full-width
@@ -117,7 +137,15 @@ def is_math_symbol(ch: str) -> bool:
 # Here rather than in either layer for the reason this module exists at all
 # (see the module docstring): a lexical fact about the input, which frontend
 # and backend can both depend on without a reverse import.
-PERCENT_CHARS: frozenset[str] = frozenset({"%", "％"})
+#
+# Derived, not listed: there is one percent sign, and the other spelling a
+# document carries is its full-width form — which is not a second fact but the
+# same one under the ``0xFEE0`` offset this module already owns in both
+# directions (:func:`fold_fullwidth` / :func:`_fullwidth_of`). Written as a
+# literal pair, the two are free to disagree: a set that names ``％`` while
+# ``fold_fullwidth`` folds it to something else is a state nothing here would
+# notice.
+PERCENT_CHARS: frozenset[str] = frozenset({"%", _fullwidth_of("%")})
 
 
 __all__ = (

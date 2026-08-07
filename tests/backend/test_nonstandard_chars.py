@@ -8,7 +8,12 @@ from __future__ import annotations
 import pytest
 
 from brailix import Pipeline
-from brailix.core.chars import INVISIBLE_CPS, nonstandard_char_hint
+from brailix.core.chars import (
+    INVISIBLE_CPS,
+    PERCENT_CHARS,
+    fold_fullwidth,
+    nonstandard_char_hint,
+)
 
 
 class TestHint:
@@ -141,3 +146,28 @@ class TestInvisibleCps:
 
     def test_contains_the_usual_zero_width_set(self):
         assert {0x200B, 0x200C, 0x200D, 0xFEFF} <= INVISIBLE_CPS
+
+
+class TestPercentChars:
+    """One percent sign, and the same sign full-width — not two facts.
+
+    The set is derived from the ``0xFEE0`` relation this module owns rather
+    than written out, so what it contains and what ``fold_fullwidth`` says
+    about those characters cannot disagree. That is the property worth
+    pinning: the exact membership is a consequence of it.
+    """
+
+    def test_it_is_the_percent_sign_and_its_full_width_form(self):
+        assert PERCENT_CHARS == {"%", "％"}
+        assert {ord(c) for c in PERCENT_CHARS} == {0x0025, 0xFF05}
+
+    def test_every_member_folds_to_the_one_percent_sign(self):
+        # The direction the frontend and backend both rely on: whatever spells
+        # a percent in the source is the same operator to the IR.
+        assert {fold_fullwidth(c) or c for c in PERCENT_CHARS} == {"%"}
+
+    def test_no_other_spelling_of_percent_is_admitted(self):
+        # ‰ / ‱ / the Arabic percent sign are different quantities or different
+        # scripts, not spellings of this one — a derivation over "characters
+        # whose name mentions PERCENT" would have swept them in.
+        assert not PERCENT_CHARS & {"‰", "‱", "٪", "﹪"}
