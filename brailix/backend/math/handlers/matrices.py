@@ -268,12 +268,12 @@ def _emit_mtable_aligned(
     closing 界符 lines up — the frame's right edge is as much a landmark as
     the columns inside it.
 
-    Alignment used to apply only where the zeros were OMITTED (empty
-    ``<mtd/>`` cells — diagonal / triangular / tridiagonal / arrow shapes),
-    on the reasoning that only there must the reader *place* a non-zero
-    element. But a full matrix is read the same way by the same finger:
-    with elements of unequal width (``1`` beside ``100``) the unaligned
-    path put every row's columns, and both its 界符, somewhere else.
+    Alignment applies to every matrix, not only to the shapes with zeros
+    OMITTED (empty ``<mtd/>`` cells — diagonal / triangular / tridiagonal /
+    arrow), where the reader must *place* a non-zero element. A full matrix
+    is read the same way by the same finger: with elements of unequal width
+    (``1`` beside ``100``) an unaligned emit puts every row's columns, and
+    both its 界符, somewhere else.
 
     A table whose cells span lines keeps the unmeasured path — see
     :func:`_mtable_cell_spans_lines`. The staircase equation system

@@ -54,14 +54,14 @@ def _resolve_renderer(name: str | None, default: str, expected_domain: str) -> _
     a ``consumes`` attribute, defaulting to ``"braille"`` for the braille
     renderers that predate the attribute.
 
-    **Only ``None`` means "no name given."** Each of the four ``render``
-    methods used to select with ``name or self.default_renderer``, which reads
-    the same to a human and is not the same rule: ``""`` is a name a caller
-    passed, and falsiness quietly turned it into the default. So
-    ``render(config["renderer"])`` on a config with an empty or missing value,
-    a blank CLI flag, an unset form field, or a plugin name assembled from
-    parts that came out empty all produced the default renderer's output and
-    reported success — the one input where the caller most needs the
+    **Only ``None`` means "no name given."** Selecting with
+    ``name or self.default_renderer`` reads the same to a human and is not the
+    same rule: ``""`` is a name a caller passed, and falsiness quietly turns
+    it into the default. So ``render(config["renderer"])`` on a config with an
+    empty or missing value, a blank CLI flag, an unset form field, or a plugin
+    name assembled from parts that came out empty would each produce the
+    default renderer's output and report success — the one input where the
+    caller most needs the
     :class:`~brailix.core.errors.UnknownAdapterError` that any *other* wrong
     name would have raised. Defaulting lives here, once, rather than at four
     call sites that have to agree with each other.
@@ -358,7 +358,7 @@ class CompiledBlock:
     warnings: list[Warning] = _field(default_factory=list)
     tree_subcache: TreeSubcache = _field(default_factory=dict)
     # False when the registration surface moved mid-compile (the run also
-    # carries a ``COMPILE_EPOCH_CHANGED`` warning). A warning alone was not
+    # carries a ``COMPILE_EPOCH_CHANGED`` warning). A warning alone is not
     # enough: a caller that stores ``result.source_hash -> result`` without
     # reading diagnostics would file a possibly-blended compile under the key
     # a clean compile of the same block will later look up. Belt and braces —

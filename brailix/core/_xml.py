@@ -143,11 +143,12 @@ class XmlDecodeError(ValueError):
 # reveals UTF-16 / UTF-32 even with no mark; and that declaration's own
 # ``encoding`` pseudo-attribute. UTF-8 is the default when none of them speaks.
 #
-# What this replaces is a plain ``data.decode("utf-8")`` in each pass-through
-# adapter, which refuses a perfectly legal UTF-16 document. The input layer's
-# own file reader already accepts one (``InputLimits.read_bounded_text``), so
-# the same score parsed from disk and soft-failed when the identical bytes
-# were handed to ``to_musicxml`` — and MathML and SVG had the same split.
+# The alternative is a plain ``data.decode("utf-8")`` in each pass-through
+# adapter, which refuses a perfectly legal UTF-16 or ISO-8859-1 document —
+# and refuses it *inconsistently*, since one rule per caller is one rule per
+# entry point: the same score parses from disk and soft-fails when the
+# identical bytes are handed to ``to_musicxml``. One rule here, three
+# adapters and the file reader (``InputLimits.read_bounded_xml``) reading it.
 
 # Longest mark first: the UTF-32LE mark *begins with* the UTF-16LE mark, so
 # testing UTF-16 first decodes a UTF-32 document into garbage. The ``utf-32`` /
@@ -350,11 +351,11 @@ def strip_xml_prolog(text: str) -> str:
     """Return ``text`` from its root element on, dropping the prologue.
 
     Its whole job is to *locate the root element* (:func:`_root_element_start`)
-    — not to guess where a DOCTYPE ends with a rule of its own. The rule it
-    used to have counted ``[`` / ``]`` and nothing else, so a legal
-    ``<!ATTLIST part id CDATA "a]b>c">`` inside an internal subset ended the
-    scan at the quoted ``]`` and the caller was handed the fragment ``c">]>…``
-    — a document ElementTree parses fine, soft-failing as a parse error.
+    — not to guess where a DOCTYPE ends with a rule of its own. A rule that
+    counts ``[`` / ``]`` and nothing else ends the scan at the quoted ``]`` of
+    a legal ``<!ATTLIST part id CDATA "a]b>c">`` inside an internal subset,
+    handing the caller the fragment ``c">]>…`` — a document ElementTree
+    parses fine, soft-failing as a parse error.
 
     What the strip is *for*, given :func:`safe_fromstring` parses a DOCTYPE
     perfectly well (external identifier and all — expat does not fetch
@@ -369,9 +370,9 @@ def strip_xml_prolog(text: str) -> str:
 
     That is also why the scan skips comments rather than stopping at the first
     one: Illustrator's ``<!-- Generator: Adobe Illustrator … -->`` sits between
-    the declaration and the DOCTYPE, and the old "declaration then DOCTYPE, in
-    that order or not at all" walk stopped dead at it, leaving the ``<!ENTITY``
-    in place for the guard to reject. Every Illustrator SVG soft-failed.
+    the declaration and the DOCTYPE, so a "declaration then DOCTYPE, in that
+    order or not at all" walk stops dead at it and leaves the ``<!ENTITY`` in
+    place for the guard to reject — every Illustrator SVG soft-failing.
     """
     start = _root_element_start(text)
     return text if start < 0 else text[start:]

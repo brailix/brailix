@@ -4,8 +4,8 @@ The OMML, MTEF, and EQ-field adapters all face the same sub-problem: a run
 of plain text (``2x+1``, a Word ``<m:t>`` payload, an accumulated MTEF
 CHAR stream) must become ``<mn>`` / ``<mi>`` / ``<mo>`` atoms so the math
 backend can apply per-class rules (number sign, identifier style, ...).
-They used to carry three near-identical copies that had drifted — different
-operator sets, different comma handling. This is the one implementation.
+Three near-identical copies of that drift the way copies do — different
+operator sets, different comma handling — so this is the one implementation.
 
 The single genuine source-format difference is whether ``,`` groups inside
 a number: OMML / MTEF text can carry thousands-grouped numbers (``1,234``),

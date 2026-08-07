@@ -58,10 +58,10 @@ def translate_number(node: Number, ctx: BackendContext, profile: BrailleProfile)
 
 
 # The percent signs a document can carry, from ``core`` — the same set the
-# frontend uses to decide something IS a Percent. It used to be a local literal
-# kept in sync by comment: correct about avoiding a backend → frontend import,
-# but a third spelling added on one side would have the frontend building a
-# valid node this function then rejected as malformed.
+# frontend uses to decide something IS a Percent. A local literal kept in sync
+# by comment would avoid the backend → frontend import just as well, and then
+# a third spelling added on one side leaves the frontend building a valid node
+# this function rejects as malformed.
 
 
 def translate_percent(node: Percent, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:

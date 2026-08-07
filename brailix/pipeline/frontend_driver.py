@@ -341,7 +341,7 @@ class FrontendDriver:
         Two ways a populated block goes stale (both would otherwise be
         silently reused, emitting braille that doesn't match the input):
 
-        * **Edited text** (the P1-2 footgun): the caller mutated
+        * **Edited text**: the caller mutated
           ``block.text`` after population.  Detected with the SAME surface
           the cache key uses (:func:`_block_surface`) — when the
           reconstructed child surface no longer equals the raw text, drop
@@ -495,7 +495,7 @@ class FrontendDriver:
         # because the active language has no frontend, OR because its frontend
         # doesn't claim this segment's type (some other language's prose). Both
         # mean "no frontend for this prose" — NO_LANGUAGE_FRONTEND — not the
-        # misleading UNHANDLED_SEGMENT_TYPE the old `elif` fell through to.
+        # misleading UNHANDLED_SEGMENT_TYPE an `elif` would fall through to.
         if segment.type in _all_prose_types():
             # Same code (NO_LANGUAGE_FRONTEND) for both arrival reasons, but an
             # accurate message: the language may have no frontend at all, or
@@ -554,10 +554,9 @@ class FrontendDriver:
 
         # Everything else is the shared vertical skeleton: cache key, lookup,
         # context construction, the parse, the exception ladder, the warning,
-        # and recording a success. This used to be a second copy of all of it,
-        # and the copies drifted exactly as one would expect — inline math's
-        # ladder had to be repaired on its own after the display path's had
-        # been fixed. What stays local is the recovery, which is genuinely
+        # and recording a success. Two copies of that drift exactly as one
+        # would expect: a repair to the display path's exception ladder does
+        # not reach inline math's. What stays local is the recovery, genuinely
         # different: display math falls back to one Unknown per character,
         # inline math keeps the node with no tree (the backend's MATH_NO_IR
         # path degrades that to a warning).

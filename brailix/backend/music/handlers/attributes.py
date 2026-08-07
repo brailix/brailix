@@ -102,11 +102,11 @@ def _emit_clef(
     except ValueError:
         line = None
     if sign not in _CLEF_SIGN_DEFAULT:
-        # Percussion / TAB / anything outside BANA Table 4.  Emitting a
-        # treble-clef cell here (the old fallback) silently misstated
-        # the part — a drum part read as a G clef — and letting the
-        # sign linger would feed the chord-direction rule (Par. 9.2 is
-        # G / F / C only).  Warn, emit nothing, neutralise the state.
+        # Percussion / TAB / anything outside BANA Table 4.  Falling back to
+        # a treble-clef cell here silently misstates the part — a drum part
+        # read as a G clef — and letting the sign linger would feed the
+        # chord-direction rule (Par. 9.2 is G / F / C only).  Warn, emit
+        # nothing, neutralise the state.
         mctx.current_clef_sign = None
         mctx.current_clef_line = None
         mctx.warn(
@@ -283,7 +283,7 @@ def _emit_time(
         beat_type = int(beat_type_text)
     except ValueError:
         # Additive meters write beats="3+2"; there is no cell mapping
-        # yet, and the old silent return left the score unmetered with
+        # yet, and returning silently leaves the score unmetered with
         # no trace at all.
         mctx.warn(
             code="MUSIC_UNSUPPORTED_NOTATION",

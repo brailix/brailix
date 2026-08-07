@@ -94,16 +94,16 @@ def _make_usable_dir(path: _Path) -> bool:
     back to another location.
 
     The question is "can a downloader put a file here", and the only answer
-    that is true on every platform this ships to is **writing one**. This
-    used to ask :func:`os.access` for ``W_OK``, which answers a narrower
-    question on POSIX — creating an entry in a directory needs search
-    permission too, so a ``0o600`` directory passed and every later
-    ``open()`` in it failed — and barely answers it at all on Windows, the
-    product's own target, where the check reads a read-only *attribute* and
-    is blind to the ACL that actually denies the write. A corporate install
-    under ``C:/Program Files`` is exactly that case: ``W_OK`` says yes, the
-    first model download says ``PermissionError``, and the fallback that
-    exists for precisely this situation never runs.
+    that is true on every platform this ships to is **writing one**. Asking
+    :func:`os.access` for ``W_OK`` instead answers a narrower question on
+    POSIX — creating an entry in a directory needs search permission too, so
+    a ``0o600`` directory passes and every later ``open()`` in it fails — and
+    barely answers it at all on Windows, the product's own target, where the
+    check reads a read-only *attribute* and is blind to the ACL that actually
+    denies the write. A corporate install under ``C:/Program Files`` is
+    exactly that case: ``W_OK`` says yes, the first model download says
+    ``PermissionError``, and the fallback that exists for precisely this
+    situation never runs.
 
     The probe file is deleted on close (that is
     :class:`~tempfile.NamedTemporaryFile`'s own contract, and its name is

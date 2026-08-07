@@ -54,14 +54,14 @@ Module                     Its subsystem entry point
 The first two modules are named for the *process* rather than the verb because
 the verb is taken: this facade binds :func:`segment` and :func:`normalize` as
 functions, and a package attribute and a submodule cannot both own one name.
-They used to be ``frontend.segment`` / ``frontend.normalize``, and the function
-won every time — ``import brailix.frontend.segment as m`` handed back the
-function, so ``m.segmenter_registry`` (the path the extension guide names)
-raised ``AttributeError``, while ``from brailix.frontend.segment import
-segmenter_registry`` worked, because that form is resolved through
+Naming them ``frontend.segment`` / ``frontend.normalize`` instead puts a
+submodule under a name this facade binds as a function, and the function wins:
+``import brailix.frontend.segment as m`` hands back the function, so
+``m.segmenter_registry`` — the path the extension guide names — raises
+``AttributeError``, while ``from brailix.frontend.segment import
+segmenter_registry`` works, because that form resolves through
 ``sys.modules`` rather than through the package. One documented path, two
-spellings, one of them broken — and the test suite had a ``sys.modules``
-lookup written into it to step around exactly that.
+spellings, one of them broken.
 
 Published *here*, as this facade's ``__all__`` — the names that do carry a
 compatibility promise: :func:`segment`, :func:`normalize`, ``tokenize_zh``,
@@ -216,13 +216,13 @@ class _BoundaryRegistry(dict):
 
     It needs that because a boundary handler **changes the braille**: it is
     what inserts the space between a hanzi run and a Latin word, the connector
-    before a number. Left out of the fingerprint, replacing one produced two
+    before a number. Left out of the fingerprint, replacing one produces two
     compiles with identical ``source_hash`` and different cells — measured,
-    ``Paragraph("x轴")`` compiled to ``⠰⠭⠤⠀`` and then ``⠰⠭⠀`` under one key.
-    Nothing else caught it either: the nodes a handler inserts carry
+    ``Paragraph("x轴")`` compiles to ``⠰⠭⠤⠀`` and then ``⠰⠭⠀`` under one key.
+    Nothing else catches it: the nodes a handler inserts carry
     ``surface=""``, so the stale-children check (which compares reconstructed
     surface against ``block.text``) sees no difference, and an
-    already-populated block kept its old spacing on recompile.
+    already-populated block keeps its old spacing on recompile.
 
     A ``dict`` subclass rather than a :class:`~brailix.core.registry.Registry`
     on purpose: a handler is a bare callable with no protocol to validate, and
@@ -233,12 +233,12 @@ class _BoundaryRegistry(dict):
     The cost of that choice is that ``dict``'s mutators are C-level and do
     **not** route through one another: overriding ``__setitem__`` does not
     make ``update`` or ``|=`` go through it. So every one of them is
-    overridden below — and ``|=`` was the one that wasn't, which left a
-    documented way to swap a handler (``boundary_registry |= {"zh": h}``)
-    without moving the generation, the fingerprint, or any ``source_hash``.
+    overridden below; missing a single one — ``|=``, say — leaves a documented
+    way to swap a handler (``boundary_registry |= {"zh": h}``) without moving
+    the generation, the fingerprint, or any ``source_hash``.
     ``tests/frontend/test_boundary_registry.py`` covers each mutator
     individually and fails on any inherited ``dict`` method that is not on its
-    reviewed read-only list, so a mutator can no longer be missed by omission.
+    reviewed read-only list, so a mutator cannot be missed by omission.
 
     The counter tracks *changes*, not calls (:meth:`_bump_if_changed`): a
     mutator that leaves the table exactly as it was leaves the generation

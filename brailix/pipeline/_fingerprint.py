@@ -83,9 +83,9 @@ if _TYPE_CHECKING:
 # covered inputs or their serialization changes, so a digest computed under
 # the old recipe can never equal one computed under the new.
 #
-# 3: the composition moved from a hand-rolled ``<tag>=<value>|`` record
-#    stream to :func:`_canon` over one nested structure. The old scheme was
-#    collidable — see :func:`compilation_fingerprint`.
+# 3: the composition is :func:`_canon` over one nested structure rather than
+#    a hand-rolled ``<tag>=<value>|`` record stream, which was collidable —
+#    see :func:`compilation_fingerprint`.
 _FINGERPRINT_VERSION = "3"
 
 
@@ -225,11 +225,11 @@ def compilation_fingerprint(
 # braille a cache stores, so swapping a renderer can't stale it.
 #
 # The membership rule is "does replacing an entry change the braille", not
-# "is it a Registry instance". ``boundary_registry`` is a dict subclass and was
-# left out on the strength of its type, which is how a documented extension
-# point ended up outside the fingerprint entirely
-# (``tests/integration/test_compilation_fingerprint.py`` now pins the rule
-# against the extension surface rather than against a hand-list).
+# "is it a Registry instance": ``boundary_registry`` is a dict subclass, and
+# reading membership off the type is how a documented extension point ends up
+# outside the fingerprint entirely
+# (``tests/integration/test_compilation_fingerprint.py`` pins the rule against
+# the extension surface rather than against a hand-list).
 _COMPILATION_REGISTRIES: tuple[Any, ...] | None = None
 
 
@@ -258,10 +258,10 @@ def _compilation_registries() -> tuple[Any, ...]:
             # The boundary pass is a documented extension point whose handler
             # inserts the Space / Connector nodes between a hanzi run and a
             # Latin word or a number — it changes the braille, so it belongs
-            # here. It was missing, and nothing else covered it: the nodes it
-            # inserts carry ``surface=""``, so the stale-children check saw no
-            # change either, and two compiles either side of a handler swap
-            # came back with one ``source_hash`` and different cells.
+            # here, and nothing else covers it: the nodes it inserts carry
+            # ``surface=""``, so the stale-children check sees no change
+            # either, and two compiles either side of a handler swap come back
+            # with one ``source_hash`` and different cells.
             boundary_registry,
             language_backend_registry,
             zh_analyzer_registry,

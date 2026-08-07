@@ -226,8 +226,9 @@ def _emit_one_letter(
     For the *first* letter of a run this emits exactly what
     ``profile.letter(ch)`` would (``letter_prefix.{class}`` + bare letter);
     the run state only ever *omits* a prefix a same-class predecessor
-    already wrote, so single-word output is unchanged — only cross-structure
-    adjacency (the case the old per-element prefix double-counted) differs.
+    already wrote. So single-word output is what a per-element prefix would
+    give; what differs is cross-structure adjacency, where a per-element
+    prefix writes the sign twice.
     """
     profile = mctx.profile
     cls = profile.letter_class(ch)

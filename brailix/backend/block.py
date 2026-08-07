@@ -242,10 +242,10 @@ def _list_marker_cells(
     is synthesised print structure, not a character of ``item.text``,
     so the whole run anchors to the item text's LEADING EDGE in
     leaf-local coordinates: ``Span(0, 0)``, the same zero-width-anchor
-    convention as the number sign. (It previously inherited spans
-    derived from the item's block-level span, mixing document
-    coordinates into an otherwise leaf-local cell sequence — an ordinal
-    digit then claimed item-text characters it never came from.)
+    convention as the number sign. (Deriving them from the item's
+    block-level span instead mixes document coordinates into an
+    otherwise leaf-local cell sequence, and an ordinal digit then
+    claims item-text characters it never came from.)
     """
     cells: list[BrailleCell] = []
     if ordered:
@@ -351,10 +351,11 @@ def _footnote_ref_cells(ref: str, profile: BrailleProfile) -> list[BrailleCell]:
     Like a list marker (:func:`_list_marker_cells`), the ref is synthesised
     print structure rather than a character of the footnote's ``text``, so
     every cell it produces anchors to the body text's LEADING EDGE in
-    leaf-local coordinates: ``Span(0, 0)``. It used to walk
-    ``Footnote.span`` — a *document* coordinate, and one that describes the
-    footnote body, not the ref — so each ref character claimed a body
-    character it never came from, offset by wherever the footnote sat in the
+    leaf-local coordinates: ``Span(0, 0)``. Walking
+    ``Footnote.span`` instead — a *document* coordinate, and one that
+    describes the footnote body rather than the ref — makes each ref
+    character claim a body character it never came from, offset by wherever
+    the footnote sits in the
     source. Giving the ref its own precise positions would need a coordinate
     contract for ``ref`` itself; ``Block.span`` cannot supply one.
     """

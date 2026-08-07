@@ -170,11 +170,9 @@ class Registry[T]:
         owner — see :meth:`get`, and the module docstring for the summary — so
         it is not restated here: ``ModuleNotFoundError`` becomes a
         :class:`MissingExtraError`, every other ``ImportError`` propagates
-        untouched. This paragraph used to say "if the loader raises
-        ``ImportError``", which is the rule the library had before the two
-        were separated, and reading it here was enough to conclude that an
-        adapter whose installed dependency is *broken* would be reported as
-        one that is absent.
+        untouched. Stating it loosely ("if the loader raises ``ImportError``")
+        is enough for a reader to conclude that an adapter whose installed
+        dependency is *broken* gets reported as one that is absent.
 
         ``probe`` names the third-party module(s) the loader imports, so
         :meth:`available` can answer "is this installed?" **without running
@@ -190,9 +188,9 @@ class Registry[T]:
         because this is a third party's entry point into the library and the
         registration outlives the call by arbitrarily long. An adapter author
         who writes ``probe=(123,)`` (or a tuple built from a config file that
-        yielded an ``int``) was storing a value nobody read until a front-end
-        asked what was installed — and :meth:`available_names` walks *every*
-        registration, so ``find_spec(123)`` raising ``AttributeError`` took
+        yielded an ``int``) stores a value nobody reads until a front-end asks
+        what is installed — and :meth:`available_names` walks *every*
+        registration, so ``find_spec(123)`` raising ``AttributeError`` takes
         down the whole engine list, not just the one adapter. One plugin's
         typo, and the picker cannot be built at all. The same argument covers
         the rest: a non-callable ``loader`` fails at first ``get``, an empty

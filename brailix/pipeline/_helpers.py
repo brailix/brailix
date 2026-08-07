@@ -53,16 +53,16 @@ def _ensure_block_span(block: Any) -> tuple[str, Span, Span]:
       :class:`~brailix.ir.inline.InlineNode` span and every cell
       ``source_span`` under this block is in.
 
-    Handing back one span for both was the bug this shape exists to
-    prevent: the specialised populates below wrote the *document* span
-    onto the carrier inline node they built, so a consumer that follows
-    the documented contract and adds ``block.span.start`` to a leaf-local
-    offset landed at twice the block's offset — every math / code / music
-    / graphic block past the first one in a document.
+    Handing back one span for both is what this shape exists to prevent:
+    writing the *document* span onto the carrier inline node a specialised
+    populate builds makes a consumer that follows the documented contract
+    and adds ``block.span.start`` to a leaf-local offset land at twice the
+    block's offset — every math / code / music / graphic block past the
+    first one in a document.
 
     Mutates ``block.span`` when it was None (single source of truth for
     "every populated block ends up with a span"), which is also why the
-    fallback paths no longer ask whether the caller supplied one: after
+    fallback paths need not ask whether the caller supplied one: after
     this call the leaf coordinates are well-defined either way.
     """
     text = block.text or ""

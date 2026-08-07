@@ -153,8 +153,8 @@ def _enforce_source_spans(
     Applied at **every** boundary a ``LanguageBackend`` is called across, not
     just :func:`translate_node`: the second one is
     :func:`brailix.backend.number.translate_date`, which resolves the same
-    registry to translate a date's markers. It used to call straight through,
-    so a plugin whose ``translate_word`` was checked could return span-less
+    registry to translate a date's markers. Calling straight through there
+    would let a plugin whose ``translate_word`` is checked return span-less
     cells from ``translate_date_marker`` and break traceability with every
     contract test still green. A new call site that resolves the registry
     must come through here too.

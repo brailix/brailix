@@ -119,8 +119,8 @@ def _drop_presentational(elem: _ET.Element) -> None:
       (``displaystyle``, padding tweaks).  They are renamed to
       ``<mrow>`` — the wrapped content keeps its grouping and flows
       through ordinary dispatch.  latex2mathml wraps every
-      ``\\displaystyle`` formula in ``<mstyle>``; before this rename
-      the whole formula collapsed into a single unknown cell.
+      ``\\displaystyle`` formula in ``<mstyle>``, which without the
+      rename collapses the whole formula into a single unknown cell.
       Presentational attributes are dropped; ``data-bk-*`` provenance
       attributes (if an adapter ever sets them here) are kept.
     * ``<mspace>`` / ``<mphantom>`` exist to occupy *print* space —
@@ -275,8 +275,8 @@ def _rewrite_degree_circle(elem: _ET.Element) -> None:
       :func:`_collapse_singleton_mrows` applies when it drops a wrapper — so
       the degree sign traces to the exponent that spelled it if that ``<mo>``
       said where it came from, and to the whole superscript otherwise. Losing
-      it degraded the degree sign to the formula-level span: a proofreader
-      clicking that cell jumped to the start of the formula instead of to the
+      it degrades the degree sign to the formula-level span: a proofreader
+      clicking that cell jumps to the start of the formula instead of to the
       characters that wrote it. LaTeX is the one source that produces this
       shape *and* the one source that emits no spans, so the loss only
       surfaces through an adapter that post-processes the tree — which is

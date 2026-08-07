@@ -118,11 +118,11 @@ def compile_block(
     # override-list salt outside the compiler.
     #
     # The SESSION's fingerprint, not a fresh read of ``pipeline.fingerprint``:
-    # a registration landing between the two reads made this key describe an
-    # epoch the cells above were not compiled under. Two compiles either side
-    # of one mid-run ``register`` then hashed identically while emitting
-    # provably different braille — the exact "same key, different result" a
-    # cache cannot defend against.
+    # a registration landing between the two reads would make this key
+    # describe an epoch the cells above were not compiled under, so two
+    # compiles either side of one mid-run ``register`` hash identically while
+    # emitting provably different braille — the exact "same key, different
+    # result" a cache cannot defend against.
     source_hash = block_hash(
         block, pipeline.profile_name, fingerprint=session.fingerprint
     )
@@ -133,12 +133,12 @@ def compile_block(
     # implementation and partly by its replacement. No fingerprint describes a
     # blend, so say so rather than hand it back silently.
     #
-    # Saying so used to be all it did: the result still carried an ordinary
-    # ``source_hash``, so a caller storing ``hash -> result`` without reading
-    # the warnings filed a possibly-blended compile under the exact key a
-    # clean compile of the same block later looks up. The key is therefore
-    # retired as well as flagged (see :func:`_uncacheable_hash`), which makes
-    # ignoring ``cacheable`` cost a dead entry instead of a wrong hit.
+    # Saying so is not enough on its own: with an ordinary ``source_hash`` a
+    # caller storing ``hash -> result`` without reading the warnings files a
+    # possibly-blended compile under the exact key a clean compile of the same
+    # block later looks up. So the key is retired as well as flagged (see
+    # :func:`_uncacheable_hash`), which makes ignoring ``cacheable`` cost a
+    # dead entry instead of a wrong hit.
     #
     # Deliberately NOT a retry: re-running the block would re-run the caller's
     # ``ir_transformer`` over it, and nothing promises that pass is

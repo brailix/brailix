@@ -186,12 +186,12 @@ def _freeze_seg_dict(
     """Immutable ``surface → pieces`` snapshot, skipping unusable entries.
 
     A personal dictionary reaches a Pipeline from a hand-edited file or a
-    front-end's own store, so an entry can be *any* shape, and freezing it
-    used to be written as ``{k: tuple(v) for k, v in raw.items()}`` — which
-    raises ``TypeError`` on ``{"国家": None}`` at ``Pipeline(...)``. That is
-    the wrong failure for this input: one unusable line must not stop an
-    application from constructing a pipeline at all, which is the same
-    "silently skip the record" policy
+    front-end's own store, so an entry can be *any* shape. Skipping the
+    unusable ones is the point: the obvious freeze —
+    ``{k: tuple(v) for k, v in raw.items()}`` — raises ``TypeError`` on
+    ``{"国家": None}`` at ``Pipeline(...)``, which is the wrong failure for
+    this input. One unusable line must not stop an application from
+    constructing a pipeline at all, the same "silently skip the record" policy
     :func:`~brailix.frontend.zh.analyzer._user_dict.normalize_seg_dict`
     states for the consuming side.
 
@@ -634,12 +634,12 @@ class Pipeline:
         raw ``text``, plus the :attr:`fingerprint` stamp that says which
         configuration built its children. Handing it to another pipeline
         re-runs the frontend when that pipeline would compile it differently.
-        It used to be assembled here instead — a bare ``Paragraph`` holding
-        only ``children`` — which is indistinguishable from hand-built IR, the
-        one shape the population contract reuses verbatim. A second pipeline
-        with its own resolver / user dictionary / profile content therefore
-        emitted braille built from THIS pipeline's tokenization and readings,
-        with no warning and no way for the caller to see it had happened.
+        Assembling it here instead — a bare ``Paragraph`` holding only
+        ``children`` — would make it indistinguishable from hand-built IR, the
+        one shape the population contract reuses verbatim, so a second
+        pipeline with its own resolver / user dictionary / profile content
+        would emit braille built from THIS pipeline's tokenization and
+        readings, with no warning and no way for the caller to see it.
         """
         session = _CompilationSession.begin(self)
         paragraph = Paragraph(text=text)

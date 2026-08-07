@@ -7,8 +7,8 @@ translated through the callable the Pipeline injects onto
 exception to "backend never calls the frontend".  That translator runs
 a private frontend over a throwaway one-paragraph document, so the
 cells it returns carry 0-based spans of THAT document.  Those are
-meaningless in the host document: a proofread double-click on them
-used to jump to the start of the file.
+meaningless in the host document: spliced in unchanged, a proofread
+double-click on them jumps to the start of the file.
 
 Every call site re-anchors the cells through
 :func:`rebase_translated_cells` before splicing them into the host

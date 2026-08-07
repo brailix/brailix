@@ -96,16 +96,16 @@ from brailix.ir.tactile import TactileRaster
 #   tests already import them. ``BLANK_CELL`` does stay here: an empty cell is
 #   a value a consumer legitimately builds and compares against.
 #
-# ``TactileRaster`` (the tactile Product IR) used to be excluded as belonging
-# to an independent graphics vertical with its own consumers. It isn't one any
-# more: figures live embedded in braille documents, so the braille main line's
-# own public result types carry rasters — ``GraphicResult.raster``,
+# ``TactileRaster`` (the tactile Product IR) is here rather than left to an
+# independent graphics vertical with its own consumers, because it isn't one:
+# figures live embedded in braille documents, so the braille main line's own
+# public result types carry rasters — ``GraphicResult.raster``,
 # ``TactilePageResult.pages``, ``CompiledBlock.raster``. A type a supported
 # entry point hands back has to be nameable from a supported module, or every
 # caller writing an annotation, an ``isinstance`` check or a serialiser is
 # forced into an internal path. The graphics *document-model* node types
-# (:class:`GraphicBlock`, :class:`GraphicInline`) were already re-exported,
-# like Math / Music, because they are first-class document IR citizens.
+# (:class:`GraphicBlock`, :class:`GraphicInline`) are re-exported for the
+# same reason Math / Music are: they are first-class document IR citizens.
 
 __all__ = (
     # braille
