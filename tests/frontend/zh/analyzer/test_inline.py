@@ -30,7 +30,6 @@ from brailix.ir.inline import (
     Number,
     Percent,
     Punct,
-    Quantity,
     Space,
     Word,
 )
@@ -499,16 +498,6 @@ class TestInsertCrossKindBoundarySpaces:
         assert out[1].surface == ""
         assert out[1].span == Span(5, 5)
 
-    def test_quantity_then_hanzi_inserts_space(self) -> None:
-        # 3.5kg重 — the unit cell (kg) would otherwise abut 重.
-        nodes = [
-            Quantity(surface="3.5kg", span=Span(0, 5)),
-            Word(surface="重", span=Span(5, 6)),
-        ]
-        out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
-        assert [type(n).__name__ for n in out] == [
-            "Quantity", "Space", "Word"
-        ]
 
     def test_percent_then_hanzi_inserts_space(self) -> None:
         # 50%的人 — the ⠴ of the percent would otherwise abut 的.

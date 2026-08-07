@@ -15,7 +15,6 @@ from brailix.ir.inline import (
     Number,
     Percent,
     Punct,
-    Quantity,
     Space,
     Unknown,
     Word,
@@ -272,19 +271,6 @@ class TestDispatchPerNodeType:
         # number_sign + digits + percent
         assert cells[0].role == "number_sign"
 
-    def test_quantity(self, ctx, profile):
-        node = Quantity(
-            surface="3kg",
-            number=Number(surface="3", span=Span(0, 1)),
-            unit="kg",
-            span=Span(0, 3),
-        )
-        cells = translate_node(node, ctx, profile)
-        # number_sign + 1 digit + (56 + k + g) = 5 cells — one letter
-        # sign covers the same-class run "kg".
-        assert cells[0].role == "number_sign"
-        assert len(cells) == 5
-        assert any(c.role == "quantity_unit" for c in cells)
 
     def test_code_inline(self, ctx, profile):
         cells = translate_node(CodeInline(surface="ab"), ctx, profile)

@@ -11,8 +11,8 @@ rebuilds one, the base type it must be, and how a message names it.
 
 Separate implementations of those mechanics drift the way separate
 implementations of one idea do: one side type-checks its structural children
-and the other does not, so a ``{"type": "quantity", "number": {"type":
-"word", ...}}`` payload round-trips into a ``Quantity`` holding a ``Word`` on
+and the other does not, so a ``{"type": "percent", "number": {"type":
+"word", ...}}`` payload round-trips into a ``Percent`` holding a ``Word`` on
 whichever side was not repaired. Parameterising the difference is what keeps a
 repair from landing on one side only.
 
@@ -27,7 +27,7 @@ things:
   carry: a ``blocks`` that is not a list, a ``source`` that is not a string,
   a span that is not two integers. Almost everything here raises this one.
 * :class:`TypeError` — that nested node is the wrong *class*: a ``Paragraph``
-  in ``Table.rows``, a ``Word`` in ``Quantity.number``. Raised by
+  in ``Table.rows``, a ``Word`` in ``Percent.number``. Raised by
   :func:`typed_child`, the one check about node identity rather than wire
   shape, and deliberately the same signal a caller assembling the tree in
   code gets for the same mistake.
@@ -121,7 +121,7 @@ def typed_child[NodeT](
     A declared field type is not enforced by anything at runtime: the
     deserializer dispatches on the field *name* and rebuilds whatever the
     payload's own ``type`` tag says it is. So a payload can put a ``Paragraph``
-    in a ``TableRow.cells`` list, or a ``Word`` in ``Quantity.number``, and the
+    in a ``TableRow.cells`` list, or a ``Word`` in ``Percent.number``, and the
     result type-checks at the dataclass level while breaking every consumer
     that reads the field — the backend writes the wrong cells for it, or none.
 

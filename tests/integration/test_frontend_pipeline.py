@@ -32,7 +32,7 @@ from __future__ import annotations
 from brailix.core.context import FrontendContext
 from brailix.frontend.zh.pinyin.registry import resolver_registry
 from brailix.ir.document import Paragraph
-from brailix.ir.inline import InlineNode, Number, Percent, Punct, Quantity, Space
+from brailix.ir.inline import InlineNode, Number, Percent, Punct, Space
 from brailix.pipeline import Pipeline
 
 
@@ -121,16 +121,11 @@ class TestMixedContent:
         kinds = {type(c).__name__ for c in children}
         # Each protected / composite pattern should produce its own node.
         assert "MathInline" in kinds
-        assert "Quantity" in kinds
         assert "Percent" in kinds
         assert "Punct" in kinds
         # Surface still round-trips.
         assert "".join(c.surface for c in children) == text
 
-    def test_quantity_carries_the_unit_as_written(self):
-        children, _ = _run_frontend("3.5kg")
-        q = next(c for c in children if isinstance(c, Quantity))
-        assert q.unit == "kg"
 
     def test_percent_carries_number_substructure(self):
         children, _ = _run_frontend("12%")

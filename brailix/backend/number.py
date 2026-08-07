@@ -1,7 +1,6 @@
 """Translate number-family IR nodes into braille cells.
 
-Covers :class:`Number`, :class:`Date`, :class:`Percent`,
-:class:`Quantity`. Uses the profile's ``digits`` / ``number_sign`` /
+Covers :class:`Number`, :class:`Date` and :class:`Percent`. Uses the profile's ``digits`` / ``number_sign`` /
 ``decimal_point`` / ``thousands_sep`` / ``punctuation`` tables.
 
 A number-sign cell is prepended whenever a digit run starts a new
@@ -9,8 +8,8 @@ braille "phrase". For now we emit it before every numeric token;
 context-aware suppression (e.g. "still inside a number") is future
 work.
 
-Language scope: every node here is language-agnostic. Number / Percent /
-Quantity only touch the profile's digit / punctuation / letter tables.
+Language scope: every node here is language-agnostic. Number and Percent
+only touch the profile's digit / punctuation / letter tables.
 :func:`translate_date` owns just the language-neutral skeleton (the
 numeric components and the blank that separates them) and delegates each
 date marker (年/月/日…) to the profile language's
@@ -27,13 +26,12 @@ from brailix.backend._digits import (
     DigitRunPolicy,
     emit_digit_run,
 )
-from brailix.backend._letters import iter_letter_runs, letter_sign_repeats
 from brailix.core.chars import PERCENT_CHARS
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
-from brailix.ir.inline import Date, HanziMarker, InlineNode, Number, Percent, Quantity
+from brailix.ir.inline import Date, HanziMarker, InlineNode, Number, Percent
 
 # Role labels for prose number digit runs (the math backend uses
 # "math_digit"); the shared emitter handles the rest.
@@ -91,98 +89,6 @@ def translate_percent(node: Percent, ctx: BackendContext, profile: BrailleProfil
     return cells
 
 
-def translate_quantity(node: Quantity, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:
-    """Quantity → digits + unit letters.
-
-    Unit letters follow the letter-sign run rule: consecutive letters of
-    the same script class
-    share one ``letter_prefix.*`` sign — ``47cm`` → ⠼⠙⠛⠰⠉⠍, one ⠰
-    for the whole ``cm``. A class change starts a new sign, which is
-    what keeps mixed-case units lossless (``mW`` → ⠰⠍⠠⠺); an
-    all-capital run of ≥ 2 letters doubles the capital sign (``MW`` →
-    ⠠⠠⠍⠺). Characters absent from the letter tables fall back to the
-    punctuation table, and only emit an :class:`Unknown` cell with a
-    ``UNKNOWN_NUMBER_PART`` warning when both lookups miss.
-    """
-    digits_part = node.number.surface if node.number else ""
-    unit_part = node.unit or ""
-    cells = _digits_to_cells(digits_part, node.number.span if node.number else None, ctx, profile)
-    # Unit chars start right after the number's *source* span. Deriving the
-    # base from ``span.start + len(digits_part)`` would drift whenever the
-    # digit surface was normalized (thousands separators stripped, fullwidth
-    # folded to half) and so no longer matches the source character count.
-    if node.number and node.number.span:
-        base = node.number.span.end
-    elif node.span:
-        base = node.span.start + len(digits_part)
-    else:
-        base = 0
-    pos = 0
-    for cls, run in iter_letter_runs(unit_part, profile):
-        if cls is None:
-            sp = Span(base + pos, base + pos + 1)
-            cells.extend(_unit_char_cells(run, sp, ctx, profile))
-            pos += len(run)
-            continue
-        first_sp = Span(base + pos, base + pos + 1)
-        prefix = profile.math_structure(f"letter_prefix.{cls}")
-        if not prefix:
-            # The script class hit a letter table but the profile defines no
-            # letter sign for it, so the unit letters go out bare. In a profile
-            # where a bare letter shares a cell with a digit (cn_current's "a"
-            # == "1"), that makes "47cm" ambiguous against the preceding digit
-            # run. Don't drop the sign silently — warn (shipped cn_* profiles
-            # define letter_prefix, so this only fires on an incomplete one).
-            ctx.warnings.warn(
-                code="MISSING_NUMBER_PART",
-                message=(
-                    f"profile defines no letter_prefix.{cls}; unit letters "
-                    f"{run!r} emitted without a letter sign"
-                ),
-                surface=run,
-                span=first_sp,
-                source="backend.number",
-            )
-        for _ in range(letter_sign_repeats(cls, len(run))):
-            cells.extend(
-                BrailleCell(dots=dots, role="quantity_unit", source_span=first_sp, source_text=run)
-                for dots in prefix
-            )
-        for ch in run:
-            sp = Span(base + pos, base + pos + 1)
-            bare = profile.bare_letter(ch)
-            if bare is not None:  # always true: letter_class hit this table
-                cells.append(
-                    BrailleCell(dots=bare, role="quantity_unit", source_span=sp, source_text=ch)
-                )
-            pos += 1
-    return cells
-
-
-def _unit_char_cells(
-    ch: str, span: Span | None, ctx: BackendContext, profile: BrailleProfile
-) -> list[BrailleCell]:
-    """Emit one non-letter unit character (``°`` in ``°C``, ``/`` in
-    ``km/h``) as braille cells.
-
-    Letters are handled by the run-based caller; this fallback looks up
-    the punctuation table, then warns and emits a blank unknown cell.
-    (The letter lookup stays first for callers/tests that feed a letter
-    directly.)
-    """
-    seq = profile.letter(ch)
-    if seq is not None:
-        return [
-            BrailleCell(dots=dots, role="quantity_unit", source_span=span, source_text=ch)
-            for dots in seq
-        ]
-    punct_cells = profile.punctuation.get(ch)
-    if punct_cells:
-        return [
-            BrailleCell(dots=dots, role="punct", source_span=span, source_text=ch)
-            for dots in punct_cells
-        ]
-    return [_unknown_cell(ch, span, ctx)]
 
 
 def translate_date(node: Date, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:

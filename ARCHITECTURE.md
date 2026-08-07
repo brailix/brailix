@@ -296,7 +296,7 @@ Block types: `heading / paragraph / list / list_item / table / table_row / table
 Inline token types:
 
 ```
-word / number / hanzi_marker / date / quantity / percent /
+word / number / hanzi_marker / date / percent /
 punct / latin_word /
 code_inline / phonetic_inline / math_inline / music_inline / graphic_inline /
 space / connector / unknown

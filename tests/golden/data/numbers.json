@@ -53,7 +53,7 @@
         {"src": "3kg", "expected": "⠼⠉⠰⠅⠛", "note": "3 kg: digits + one latin_lower sign for the unit run (docx 计量单位 例1: 47cm → ⠼⠙⠛⠰⠉⠍)"},
         {"src": "5m", "expected": "⠼⠑⠰⠍", "note": "5 m"},
         {"src": "100mg", "expected": "⠼⠁⠚⠚⠰⠍⠛", "note": "100 mg"},
-        {"src": "3.5kg重", "expected": "⠼⠉⠂⠑⠰⠅⠛⠀⠌⠲⠆", "note": "a quantity abutting Chinese takes a word boundary — but this blank comes from the latin↔hanzi rule, not from the Quantity node: the same text with a non-unit run (3.5foo重) renders with the identical structure"}
+        {"src": "3.5kg重", "expected": "⠼⠉⠂⠑⠰⠅⠛⠀⠌⠲⠆", "note": "a number+unit abutting Chinese takes a word boundary — and the blank comes from the latin↔hanzi rule, not from any composite node: the same text with a non-unit run (3.5foo重) renders with the identical structure, which is why there is no unit table"}
       ]
     },
     "math_number": {

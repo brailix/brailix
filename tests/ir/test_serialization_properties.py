@@ -70,7 +70,6 @@ from brailix.ir.inline import (
     Percent,
     PhoneticInline,
     Punct,
-    Quantity,
     Space,
     Unknown,
     Word,
@@ -180,7 +179,7 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
 
 @st.composite
 def inline_nodes(draw: st.DrawFn) -> InlineNode:
-    kind = draw(st.sampled_from(["leaf", "leaf", "date", "quantity", "percent"]))
+    kind = draw(st.sampled_from(["leaf", "leaf", "date", "percent"]))
     if kind == "leaf":
         return draw(_leaf_inline_nodes())
     surface = draw(_surfaces)
@@ -191,12 +190,6 @@ def inline_nodes(draw: st.DrawFn) -> InlineNode:
             parts=draw(st.lists(_leaf_inline_nodes(), max_size=3)),
         )
     number = draw(st.one_of(st.none(), _leaf_inline_nodes().filter(lambda n: isinstance(n, Number))))
-    if kind == "quantity":
-        return Quantity(
-            surface=surface,
-            number=number,
-            unit=draw(_opt_short),
-        )
     return Percent(surface=surface, number=number)
 
 

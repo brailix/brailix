@@ -56,7 +56,6 @@ from brailix.ir.inline import (
     MathInline,
     Number,
     Percent,
-    Quantity,
     Space,
     Word,
 )
@@ -438,12 +437,12 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
 
 _CHINESE_NODE_TYPES: tuple[type[InlineNode], ...] = (Word, HanziMarker)
 _FOREIGN_NODE_TYPES: tuple[type[InlineNode], ...] = (LatinWord, MathInline)
-# Normalizer composites — a whole date / measured quantity / percentage,
+# Normalizer composites — a whole date / percentage,
 # each its own "word", set off from adjacent Chinese on BOTH sides with a
 # boundary Space: 在2026年 是 在 ⟂ 2026年, 2026年去 是 2026年 ⟂ 去. (A bare
 # Number is not a composite — an ordinal-bound number like 第3 stays tight,
 # so the Chinese ↔ Number boundary keeps its own policy.)
-_COMPOSITE_NODE_TYPES: tuple[type[InlineNode], ...] = (Date, Quantity, Percent)
+_COMPOSITE_NODE_TYPES: tuple[type[InlineNode], ...] = (Date, Percent)
 # A foreign *letter* run (Latin and Greek both flow through this one IR type
 # per the Normalizer) can bind to a hanzi as one compound word; a MathInline
 # ($...$) never does, so it's excluded from the compound check and always
@@ -494,7 +493,7 @@ def insert_cross_kind_boundary_spaces(
 
     **Composite ↔ Chinese** (``在2026年`` / ``…日我`` / ``3.5kg重`` /
     ``50%的``) takes a word-boundary :class:`Space` on *either* side. A
-    Date / Quantity / Percent is a whole word, set off from the
+    A Date or a Percent is a whole word, set off from the
     surrounding prose; without a separator it abuts the neighbouring
     hanzi. A plain Space, not a connector. A bare :class:`Number` is
     different — an ordinal-bound number (``第3``) stays tight — so the
@@ -585,7 +584,7 @@ def _is_chinese_number_boundary(prev: InlineNode, cur: InlineNode) -> bool:
 
 
 def _is_composite_chinese_boundary(prev: InlineNode, cur: InlineNode) -> bool:
-    """Whether a normalizer composite (Date / Quantity / Percent) is
+    """Whether a normalizer composite (Date / Percent) is
     directly adjacent to a Chinese run on **either** side, so a
     word-boundary :class:`Space` belongs between them.
 

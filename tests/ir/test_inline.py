@@ -12,7 +12,6 @@ from brailix.ir.inline import (
     MusicInline,
     Number,
     Percent,
-    Quantity,
     Segment,
     Unknown,
     Word,
@@ -66,14 +65,6 @@ class TestCompositeStructures:
         assert len(d.parts) == 6
         assert d.parts[0].surface == "2026"
 
-    def test_quantity(self):
-        q = Quantity(
-            surface="3.5kg",
-            number=Number(surface="3.5"),
-            unit="kg",
-        )
-        assert q.number.surface == "3.5"
-        assert q.unit == "kg"
 
     def test_percent(self):
         p = Percent(surface="12%", number=Number(surface="12"))
@@ -132,38 +123,27 @@ class TestSerializationComposite:
 
 
 class TestNestedChildTypesAreEnforced:
-    """``Quantity.number`` / ``Percent.number`` are declared ``Number | None``,
-    and deserialization must hold the declaration.
+    """``Percent.number`` is declared ``Number | None``, and deserialization
+    must hold the declaration.
 
-    It dispatches on the field *name* and rebuilt whatever the payload claimed
-    to be, so a malformed document could produce a ``Quantity`` whose
+    It dispatches on the field *name* and rebuilds whatever the payload claims
+    to be, so a malformed document could produce a ``Percent`` whose
     ``number`` is a ``Word``: IR that satisfies the dataclass and breaks every
     consumer reading it, silently and at a distance. The block side already
     verified its nested children (``TableRow.cells``, ``Table.rows``,
     ``List.items``); the inline side is the same idea, and had drifted.
     """
 
-    @pytest.mark.parametrize("holder", ["quantity", "percent"])
-    def test_a_wrong_typed_number_is_refused(self, holder: str) -> None:
+    def test_a_wrong_typed_number_is_refused(self) -> None:
         with pytest.raises(TypeError, match="expects Number"):
             from_dict(
                 {
-                    "type": holder,
-                    "surface": "abc kg",
+                    "type": "percent",
+                    "surface": "abc%",
                     "number": {"type": "word", "surface": "abc"},
                 }
             )
 
-    def test_a_well_typed_number_still_round_trips(self) -> None:
-        q = Quantity(
-            surface="3.5kg",
-            number=Number(surface="3.5"),
-            unit="kg",
-        )
-        restored = from_dict(q.to_dict())
-        assert isinstance(restored, Quantity)
-        assert isinstance(restored.number, Number)
-        assert restored.number.surface == "3.5"
 
     def test_an_explicit_null_number_is_still_accepted(self) -> None:
         restored = from_dict(
@@ -172,15 +152,6 @@ class TestNestedChildTypesAreEnforced:
         assert isinstance(restored, Percent)
         assert restored.number is None
 
-    def test_a_prebuilt_node_passes_through(self) -> None:
-        """Assembling a tree by hand — a built node instead of its dict form —
-        keeps working; the check is on the type, not on the payload shape."""
-        restored = from_dict(
-            {"type": "quantity", "surface": "3kg", "number": Number(surface="3")}
-        )
-        assert isinstance(restored, Quantity)
-        assert restored.number is not None
-        assert restored.number.surface == "3"
 
     def test_a_non_node_in_parts_is_refused(self) -> None:
         """``Date.parts`` takes any inline node, so what is checked there is

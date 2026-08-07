@@ -15,7 +15,7 @@ first, and formats like ``.docx`` have no document-wide character coordinate
 for it to be right about in the first place.
 
 Hierarchy — one level, every type a direct subclass. There is no inline node
-that specialises another; a composite (:class:`Date`, :class:`Quantity`)
+that specialises another; a composite (:class:`Date`, :class:`Percent`)
 *contains* nodes rather than inheriting from one, which is why the backend can
 dispatch on the exact type through a flat table:
 
@@ -24,7 +24,6 @@ dispatch on the exact type through a flat table:
       ├── Number            # numeric literal
       ├── HanziMarker       # structural hanzi inside a composite (年/月/日 in a Date)
       ├── Date              # holds an internal ``parts`` structure
-      ├── Quantity          # number + unit
       ├── Percent
       ├── Punct
       ├── LatinWord         # Latin / Greek letter run (all-caps included)
@@ -142,24 +141,6 @@ class Date(InlineNode):
 
     type: _ClassVar[str] = "date"
     parts: list[InlineNode] = _field(default_factory=list)
-
-
-@_dataclass(slots=True)
-class Quantity(InlineNode):
-    """A number paired with a unit, e.g. ``3.5kg``.
-
-    ``unit`` is the symbol **as written** — that is what the backend spells out
-    letter by letter, and what a proofreader sees highlighted. There is no
-    second, normalized spelling of it on the node: nothing downstream reads a
-    unit by name, and a field the compiler only ever writes is one that can
-    disagree with ``unit`` without anything noticing. The frontend's unit table
-    (:mod:`brailix.frontend.normalization`) is what decides *whether* a latin
-    run is a unit; a caller that wants the name can ask it.
-    """
-
-    type: _ClassVar[str] = "quantity"
-    number: Number | None = None
-    unit: str | None = None
 
 
 @_dataclass(slots=True)
@@ -335,7 +316,6 @@ _INLINE_REGISTRY: dict[str, type[InlineNode]] = {
         Number,
         HanziMarker,
         Date,
-        Quantity,
         Percent,
         Punct,
         LatinWord,
@@ -506,10 +486,10 @@ def _typed_inline_child(
 ) -> InlineNode:
     """Deserialize ``payload`` and verify it is an instance of ``expected``.
 
-    ``Quantity.number`` and ``Percent.number`` are declared ``Number | None``,
-    but the deserializer dispatches on the field *name* and rebuilt whatever
-    the payload said it was — so ``{"type": "quantity", "number": {"type":
-    "word", ...}}`` round-tripped into a ``Quantity`` holding a ``Word``.
+    ``Percent.number`` is declared ``Number | None``, but the deserializer
+    dispatches on the field *name* and rebuilds whatever the payload said it
+    was — so ``{"type": "percent", "number": {"type": "word", ...}}``
+    round-trips into a ``Percent`` holding a ``Word``.
 
     The check itself is :func:`brailix.ir._serde.typed_child`, shared with the
     block side; this binds it to the inline node family and its wording.
