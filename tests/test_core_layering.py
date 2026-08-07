@@ -270,23 +270,41 @@ def _importer_aliases(tree: ast.Module) -> frozenset[str]:
                     if alias.name in _IMPORTER_NAMES
                 )
             continue
-        if not isinstance(node, ast.Assign):
-            continue
-        value = node.value
-        # ``x = importlib.import_module`` / ``x = import_module`` — the
-        # function object itself, not a call to it — and ``x = getattr(...)``,
-        # a call whose *result* is that same function object.
-        if not (
-            (isinstance(value, ast.Name) and value.id in _IMPORTER_NAMES)
-            or (isinstance(value, ast.Attribute) and value.attr in _IMPORTER_NAMES)
-            or (
-                isinstance(value, ast.Call)
-                and _fetched_attr(value) in _IMPORTER_NAMES
-            )
-        ):
-            continue
-        aliases.update(t.id for t in node.targets if isinstance(t, ast.Name))
-    return frozenset(aliases)
+    # Then the assignments, to a fixed point: ``loader = importlib.import_module``
+    # makes ``loader`` one, and ``fn = loader`` makes ``fn`` one too. A single
+    # pass over the tree answered only the first — an alias of an alias called a
+    # name this walk did not know, so the call was neither an edge nor an opaque
+    # import, and re-binding once was all it took to be invisible. Iterating is
+    # what makes "an alias assignment is followed precisely" true rather than
+    # true of the first hop.
+    while True:
+        found = set(aliases)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            value = node.value
+            # ``x = importlib.import_module`` / ``x = import_module`` / ``x =
+            # <an alias>`` — the function object itself, not a call to it — and
+            # ``x = getattr(...)``, a call whose *result* is that same object.
+            if not (
+                (
+                    isinstance(value, ast.Name)
+                    and (value.id in _IMPORTER_NAMES or value.id in found)
+                )
+                or (
+                    isinstance(value, ast.Attribute)
+                    and value.attr in _IMPORTER_NAMES
+                )
+                or (
+                    isinstance(value, ast.Call)
+                    and _fetched_attr(value) in _IMPORTER_NAMES
+                )
+            ):
+                continue
+            found.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        if found == aliases:
+            return frozenset(aliases)
+        aliases = found
 
 
 def _uncalled_importer_fetches(tree: ast.Module) -> list[int]:
@@ -319,6 +337,63 @@ def _uncalled_importer_fetches(tree: ast.Module) -> list[int]:
         and _fetched_attr(node) in _IMPORTER_NAMES
         and id(node) not in invoked
     ]
+
+
+def _stored_importer_references(tree: ast.Module, aliases: frozenset[str]) -> list[int]:
+    """Lines where an importer is used as a *value* rather than called.
+
+    The last hiding place, and the one the guard used to admit to: an importer
+    reached as a plain attribute and kept somewhere — ``handlers = {"m":
+    importlib.import_module}``, ``register(import_module)``, ``return loader``
+    — is followed by neither the alias walk (which reads only ``name = …``) nor
+    :func:`_uncalled_importer_fetches` (which reads only the ``getattr``
+    spelling). Stored that way, the call site is ``handlers["m"](computed)``,
+    where nothing names an importer at all, and the module reached is decided
+    at runtime by a value this pass cannot see.
+
+    Two shapes are *not* reported, and between them they are why this can be a
+    flat refusal without costing precision:
+
+    * the callee of a call — ``importlib.import_module("brailix.ir")`` names
+      its target where :func:`_dynamic_import_target` reads it, and a computed
+      one is already refused as opaque;
+    * the right-hand side of ``name = …`` — the readable binding, which
+      :func:`_importer_aliases` follows to every call made through it (and now
+      through an alias of it), reporting the module by name.
+
+    Everything else is refused by shape, exactly as ``exec`` / ``eval`` and the
+    ``getattr`` fetch are, and for the same reason: reaching the importer
+    through a container, an argument or a return value is a way of spelling an
+    import that no static pass can follow to its target. Nothing in the library
+    does any of it; a use with a real justification gets argued into an
+    allowlist here.
+    """
+    called = {
+        id(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)
+    }
+    bound = {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and all(isinstance(t, ast.Name) for t in node.targets)
+    }
+    out: list[int] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            is_importer = node.id in _IMPORTER_NAMES or node.id in aliases
+        elif isinstance(node, ast.Attribute):
+            is_importer = node.attr in _IMPORTER_NAMES
+        else:
+            continue
+        # Reads only. The ``loader`` in ``loader = importlib.import_module`` is
+        # a ``Name`` carrying an alias too, in ``Store`` context — the binding
+        # being made, not a use of it, and reporting it would refuse the one
+        # form the exemption below exists to allow.
+        if not isinstance(node.ctx, ast.Load):
+            continue
+        if is_importer and id(node) not in called and id(node) not in bound:
+            out.append(node.lineno)
+    return out
 
 
 def _is_importer_call(node: ast.AST, aliases: frozenset[str]) -> bool:
@@ -462,7 +537,8 @@ def _imports_in(
 def _opaque_dynamic_imports(py: Path) -> list[str]:
     """``file:line`` of every dynamic import in ``py`` with an unreadable
     target, of every ``exec`` / ``eval`` — a target this cannot read at all —
-    and of every importer fetched by ``getattr`` and kept rather than called."""
+    of every importer fetched by ``getattr`` and kept rather than called, and
+    of every importer used as a value rather than called."""
     tree = ast.parse(py.read_text(encoding="utf-8"))
     aliases = _importer_aliases(tree)
     rel = py.relative_to(_PKG.parent)
@@ -476,6 +552,10 @@ def _opaque_dynamic_imports(py: Path) -> list[str]:
         + [
             f"{rel}:{line} (getattr importer)"
             for line in _uncalled_importer_fetches(tree)
+        ]
+        + [
+            f"{rel}:{line} (importer kept as a value)"
+            for line in _stored_importer_references(tree, aliases)
         ]
     )
 
@@ -615,12 +695,19 @@ def test_no_layer_imports_a_module_this_guard_cannot_read() -> None:
     of those is another spelling the alias walk would have to learn, so what
     gets refused is reaching the importer through a string at all.
 
-    Where this is still silent, said plainly: an importer reached as a plain
-    attribute and stored rather than called (``handlers = {"m":
-    importlib.import_module}``) is followed by neither half. It is not a form
-    anything writes by accident, and refusing every mention of the attribute
-    would refuse ``loader = importlib.import_module`` too — the form the alias
-    walk exists to report *precisely*, with the module it reaches.
+    Fourth, and it closes the gap this test used to describe rather than
+    check: an importer reached as a plain attribute and *kept* rather than
+    called — ``handlers = {"m": importlib.import_module}``, then
+    ``handlers[k](computed)``, where the call site names no importer at all
+    (:func:`_stored_importer_references`). The argument for leaving it was that
+    refusing every mention of the attribute would also refuse ``loader =
+    importlib.import_module``, the form the alias walk reports *precisely*,
+    with the module it reaches. That is true and it is not a reason to refuse
+    nothing: the two exemptions the check does make — the callee of a call, and
+    the right-hand side of ``name = …`` — are exactly the two forms something
+    else here reads, so the flat refusal costs no precision at all. What is
+    left is every way of moving the importer somewhere this pass cannot
+    follow, and none of them has a legitimate use inside a guarded layer.
     """
     opaque = [
         site
@@ -1309,6 +1396,114 @@ class TestUncalledImporterFetchDetection:
         # A computed attribute name is not a fetch this can identify; the call
         # it produces is caught as an opaque import if it turns out to be one.
         assert self._fetches("fn = getattr(obj, name)\n") == []
+
+
+class TestStoredImporterDetection:
+    """An importer kept as a value, rather than called where it can be read.
+
+    The blind spot this file used to describe in prose: stored in a container
+    or handed on, the call site is ``handlers[k](name)`` — nothing there names
+    an importer, so neither the alias walk nor the ``getattr`` refusal sees the
+    edge, and the guard reports a clean tree.
+    """
+
+    @staticmethod
+    def _stored(source: str) -> list[int]:
+        tree = ast.parse(source)
+        return _stored_importer_references(tree, _importer_aliases(tree))
+
+    def test_kept_in_a_container(self) -> None:
+        assert self._stored(
+            "import importlib\n"
+            "handlers = {'m': importlib.import_module}\n"
+            "handlers['m'](f'brailix.{layer}')\n"
+        ) == [2]
+
+    def test_handed_to_a_helper(self) -> None:
+        assert self._stored(
+            "from importlib import import_module\nregister(import_module)\n"
+        ) == [2]
+
+    def test_returned_from_a_factory(self) -> None:
+        assert self._stored(
+            "import importlib\n"
+            "def loader():\n"
+            "    return importlib.import_module\n"
+        ) == [3]
+
+    def test_an_alias_of_an_alias_is_kept_too(self) -> None:
+        """The alias walk is transitive now, so the second name is an importer
+        as well — and keeping *it* is the same hiding place."""
+        assert self._stored(
+            "import importlib\n"
+            "loader = importlib.import_module\n"
+            "fn = loader\n"
+            "handlers = [fn]\n"
+        ) == [4]
+
+    def test_the_builtin_counts(self) -> None:
+        assert self._stored("handlers = (__import__,)\n") == [1]
+
+    def test_a_call_is_not_a_stored_reference(self) -> None:
+        """Called on the spot, it names its target where the edge sweep reads
+        it — and a computed one is already refused as opaque. Reporting it here
+        would say "unreadable" about the readable form."""
+        assert self._stored("importlib.import_module('brailix.frontend')\n") == []
+        assert self._stored("import_module('brailix.ir')\n") == []
+
+    def test_a_plain_alias_binding_is_not_a_stored_reference(self) -> None:
+        """``loader = importlib.import_module`` is the form the alias walk
+        follows to every call made through it, reporting the module by name.
+        Refusing it too would trade a precise finding for a shape complaint."""
+        assert self._stored(
+            "import importlib\n"
+            "loader = importlib.import_module\n"
+            "loader('brailix.frontend')\n"
+        ) == []
+
+    def test_ordinary_code_is_left_alone(self) -> None:
+        assert self._stored("handlers = {'m': normalize}\nregister(segment)\n") == []
+        assert self._stored("import importlib.util\n") == []
+        assert self._stored("from importlib import metadata\n") == []
+
+
+class TestTheAliasWalkIsTransitive:
+    def test_an_alias_of_an_alias_is_still_an_importer(self) -> None:
+        """One pass answered only the first hop, so re-binding once made every
+        call through the second name invisible to both halves of the guard."""
+        aliases = _importer_aliases(
+            ast.parse(
+                "import importlib\n"
+                "loader = importlib.import_module\n"
+                "fn = loader\n"
+            )
+        )
+        assert {"loader", "fn"} <= aliases
+
+    def test_a_call_through_the_second_name_is_an_edge(self) -> None:
+        assert _would_flag(
+            "import importlib\n"
+            "loader = importlib.import_module\n"
+            "fn = loader\n"
+            "fn('brailix.frontend')\n"
+        )
+
+    def test_a_computed_call_through_the_second_name_is_opaque(self) -> None:
+        tree = ast.parse(
+            "import importlib\n"
+            "loader = importlib.import_module\n"
+            "fn = loader\n"
+            "fn(name)\n"
+        )
+        aliases = _importer_aliases(tree)
+        assert any(
+            _dynamic_import_is_opaque(node, aliases) for node in ast.walk(tree)
+        )
+
+    def test_an_unrelated_chain_is_not_followed(self) -> None:
+        assert not _importer_aliases(
+            ast.parse("loader = dict\nfn = loader\n")
+        )
 
 
 class TestTypeCheckingDetection:
