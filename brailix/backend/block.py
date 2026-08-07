@@ -195,6 +195,75 @@ def _translate_children(
         # unrelated caller to trip over.
         ctx.options.pop("_next_inline_sibling", None)
         ctx.options.pop("_english_run_active", None)
+    return _collapse_adjacent_blanks(out)
+
+
+def _collapse_adjacent_blanks(cells: list[BrailleCell]) -> list[BrailleCell]:
+    """Merge a run of consecutive word-separator blanks into one.
+
+    A blank between two words is a *separator*, and a separator repeated is
+    still one separator — but nothing upstream is in a position to know that.
+    The spacing a document ends up with is decided independently in several
+    places: the punctuation table's ``space_before`` / ``space_after`` for a
+    mark, the boundary pass for a hanzi↔letter or composite↔hanzi seam, the
+    source's own typed space. Each is right about its own rule and none can
+    see the others, so two of them agreeing on "put a blank here" writes two
+    blanks — which reads as a word gap where there is none.
+
+    Collapsing here is what lets those rules be stated *generously*: a
+    profile can declare the orthographic spacing a mark takes without first
+    proving no other rule already supplies it.
+
+    Judged by **role**, never by ``dots == ()``. The layout control sentinels
+    (``line_break`` / ``hang_open`` / ``hang_close`` / ``cases_*``) and an
+    unknown placeholder are dots-empty too, and they are backend→renderer wire
+    protocol, not spacing — merging them would silently drop a matrix row
+    break. The same rule
+    :func:`brailix.backend.math.utils._last_is_blank` states for the math
+    emitters.
+
+    Deliberately **not** trimming a leading or trailing blank. A blank at the
+    edge of a block is not obviously redundant: for a degenerate formula
+    (``$$``, ``$ $``) the blank *is* the whole output, and an abbreviation's
+    own ``space_after`` puts one at the end of ``i.e.`` — thirteen golden
+    cases turn on that. Whether an edge blank should survive is an
+    orthographic decision per case, not a de-duplication.
+
+    And only a **synthesised** separator is ever dropped. A blank the author
+    typed is content: ``选项是(   )`` — the fill-in blank of a multiple-choice
+    item — is three spaces wide because the writer made it three wide, and
+    merging them rewrites the question. The two are told apart by provenance,
+    the convention the frontend already follows: a synthesised separator
+    carries ``surface=""`` and a zero-width span at the boundary, a typed
+    space carries the character and the span it occupies.
+
+    So within a run of adjacent blanks: if any came from the source, those are
+    what survive and the synthesised ones beside them go; if the run is all
+    synthesised, one survives — the **first**, so the separator keeps the
+    coordinate of the boundary it was emitted for and a proofreader clicking
+    it lands where the rule pointed.
+    """
+    if len(cells) < 2:
+        return cells
+
+    def is_typed(cell: BrailleCell) -> bool:
+        span = cell.source_span
+        return bool(cell.source_text) or (span is not None and not span.is_empty())
+
+    out: list[BrailleCell] = []
+    i = 0
+    while i < len(cells):
+        if cells[i].role != "space":
+            out.append(cells[i])
+            i += 1
+            continue
+        j = i
+        while j < len(cells) and cells[j].role == "space":
+            j += 1
+        run = cells[i:j]
+        typed = [c for c in run if is_typed(c)]
+        out.extend(typed if typed else run[:1])
+        i = j
     return out
 
 

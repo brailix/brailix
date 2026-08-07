@@ -394,3 +394,62 @@ class TestLatinWordIsNotAWordThatHappensToBeLatin:
             "LatinWord", "Connector", "Word"
         ]
         assert [type(n).__name__ for n in as_word] == ["Word", "Word"]
+
+
+class TestAdjacentBlanksCollapse:
+    """Two rules agreeing on "a blank goes here" must write one blank.
+
+    Spacing is decided independently in several places — the punctuation
+    table's ``space_before`` / ``space_after``, the boundary pass at a
+    hanzi↔letter seam, the source's own typed space — and none of them can see
+    the others. Collapsing the overlap is what lets each be stated without
+    first proving the others are silent.
+
+    What must NOT collapse is the interesting half, and it is why this is
+    provenance-aware rather than a plain de-duplication.
+    """
+
+    def test_a_typed_run_of_spaces_is_content(self, pipe=None):
+        """``选项是(   )`` — the fill-in blank of a multiple-choice item is
+        three cells wide because the writer made it three wide."""
+        from brailix import Pipeline
+
+        out = Pipeline(profile="cn_current").translate_text("选项是(   )").render()
+        assert "⠣⠀⠀⠀⠜" in out
+
+    def test_two_synthesised_separators_become_one(self, ctx, profile):
+        from brailix.backend.block import _collapse_adjacent_blanks
+        from brailix.ir.braille import BrailleCell
+
+        sep = BrailleCell(dots=(), role="space", source_span=Span(3, 3), source_text="")
+        kept = _collapse_adjacent_blanks([sep, sep])
+        assert len(kept) == 1
+        assert kept[0].source_span == Span(3, 3)  # the first one's coordinate
+
+    def test_a_synthesised_separator_beside_a_typed_space_gives_way(
+        self, ctx, profile
+    ):
+        from brailix.backend.block import _collapse_adjacent_blanks
+        from brailix.ir.braille import BrailleCell
+
+        sep = BrailleCell(dots=(), role="space", source_span=Span(3, 3), source_text="")
+        typed = BrailleCell(
+            dots=(), role="space", source_span=Span(3, 4), source_text=" "
+        )
+        for run in ([sep, typed], [typed, sep]):
+            kept = _collapse_adjacent_blanks(list(run))
+            assert [c.source_text for c in kept] == [" "], run
+
+    def test_layout_sentinels_are_not_blanks(self, ctx, profile):
+        """``line_break`` / ``hang_open`` / ``hang_close`` carry empty dots too
+        and are backend→renderer wire protocol, not spacing — merging them
+        would drop a matrix row break. Judged by role, never by ``dots``."""
+        from brailix.backend.block import _collapse_adjacent_blanks
+        from brailix.ir.braille import BrailleCell
+
+        run = [
+            BrailleCell(dots=(), role="line_break"),
+            BrailleCell(dots=(), role="line_break"),
+            BrailleCell(dots=(), role="hang_open"),
+        ]
+        assert _collapse_adjacent_blanks(list(run)) == run
