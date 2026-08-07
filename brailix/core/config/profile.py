@@ -347,17 +347,6 @@ class BrailleProfile:
         self._letter_cache[ch] = result
         return result
 
-    def math_identifier(self, ch: str) -> tuple[tuple[int, ...], ...] | None:
-        """Backwards-compatible alias for :meth:`letter`.
-
-        The method was renamed ``math_identifier`` → ``letter`` when the
-        letter tables were generalised beyond math (§P4.5 / §R5+). Kept so
-        external / legacy callers documented against the old name (and the
-        ARCHITECTURE / math-redesign / math-boundaries docs that promise
-        the alias) keep working.
-        """
-        return self.letter(ch)
-
     def bare_letter(self, ch: str) -> tuple[int, ...] | None:
         """Look up the bare letter cell for ``ch`` — **without** the
         script-class prefix.

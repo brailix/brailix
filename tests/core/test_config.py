@@ -521,12 +521,15 @@ class TestMathTable:
         second = p.letter("a")
         assert first is second
 
-    def test_math_identifier_is_letter_alias(self):
-        # Backwards-compat alias documented in ARCHITECTURE §P4.5 / §R5+ +
-        # math-redesign / math-boundaries — must mirror ``letter`` exactly.
+    def test_the_old_math_identifier_name_is_gone(self):
+        # ``math_identifier`` was the name ``letter`` had before the letter
+        # tables were generalised beyond math, kept afterwards as an alias
+        # that nothing in the tree ever called. One method, one name: a
+        # profile is on the extension surface, and a second spelling of the
+        # same lookup is a second thing an adapter author has to be told
+        # about — and a second thing every future rename has to move.
         p = load_profile("cn_current")
-        for ch in ("a", "A", "π", "一"):
-            assert p.math_identifier(ch) == p.letter(ch)
+        assert not hasattr(p, "math_identifier")
 
     def test_letter_tables_loaded_as_neutral(self):
         # Letter tables themselves stay free of any context prefix so
