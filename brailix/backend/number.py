@@ -283,7 +283,7 @@ def _digits_to_cells(
         profile=profile,
         warnings=ctx.warnings,
         policy=_NUMBER_DIGIT_POLICY,
-        want_number_sign=profile.feature("number_sign", True),
+        want_number_sign=profile.feature("zh.number_sign", True),
         span_at=span_at,
         # The number sign has no surface char; anchor it to the run's leading
         # edge (a zero-width span) so it traces back to source without landing

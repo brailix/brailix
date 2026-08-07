@@ -102,15 +102,12 @@ class TestToneSuppression:
         # initial + final only
         assert roles == ["zh_initial", "zh_final"]
 
-    def test_tone_disabled_via_profile(self, ctx, profile):
-        profile.features["tone"] = False
-        try:
-            cells = translate_word(
-                Word(surface="在", reading="zai4"), ctx, profile,
-            )
-            assert "zh_tone" not in _roles(cells)
-        finally:
-            profile.features["tone"] = True
+    def test_tone_disabled_via_profile(self, ctx, profile, monkeypatch):
+        monkeypatch.setitem(profile.features["zh"], "tone", False)
+        cells = translate_word(
+            Word(surface="在", reading="zai4"), ctx, profile,
+        )
+        assert "zh_tone" not in _roles(cells)
 
 
 class TestMissingPinyin:

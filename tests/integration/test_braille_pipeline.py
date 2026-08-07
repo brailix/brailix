@@ -290,7 +290,7 @@ class TestProvenance:
 
 
 class TestProfileFeature:
-    def test_disabling_tone_shortens_output(self):
+    def test_disabling_tone_shortens_output(self, monkeypatch):
         """When tone is suppressed, the same content yields fewer cells."""
         profile = load_profile("cn_current")
         ctx = BackendContext(profile="cn_current")
@@ -302,13 +302,10 @@ class TestProfileFeature:
             translate_document(doc, ctx, profile)
         )
 
-        profile.features["tone"] = False
-        try:
-            ctx2 = BackendContext(profile="cn_current")
-            rendered_no_tone = UnicodeBrailleRenderer().render(
-                translate_document(doc, ctx2, profile)
-            )
-        finally:
-            profile.features["tone"] = True
+        monkeypatch.setitem(profile.features["zh"], "tone", False)
+        ctx2 = BackendContext(profile="cn_current")
+        rendered_no_tone = UnicodeBrailleRenderer().render(
+            translate_document(doc, ctx2, profile)
+        )
 
         assert len(rendered_no_tone) < len(rendered_with_tone)

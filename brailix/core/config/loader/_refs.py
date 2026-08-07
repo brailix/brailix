@@ -247,7 +247,8 @@ def _spec_to_cells(
     * String — single cell ref: ``"a": "c_1"``
     * List of strings — ref list: ``"≠": ["c_4", "="]``
     * List of ints — inline literal single cell: ``"b": [1, 2]``
-      (legacy shape; equivalent to ``{"dots": [1, 2]}``)
+      (the compact spelling of ``{"dots": [1, 2]}``, and what the shipped
+      letter / digit tables are written in)
     * Empty list ``[]`` — empty cell sequence (e.g. neutral tone)
     * Object with ``cells`` — ref list with extras: ``{"cells": [...], "space_before": true}``
     * Object with ``dots`` — inline literal (single ``[1,2]`` or

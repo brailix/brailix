@@ -57,13 +57,10 @@ names the project had not agreed to keep. A front-end that wants a profile
 """
 
 from brailix.core.config._helpers import (
-    _FEATURE_DOTTED_TO_FLAT,
-    _FEATURE_FLAT_ALIASES,
     _METADATA_KEYS,
     _dots_dict,
     _entity_to_char,
     _extract_dots,
-    _feature_keys_to_try,
     _feature_lookup,
     _read_json,
     _to_dots,

@@ -60,15 +60,13 @@ class TestTranslateNumber:
         assert [c.source_text for c in digit_cells] == ["4", "2"]
         assert [c.source_span for c in digit_cells] == [Span(5, 6), Span(6, 7)]
 
-    def test_number_sign_disabled_via_profile(self, ctx, profile):
-        # Mutate a copy of the profile by directly changing its features.
-        profile.features["number_sign"] = False
-        try:
-            cells = translate_number(Number(surface="9"), ctx, profile)
-            assert len(cells) == 1
-            assert cells[0].role == "digit"
-        finally:
-            profile.features["number_sign"] = True
+    def test_number_sign_disabled_via_profile(self, ctx, profile, monkeypatch):
+        # The flag by the name the profile writes it under — ``zh.number_sign``,
+        # the Chinese prose one, not ``math.number_sign``.
+        monkeypatch.setitem(profile.features["zh"], "number_sign", False)
+        cells = translate_number(Number(surface="9"), ctx, profile)
+        assert len(cells) == 1
+        assert cells[0].role == "digit"
 
     def test_unknown_digit_emits_warning(self, ctx, profile):
         # Superscript 2 is a digit char, but not a decimal digit.

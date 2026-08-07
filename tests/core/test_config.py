@@ -58,12 +58,11 @@ class TestCnDefaultProfile:
 
     def test_features_present(self):
         p = load_profile("cn_current")
-        # Legacy flat lookup still works (zh.tone alias).
-        assert p.feature("tone") is True
-        assert p.feature("number_sign") is True
-        # New dotted lookup.
+        # By the path the profile writes them at, and only that path.
         assert p.feature("zh.tone") is True
         assert p.feature("zh.number_sign") is True
+        assert p.feature("tone", "unset") == "unset"
+        assert p.feature("number_sign", "unset") == "unset"
         assert p.feature("nonexistent", "fallback") == "fallback"
 
     def test_initials_table_loaded(self):
@@ -1163,7 +1162,7 @@ class TestMathStructureLookup:
 
 
 class TestFeatureLookup:
-    """feature() supports nested dotted lookup + legacy flat alias."""
+    """feature() reads one key, by the dotted path the profile writes it at."""
 
     def test_dotted_math_feature(self):
         p = load_profile("cn_current")
@@ -1176,18 +1175,39 @@ class TestFeatureLookup:
         assert p.feature("nonexistent.subkey", "fallback") == "fallback"
         assert p.feature("math.nonexistent_subkey", "fallback") == "fallback"
 
-    def test_legacy_flat_math_feature(self):
-        p = load_profile("cn_current")
-        # math_simplify_fraction aliases math.simplify_fraction
-        assert p.feature("math_simplify_fraction") == p.feature("math.simplify_fraction")
-        assert p.feature("math_simplify_script") == p.feature("math.simplify_script")
-        assert p.feature("math_op_spacing") == p.feature("math.op_spacing")
+    @pytest.mark.parametrize(
+        "flat",
+        [
+            "math_simplify_fraction",
+            "math_simplify_script",
+            "math_op_spacing",
+            "tone",
+            "tone_omit_neutral",
+            "number_sign",
+        ],
+    )
+    def test_the_flat_spellings_are_not_a_second_way_in(self, flat):
+        """Six flags used to answer to a flat name as well as their dotted one.
 
-    def test_legacy_zh_feature(self):
+        The map that did it is gone, and the flat forms are now ordinary unset
+        keys. Pinned per name rather than as a blanket "no aliases" claim,
+        because these six are what the tree actually called: the Chinese tone
+        policy read ``"tone"`` *on purpose*, since the flat form was tried
+        first and a top-level override would otherwise not be seen — a piece of
+        production code picking its lookup key to suit a test, which is what a
+        second spelling costs even while everything agrees.
+        """
         p = load_profile("cn_current")
-        assert p.feature("tone") == p.feature("zh.tone")
-        assert p.feature("number_sign") == p.feature("zh.number_sign")
-        assert p.feature("tone_omit_neutral") == p.feature("zh.tone_omit_neutral")
+        assert p.feature(flat, "unset") == "unset"
+
+    def test_the_grouped_names_still_carry_those_flags(self):
+        """The other half: what the flat names used to reach is still there,
+        under the one name the shipped profiles write."""
+        p = load_profile("cn_current")
+        assert p.feature("zh.tone") is True
+        assert p.feature("zh.tone_omit_neutral") is True
+        assert p.feature("zh.number_sign") is True
+        assert p.feature("math.simplify_fraction") is True
 
     def test_unknown_feature_returns_default(self):
         p = load_profile("cn_current")

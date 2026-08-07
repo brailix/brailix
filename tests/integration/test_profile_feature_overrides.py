@@ -196,12 +196,27 @@ class TestTheKeySpace:
         assert pipe._profile.feature("made.up.flag") == 7
         assert pipe._profile.feature("zh.tone") is True
 
-    def test_a_flat_key_lands_at_the_top_level(self) -> None:
+    def test_a_flat_key_lands_at_the_top_level_and_shadows_nothing(self) -> None:
+        """An override is addressed by the *whole* path, groups included.
+
+        ``{"tone": False}`` writes a top-level ``tone`` entry — a legal thing
+        to write, since the features table is an open extension point and a
+        plugin may declare a flag of its own there. What it is not is a way to
+        reach ``zh.tone``: a feature is read at exactly one address, so the
+        Chinese tone flag keeps its value and the braille is unchanged.
+
+        It used to be a way, through a legacy flat→dotted alias map that made
+        six flags answer to two names each. Pinned here as the behaviour it
+        is now, because "my override did nothing" is a question this test's
+        answer should be findable from.
+        """
         pipe = Pipeline(**_BASE, profile_features={"tone": False})
-        # ``feature()`` tries the literal key before the dotted alias, so a
-        # flat override shadows the nested value — which is what the backend
-        # reads, so the braille follows it.
-        assert pipe._profile.feature("tone") is False
+        assert pipe._profile.features["tone"] is False
+        assert pipe._profile.feature("zh.tone") is True
+        assert _cells(pipe) == _cells(Pipeline(**_BASE))
+
+    def test_the_grouped_key_is_what_changes_the_braille(self) -> None:
+        pipe = Pipeline(**_BASE, profile_features={"zh.tone": False})
         assert len(_cells(pipe)) == len(_cells(Pipeline(**_BASE))) - 4
 
     def test_a_scalar_in_the_path_is_refused_loudly(self) -> None:
