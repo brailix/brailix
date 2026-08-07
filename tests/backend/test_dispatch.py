@@ -453,3 +453,77 @@ class TestAdjacentBlanksCollapse:
             BrailleCell(dots=(), role="hang_open"),
         ]
         assert _collapse_adjacent_blanks(list(run)) == run
+
+
+class TestSeparatorBeforeAttachedPunct:
+    """A blank separates two words. A mark that closes the word just written
+    is not the next word, so no blank goes in front of it.
+
+    The other half of what lets ``space_after`` be stated without checking who
+    comes next: :class:`TestAdjacentBlanksCollapse` settles two rules that
+    agree, this settles one rule against the next mark's own table entry.
+    """
+
+    def test_space_after_does_not_survive_the_next_mark(self):
+        """``（注）。`` — ）asks for a blank after it, but 。is written
+        against what it follows, so the two marks meet."""
+        from brailix import Pipeline
+
+        out = Pipeline(profile="cn_current").translate_text("见（注）。").render()
+        assert "⠠⠆⠐⠆" in out
+
+    def test_an_opening_mark_keeps_its_blank(self):
+        """``：“`` — ：wants one after, “ wants one before. They collapse to
+        one blank; the veto is about what the next mark declares, not about
+        two marks being adjacent."""
+        from brailix import Pipeline
+
+        out = Pipeline(profile="cn_current").translate_text("他说：“好”").render()
+        assert "⠒⠀⠘⠘" in out
+
+    def test_a_typed_space_before_a_mark_is_content(self, profile):
+        """The author's own space is not a rule's opinion and is not vetoed —
+        the same line :func:`_collapse_adjacent_blanks` draws."""
+        from brailix.backend.block import _drop_separator_before_attached_punct
+        from brailix.ir.braille import BrailleCell
+
+        typed = BrailleCell(
+            dots=(), role="space", source_span=Span(3, 4), source_text=" "
+        )
+        comma = BrailleCell(
+            dots=(5,), role="punct", source_span=Span(4, 5), source_text="，"
+        )
+        assert _drop_separator_before_attached_punct([typed, comma], profile) == [
+            typed,
+            comma,
+        ]
+
+    def test_only_a_punct_cell_vetoes(self, profile):
+        """A dots-empty layout sentinel is not punctuation, and neither is the
+        unknown placeholder — a separator in front of either stays."""
+        from brailix.backend.block import _drop_separator_before_attached_punct
+        from brailix.ir.braille import BrailleCell
+
+        sep = BrailleCell(dots=(), role="space", source_span=Span(3, 3), source_text="")
+        for nxt in (
+            BrailleCell(dots=(), role="line_break"),
+            BrailleCell(dots=(), role="unknown", source_text="。"),
+            BrailleCell(dots=(5,), role="list_marker", source_text="。"),
+        ):
+            run = [sep, nxt]
+            assert _drop_separator_before_attached_punct(list(run), profile) == run, nxt
+
+    def test_a_trailing_separator_has_no_mark_to_answer_to(self, profile):
+        """Nothing follows, so nothing vetoes. Trimming a block-edge blank is
+        a separate orthographic question (``你，`` ends in one on purpose)."""
+        from brailix.backend.block import _drop_separator_before_attached_punct
+        from brailix.ir.braille import BrailleCell
+
+        comma = BrailleCell(
+            dots=(5,), role="punct", source_span=Span(0, 1), source_text="，"
+        )
+        sep = BrailleCell(dots=(), role="space", source_span=Span(1, 1), source_text="")
+        assert _drop_separator_before_attached_punct([comma, sep], profile) == [
+            comma,
+            sep,
+        ]

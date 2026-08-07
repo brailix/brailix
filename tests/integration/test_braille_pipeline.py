@@ -33,11 +33,13 @@ class TestPipelineSmoke:
         """Punct survives the full pipeline as Unicode braille."""
         pipe = Pipeline(profile="cn_current")
         result = pipe.translate_text("，。！？")
-        # ， → 1 cell + space (2);
-        # 。 → 2 cells, no space (2);
-        # ！ → 2 cells, no space (2);
-        # ？ → 2 cells, no space (2).  Total: 8.
-        assert len(result.render()) == 8
+        # ， → 1 cell (1);
+        # 。 → 2 cells (2);
+        # ！ → 2 cells (2);
+        # ？ → 2 cells (2).  Total: 7.
+        # ，'s space_after does not survive: the 。 next to it is written
+        # against what precedes it, so there is no blank between two marks.
+        assert len(result.render()) == 7
         # No warnings — every char is mapped.
         codes = {w.code for w in result.warnings}
         assert "UNKNOWN_PUNCT" not in codes

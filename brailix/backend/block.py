@@ -195,7 +195,27 @@ def _translate_children(
         # unrelated caller to trip over.
         ctx.options.pop("_next_inline_sibling", None)
         ctx.options.pop("_english_run_active", None)
-    return _collapse_adjacent_blanks(out)
+    return _drop_separator_before_attached_punct(
+        _collapse_adjacent_blanks(out), profile
+    )
+
+
+def _is_typed_blank(cell: BrailleCell) -> bool:
+    """Whether a blank cell stands for a space character in the source.
+
+    The provenance convention every synthesised separator follows — the
+    frontend's word boundaries, the punctuation table's auto-spaces, a date's
+    component gap: no ``source_text`` and a zero-width span at the boundary it
+    was emitted for. A space the author typed carries the character and the
+    span it occupies.
+
+    Both spacing passes below turn on this distinction, and for the same
+    reason: a synthesised separator is one rule's opinion about a boundary and
+    another rule may overrule it, whereas a typed space is content and neither
+    pass is allowed to edit the source.
+    """
+    span = cell.source_span
+    return bool(cell.source_text) or (span is not None and not span.is_empty())
 
 
 def _collapse_adjacent_blanks(cells: list[BrailleCell]) -> list[BrailleCell]:
@@ -245,11 +265,6 @@ def _collapse_adjacent_blanks(cells: list[BrailleCell]) -> list[BrailleCell]:
     """
     if len(cells) < 2:
         return cells
-
-    def is_typed(cell: BrailleCell) -> bool:
-        span = cell.source_span
-        return bool(cell.source_text) or (span is not None and not span.is_empty())
-
     out: list[BrailleCell] = []
     i = 0
     while i < len(cells):
@@ -261,10 +276,71 @@ def _collapse_adjacent_blanks(cells: list[BrailleCell]) -> list[BrailleCell]:
         while j < len(cells) and cells[j].role == "space":
             j += 1
         run = cells[i:j]
-        typed = [c for c in run if is_typed(c)]
+        typed = [c for c in run if _is_typed_blank(c)]
         out.extend(typed if typed else run[:1])
         i = j
     return out
+
+
+def _drop_separator_before_attached_punct(
+    cells: list[BrailleCell], profile: BrailleProfile
+) -> list[BrailleCell]:
+    """Drop a synthesised separator standing in front of a punctuation mark
+    that is written against the word before it.
+
+    The companion to :func:`_collapse_adjacent_blanks`, and the other half of
+    what lets the punctuation table state its spacing generously. That pass
+    settles two rules that *agree*; this one settles a rule against the table
+    entry of whatever comes next. ``space_after`` says "a word ends here",
+    which is true of ``50%`` and of ``i.e.`` — but when the next thing is not
+    a word, it is a mark belonging to the word just written and there is no
+    gap: ``50%，`` is ⠨⠐, ``（注）。`` is ⠠⠆⠐⠆.
+
+    A mark's entry declares the spacing on **both** its sides, so a missing
+    ``space_before`` is not silence. In a table whose own note says there is
+    no blanket "add one space" default, it is the statement that this mark is
+    written attached — which makes it a veto over a separator some other rule
+    supplied, not merely a request declined. Every closing and every sentence
+    mark in the shipped tables is in that class; the marks that open something
+    (``（`` ``“`` ``《``) carry ``space_before`` and keep the blank.
+
+    Only a **synthesised** separator is dropped, the same line
+    :func:`_collapse_adjacent_blanks` draws: the space in ``50% ，`` is one the
+    author typed, and neither pass edits the source. And only a ``punct`` cell
+    can veto — the dots-empty layout sentinels and the unknown placeholder are
+    not punctuation, and the marker cells (list bullet, footnote ref) are
+    print structure that :func:`expand_block` places outside this pass
+    entirely, along with the table column separators.
+    """
+    if len(cells) < 2:
+        return cells
+    out: list[BrailleCell] = []
+    for i, cell in enumerate(cells):
+        if (
+            cell.role == "space"
+            and not _is_typed_blank(cell)
+            and i + 1 < len(cells)
+            and _punct_attaches_left(cells[i + 1], profile)
+        ):
+            continue
+        out.append(cell)
+    return out
+
+
+def _punct_attaches_left(cell: BrailleCell, profile: BrailleProfile) -> bool:
+    """Whether ``cell`` is a punctuation mark whose table entry asks for no
+    blank in front of it — one written against the preceding word.
+
+    Looked up by the cell's own ``source_text``, which for a punctuation cell
+    is the mark as the table keys it (including the two-char ``——``), so a
+    multi-cell mark answers the same whichever of its cells is asked. A cell
+    with no ``source_text`` names no table entry and so vetoes nothing —
+    declining to drop a blank is the answer that changes nothing.
+    """
+    if cell.role != "punct" or not cell.source_text:
+        return False
+    space_before, _ = profile.punctuation_spaces(cell.source_text)
+    return not space_before
 
 
 # ---- List -----------------------------------------------------------------
