@@ -277,7 +277,6 @@ class TestDispatchPerNodeType:
             surface="3kg",
             number=Number(surface="3", span=Span(0, 1)),
             unit="kg",
-            unit_canonical="kilogram",
             span=Span(0, 3),
         )
         cells = translate_node(node, ctx, profile)

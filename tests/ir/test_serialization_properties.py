@@ -196,7 +196,6 @@ def inline_nodes(draw: st.DrawFn) -> InlineNode:
             surface=surface,
             number=number,
             unit=draw(_opt_short),
-            unit_canonical=draw(_opt_short),
         )
     return Percent(surface=surface, number=number)
 

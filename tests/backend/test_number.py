@@ -146,7 +146,6 @@ class TestTranslateQuantity:
             span=Span(0, 3),
             number=Number(surface="3", span=Span(0, 1)),
             unit="kg",
-            unit_canonical="kilogram",
         )
         cells = translate_quantity(node, ctx, profile)
         # number_sign + digit 3 + (56 + k + g) = 5 cells — one lowercase
@@ -180,7 +179,6 @@ class TestTranslateQuantity:
             span=Span(0, 4),
             number=Number(surface="47", span=Span(0, 2)),
             unit="cm",
-            unit_canonical="centimetre",
         )
         cells = translate_quantity(node, ctx, profile)
         assert any(w.code == "MISSING_NUMBER_PART" for w in ctx.warnings)
@@ -198,7 +196,6 @@ class TestTranslateQuantity:
             span=Span(0, 3),
             number=Number(surface="5", span=Span(0, 1)),
             unit="mW",
-            unit_canonical=None,
         )
         cells = translate_quantity(node, ctx, profile)
         unit_cells = [c for c in cells if c.role == "quantity_unit"]
@@ -213,7 +210,6 @@ class TestTranslateQuantity:
             span=Span(0, 3),
             number=Number(surface="5", span=Span(0, 1)),
             unit="MW",
-            unit_canonical=None,
         )
         cells = translate_quantity(node, ctx, profile)
         unit_cells = [c for c in cells if c.role == "quantity_unit"]
@@ -235,7 +231,6 @@ class TestTranslateQuantity:
             span=Span(0, 6),
             number=Number(surface="1000", span=Span(0, 5)),  # covers "1,000"
             unit="g",
-            unit_canonical="gram",
         )
         cells = translate_quantity(node, ctx, profile)
         unit_cells = [c for c in cells if c.role == "quantity_unit"]
@@ -252,7 +247,6 @@ class TestTranslateQuantity:
             span=Span(0, 2),
             number=Number(surface="3", span=Span(0, 1)),
             unit="☃",  # snowman — not in any table
-            unit_canonical=None,
         )
         cells = translate_quantity(node, ctx, profile)
         assert cells[-1].role == "unknown"
@@ -270,7 +264,6 @@ class TestTranslateQuantity:
             span=Span(0, 2),
             number=Number(surface="3", span=Span(0, 1)),
             unit=":",  # punctuation char (cn_current ⠒)
-            unit_canonical=None,
         )
         cells = translate_quantity(node, ctx, profile)
         punct_cells = [c for c in cells if c.role == "punct"]

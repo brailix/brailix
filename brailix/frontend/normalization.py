@@ -6,7 +6,7 @@ patterns and turns them into proper InlineNodes:
 
 * ``2026年5月17日`` → :class:`Date` with year/month/day parts
 * ``12%`` / ``12％`` → :class:`Percent`
-* ``3.5kg`` → :class:`Quantity` with normalized unit
+* ``3.5kg`` → :class:`Quantity` carrying the unit as written
 * bare ``2026`` → :class:`Number`
 * protected math_inline segments → atomic InlineNodes
 * punctuation / space / latin segments → atomic InlineNodes
@@ -64,29 +64,129 @@ _MATH_OP_CANONICAL: dict[str, str] = {
     "-": "−",  # U+002D hyphen-minus → U+2212 (matches `minus;` entity)
 }
 
-# Known units: surface forms mapped to canonical names.
-# Kept intentionally small for now — domain-specific units arrive with
-# their respective adapters / profiles later.
-_UNITS: dict[str, str] = {
-    "kg": "kilogram",
+# Units are a *product*, not a list: ``mg`` / ``g`` / ``kg`` is one unit and
+# three prefixes, and writing out the combinations means every new unit costs
+# as many entries as there are prefixes it takes — which is how a table ends up
+# knowing ``GHz`` but not ``kW``, ``mm`` but not ``nm``. The two axes are
+# written out instead, and the surfaces derived from them (:func:`_derive_units`).
+#
+# **Which prefixes is where the judgement is**, and it is a judgement about
+# *collisions*, not about physics. A prefix admits every combination it can
+# form, so ``p`` (pico) alone would make ``3pm`` read as three picometres
+# rather than three in the afternoon, and ``a`` (atto) would do the same to
+# ``3am`` and turn ``3as`` into attoseconds. Neither prefix appears in prose a
+# braille reader meets; both are left out here, which kills the whole family of
+# collisions at the axis instead of one derived surface at a time. Same for
+# ``f`` / ``E`` / ``P`` / ``Z`` / ``Y``: nothing is lost that a document writes.
+#
+# ``μ`` (micro) is absent for a different reason, and it is a **gap, not a
+# judgement**: this pass is handed one ``latin_text`` segment, and ``μ`` is
+# Greek, so ``3μg`` reaches here as digits + ``greek_text`` + ``latin_text``
+# and is not one run to look up at all. Listing the prefix would generate
+# surfaces nothing can ever match. Micrograms need the quantity matcher to
+# absorb a Greek prefix segment first; until it does, ``3μg`` stays a number
+# beside a letter — which is what it was before this table was derived too.
+_SI_PREFIXES: dict[str, str] = {
+    "n": "nano",
+    "m": "milli",
+    "c": "centi",
+    "d": "deci",
+    "h": "hecto",
+    "k": "kilo",
+    "M": "mega",
+    "G": "giga",
+    "T": "tera",
+}
+
+# The unit symbols a document actually writes, prefixable by any of the above.
+# SI base and derived units, plus the two computing ones (a textbook writes
+# ``GB``), each keyed by its *correct* symbol case — the case is the symbol,
+# and the matching rule below is what decides how forgiving to be about it.
+_BASE_UNITS: dict[str, str] = {
     "g": "gram",
-    "mg": "milligram",
-    "t": "tonne",
     "m": "metre",
-    "cm": "centimetre",
-    "mm": "millimetre",
-    "km": "kilometre",
-    "ml": "millilitre",
     "l": "litre",
+    "L": "litre",
     "s": "second",
-    "ms": "millisecond",
+    "Hz": "hertz",
+    "W": "watt",
+    "A": "ampere",
+    "V": "volt",
+    "J": "joule",
+    "N": "newton",
+    "Pa": "pascal",
+    "mol": "mole",
+    "B": "byte",
+}
+
+# Units that are not a prefix plus a base, and the one derived surface whose
+# derived *name* would be wrong: ``dB`` is a decibel, not a deci-byte — the
+# bel is not in the table above (nothing writes a bare ``B`` for it), so the
+# combination has to be stated. Registered here rather than filtered out
+# afterwards, because these win over anything derived.
+_EXCEPTIONS: dict[str, str] = {
+    "t": "tonne",
     "min": "minute",
     "h": "hour",
-    "hz": "hertz",
-    "khz": "kilohertz",
-    "mhz": "megahertz",
-    "ghz": "gigahertz",
+    "dB": "decibel",
 }
+
+
+def _derive_units() -> dict[str, str]:
+    """Every recognised unit surface → its name, from the two axes above."""
+    units = dict(_EXCEPTIONS)
+    for symbol, name in _BASE_UNITS.items():
+        units.setdefault(symbol, name)
+        for prefix, prefix_name in _SI_PREFIXES.items():
+            units.setdefault(prefix + symbol, prefix_name + name)
+    return units
+
+
+_UNITS: dict[str, str] = _derive_units()
+
+# Case-folded spellings that identify exactly one unit. A prefix's case *is*
+# its meaning (``m`` milli, ``M`` mega), so folding case away is only safe
+# where nothing else folds to the same thing: ``ghz`` and ``GHZ`` can only
+# have meant ``GHz``, while ``mhz`` could be either milli- or megahertz and
+# ``ml`` written as ``ML`` could be millilitre or megalitre. Derived from the
+# table rather than listed, so a unit added above cannot quietly make an
+# existing tolerant spelling ambiguous without this noticing.
+_UNIQUE_FOLDED_UNITS: dict[str, str] = {
+    folded: names.pop()
+    for folded, names in (
+        (
+            folded,
+            {_UNITS[s] for s in _UNITS if s.casefold() == folded},
+        )
+        for folded in {s.casefold() for s in _UNITS}
+    )
+    if len(names) == 1
+}
+
+
+def _unit_name(surface: str) -> str | None:
+    """The unit ``surface`` names, or ``None`` if it names none.
+
+    Exact case first — that is what the symbol *is*. A multi-letter surface
+    that misses may still resolve case-insensitively, but only through
+    :data:`_UNIQUE_FOLDED_UNITS`, so tolerance never has to guess between two
+    real units.
+
+    A **single letter must be lowercase**. ``g`` / ``m`` / ``l`` / ``s`` / ``t``
+    / ``h`` are units; their uppercase forms are the tokens tech and marketing
+    prose is full of — ``5G`` is a network, ``4T`` a drive, ``5M`` a bandwidth,
+    ``3A`` a rating — and none of them is a quantity. The cost is that a bare
+    ``5W`` / ``3A`` is not read as watts or amperes either; prefixed, they are
+    (``5kW``, ``3mA``), which is how a document writes them anyway.
+    """
+    if not surface:
+        return None
+    if len(surface) == 1:
+        return _UNITS.get(surface) if surface.islower() else None
+    exact = _UNITS.get(surface)
+    if exact is not None:
+        return exact
+    return _UNIQUE_FOLDED_UNITS.get(surface.casefold())
 
 
 # ---------------------------------------------------------------------------
@@ -275,17 +375,9 @@ def _try_quantity(segs: list[Segment], i: int) -> tuple[Quantity, int] | None:
     if nxt.type != "latin_text":
         return None
     unit = nxt.surface
-    # SI unit symbols are case-sensitive, and for a SINGLE letter the case is
-    # meaningful: "g"/"m"/"t"/"l"/"s"/"h" are units, but their uppercase forms
-    # are not — and "G"/"T"/"M" collide with very common non-unit tokens in
-    # tech prose ("5G" network, "4T" drive, "5M" bandwidth). Match single-
-    # letter units case-sensitively (the table is keyed lowercase, so an
-    # uppercase single letter simply misses and falls back to Number + latin);
-    # keep multi-letter units case-insensitive so "GHz"/"ghz"/"GHZ" all
-    # resolve (a multi-letter run is unambiguous).
-    unit_key = unit if len(unit) == 1 else unit.lower()
-    canonical = _UNITS.get(unit_key)
-    if canonical is None:
+    # Whether this latin run is a unit at all — case rules and tolerance
+    # included — is :func:`_unit_name`'s question, not this one's.
+    if _unit_name(unit) is None:
         return None
     number = Number(surface=segs[i].surface, span=segs[i].span)
     span = _span_range(segs[i].span, nxt.span)
@@ -295,7 +387,6 @@ def _try_quantity(segs: list[Segment], i: int) -> tuple[Quantity, int] | None:
             span=span,
             number=number,
             unit=unit,
-            unit_canonical=canonical,
         ),
         i + 2,
     )

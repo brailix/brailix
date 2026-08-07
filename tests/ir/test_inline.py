@@ -71,10 +71,9 @@ class TestCompositeStructures:
             surface="3.5kg",
             number=Number(surface="3.5"),
             unit="kg",
-            unit_canonical="kilogram",
         )
         assert q.number.surface == "3.5"
-        assert q.unit_canonical == "kilogram"
+        assert q.unit == "kg"
 
     def test_percent(self):
         p = Percent(surface="12%", number=Number(surface="12"))
@@ -160,7 +159,6 @@ class TestNestedChildTypesAreEnforced:
             surface="3.5kg",
             number=Number(surface="3.5"),
             unit="kg",
-            unit_canonical="kg",
         )
         restored = from_dict(q.to_dict())
         assert isinstance(restored, Quantity)

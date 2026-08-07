@@ -245,13 +245,14 @@ class TestQuantity:
         assert q.surface == "3.5kg"
         assert q.number.surface == "3.5"
         assert q.unit == "kg"
-        assert q.unit_canonical == "kilogram"
 
-    def test_case_insensitive_unit(self):
+    def test_the_unit_is_kept_as_written(self):
+        # The symbol, not a normalized name: it is what the backend spells out
+        # and what a proofreader sees highlighted.
         out = _normalize_text("3GHz")
         q = out[0]
         assert isinstance(q, Quantity)
-        assert q.unit_canonical == "gigahertz"
+        assert q.unit == "GHz"
 
     def test_unknown_unit_falls_back(self):
         # "100foo" — foo isn't a unit, should split as Number + LatinWord
@@ -272,18 +273,94 @@ class TestQuantity:
         # symbols: "5g" is still 5 grams.
         out = _normalize_text("5g")
         assert isinstance(out[0], Quantity)
-        assert out[0].unit_canonical == "gram"
+        assert out[0].unit == "g"
 
-    @pytest.mark.parametrize("text", ["5G", "4T", "5M"])
+    @pytest.mark.parametrize("text", ["5G", "4T", "5M", "3A", "5W", "3V"])
     def test_uppercase_single_letter_is_not_a_unit(self, text):
-        # "5G" (network), "4T" (drive), "5M" (bandwidth) are common tech-prose
-        # tokens, NOT 5 grams / 4 tonnes / 5 metres. Case-insensitive folding
-        # used to misclassify them as quantities with unit_canonical="gram"
-        # etc.; an uppercase single letter must not match a lowercase-keyed
-        # single-letter unit. Regression.
+        # "5G" (network), "4T" (drive), "5M" (bandwidth), "3A" (a rating) are
+        # common tech and marketing tokens, NOT 5 grams / 4 tonnes / 5 metres /
+        # 3 amperes. An uppercase single letter is never a unit — which costs
+        # a bare "5W" / "3V" too, and is the right trade: those are written
+        # prefixed ("5kW") when they are quantities at all.
         out = _normalize_text(text)
         assert isinstance(out[0], Number)
         assert not any(isinstance(n, Quantity) for n in out)
+
+
+class TestUnitsAreDerivedNotListed:
+    """The unit table is a prefix table times a base-unit table.
+
+    What that buys is coverage nobody has to remember to add: ``kW`` and
+    ``MW`` come from the same two lines that give ``kg``. What it costs is
+    that a prefix admits its whole family, so which prefixes exist is the
+    place the collisions are decided — pico and atto are absent, and that is
+    what keeps ``3pm`` an afternoon.
+    """
+
+    @pytest.mark.parametrize(
+        "text",
+        ["3.5kg", "5g", "47cm", "3km", "250ml", "30s", "500ms", "3GHz", "12t",
+         "30min", "2h"],
+    )
+    def test_every_unit_the_hand_written_table_had_still_resolves(self, text):
+        out = _normalize_text(text)
+        assert isinstance(out[0], Quantity), text
+
+    @pytest.mark.parametrize(
+        "text",
+        ["5kW", "500MW", "20mA", "600nm", "2TB", "8GB", "101kPa",
+         "1013hPa", "2mol", "50kJ", "5mV", "30dB"],
+    )
+    def test_units_the_hand_written_table_lacked_now_resolve(self, text):
+        # None of these was in the 18-entry list; each falls out of the two
+        # axes without an entry of its own. ``dB`` is the one registered
+        # exception — a decibel is not a deci-byte.
+        out = _normalize_text(text)
+        assert isinstance(out[0], Quantity), text
+
+    def test_a_micro_prefixed_unit_is_a_known_gap(self):
+        # ``μ`` is Greek, so ``3μg`` arrives as digits + greek_text +
+        # latin_text and never reaches the table as one run. Pinned as the
+        # stated limitation it is, so that supporting it later is a visible
+        # change rather than a surprise.
+        out = _normalize_text("3μg")
+        assert not any(isinstance(n, Quantity) for n in out)
+
+    @pytest.mark.parametrize("text", ["3pm", "3am", "5as", "3CD", "10in"])
+    def test_the_collisions_a_wider_prefix_set_would_create_are_absent(
+        self, text
+    ):
+        # Refused at the axis, not per surface: without pico and atto in the
+        # prefix table there is no picometre to mistake "3pm" for. "CD" and
+        # "in" are not derivable at all (no candela base, no such prefix).
+        out = _normalize_text(text)
+        assert not any(isinstance(n, Quantity) for n in out), text
+
+    @pytest.mark.parametrize(
+        ("text", "why"),
+        [
+            ("3ghz", "only GHz folds to it"),
+            ("3GHZ", "only GHz folds to it"),
+            ("3KM", "only km folds to it"),
+        ],
+    )
+    def test_case_tolerance_where_the_fold_is_unambiguous(self, text, why):
+        out = _normalize_text(text)
+        assert isinstance(out[0], Quantity), why
+
+    @pytest.mark.parametrize("text", ["3mhz", "3mb", "3MS"])
+    def test_no_case_tolerance_where_two_real_units_fold_together(self, text):
+        # A prefix's case IS its meaning. "mhz" could be milli- or megahertz,
+        # "mb" milli-byte or megabyte, "MS" mega- or millisecond — so the
+        # tolerant path refuses rather than picking one. The exact spellings
+        # (MHz / MB / ms) all still resolve.
+        out = _normalize_text(text)
+        assert not any(isinstance(n, Quantity) for n in out), text
+
+    @pytest.mark.parametrize("text", ["3MHz", "3MB", "300ms"])
+    def test_the_exact_spellings_of_those_still_resolve(self, text):
+        out = _normalize_text(text)
+        assert isinstance(out[0], Quantity), text
 
 
 class TestEmDash:

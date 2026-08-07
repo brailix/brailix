@@ -37,7 +37,6 @@
         },
         "number": { "$ref": "#/definitions/inline_node" },
         "unit": { "type": "string" },
-        "unit_canonical": { "type": "string" },
         "source": { "type": "string" },
         "math": {
           "type": "string",

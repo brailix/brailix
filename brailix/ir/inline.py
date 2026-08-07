@@ -146,12 +146,20 @@ class Date(InlineNode):
 
 @_dataclass(slots=True)
 class Quantity(InlineNode):
-    """A number paired with a unit, e.g. ``3.5kg``."""
+    """A number paired with a unit, e.g. ``3.5kg``.
+
+    ``unit`` is the symbol **as written** — that is what the backend spells out
+    letter by letter, and what a proofreader sees highlighted. There is no
+    second, normalized spelling of it on the node: nothing downstream reads a
+    unit by name, and a field the compiler only ever writes is one that can
+    disagree with ``unit`` without anything noticing. The frontend's unit table
+    (:mod:`brailix.frontend.normalization`) is what decides *whether* a latin
+    run is a unit; a caller that wants the name can ask it.
+    """
 
     type: _ClassVar[str] = "quantity"
     number: Number | None = None
     unit: str | None = None
-    unit_canonical: str | None = None
 
 
 @_dataclass(slots=True)

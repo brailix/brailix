@@ -127,10 +127,10 @@ class TestMixedContent:
         # Surface still round-trips.
         assert "".join(c.surface for c in children) == text
 
-    def test_quantity_carries_canonical_unit(self):
+    def test_quantity_carries_the_unit_as_written(self):
         children, _ = _run_frontend("3.5kg")
         q = next(c for c in children if isinstance(c, Quantity))
-        assert q.unit_canonical == "kilogram"
+        assert q.unit == "kg"
 
     def test_percent_carries_number_substructure(self):
         children, _ = _run_frontend("12%")
