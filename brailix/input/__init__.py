@@ -255,11 +255,15 @@ def _route_xml(ctx: _FileCtx) -> _DocumentIR:
     # otherwise plain text, so a non-score .xml (MathML, DocBook, arbitrary
     # XML) doesn't yield misleading MUSIC_* warnings / an empty score tree.
     #
-    # Sniff via the BOM-aware reader parse_musicxml uses, NOT ctx.text's flat
-    # utf-8-sig: XML may legitimately be UTF-16 (Finale / some Windows
-    # exporters emit a BOM), and utf-8-sig raises UnicodeDecodeError on those
-    # valid files before the sniff runs — so a UTF-16 score .xml used to crash
-    # where the byte-identical .musicxml parsed fine. Both routes now agree.
+    # Sniff via the XML reader parse_musicxml uses, NOT ctx.text's flat
+    # utf-8-sig: an XML document's bytes say what encoding they are — a BOM,
+    # the ``<?xml`` declaration's byte pattern, or the encoding that
+    # declaration names — and the flat decode raises UnicodeDecodeError on
+    # perfectly legal files (UTF-16 from Finale and some Windows exporters, an
+    # ISO-8859-1 declaration) before the sniff can run. Same reader as the
+    # ``.musicxml`` route and the same rule the MusicXML / MathML / SVG
+    # adapters apply to bytes handed to them, so one payload gets one answer
+    # whichever entry point reads it.
     #
     # Through ``ctx.limits``, not a defaulted reader: this route used to call
     # a free function whose ``limits`` parameter defaulted to
@@ -274,7 +278,7 @@ def _route_xml(ctx: _FileCtx) -> _DocumentIR:
     # ``.docx`` route is already held to. Both branches build from this
     # snapshot: ``_score_document`` is the tail of ``parse_musicxml`` for a
     # text-suffix score, which is precisely what the sniff has established.
-    text = ctx.limits.read_bounded_text(ctx.path, normalize_newlines=True)
+    text = ctx.limits.read_bounded_xml(ctx.path)
     # This path reads directly (not via ``ctx.text``), so apply the decoded-
     # character gate here too — the file-byte gate already ran in parse_file.
     ctx.limits.check_text_length(text)
@@ -347,15 +351,22 @@ def parse_file(
       here)
     * everything else (including ``.txt`` and no suffix) → :func:`parse_plain`
 
-    Word formats are read as bytes by the underlying adapters; text
-    formats are read here as UTF-8 so the dispatch can hand the parsers
-    a ``str``. Callers wanting a non-default mapping (feeding a ``.tex``
-    file through the markdown parser, say) should call the underlying
-    ``parse_*`` directly after reading the file themselves.
+    Word formats are read as bytes by the underlying adapters; text formats
+    are decoded here so the dispatch can hand the parsers a ``str``. How they
+    are decoded depends on what the bytes can say about themselves: an
+    ``.xml`` / ``.musicxml`` is decoded by XML's own rules (a byte order mark,
+    the ``<?xml`` declaration's byte pattern, or the ``encoding`` it names —
+    UTF-8 only when none of them speaks), while prose formats (``.txt`` /
+    ``.md`` / ``.abc``), which carry no such declaration, honour a UTF-16 BOM
+    and are otherwise read as UTF-8. Callers wanting a non-default mapping
+    (feeding a ``.tex`` file through the markdown parser, say) should call the
+    underlying ``parse_*`` directly after reading the file themselves.
 
     ``mathtype_fallback`` is forwarded to :func:`parse_docx` for ``.docx`` /
-    ``.docm`` (ignored for every other format, the same way
-    ``chem_detection`` is). It defaults to ``"off"`` — the native MTEF
+    ``.docm`` and ignored for every other format. ``chem_detection`` reaches
+    both Word routes — :func:`parse_docx` and, for a legacy ``.doc``,
+    :func:`parse_doc` — and is ignored elsewhere. ``mathtype_fallback``
+    defaults to ``"off"`` — the native MTEF
     adapter only, so old MTEF files it can't decode come back as
     ``<merror>`` placeholders. Pass ``"auto"`` (or ``"libreoffice"``) to
     engage the LibreOffice safety net, where the document is re-parsed
@@ -384,7 +395,9 @@ def parse_file(
     Errors propagate as-is: :class:`FileNotFoundError` when ``path``
     doesn't exist, :class:`InputTooLargeError` when its bytes or its decoded
     text exceed ``limits``,
-    :class:`UnicodeDecodeError` when text bytes aren't valid UTF-8,
+    :class:`UnicodeDecodeError` when a prose format's bytes are neither UTF-8
+    nor UTF-16-BOM-prefixed and :class:`ValueError` when an XML one's bytes do
+    not decode under the encoding they declare,
     :class:`MissingExtraError` when a needed extra (``docx`` for Word,
     ``midi`` for MIDI) isn't installed at input time — ``.abc`` defers its
     ``abc`` extra to frontend time, so reading one never raises here —

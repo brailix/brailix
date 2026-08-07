@@ -1,17 +1,19 @@
 """Resource limits for the input layer — a size budget for untrusted files.
 
 The input adapters read a whole document into memory before parsing (a
-``.txt`` / ``.md`` via :func:`Path.read_bytes`, a ``.mxl`` / ``.docx`` as
-a byte blob handed to :mod:`zipfile`, MIDI as bytes to the decoder). That
-is fine for a desktop user opening their own files, but a service that
-accepts *uploads* needs a ceiling: without one, a multi-gigabyte file
-spikes process memory the instant it is read — a cheap denial of service
+``.txt`` / ``.md`` as text, an ``.xml`` / ``.musicxml`` as XML, a ``.mxl`` /
+``.docx`` as a byte blob handed to :mod:`zipfile`, MIDI as bytes to the
+decoder). That is fine for a desktop user opening their own files, but a
+service that accepts *uploads* needs a ceiling: without one, a multi-gigabyte
+file spikes process memory the instant it is read — a cheap denial of service
 in a shared deployment.
 
-:class:`InputLimits` is that ceiling, enforced by
-:func:`brailix.input.parse_file`
-as a ``stat()`` gate **before** any read, so an oversized file
-is rejected without ever being loaded. The defaults
+:class:`InputLimits` is that ceiling. Every one of those reads goes through
+:meth:`InputLimits.read_bounded` (or the decoding wrappers over it), which
+holds the descriptor it read from and consumes at most one byte past the
+ceiling; :func:`brailix.input.parse_file` additionally runs a ``stat()`` gate
+**before** choosing an adapter, so an obviously oversized file is refused
+without being loaded at all. The defaults
 (:data:`DEFAULT_INPUT_LIMITS`) are deliberately *generous* — far above any
 realistic braille document — so normal use never trips them; a server that
 processes untrusted input tightens them, and a caller that wants no ceiling
@@ -35,6 +37,7 @@ import sys as _sys
 from dataclasses import dataclass as _dataclass
 from pathlib import Path as _Path
 
+from brailix.core._xml import decode_xml_bytes as _decode_xml_bytes
 from brailix.core.errors import BrailixError
 
 # 512 MiB. Matches the ``.docx`` adapter's total-uncompressed budget, so the
@@ -241,32 +244,32 @@ class InputLimits:
     def read_bounded_text(
         self, path: str | _os.PathLike[str], *, normalize_newlines: bool = False
     ) -> str:
-        """Read ``path`` whole through :meth:`read_bounded` and decode it,
-        tolerating the UTF-16 BOM Windows tools write.
+        """Read ``path`` whole through :meth:`read_bounded` and decode it as
+        plain text, tolerating the UTF-16 BOM Windows tools write.
 
-        The single whole-file text read for the input layer. Every text format
-        needs the same two things — the byte ceiling bound to the handle being
-        read, and a BOM-aware decode — and they were implemented twice: once
-        for plain / Markdown, once for XML. Both took ``limits`` as a
-        *defaulted* parameter, so a call site that forgot to pass the caller's
-        policy silently fell back to :data:`DEFAULT_INPUT_LIMITS` and read up
-        to the default ceiling instead of the requested one. Two call sites
-        did exactly that (the generic ``.xml`` route and the ``.abc``
+        The whole-file read for the formats whose bytes say nothing about
+        their own encoding — ``.txt`` / ``.md`` prose and the raw ``.abc``
+        score source. (XML says: :meth:`read_bounded_xml` is its reader.) Both
+        readers were once free functions taking ``limits`` as a *defaulted*
+        parameter, so a call site that forgot to pass the caller's policy
+        silently fell back to :data:`DEFAULT_INPUT_LIMITS` and read up to the
+        default ceiling instead of the requested one. Two call sites did
+        exactly that (the generic ``.xml`` route and the ``.abc``
         deferred-score route). As a method there is no default to fall back
         to: reading requires an :class:`InputLimits` in hand, so the policy
         cannot be lost by omission.
 
-        Decoding: a UTF-16 BOM (Notepad's "save as .txt", Finale and some
-        Windows XML exporters) selects ``utf-16``, which reads the mark for
-        endianness; everything else decodes as ``utf-8-sig``, which strips a
-        UTF-8 BOM and otherwise behaves like ``utf-8``. Genuinely
-        non-UTF-8/16 bytes still raise :class:`UnicodeDecodeError` — the
-        documented contract.
+        Decoding: a UTF-16 BOM (Notepad's "save as .txt") selects ``utf-16``,
+        which reads the mark for endianness; everything else decodes as
+        ``utf-8-sig``, which strips a UTF-8 BOM and otherwise behaves like
+        ``utf-8``. That is the whole rule available here — with no declaration
+        to read, a BOM is the only thing a byte stream can say about itself —
+        so genuinely non-UTF-8/16 bytes raise :class:`UnicodeDecodeError`.
 
         ``normalize_newlines`` folds CRLF / CR to LF the way a text-mode read
         (universal newlines) does, so a CRLF source reads identically to an LF
-        one downstream. XML wants it; the plain / Markdown path deliberately
-        keeps the file's own bytes.
+        one downstream. The ``.abc`` source wants it; the plain / Markdown
+        path deliberately keeps the file's own bytes.
 
         Raises :class:`InputTooLargeError` past ``max_file_bytes``, and
         propagates :class:`OSError` / :class:`FileNotFoundError` as an
@@ -284,6 +287,44 @@ class InputLimits:
         if normalize_newlines:
             text = text.replace("\r\n", "\n").replace("\r", "\n")
         return text
+
+    def read_bounded_xml(self, path: str | _os.PathLike[str]) -> str:
+        """Read an XML file whole through :meth:`read_bounded` and decode it
+        the way an XML processor would.
+
+        The same bounded read as :meth:`read_bounded_text`, with the decode
+        that format actually specifies: *bytes of XML are self-describing*, so
+        a byte order mark, the byte pattern of the ``<?xml`` declaration, or
+        the ``encoding`` that declaration names decides the codec, and only in
+        their absence is UTF-8 the answer
+        (:func:`~brailix.core._xml.decode_xml_bytes`, XML 1.0 §4.3.3).
+
+        There is one such rule, and this is the file end of it. The three
+        pass-through adapters (MathML / MusicXML / SVG) read the same
+        ``decode_xml_bytes`` for a payload handed to them as bytes, and the
+        file entries did not: they went through the plain-text reader above,
+        which knows only the BOM. So a score declaring ``ISO-8859-1``, or a
+        BOM-less UTF-16 one, parsed when its bytes were passed to
+        ``MusicXMLSourceAdapter.to_musicxml`` and raised
+        :class:`UnicodeDecodeError` when the *identical bytes* sat in a
+        ``.musicxml`` file — one payload, two answers, decided by which entry
+        point the caller happened to use.
+
+        Line ends are normalized to LF, which is not a convenience here but
+        the same specification's §2.11: an XML processor delivers CRLF and a
+        lone CR as ``\\n``, so a CRLF-saved document is byte-identical
+        downstream to an LF-saved one.
+
+        Raises :class:`~brailix.core._xml.XmlDecodeError` — a
+        :class:`ValueError` — when the bytes do not decode under the rule that
+        was selected, including an ``encoding`` naming a codec Python does not
+        have. Raises :class:`InputTooLargeError` past ``max_file_bytes``, and
+        propagates :class:`OSError` / :class:`FileNotFoundError` as an
+        ordinary read would. The character ceiling is the caller's to apply
+        (:meth:`check_text_length`), for the reason given above.
+        """
+        text = _decode_xml_bytes(self.read_bounded(path))
+        return text.replace("\r\n", "\n").replace("\r", "\n")
 
     def check_text_length(self, text: str) -> None:
         """Reject ``text`` if it is longer than ``max_text_chars``.
