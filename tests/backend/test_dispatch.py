@@ -344,3 +344,53 @@ class TestPipeline:
         assert payload["text"] == "。"
         assert payload["ir"]["type"] == "document"
         assert payload["braille_ir"]["type"] == "braille_document"
+
+
+class TestLatinWordIsNotAWordThatHappensToBeLatin:
+    """Why there are two prose-ish node types, measured rather than asserted.
+
+    ``Word`` is language prose: the dispatcher routes it to the profile
+    language's registered ``LanguageBackend``, which spells it from its
+    *reading*. ``LatinWord`` is a letter run: it goes to the language-neutral
+    Latin translator, which spells it from the letters and adds the capital /
+    class signs. Feeding one to the other's path is not a near-miss — it is a
+    different set of cells, or none.
+
+    This exists because "isn't a Latin word just a Word?" is a reasonable
+    question to ask of a taxonomy, and the answer has to be findable without
+    re-deriving it. (The same question about ``Quantity`` had the opposite
+    answer: that node's output was identical to ``Number`` + ``LatinWord``,
+    so it is gone.)
+    """
+
+    def test_the_same_surface_compiles_to_different_cells(self, ctx, profile):
+        latin = translate_node(LatinWord(surface="CPU", span=Span(0, 3)), ctx, profile)
+        word = translate_node(Word(surface="CPU", span=Span(0, 3)), ctx, profile)
+        assert [c.dots for c in latin] != [c.dots for c in word]
+        # The letter run spells out, with the doubled capital sign in front.
+        assert all(c.role == "latin_letter" for c in latin)
+        # Routed as prose it has no reading to spell from, so every cell is
+        # unknown and the run is reported — not silently rendered.
+        assert all(c.role == "unknown" for c in word)
+        assert any(w.code == "MISSING_PINYIN" for w in ctx.warnings)
+
+    def test_the_boundary_rule_keys_on_the_type_too(self, profile):
+        """``x轴`` is one compound word joined by the connector ⠤; the rule
+        that decides it looks for a *letter run* beside the hanzi. A ``Word``
+        there is prose meeting prose, and nothing is inserted at all."""
+        from brailix.frontend.zh import insert_cross_kind_boundary_spaces
+
+        as_latin = insert_cross_kind_boundary_spaces(
+            [LatinWord(surface="x", span=Span(0, 1)),
+             Word(surface="轴", span=Span(1, 2))],
+            profile.zh_compounds,
+        )
+        as_word = insert_cross_kind_boundary_spaces(
+            [Word(surface="x", span=Span(0, 1)),
+             Word(surface="轴", span=Span(1, 2))],
+            profile.zh_compounds,
+        )
+        assert [type(n).__name__ for n in as_latin] == [
+            "LatinWord", "Connector", "Word"
+        ]
+        assert [type(n).__name__ for n in as_word] == ["Word", "Word"]
