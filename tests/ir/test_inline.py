@@ -29,18 +29,8 @@ class TestConstruction:
         assert w.reading is None
 
     def test_word_full(self):
-        w = Word(
-            surface="重庆",
-            reading="chong2 qing4",
-            pos="ns",
-            span=Span(0, 2),
-            confidence=0.99,
-        )
+        w = Word(surface="重庆", reading="chong2 qing4", span=Span(0, 2))
         assert w.reading == "chong2 qing4"
-
-    def test_number_with_role(self):
-        n = Number(surface="2026", role="year", span=Span(0, 4))
-        assert n.role == "year"
 
     def test_unknown_with_reason(self):
         u = Unknown(surface="??", reason="bad encoding")
@@ -53,11 +43,11 @@ class TestCompositeStructures:
             surface="2026年5月17日",
             span=Span(0, 11),
             parts=[
-                Number(surface="2026", role="year"),
+                Number(surface="2026"),
                 HanziMarker(surface="年", reading="nian2"),
-                Number(surface="5", role="month"),
+                Number(surface="5"),
                 HanziMarker(surface="月", reading="yue4"),
-                Number(surface="17", role="day"),
+                Number(surface="17"),
                 HanziMarker(surface="日", reading="ri4"),
             ],
         )
@@ -93,11 +83,11 @@ class TestSerializationComposite:
             surface="2026年5月17日",
             span=Span(0, 11),
             parts=[
-                Number(surface="2026", role="year"),
+                Number(surface="2026"),
                 HanziMarker(surface="年", reading="nian2"),
-                Number(surface="5", role="month"),
+                Number(surface="5"),
                 HanziMarker(surface="月", reading="yue4"),
-                Number(surface="17", role="day"),
+                Number(surface="17"),
                 HanziMarker(surface="日", reading="ri4"),
             ],
         )
@@ -105,13 +95,13 @@ class TestSerializationComposite:
         assert payload["type"] == "date"
         assert payload["span"] == [0, 11]
         assert len(payload["parts"]) == 6
-        assert payload["parts"][0] == {"type": "number", "surface": "2026", "role": "year"}
+        assert payload["parts"][0] == {"type": "number", "surface": "2026"}
 
         restored = from_dict(payload)
         assert isinstance(restored, Date)
         assert len(restored.parts) == 6
         assert isinstance(restored.parts[0], Number)
-        assert restored.parts[0].role == "year"
+        assert restored.parts[0].surface == "2026"
         assert isinstance(restored.parts[1], HanziMarker)
         assert restored.parts[1].reading == "nian2"
 

@@ -126,11 +126,11 @@ class TestTranslateDate:
             surface="2026年5月17日",
             span=Span(0, 10),
             parts=[
-                Number(surface="2026", role="year", span=Span(0, 4)),
+                Number(surface="2026", span=Span(0, 4)),
                 HanziMarker(surface="年", span=Span(4, 5)),
-                Number(surface="5", role="month", span=Span(5, 6)),
+                Number(surface="5", span=Span(5, 6)),
                 HanziMarker(surface="月", span=Span(6, 7)),
-                Number(surface="17", role="day", span=Span(7, 9)),
+                Number(surface="17", span=Span(7, 9)),
                 HanziMarker(surface="日", span=Span(9, 10)),
             ],
         )
@@ -163,7 +163,7 @@ class TestTranslateDate:
             surface="2026年",
             span=Span(0, 5),
             parts=[
-                Number(surface="2026", role="year", span=Span(0, 4)),
+                Number(surface="2026", span=Span(0, 4)),
                 HanziMarker(surface="年", span=Span(4, 5), reading="nian2"),
             ],
         )
@@ -186,7 +186,7 @@ class TestTranslateDate:
             surface="5月",
             span=Span(0, 2),
             parts=[
-                Number(surface="5", role="month", span=Span(0, 1)),
+                Number(surface="5", span=Span(0, 1)),
                 HanziMarker(surface="月", span=Span(1, 2), reading="yue4"),
             ],
         )
@@ -205,7 +205,7 @@ class TestTranslateDate:
             surface="3旬",
             span=Span(0, 2),
             parts=[
-                Number(surface="3", role="year", span=Span(0, 1)),
+                Number(surface="3", span=Span(0, 1)),
                 HanziMarker(surface="旬", span=Span(1, 2)),  # no pinyin
             ],
         )
@@ -223,7 +223,7 @@ class TestTranslateDate:
             surface="3旬",
             span=Span(0, 2),
             parts=[
-                Number(surface="3", role="year", span=Span(0, 1)),
+                Number(surface="3", span=Span(0, 1)),
                 HanziMarker(surface="旬", span=Span(1, 2), reading="xun2"),
             ],
         )

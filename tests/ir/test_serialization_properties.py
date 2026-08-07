@@ -125,23 +125,13 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
     surface = draw(_surfaces)
     span = draw(_spans())
     if kind == "word":
-        return Word(
-            surface=surface,
-            span=span,
-            reading=draw(_opt_short),
-            pos=draw(_opt_short),
-            confidence=draw(st.one_of(st.none(), st.floats(0, 1, allow_nan=False))),
-        )
-    if kind == "word":
         return Word(surface=surface, span=span, reading=draw(_opt_short))
     if kind == "number":
-        return Number(surface=surface, span=span, role=draw(_opt_short))
+        return Number(surface=surface, span=span)
     if kind == "hanzi_marker":
         return HanziMarker(surface=surface, span=span, reading=draw(_opt_short))
     if kind == "punct":
         return Punct(surface=surface, span=span)
-    if kind == "latin_word":
-        return LatinWord(surface=surface, span=span)
     if kind == "latin_word":
         return LatinWord(surface=surface, span=span)
     if kind == "code_inline":

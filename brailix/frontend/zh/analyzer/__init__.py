@@ -412,8 +412,6 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
             surface=t.surface,
             span=span,
             reading=t.pinyin,
-            pos=t.pos,
-            confidence=t.confidence,
         )
         for t, span in zip(tokens, _local_spans(tokens), strict=True)
     ]

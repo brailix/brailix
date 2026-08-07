@@ -112,17 +112,13 @@ class Word(InlineNode):
 
     type: _ClassVar[str] = "word"
     reading: str | None = None
-    pos: str | None = None
-    confidence: float | None = None
 
 
 @_dataclass(slots=True)
 class Number(InlineNode):
-    """A bare numeric literal. ``role`` is set by structural parents
-    (e.g. ``"year"`` inside a :class:`Date`)."""
+    """A bare numeric literal."""
 
     type: _ClassVar[str] = "number"
-    role: str | None = None
 
 
 @_dataclass(slots=True)

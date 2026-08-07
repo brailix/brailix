@@ -155,10 +155,10 @@ class TestDate:
         assert d.span == Span(0, 10)  # 2,0,2,6,年,5,月,1,7,日 = 10 chars
         # parts: year, 年, month, 月, day, 日
         assert len(d.parts) == 6
-        assert isinstance(d.parts[0], Number) and d.parts[0].role == "year"
+        assert isinstance(d.parts[0], Number) and d.parts[0].surface == "2026"
         assert isinstance(d.parts[1], HanziMarker) and d.parts[1].surface == "年"
-        assert d.parts[2].role == "month"
-        assert d.parts[4].role == "day"
+        assert d.parts[2].surface == "5"
+        assert d.parts[4].surface == "17"
         # ARCHITECTURE#arch-boundaries: structural-marker readings are filled by the
         # normalizer (fixed 年→nián etc.), NOT the PinyinResolver — guard
         # that observable result so a deleted/renamed _MARKER_PINYIN can't
@@ -172,7 +172,7 @@ class TestDate:
         d = out[0]
         assert isinstance(d, Date)
         assert len(d.parts) == 2
-        assert d.parts[0].role == "year"
+        assert d.parts[0].surface == "2026"
         assert d.parts[1].surface == "年"
 
     def test_year_and_month(self):
@@ -180,7 +180,7 @@ class TestDate:
         d = out[0]
         assert isinstance(d, Date)
         assert len(d.parts) == 4
-        assert d.parts[2].role == "month"
+        assert d.parts[2].surface == "5"
 
     def test_date_followed_by_hanzi_splits_correctly(self):
         # 日 is peeled off the trailing hanzi_text "日去了重庆"

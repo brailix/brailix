@@ -58,7 +58,7 @@ class TestNoLanguageBackend:
             surface="5月",
             span=Span(0, 2),
             parts=[
-                Number(surface="5", role="month", span=Span(0, 1)),
+                Number(surface="5", span=Span(0, 1)),
                 HanziMarker(surface="月", span=Span(1, 2)),
             ],
         )

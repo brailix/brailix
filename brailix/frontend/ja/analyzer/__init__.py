@@ -325,7 +325,7 @@ def tokens_to_inline(
                 Span(start, start + len(t.surface)) if start is not None else None
             )
             out.append(
-                Word(surface=t.surface, reading=reading, pos=t.pos, span=span)
+                Word(surface=t.surface, reading=reading, span=span)
             )
         else:
             for k, ch in enumerate(t.surface):

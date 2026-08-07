@@ -26,9 +26,6 @@
         "surface": { "type": "string" },
         "span": { "$ref": "#/definitions/span" },
         "reading": { "type": "string" },
-        "pos": { "type": "string" },
-        "confidence": { "type": "number" },
-        "role": { "type": "string" },
         "reason": { "type": "string" },
         "parts": {
           "type": "array",

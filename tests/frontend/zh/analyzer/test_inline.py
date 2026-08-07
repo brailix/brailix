@@ -182,8 +182,6 @@ class TestTokensToInline:
         assert isinstance(out[0], Word)
         assert out[0].surface == "重庆"
         assert out[0].reading == "chong2 qing4"
-        assert out[0].pos == "ns"
-        assert out[0].confidence == 0.99
 
     def test_single_token_input_has_no_space_marker(self) -> None:
         """One token = no word boundary, so no Space.  The verification

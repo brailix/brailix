@@ -288,7 +288,6 @@ Block types: `heading / paragraph / list / list_item / table / table_row / table
   "type": "word",
   "surface": "重庆",
   "reading": "chong2 qing4",
-  "confidence": 0.99,
   "span": [15, 17]
 }
 ```

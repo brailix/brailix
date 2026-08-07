@@ -183,7 +183,7 @@ def _try_date(segs: list[Segment], i: int) -> tuple[Date, int] | None:
         return None
 
     parts: list[InlineNode] = [
-        Number(surface=segs[i].surface, span=segs[i].span, role="year"),
+        Number(surface=segs[i].surface, span=segs[i].span),
         _marker("年", segs[i + 1].span),
     ]
     end_idx = i + 2
@@ -195,7 +195,7 @@ def _try_date(segs: list[Segment], i: int) -> tuple[Date, int] | None:
         and segs[end_idx].type == "digit_run"
         and _peel_marker_if_starts_with(segs, end_idx + 1, "月")
     ):
-        parts.append(Number(surface=segs[end_idx].surface, span=segs[end_idx].span, role="month"))
+        parts.append(Number(surface=segs[end_idx].surface, span=segs[end_idx].span))
         parts.append(_marker("月", segs[end_idx + 1].span))
         end_span = segs[end_idx + 1].span
         end_idx += 2
@@ -206,7 +206,7 @@ def _try_date(segs: list[Segment], i: int) -> tuple[Date, int] | None:
         and segs[end_idx].type == "digit_run"
         and _peel_marker_if_starts_with(segs, end_idx + 1, "日")
     ):
-        parts.append(Number(surface=segs[end_idx].surface, span=segs[end_idx].span, role="day"))
+        parts.append(Number(surface=segs[end_idx].surface, span=segs[end_idx].span))
         parts.append(_marker("日", segs[end_idx + 1].span))
         end_span = segs[end_idx + 1].span
         end_idx += 2
