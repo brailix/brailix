@@ -11,7 +11,6 @@ from brailix.ir.inline import (
     MathInline,
     MusicInline,
     Number,
-    Percent,
     Segment,
     Unknown,
     Word,
@@ -66,11 +65,6 @@ class TestCompositeStructures:
         assert d.parts[0].surface == "2026"
 
 
-    def test_percent(self):
-        p = Percent(surface="12%", number=Number(surface="12"))
-        assert p.number.surface == "12"
-
-
 class TestSerializationWord:
     def test_to_dict_minimal(self):
         d = Word(surface="我").to_dict()
@@ -123,35 +117,16 @@ class TestSerializationComposite:
 
 
 class TestNestedChildTypesAreEnforced:
-    """``Percent.number`` is declared ``Number | None``, and deserialization
+    """``Date.parts`` is declared ``list[InlineNode]``, and deserialization
     must hold the declaration.
 
-    It dispatches on the field *name* and rebuilds whatever the payload claims
-    to be, so a malformed document could produce a ``Percent`` whose
-    ``number`` is a ``Word``: IR that satisfies the dataclass and breaks every
-    consumer reading it, silently and at a distance. The block side already
-    verified its nested children (``TableRow.cells``, ``Table.rows``,
-    ``List.items``); the inline side is the same idea, and had drifted.
+    It dispatches on the field *name* and rebuilds whatever each entry claims
+    to be, so a malformed document could put something that is not a node in
+    the list: IR that satisfies the dataclass and breaks every consumer
+    walking it, silently and at a distance. The block side already verified
+    its nested children (``TableRow.cells``, ``Table.rows``, ``List.items``);
+    the inline side is the same idea, and had drifted.
     """
-
-    def test_a_wrong_typed_number_is_refused(self) -> None:
-        with pytest.raises(TypeError, match="expects Number"):
-            from_dict(
-                {
-                    "type": "percent",
-                    "surface": "abc%",
-                    "number": {"type": "word", "surface": "abc"},
-                }
-            )
-
-
-    def test_an_explicit_null_number_is_still_accepted(self) -> None:
-        restored = from_dict(
-            {"type": "percent", "surface": "12%", "number": None}
-        )
-        assert isinstance(restored, Percent)
-        assert restored.number is None
-
 
     def test_a_non_node_in_parts_is_refused(self) -> None:
         """``Date.parts`` takes any inline node, so what is checked there is

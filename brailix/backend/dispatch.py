@@ -43,7 +43,6 @@ from brailix.ir.inline import (
     MathInline,
     MusicInline,
     Number,
-    Percent,
     PhoneticInline,
     Punct,
     Space,
@@ -62,7 +61,6 @@ _Translator = _Callable[[_Any, BackendContext, BrailleProfile], list[BrailleCell
 _DISPATCH: dict[type[InlineNode], _Translator] = {
     Number: number_backend.translate_number,
     Date: number_backend.translate_date,
-    Percent: number_backend.translate_percent,
     Punct: punct_backend.translate_punct,
     Space: punct_backend.translate_space,
     Connector: punct_backend.translate_connector,

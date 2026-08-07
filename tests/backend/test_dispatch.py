@@ -13,7 +13,6 @@ from brailix.ir.inline import (
     LatinWord,
     MathInline,
     Number,
-    Percent,
     Punct,
     Space,
     Unknown,
@@ -264,13 +263,6 @@ class TestDispatchPerNodeType:
         node = MathInline(surface="x", math=tree)
         cells = translate_node(node, ctx, profile)
         assert any(c.role == "math_identifier" for c in cells)
-
-    def test_percent(self, ctx, profile):
-        node = Percent(surface="12%", number=Number(surface="12"))
-        cells = translate_node(node, ctx, profile)
-        # number_sign + digits + percent
-        assert cells[0].role == "number_sign"
-
 
     def test_code_inline(self, ctx, profile):
         cells = translate_node(CodeInline(surface="ab"), ctx, profile)

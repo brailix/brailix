@@ -5,7 +5,6 @@ Segmenter and the rest of the frontend. It recognizes structural
 patterns and turns them into proper InlineNodes:
 
 * ``2026年5月17日`` → :class:`Date` with year/month/day parts
-* ``12%`` / ``12％`` → :class:`Percent`
 * bare ``2026`` → :class:`Number`
 * protected math_inline segments → atomic InlineNodes
 * punctuation / space / latin segments → atomic InlineNodes
@@ -16,14 +15,15 @@ downstream ChineseAnalyzer can tokenize it.
 The normalizer never crashes on weird input; unrecognized patterns
 fall through to :class:`Unknown`.
 
-Deliberately **not** a composite: ``3.5kg``. It had a node type of its own
-and did not change a single braille cell by having one — the blank that sets
-a quantity off from adjacent Chinese comes from the latin↔hanzi boundary
-rule, which a non-unit run like ``3.5foo`` gets too (pinned in
-``tests/golden/data/numbers.json``). So it is a :class:`Number` beside a
-:class:`LatinWord`, and there is no table here of which latin runs count as
-units. ``12%`` **is** a composite, for the opposite reason: its blank has no
-other source.
+Deliberately **not** composites: ``3.5kg`` and ``12%``. Each had a node type of
+its own and neither changed a single braille cell by having one. The blank
+that sets a quantity off from adjacent Chinese comes from the latin↔hanzi
+boundary rule, which a non-unit run like ``3.5foo`` gets too, so ``3.5kg`` is a
+:class:`Number` beside a :class:`LatinWord` and there is no table here of which
+latin runs count as units. A percentage's blank was the last one with no
+second source, and it now has one: ``%`` carries ``space_after`` in the
+punctuation table, where the rest of its orthography already lived. Both are
+pinned in ``tests/golden/data/numbers.json``.
 """
 
 from __future__ import annotations
@@ -33,7 +33,6 @@ from dataclasses import dataclass as _dataclass
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core import inline_math
-from brailix.core.chars import PERCENT_CHARS
 from brailix.core.context import FrontendContext
 from brailix.core.protocols import Normalizer
 from brailix.core.registry import Registry
@@ -46,7 +45,6 @@ from brailix.ir.inline import (
     LatinWord,
     MathInline,
     Number,
-    Percent,
     PhoneticInline,
     Punct,
     Segment,
@@ -101,15 +99,9 @@ class DefaultNormalizer:
             seg = segs[i]
             # Composite patterns (multi-segment) — try longest first.
             # The variable is annotated as the broadest union so reusing
-            # it for date / percent / quantity probes type-checks; each
-            # probe returns its own concrete InlineNode subtype.
+            # it for the date / dash probes type-checks; each probe
+            # returns its own concrete InlineNode subtype.
             consumed: tuple[InlineNode, int] | None = _try_date(segs, i)
-            if consumed is not None:
-                node, next_i = consumed
-                out.append(node)
-                i = next_i
-                continue
-            consumed = _try_percent(segs, i)
             if consumed is not None:
                 node, next_i = consumed
                 out.append(node)
@@ -173,7 +165,7 @@ def _span_range(
     """Return ``Span(start_span.start, end_span.end)`` when both endpoints
     are present, else ``None``.
 
-    Composite InlineNodes (Date / Percent) derive their own
+    Composite InlineNodes (Date) derive their own
     span from their first and last constituent segments. Segments built
     by the default segmenter always carry spans, but hand-built test
     fixtures occasionally pass ``span=None``; this helper propagates
@@ -227,19 +219,6 @@ def _try_date(segs: list[Segment], i: int) -> tuple[Date, int] | None:
     surface = "".join(p.surface for p in parts)
     span = _span_range(segs[i].span, end_span)
     return Date(surface=surface, span=span, parts=parts), end_idx
-
-
-def _try_percent(segs: list[Segment], i: int) -> tuple[Percent, int] | None:
-    if segs[i].type != "digit_run":
-        return None
-    if i + 1 >= len(segs):
-        return None
-    nxt = segs[i + 1]
-    if nxt.type != "punct" or nxt.surface not in PERCENT_CHARS:
-        return None
-    number = Number(surface=segs[i].surface, span=segs[i].span)
-    span = _span_range(segs[i].span, nxt.span)
-    return Percent(surface=segs[i].surface + nxt.surface, span=span, number=number), i + 2
 
 
 def _try_dash(segs: list[Segment], i: int) -> tuple[Punct, int] | None:

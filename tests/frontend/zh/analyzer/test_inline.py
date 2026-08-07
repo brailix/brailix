@@ -28,7 +28,6 @@ from brailix.ir.inline import (
     LatinWord,
     MathInline,
     Number,
-    Percent,
     Punct,
     Space,
     Word,
@@ -499,14 +498,17 @@ class TestInsertCrossKindBoundarySpaces:
         assert out[1].span == Span(5, 5)
 
 
-    def test_percent_then_hanzi_inserts_space(self) -> None:
-        # 50%的人 — the ⠴ of the percent would otherwise abut 的.
+    def test_a_percentage_gets_no_separator_here(self) -> None:
+        # 50%的人 does take a blank between ⠨ and 的 — but it comes from ``%``
+        # carrying space_after in the punctuation table, not from this pass.
+        # A Punct is not a composite, so the boundary is left alone.
         nodes = [
-            Percent(surface="50%", span=Span(0, 3)),
+            Number(surface="50", span=Span(0, 2)),
+            Punct(surface="%", span=Span(2, 3)),
             Word(surface="的人", span=Span(3, 5)),
         ]
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
-        assert [type(n).__name__ for n in out] == ["Percent", "Space", "Word"]
+        assert [type(n).__name__ for n in out] == ["Number", "Punct", "Word"]
 
     def test_hanzi_then_composite_inserts_space(self) -> None:
         # 在2026年 — a date is a whole word set off from the preceding

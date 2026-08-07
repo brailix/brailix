@@ -192,7 +192,7 @@ brailix/
 │   │   └── music_xml.py      # .musicxml / .xml / .mxl direct; .mid/.midi eager (binary); .abc deferred (text)
 │   ├── frontend/             # text → structured IR
 │   │   ├── segmentation.py   # block segmentation + inline-region detection
-│   │   ├── normalization.py  # tag numbers / dates / units / percent signs
+│   │   ├── normalization.py  # tag numbers / dates
 │   │   ├── zh/               # Chinese-specific (language folder)
 │   │   │   ├── __init__.py        # umbrella: re-exports the analyzer's subsystem entry points
 │   │   │   ├── analyzer/          # segmentation subsystem
@@ -221,7 +221,7 @@ brailix/
 │   │   └── tactile.py        # TactileRaster: tactile dot grid (tactile-backend product, the graphics counterpart of BrailleIR)
 │   ├── backend/              # semantic IR → output-domain IR (BrailleIR / TactileRaster)
 │   │   ├── dispatch.py       # dispatch by node type; prose nodes then pick a LanguageBackend by profile.language
-│   │   ├── number.py         # language-agnostic translator (numbers / dates / percent / quantities)
+│   │   ├── number.py         # language-agnostic translator (numbers / dates)
 │   │   ├── latin.py          # Latin backend (standalone, separate from punct)
 │   │   ├── punct.py
 │   │   ├── block.py          # heading/list/table block-level translation
@@ -296,7 +296,7 @@ Block types: `heading / paragraph / list / list_item / table / table_row / table
 Inline token types:
 
 ```
-word / number / hanzi_marker / date / percent /
+word / number / hanzi_marker / date /
 punct / latin_word /
 code_inline / phonetic_inline / math_inline / music_inline / graphic_inline /
 space / connector / unknown

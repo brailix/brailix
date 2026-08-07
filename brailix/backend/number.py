@@ -1,15 +1,15 @@
 """Translate number-family IR nodes into braille cells.
 
-Covers :class:`Number`, :class:`Date` and :class:`Percent`. Uses the profile's ``digits`` / ``number_sign`` /
-``decimal_point`` / ``thousands_sep`` / ``punctuation`` tables.
+Covers :class:`Number` and :class:`Date`. Uses the profile's ``digits`` /
+``number_sign`` / ``decimal_point`` / ``thousands_sep`` tables.
 
 A number-sign cell is prepended whenever a digit run starts a new
 braille "phrase". For now we emit it before every numeric token;
 context-aware suppression (e.g. "still inside a number") is future
 work.
 
-Language scope: every node here is language-agnostic. Number and Percent
-only touch the profile's digit / punctuation / letter tables.
+Language scope: every node here is language-agnostic. Number
+only touches the profile's digit table.
 :func:`translate_date` owns just the language-neutral skeleton (the
 numeric components and the blank that separates them) and delegates each
 date marker (年/月/日…) to the profile language's
@@ -26,12 +26,11 @@ from brailix.backend._digits import (
     DigitRunPolicy,
     emit_digit_run,
 )
-from brailix.core.chars import PERCENT_CHARS
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
-from brailix.ir.inline import Date, HanziMarker, InlineNode, Number, Percent
+from brailix.ir.inline import Date, HanziMarker, InlineNode, Number
 
 # Role labels for prose number digit runs (the math backend uses
 # "math_digit"); the shared emitter handles the rest.
@@ -53,42 +52,6 @@ _NUMBER_DIGIT_POLICY = DigitRunPolicy(
 def translate_number(node: Number, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:
     """Number → [number_sign?, digit_cells...]"""
     return _digits_to_cells(node.surface, node.span, ctx, profile)
-
-
-# The percent signs a document can carry, from ``core`` — the same set the
-# frontend uses to decide something IS a Percent. A local literal kept in sync
-# by comment would avoid the backend → frontend import just as well, and then
-# a third spelling added on one side leaves the frontend building a valid node
-# this function rejects as malformed.
-
-
-def translate_percent(node: Percent, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:
-    """Percent → digits + percent punctuation."""
-    if not node.surface:
-        # Empty surface — the frontend never builds one, but a hand-rolled
-        # node / IR round-trip could; guard the [-1] index like the other
-        # number translators do.
-        return []
-    cells = _digits_to_cells(node.surface[:-1], _first_part_span(node), ctx, profile)
-    last_char = node.surface[-1]
-    last_span = _last_char_span(node)
-    if last_char not in PERCENT_CHARS:
-        # The last char is meant to be the percent sign. A hand-rolled / IR-
-        # round-tripped Percent whose surface ends in some other char (say
-        # ':') would otherwise render it as ordinary punctuation if that char
-        # happens to be in the punct table — silently masking a malformed
-        # node. Fail loud (unknown cell + warning) instead of guessing.
-        cells.append(_unknown_cell(last_char, last_span, ctx))
-        return cells
-    tail = _punct_cells(last_char, last_span, ctx, profile)
-    if not tail:
-        # Defensive: the percent sign should be in the punctuation table; if a
-        # profile omits it, still fail loud rather than drop the char.
-        tail = [_unknown_cell(last_char, last_span, ctx)]
-    cells.extend(tail)
-    return cells
-
-
 
 
 def translate_date(node: Date, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:
@@ -200,20 +163,6 @@ def _digits_to_cells(
     return cells
 
 
-def _punct_cells(
-    ch: str, span: Span | None, ctx: BackendContext, profile: BrailleProfile
-) -> list[BrailleCell]:
-    """Look ``ch`` up in the punctuation table and return one BrailleCell
-    per cell in its mapping (may be empty if the char is unmapped)."""
-    cells = profile.punctuation.get(ch)
-    if not cells:
-        return []
-    return [
-        BrailleCell(dots=dots, role="punct", source_span=span, source_text=ch)
-        for dots in cells
-    ]
-
-
 def _component_space_cell(span: Span | None) -> BrailleCell:
     """One blank cell separating two date components (年 / 5月 / 17日).
 
@@ -230,26 +179,14 @@ def _unknown_cell(
     span: Span | None,
     ctx: BackendContext,
     *,
-    code: str = "UNKNOWN_NUMBER_PART",
-    message: str | None = None,
+    code: str,
+    message: str,
 ) -> BrailleCell:
     ctx.warnings.warn(
         code=code,
-        message=message or f"no braille mapping for number-family char {ch!r}",
+        message=message,
         surface=ch,
         span=span,
         source="backend.number",
     )
     return BrailleCell(dots=(), role="unknown", source_span=span, source_text=ch)
-
-
-def _first_part_span(node) -> Span | None:
-    if node.number and node.number.span:
-        return node.number.span
-    return node.span
-
-
-def _last_char_span(node) -> Span | None:
-    if node.span is None:
-        return None
-    return Span(node.span.end - 1, node.span.end)

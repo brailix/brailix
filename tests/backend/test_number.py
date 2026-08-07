@@ -1,14 +1,10 @@
 import pytest
 
-from brailix.backend.number import (
-    translate_date,
-    translate_number,
-    translate_percent,
-)
+from brailix.backend.number import translate_date, translate_number
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
-from brailix.ir.inline import Date, HanziMarker, Number, Percent
+from brailix.ir.inline import Date, HanziMarker, Number
 
 
 @pytest.fixture(scope="module")
@@ -88,80 +84,6 @@ class TestTranslateNumber:
         ]
         assert [c.source_text for c in digit_cells] == ["１", "２", "３"]
         assert not any(w.code == "UNKNOWN_DIGIT" for w in ctx.warnings)
-
-
-class TestTranslatePercent:
-    def test_basic(self, ctx, profile):
-        node = Percent(
-            surface="12%",
-            span=Span(0, 3),
-            number=Number(surface="12", span=Span(0, 2)),
-        )
-        cells = translate_percent(node, ctx, profile)
-        # number_sign + 1 + 2 + percent punct  → 4 cells
-        assert len(cells) == 4
-        assert cells[-1].role == "punct"
-        assert cells[-1].source_text == "%"
-
-    def test_empty_percent_emits_nothing(self, ctx, profile):
-        # The frontend never builds an empty Percent, but a hand-rolled
-        # node / IR round-trip could; node.surface[-1] must not IndexError.
-        assert translate_percent(Percent(surface=""), ctx, profile) == []
-
-    def test_fullwidth_digits_in_percent(self, ctx, profile):
-        node = Percent(
-            surface="１２％",
-            span=Span(0, 3),
-            number=Number(surface="１２", span=Span(0, 2)),
-        )
-        cells = translate_percent(node, ctx, profile)
-        digit_cells = [c for c in cells if c.role == "digit"]
-        assert [c.dots for c in digit_cells] == [
-            profile.digits["1"],
-            profile.digits["2"],
-        ]
-        assert cells[-1].role == "punct"
-        assert cells[-1].source_text == "％"
-        assert not any(w.code == "UNKNOWN_DIGIT" for w in ctx.warnings)
-
-    def test_non_percent_tail_fails_loud(self, ctx, profile):
-        # A hand-rolled / round-tripped Percent whose surface doesn't end in a
-        # percent sign (e.g. "5:") must not render the stray char as ordinary
-        # punctuation just because it's in the punct table — fail loud with an
-        # unknown cell + warning instead of masking the malformed node.
-        node = Percent(
-            surface="5:", span=Span(0, 2), number=Number(surface="5", span=Span(0, 1))
-        )
-        cells = translate_percent(node, ctx, profile)
-        assert cells[-1].role == "unknown"
-        assert cells[-1].source_text == ":"
-        assert any(w.code == "UNKNOWN_NUMBER_PART" for w in ctx.warnings)
-
-
-class TestTranslatePercentTrailingNotPercent:
-    """A Percent whose surface doesn't end in a mapped percent sign
-    (a hand-rolled / round-tripped node) must fail loud — warn + unknown
-    cell — instead of silently dropping the trailing char."""
-
-    def test_percent_with_unmapped_trailing_char_warns_not_silent(
-        self, ctx, profile
-    ):
-        # Surface ends in a char (`§`) that has no punctuation mapping in
-        # cn_current. The digit cells still render; the trailing char now
-        # surfaces as an unknown cell + warning rather than vanishing.
-        node = Percent(
-            surface="5§",
-            span=Span(0, 2),
-            number=Number(surface="5", span=Span(0, 1)),
-        )
-        cells = translate_percent(node, ctx, profile)
-        assert any(c.role == "number_sign" for c in cells)
-        assert any(c.role == "digit" for c in cells)
-        # § isn't a percent sign — emit an unknown cell, never drop it.
-        unknowns = [c for c in cells if c.role == "unknown"]
-        assert len(unknowns) == 1
-        assert unknowns[0].source_text == "§"
-        assert "UNKNOWN_NUMBER_PART" in [w.code for w in ctx.warnings]
 
 
 class TestMissingNumberPart:

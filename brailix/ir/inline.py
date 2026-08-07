@@ -15,16 +15,15 @@ first, and formats like ``.docx`` have no document-wide character coordinate
 for it to be right about in the first place.
 
 Hierarchy — one level, every type a direct subclass. There is no inline node
-that specialises another; a composite (:class:`Date`, :class:`Percent`)
-*contains* nodes rather than inheriting from one, which is why the backend can
-dispatch on the exact type through a flat table:
+that specialises another; a composite (:class:`Date`) *contains* nodes rather
+than inheriting from one, which is why the backend can dispatch on the exact
+type through a flat table:
 
     InlineNode (abstract)
       ├── Word              # prose word (any length), with its reading
       ├── Number            # numeric literal
       ├── HanziMarker       # structural hanzi inside a composite (年/月/日 in a Date)
       ├── Date              # holds an internal ``parts`` structure
-      ├── Percent
       ├── Punct
       ├── LatinWord         # Latin / Greek letter run (all-caps included)
       ├── CodeInline
@@ -141,14 +140,6 @@ class Date(InlineNode):
 
     type: _ClassVar[str] = "date"
     parts: list[InlineNode] = _field(default_factory=list)
-
-
-@_dataclass(slots=True)
-class Percent(InlineNode):
-    """A percentage, e.g. ``12%``."""
-
-    type: _ClassVar[str] = "percent"
-    number: Number | None = None
 
 
 @_dataclass(slots=True)
@@ -316,7 +307,6 @@ _INLINE_REGISTRY: dict[str, type[InlineNode]] = {
         Number,
         HanziMarker,
         Date,
-        Percent,
         Punct,
         LatinWord,
         CodeInline,
@@ -486,10 +476,10 @@ def _typed_inline_child(
 ) -> InlineNode:
     """Deserialize ``payload`` and verify it is an instance of ``expected``.
 
-    ``Percent.number`` is declared ``Number | None``, but the deserializer
-    dispatches on the field *name* and rebuilds whatever the payload said it
-    was — so ``{"type": "percent", "number": {"type": "word", ...}}``
-    round-trips into a ``Percent`` holding a ``Word``.
+    ``Date.parts`` is declared ``list[InlineNode]``, but the deserializer
+    dispatches on the field *name* and rebuilds whatever each entry's payload
+    said it was — so ``{"type": "date", "parts": ["17日"]}`` would otherwise
+    put a bare string where every consumer walks nodes.
 
     The check itself is :func:`brailix.ir._serde.typed_child`, shared with the
     block side; this binds it to the inline node family and its wording.
@@ -510,8 +500,6 @@ def _deserialize_value(key: str, value: _Any) -> _Any:
         # ``Date.parts`` is declared ``list[InlineNode]``, so any node type is
         # legal there — what the check adds is that each entry IS a node.
         return [_typed_inline_child(key, v, InlineNode) for v in value]
-    if key == "number":
-        return None if value is None else _typed_inline_child(key, value, Number)
     if key in ("math", "score", "svg"):
         return _deserialize_xml_tree(key, value)
     _serde.reject_unhandled_nested_payload(key, value)

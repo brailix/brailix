@@ -18,8 +18,7 @@
       "properties": {
         "type": {
           "enum": [
-            "word", "number", "hanzi_marker", "date",
-            "quantity", "percent", "punct", "latin_word",
+            "word", "number", "hanzi_marker", "date", "punct", "latin_word",
             "code_inline", "phonetic_inline", "math_inline", "music_inline",
             "graphic_inline", "space", "connector", "unknown"
           ]

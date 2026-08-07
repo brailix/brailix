@@ -24,8 +24,9 @@ neither may import the other: the braille loader is core, and the
 tactile one is a backend subsystem that deliberately keeps its own small
 loader so the graphics vertical stays independently replaceable
 (ARCHITECTURE#arch-layers). That is the same reasoning that put
-``PERCENT_CHARS`` in :mod:`brailix.core.chars` — one fact, one owner,
-consumed by layers that must not depend on each other. A duplicate here costs
+:func:`~brailix.core.chars.fold_fullwidth` in :mod:`brailix.core.chars` — one
+fact, one owner, consumed by layers that must not depend on each other. A
+duplicate here costs
 more than drift: two loaders that each write the join themselves grow the
 *same defect* independently.
 """

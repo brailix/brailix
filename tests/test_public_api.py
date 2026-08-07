@@ -104,7 +104,6 @@ _FACADE: dict[str, list[str]] = {
         "MathInline",
         "MusicInline",
         "Number",
-        "Percent",
         "PhoneticInline",
         "Punct",
         "Segment",

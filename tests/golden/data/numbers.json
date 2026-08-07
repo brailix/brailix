@@ -40,11 +40,13 @@
       ]
     },
     "percent": {
-      "description": "Percent sign",
+      "description": "Percent sign — a Number beside a Punct, with the spacing in the punctuation table",
       "cases": [
-        {"src": "50%", "expected": "⠼⠑⠚⠨", "note": "percent sign ⠨ after digits"},
-        {"src": "99.5%", "expected": "⠼⠊⠊⠂⠑⠨", "note": "decimal percentage"},
-        {"src": "50%的人", "expected": "⠼⠑⠚⠨⠀⠙⠢⠀⠚⠴⠂", "note": "a percentage is a whole word: the blank between ⠨ and the following hanzi comes from the composite-node boundary rule, and the punctuation table cannot express it — space_after on % would also space 50% from a following comma, double the blank in '50% 是', and leave a trailing one on a bare '50%'"}
+        {"src": "50%", "expected": "⠼⠑⠚⠨⠀", "note": "percent sign ⠨ after digits, then %'s own space_after. The trailing blank is the raw cell stream; the layout renderer trims a line's trailing blanks, exactly as it does for the comma in '你，'"},
+        {"src": "99.5%", "expected": "⠼⠊⠊⠂⠑⠨⠀", "note": "decimal percentage"},
+        {"src": "50%的人", "expected": "⠼⠑⠚⠨⠀⠙⠢⠀⠚⠴⠂", "note": "a percentage is a whole word, and the blank that says so is %'s space_after — it used to need a composite IR node because the table could not express it"},
+        {"src": "50%，很多", "expected": "⠼⠑⠚⠨⠐⠀⠓⠴⠄⠙⠕⠁", "note": "no blank before the comma: the mark is written against the word it follows, so its table entry vetoes the separator %'s space_after asked for"},
+        {"src": "50% 是", "expected": "⠼⠑⠚⠨⠀⠱⠆", "note": "one blank, not two: %'s space_after and the author's own space both land here and the adjacent-blank merge keeps the typed one"}
       ]
     },
     "quantity": {

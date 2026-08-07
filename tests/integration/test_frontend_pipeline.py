@@ -32,7 +32,7 @@ from __future__ import annotations
 from brailix.core.context import FrontendContext
 from brailix.frontend.zh.pinyin.registry import resolver_registry
 from brailix.ir.document import Paragraph
-from brailix.ir.inline import InlineNode, Number, Percent, Punct, Space
+from brailix.ir.inline import InlineNode, Number, Punct, Space
 from brailix.pipeline import Pipeline
 
 
@@ -115,23 +115,25 @@ class TestCanonicalSentence:
 
 
 class TestMixedContent:
-    def test_paragraph_with_math_quantity_percent(self):
+    def test_paragraph_mixing_math_a_quantity_and_a_percentage(self):
         text = "看 算 $a+b$ 3.5kg 12% 完。"
         children, _ = _run_frontend(text)
         kinds = {type(c).__name__ for c in children}
-        # Each protected / composite pattern should produce its own node.
+        # Each protected pattern should produce its own node.
         assert "MathInline" in kinds
-        assert "Percent" in kinds
         assert "Punct" in kinds
         # Surface still round-trips.
         assert "".join(c.surface for c in children) == text
 
-
-    def test_percent_carries_number_substructure(self):
+    def test_a_percentage_and_a_quantity_are_their_plain_parts(self):
+        # Neither is a composite node: a quantity is a Number beside a
+        # LatinWord, a percentage a Number beside a Punct. What sets each off
+        # from the surrounding prose is a rule about the boundary — the
+        # latin↔hanzi one, and ``%``'s own space_after — not a node.
         children, _ = _run_frontend("12%")
-        p = next(c for c in children if isinstance(c, Percent))
-        assert isinstance(p.number, Number)
-        assert p.number.surface == "12"
+        assert [type(c).__name__ for c in children] == ["Number", "Punct"]
+        children, _ = _run_frontend("3.5kg")
+        assert [type(c).__name__ for c in children] == ["Number", "LatinWord"]
 
     def test_a_user_typed_space_is_not_doubled(self):
         """The boundary pass is idempotent: where the source already wrote a

@@ -55,7 +55,6 @@ from brailix.ir.inline import (
     LatinWord,
     MathInline,
     Number,
-    Percent,
     Space,
     Word,
 )
@@ -437,12 +436,13 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
 
 _CHINESE_NODE_TYPES: tuple[type[InlineNode], ...] = (Word, HanziMarker)
 _FOREIGN_NODE_TYPES: tuple[type[InlineNode], ...] = (LatinWord, MathInline)
-# Normalizer composites — a whole date / percentage,
-# each its own "word", set off from adjacent Chinese on BOTH sides with a
-# boundary Space: 在2026年 是 在 ⟂ 2026年, 2026年去 是 2026年 ⟂ 去. (A bare
-# Number is not a composite — an ordinal-bound number like 第3 stays tight,
-# so the Chinese ↔ Number boundary keeps its own policy.)
-_COMPOSITE_NODE_TYPES: tuple[type[InlineNode], ...] = (Date, Percent)
+# Normalizer composites — a whole date, its own "word", set off from adjacent
+# Chinese on BOTH sides with a boundary Space: 在2026年 是 在 ⟂ 2026年,
+# 2026年去 是 2026年 ⟂ 去. (A bare Number is not a composite — an ordinal-bound
+# number like 第3 stays tight, so the Chinese ↔ Number boundary keeps its own
+# policy.) A one-member tuple for the same reason as _FOREIGN_LETTER_TYPES
+# below: what is declared is the membership, not the one type in it today.
+_COMPOSITE_NODE_TYPES: tuple[type[InlineNode], ...] = (Date,)
 # A foreign *letter* run (Latin and Greek both flow through this one IR type
 # per the Normalizer) can bind to a hanzi as one compound word; a MathInline
 # ($...$) never does, so it's excluded from the compound check and always
@@ -491,9 +491,8 @@ def insert_cross_kind_boundary_spaces(
     :func:`brailix.backend.number.translate_date`, where 年 is the lone
     exception that skips the connector.)
 
-    **Composite ↔ Chinese** (``在2026年`` / ``…日我`` / ``3.5kg重`` /
-    ``50%的``) takes a word-boundary :class:`Space` on *either* side. A
-    A Date or a Percent is a whole word, set off from the
+    **Composite ↔ Chinese** (``在2026年`` / ``…日我``) takes a word-boundary
+    :class:`Space` on *either* side. A Date is a whole word, set off from the
     surrounding prose; without a separator it abuts the neighbouring
     hanzi. A plain Space, not a connector. A bare :class:`Number` is
     different — an ordinal-bound number (``第3``) stays tight — so the
@@ -584,15 +583,14 @@ def _is_chinese_number_boundary(prev: InlineNode, cur: InlineNode) -> bool:
 
 
 def _is_composite_chinese_boundary(prev: InlineNode, cur: InlineNode) -> bool:
-    """Whether a normalizer composite (Date / Percent) is
+    """Whether a normalizer composite (Date) is
     directly adjacent to a Chinese run on **either** side, so a
     word-boundary :class:`Space` belongs between them.
 
-    These nodes are whole words — a date, a measured quantity, a
-    percentage — set off from the surrounding prose on both sides:
-    ``在2026年`` is 在 + a date (在 ⟂ 2026年), ``2026年去`` is a date +
+    Such a node is a whole word, set off from the surrounding prose on both
+    sides: ``在2026年`` is 在 + a date (在 ⟂ 2026年), ``2026年去`` is a date +
     去 (2026年 ⟂ 去). Without a separator the composite abuts the hanzi
-    (its trailing 日 / unit / ⠴, or the number sign at its head running
+    (its trailing 日, or the number sign at its head running
     straight on from the preceding syllable). A plain Space, not a
     connector: the composite isn't bound to the neighbouring word.
 

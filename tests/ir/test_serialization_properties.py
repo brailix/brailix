@@ -67,7 +67,6 @@ from brailix.ir.inline import (
     MathInline,
     MusicInline,
     Number,
-    Percent,
     PhoneticInline,
     Punct,
     Space,
@@ -179,18 +178,14 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
 
 @st.composite
 def inline_nodes(draw: st.DrawFn) -> InlineNode:
-    kind = draw(st.sampled_from(["leaf", "leaf", "date", "percent"]))
+    kind = draw(st.sampled_from(["leaf", "leaf", "date"]))
     if kind == "leaf":
         return draw(_leaf_inline_nodes())
-    surface = draw(_surfaces)
-    if kind == "date":
-        return Date(
-            surface=surface,
-            span=draw(_spans()),
-            parts=draw(st.lists(_leaf_inline_nodes(), max_size=3)),
-        )
-    number = draw(st.one_of(st.none(), _leaf_inline_nodes().filter(lambda n: isinstance(n, Number))))
-    return Percent(surface=surface, number=number)
+    return Date(
+        surface=draw(_surfaces),
+        span=draw(_spans()),
+        parts=draw(st.lists(_leaf_inline_nodes(), max_size=3)),
+    )
 
 
 # --- blocks ---------------------------------------------------------------------

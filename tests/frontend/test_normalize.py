@@ -15,7 +15,6 @@ from brailix.ir.inline import (
     LatinWord,
     MathInline,
     Number,
-    Percent,
     Punct,
     Segment,
     Space,
@@ -208,26 +207,35 @@ class TestDate:
 
 
 # ---------------------------------------------------------------------------
-# Percent
+# Percentages — not a composite
 # ---------------------------------------------------------------------------
 
 
-class TestPercent:
-    def test_basic(self):
+class TestPercentageIsNotAComposite:
+    """``12%`` is a :class:`Number` beside a :class:`Punct`.
+
+    It had a node type of its own, and the one thing that node decided was
+    the blank between a percentage and the word after it. That blank now
+    comes from ``%``'s own ``space_after`` in the punctuation table — where
+    the sign's cells already lived — so there is nothing left for a composite
+    to hold. Same shape as ``3.5kg`` above it.
+    """
+
+    def test_a_percentage_is_a_number_and_a_punct(self):
         out = _normalize_text("12%")
-        p = out[0]
-        assert isinstance(p, Percent)
-        assert p.surface == "12%"
-        assert p.number.surface == "12"
+        assert [type(n).__name__ for n in out] == ["Number", "Punct"]
+        assert out[0].surface == "12"
+        assert out[1].surface == "%"
 
-    def test_fullwidth_percent(self):
+    def test_the_fullwidth_sign_reads_the_same_way(self):
         out = _normalize_text("12％")
-        assert isinstance(out[0], Percent)
+        assert [type(n).__name__ for n in out] == ["Number", "Punct"]
+        assert out[1].surface == "％"
 
-    def test_decimal_percent(self):
+    def test_a_decimal_percentage_keeps_its_number_whole(self):
         out = _normalize_text("3.5%")
-        assert isinstance(out[0], Percent)
-        assert out[0].number.surface == "3.5"
+        assert isinstance(out[0], Number)
+        assert out[0].surface == "3.5"
 
 
 class TestEmDash:
