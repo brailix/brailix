@@ -130,22 +130,17 @@ class DefaultNormalizer:
 # ---------------------------------------------------------------------------
 
 
-# Canonical pinyin for the structural hanzi markers.  Only 年/月/日 are
-# currently emitted (by ``_try_date``); 号/时/点/分/秒 are reserved for a
-# future clock matcher (the backend already speaks ``reading``, so they
-# need no further wiring).  Filling this here keeps the backend language-
-# agnostic — it just reads the IR.  These are *fixed* readings (always
-# 年→nián, 月→yuè), not context-sensitive polyphone resolution; the latter
-# is still the PinyinResolver's job and is intentionally not done here.
+# Canonical pinyin for the structural hanzi markers.  Exactly the three
+# :func:`_try_date` builds — a clock matcher that wanted 号/时/点/分/秒 would
+# add its readings in the same commit that gives them a way to be reached, and
+# entries no caller can name are not a head start.  Filling this here keeps the
+# backend language-agnostic — it just reads the IR.  These are *fixed* readings
+# (always 年→nián, 月→yuè), not context-sensitive polyphone resolution; the
+# latter is still the PinyinResolver's job and is intentionally not done here.
 _MARKER_PINYIN: dict[str, str] = {
     "年": "nian2",
     "月": "yue4",
     "日": "ri4",
-    "号": "hao4",
-    "时": "shi2",
-    "点": "dian3",
-    "分": "fen1",
-    "秒": "miao3",
 }
 
 

@@ -23,12 +23,10 @@
       "tone_strategy": "ncb_omission"
     },
     "music": {
-      "standard": "bana_2015",
       "octave_rule": "interval16",
       "show_lyrics": true,
       "show_fingering": true,
       "in_accord_marker": true,
-      "key_signature_in_each_section": false,
       "show_clef": true,
       "show_key_signature": true,
       "show_time_signature": true,
