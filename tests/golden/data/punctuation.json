@@ -72,6 +72,26 @@
         }
       ]
     },
+    "punct_adjacent": {
+      "description": "Two marks in a row — an auto-space belongs between a word and the next word, not between a word and the mark that closes it",
+      "cases": [
+        {
+          "src": "见（注）。",
+          "expected": "⠛⠩⠆⠀⠰⠄⠌⠥⠆⠠⠆⠐⠆",
+          "note": "）'s space_after does not survive the 。 that follows it: 。 carries no space_before, which in this table says it is written against what precedes it. The blank before （ is that mark's own space_before, and stays."
+        },
+        {
+          "src": "他说“好”。",
+          "expected": "⠞⠔⠁⠀⠱⠕⠁⠀⠘⠘⠓⠖⠄⠘⠘⠐⠆",
+          "note": "same at a closing quote: ”⠘⠘ then 。⠐⠆ with nothing between them"
+        },
+        {
+          "src": "他说：“好”",
+          "expected": "⠞⠔⠁⠀⠱⠕⠁⠒⠀⠘⠘⠓⠖⠄⠘⠘⠀",
+          "note": "the other direction: ：asks for a blank after and “ for one before — two rules, one blank. An opening mark keeps it, so the veto above is about what the next mark declares, not about marks being adjacent."
+        }
+      ]
+    },
     "math_punct": {
       "description": "Punctuation inside math formulas (comma / dot)",
       "cases": [

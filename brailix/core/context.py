@@ -62,10 +62,10 @@ class FrontendContext:
         # to this mode so adapters that only see the collector still emit
         # under the right policy. :meth:`WarningCollector.bind_mode` adopts the
         # mode of a freshly supplied (still-default) collector but RAISES if the
-        # collector was already bound to a *different* mode: sharing one
-        # collector across two contexts with different modes used to let the
-        # most-recently-constructed context silently win — an order-dependent
-        # policy that is now a loud error. In the normal path :class:`Pipeline`
+        # collector was already bound to a *different* mode: unchecked, sharing
+        # one collector across two contexts with different modes lets the
+        # most-recently-constructed context silently win, which is an
+        # order-dependent policy. In the normal path :class:`Pipeline`
         # creates one collector per run with the matching mode and
         # :meth:`child` inherits the parent's mode, so binding is a no-op.
         self.warnings.bind_mode(self.mode)

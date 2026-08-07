@@ -21,8 +21,13 @@ can resolve them. The docstrings themselves stay reST — the roles carry
 information (which *kind* of thing is being referenced) and are worth
 keeping in the source.
 
-**Which modules.** The reference covers exactly the documented facade, the
-same list ``tests/test_public_api.py`` pins ``__all__`` against. pdoc
+**Which modules.** The reference covers exactly the documented facade, and it
+does not keep its own list of what that is: :func:`facade_modules` reads the
+``_FACADE`` manifest in ``tests/test_public_api.py``, which is where the
+surface is decided and pinned. A second copy here would have been a second
+thing to update — the exact drift this whole script exists to end, reintroduced
+in the script that ends it — and it would have gone unnoticed, because the two
+lists agreeing today is what a copy looks like right up until it doesn't. pdoc
 honours ``__all__``, so each page shows the supported surface and nothing
 else — the internal modules stay reachable in the source and absent from
 the reference, which is what "internal" is supposed to mean.
@@ -35,21 +40,84 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 from pathlib import Path
 
-# The documented public surface — keep in step with the manifest in
-# ``tests/test_public_api.py``, which is what pins the promise; a page
-# generated from a different list would document a surface nobody promised.
-FACADE_MODULES = (
-    "brailix",
-    "brailix.core",
-    "brailix.core.models",
-    "brailix.frontend",
-    "brailix.input",
-    "brailix.ir",
-    "brailix.renderer",
-)
+_MANIFEST_NAME = "_FACADE"
+
+
+def _locate_manifest() -> Path:
+    """Where the documented public surface is decided: the manifest the API
+    test pins every facade's ``__all__`` against, module by module.
+
+    Found by walking up rather than by counting ``parents``, because this
+    script sits at two depths: ``scripts/build_docs.py`` in the repository it
+    runs in, and one level deeper in the export overlay it is maintained in. A
+    fixed count is correct in exactly one of them. The fallback keeps the
+    error message concrete when nothing is found at all.
+    """
+    relative = Path("tests") / "test_public_api.py"
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / relative
+        if candidate.is_file():
+            return candidate
+    return here.parent / relative
+
+
+_MANIFEST = _locate_manifest()
+
+
+def facade_modules() -> tuple[str, ...]:
+    """The facade modules to document, read from the public-API manifest.
+
+    Read **statically**, out of the syntax tree, rather than by importing the
+    test module. Two reasons, and the first is what a docs build actually hits:
+    importing it needs pytest, which the reference build has no other use for,
+    and it runs that module's import-time scans over every facade — work with
+    nothing to do with generating a page. The second is that a manifest is a
+    literal by policy (``test_every_all_in_the_package_is_a_literal`` says so of
+    ``__all__`` for the same reason), so reading it needs nothing but the parse.
+
+    Raises :class:`RuntimeError` rather than returning what it managed to find.
+    An empty or partial list here does not fail — it *builds*, and publishes a
+    reference documenting a surface smaller than the promised one, which is
+    exactly the silent kind of wrong this script was written to stop.
+    """
+    try:
+        tree = ast.parse(_MANIFEST.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise RuntimeError(
+            f"cannot read the public-API manifest at {_MANIFEST}: {exc}"
+        ) from exc
+
+    for node in tree.body:
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        if not any(
+            isinstance(t, ast.Name) and t.id == _MANIFEST_NAME for t in targets
+        ):
+            continue
+        if not isinstance(node.value, ast.Dict):
+            break
+        modules = tuple(
+            key.value
+            for key in node.value.keys
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        )
+        if len(modules) != len(node.value.keys):
+            break
+        if not modules:
+            break
+        return modules
+
+    raise RuntimeError(
+        f"{_MANIFEST_NAME} in {_MANIFEST} is not a non-empty dict literal keyed "
+        f"by module name, so the documented facade cannot be read from it — "
+        f"the reference would be generated from a list nobody pinned"
+    )
 
 # Every cross-reference role the docstrings use. ``~`` means "show only the
 # last component", Sphinx's own shorthand for keeping prose readable; we
@@ -118,11 +186,12 @@ def facade_specs() -> list[str]:
     """
     import pdoc.extract
 
-    expanded = list(pdoc.extract.walk_specs(FACADE_MODULES))
-    extra = [m for m in expanded if m not in FACADE_MODULES]
+    facade = facade_modules()
+    expanded = list(pdoc.extract.walk_specs(facade))
+    extra = [m for m in expanded if m not in facade]
     if extra:
         print(f"excluding non-facade modules pdoc pulled in: {', '.join(extra)}")
-    return [*FACADE_MODULES, *(f"!{m}" for m in extra)]
+    return [*facade, *(f"!{m}" for m in extra)]
 
 
 def build(output_dir: Path) -> None:

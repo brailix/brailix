@@ -34,7 +34,6 @@ class TestTokensToInline:
         assert isinstance(nodes[0], Word)
         assert nodes[0].surface == "東京"
         assert nodes[0].reading == "トーキョー"
-        assert nodes[0].pos == "名詞"
         assert nodes[0].span == Span(0, 2)
 
     def test_kanji_without_reading_becomes_placeholder(self):

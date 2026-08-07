@@ -36,9 +36,10 @@ CLI accepts, and the call is a call the function accepts.
 
 The pages are *found*, not assumed: a checkout may keep the published set at
 the top level or stage it a couple of directories down, and this guard has to
-mean the same thing either way. Hence a glob per page plus a floor on how many
-must turn up and on how much was extracted from them — a pattern that silently
-stopped matching would make every check below vacuous while still passing.
+mean the same thing either way. Hence a glob per page, plus two checks that the
+scan is still seeing anything — every named page turned up, and enough commands
+and calls came out of them — because a pattern that silently stopped matching
+would make every check below vacuous while still passing.
 """
 
 from __future__ import annotations
@@ -56,24 +57,27 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parents[1]
 
-# Documents a user is told to copy from, as globs: the same page is picked up
-# whether it sits at the top level or is staged under a directory or two.
-_DOC_GLOBS = (
+# The published set: a README plus four guide pages, named. This is the list
+# the checks below mean by "the documentation", and the globs are derived from
+# it — so a page that is renamed, moved out of the glob's reach, or deleted is
+# reported *by name* rather than as a number that came up short. A count could
+# not do that: with a floor of four, any one of the five could vanish and take
+# every command and example inside it out of scope, silently, while the guard
+# stayed green.
+_EXPECTED_DOCS = (
     "README.md",
-    "*/*/README.md",
     "docs/index.md",
-    "*/*/docs/index.md",
     "docs/getting-started.md",
-    "*/*/docs/getting-started.md",
     "docs/cli.md",
-    "*/*/docs/cli.md",
     "docs/extending.md",
-    "*/*/docs/extending.md",
 )
 
-# A README plus four guide pages is the published set. Below this the globs
-# have gone stale rather than the documentation having shrunk.
-_MIN_DOCS = 4
+# Each page as two globs: the same document is picked up whether it sits at the
+# top level (the published repository) or is staged under a directory or two
+# (here, where the shipped pages live in the export overlay).
+_DOC_GLOBS = tuple(
+    pattern for doc in _EXPECTED_DOCS for pattern in (doc, f"*/*/{doc}")
+)
 
 # Fences whose contents are shell commands, and the ones that are Python.
 _SHELL_FENCE = re.compile(
@@ -93,13 +97,34 @@ _COMMAND_PREFIXES = (("brailix",), ("python", "-m", "brailix"))
 
 
 def _docs() -> list[tuple[str, str]]:
-    """Every published page that exists here, as ``(label, text)``."""
-    return [
-        (path.relative_to(_ROOT).as_posix(), path.read_text(encoding="utf-8"))
-        for glob in _DOC_GLOBS
-        for path in sorted(_ROOT.glob(glob))
-        if path.is_file()
-    ]
+    """Every published page that exists here, as ``(label, text)``.
+
+    Dot-directories are skipped. A ``.tmp`` scratch tree or a build directory
+    can hold a *copy* of a page — an old review checkout, an export staged for
+    inspection — and the two-deep glob finds it as readily as the real one.
+    Checking those says nothing about what is published and reads exactly
+    backwards when it fails: a command that was fixed months ago is reported as
+    broken documentation because a stale copy still carries it.
+    """
+    out: list[tuple[str, str]] = []
+    for glob in _DOC_GLOBS:
+        for path in sorted(_ROOT.glob(glob)):
+            rel = path.relative_to(_ROOT)
+            if not path.is_file() or any(
+                part.startswith(".") for part in rel.parts
+            ):
+                continue
+            out.append((rel.as_posix(), path.read_text(encoding="utf-8")))
+    return out
+
+
+def _published_page(rel: str) -> str:
+    """Which entry of :data:`_EXPECTED_DOCS` the found path ``rel`` is a copy
+    of — the same page whether it was found at the top level or staged."""
+    for doc in _EXPECTED_DOCS:
+        if rel == doc or rel.endswith(f"/{doc}"):
+            return doc
+    raise AssertionError(f"{rel} matched a glob but no expected page")
 
 
 def _cli_text_sources() -> list[tuple[str, str]]:
@@ -225,11 +250,21 @@ def test_the_command_scan_actually_found_commands() -> None:
     )
 
 
-def test_the_document_set_was_actually_found() -> None:
-    found = [rel for rel, _ in _docs()]
-    assert len(found) >= _MIN_DOCS, (
-        f"only found {found} — _DOC_GLOBS has gone stale (a page was renamed "
-        f"or moved), which would make the checks above pass on nothing"
+def test_every_published_page_was_actually_found() -> None:
+    """The whole published set turned up — each page named, not counted.
+
+    Everything above is parametrized over what this scan returns, so a page it
+    stops finding is a page whose commands and examples are no longer checked
+    at all. That has to fail here, saying which one, rather than leaving the
+    suite green over a shrunken scope.
+    """
+    found = {_published_page(rel) for rel, _ in _docs()}
+    assert found == set(_EXPECTED_DOCS), (
+        f"published pages the scan did not find: "
+        f"{sorted(set(_EXPECTED_DOCS) - found)} — either the page was renamed "
+        f"or moved (fix _DOC_GLOBS / _EXPECTED_DOCS together) or it is gone, "
+        f"in which case every command and example it held has quietly left "
+        f"the checks above"
     )
 
 

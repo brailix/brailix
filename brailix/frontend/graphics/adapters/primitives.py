@@ -60,10 +60,10 @@ def _fmt(value: Any) -> str:
     A value that is not a drawable number formats as ``"0"`` — but only ever
     reaches here through a shape :func:`primitives_to_svg` already declined to
     reject, since a coordinate silently moved to the origin is a shape drawn
-    in the wrong place, which is worse than one not drawn at all. What this
-    must not do is what it used to: ``float("inf")`` converts, so ``inf``
-    formatted as the literal SVG attribute ``cx="inf"`` — well-formed XML that
-    is not a coordinate, handed to the backend as though it were one.
+    in the wrong place, which is worse than one not drawn at all. The trap to
+    avoid is that ``float("inf")`` converts cleanly: formatted straight
+    through, it becomes the literal SVG attribute ``cx="inf"`` — well-formed
+    XML that is not a coordinate, handed to the backend as though it were one.
     """
     f = as_finite(value, None)
     return "0" if f is None else (str(int(f)) if f.is_integer() else repr(f))

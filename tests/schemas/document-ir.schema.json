@@ -18,8 +18,7 @@
       "properties": {
         "type": {
           "enum": [
-            "word", "number", "hanzi_marker", "date",
-            "quantity", "percent", "punct", "latin_word",
+            "word", "number", "hanzi_marker", "date", "punct", "latin_word",
             "code_inline", "phonetic_inline", "math_inline", "music_inline",
             "graphic_inline", "space", "connector", "unknown"
           ]
@@ -27,9 +26,6 @@
         "surface": { "type": "string" },
         "span": { "$ref": "#/definitions/span" },
         "reading": { "type": "string" },
-        "pos": { "type": "string" },
-        "confidence": { "type": "number" },
-        "role": { "type": "string" },
         "reason": { "type": "string" },
         "parts": {
           "type": "array",
@@ -37,7 +33,6 @@
         },
         "number": { "$ref": "#/definitions/inline_node" },
         "unit": { "type": "string" },
-        "unit_canonical": { "type": "string" },
         "source": { "type": "string" },
         "math": {
           "type": "string",

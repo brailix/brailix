@@ -9,8 +9,9 @@ the input/frontend payload-shape boundary):
 adapter; its ZIP container does, and that difference is the whole boundary
 rule, not a footnote to it:
 
-* ``.musicxml`` / ``.xml`` → read UTF-8/UTF-16 text, ``source="musicxml"``.
-  Text in, text out: no adapter, no frontend import.
+* ``.musicxml`` / ``.xml`` → read as XML text (the encoding decided by the
+  document's own BOM / declaration), ``source="musicxml"``. Text in, text out:
+  no adapter, no frontend import.
 * ``.mxl``                → ZIP container (binary), so it takes the same
   eager-decode exception ``.mid`` does: unzipped at input through the frontend
   :class:`~brailix.frontend.music.adapters.mxl.MxlSourceAdapter` to extract
@@ -55,10 +56,13 @@ from brailix.core.context import MusicContext
 from brailix.input.limits import DEFAULT_INPUT_LIMITS, InputLimits
 from brailix.ir.document import DocumentIR, ScoreBlock
 
-_MUSICXML_TEXT_SUFFIXES = frozenset({".musicxml", ".xml"})
-_MXL_SUFFIXES = frozenset({".mxl"})
+MUSICXML_TEXT_SUFFIXES = frozenset({".musicxml", ".xml"})
+"""Bare-XML score suffixes — read as XML text, no source adapter."""
 
-MUSIC_SUFFIXES = _MUSICXML_TEXT_SUFFIXES | _MXL_SUFFIXES
+MXL_SUFFIXES = frozenset({".mxl"})
+"""The MusicXML ZIP container, unzipped at input through the ``mxl`` adapter."""
+
+MUSIC_SUFFIXES = MUSICXML_TEXT_SUFFIXES | MXL_SUFFIXES
 
 # Binary score dialects: decoded eagerly at the input boundary because the
 # text IR can't carry binary bytes (ARCHITECTURE#arch-layers rule 2 — the same
@@ -93,7 +97,9 @@ def parse_musicxml(
     """Read a MusicXML / .mxl file and return a single-block
     :class:`DocumentIR`.
 
-    Suffix dispatch handles ``.musicxml`` / ``.xml`` (UTF-8/UTF-16 text) and
+    Suffix dispatch handles ``.musicxml`` / ``.xml`` (XML text, decoded by the
+    document's own BOM / ``<?xml`` declaration — see
+    :meth:`~brailix.input.limits.InputLimits.read_bounded_xml`) and
     ``.mxl`` (ZIP container). Both produce a ``ScoreBlock`` whose
     ``text`` is the resolved MusicXML string and ``source`` is
     ``"musicxml"`` — the inner XML carries no compression by the time
@@ -108,20 +114,23 @@ def parse_musicxml(
     ``mxl`` adapter's own, always on.)
 
     Raises :class:`FileNotFoundError` if the path is missing,
-    :class:`ValueError` for unrecognised suffixes,
-    :class:`UnicodeDecodeError` if a ``.musicxml`` file's bytes are
-    neither valid UTF-8 nor UTF-16-BOM-prefixed, and
+    :class:`ValueError` for unrecognised suffixes — and for a ``.musicxml`` /
+    ``.xml`` whose bytes do not decode under XML's own encoding rules
+    (:class:`~brailix.core._xml.XmlDecodeError`, a ``ValueError``) — and
     :class:`~brailix.input.limits.InputTooLargeError` when the resolved text
     exceeds ``limits``.
     """
     p = _Path(path)
     suffix = p.suffix.lower()
-    if suffix in _MXL_SUFFIXES:
+    if suffix in MXL_SUFFIXES:
         text = _unzip_mxl(limits.read_bounded(p), profile=profile)
-    elif suffix in _MUSICXML_TEXT_SUFFIXES:
-        # Honour a UTF-16 BOM (Finale / Windows exporters) and strip a UTF-8
-        # BOM; a surviving BOM would break the score sniff / XML parse.
-        text = limits.read_bounded_text(p, normalize_newlines=True)
+    elif suffix in MUSICXML_TEXT_SUFFIXES:
+        # Decoded by XML's own rules — the byte order mark, the ``<?xml``
+        # declaration's byte pattern, or the encoding it names — so a score
+        # read from a file is accepted on exactly the terms the MusicXML
+        # source adapter accepts the same bytes handed to it in memory. Any
+        # BOM is consumed: a surviving one breaks the score sniff / XML parse.
+        text = limits.read_bounded_xml(p)
     else:
         raise ValueError(
             f"unsupported music file extension {suffix!r} "

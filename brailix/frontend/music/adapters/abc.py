@@ -59,11 +59,10 @@ class AbcSourceAdapter:
         # embedding host application) it hits an unknown option and
         # ``SystemExit(2)``s.
         # ``getXmlScores`` takes the ABC text directly and is argv-free.
-        # (The earlier ``abc2xml.convert`` we probed writes to a file and
-        # returns None, and the original ``getattr(abc2xml, "convert")``
-        # bound that internal 4-arg helper and TypeError'd on one arg, so
-        # this adapter never actually converted anything.) getattr-probe
-        # the name so a future rename degrades to a clear warning.
+        # (``abc2xml.convert`` is not the alternative it looks like: it is an
+        # internal 4-arg helper that writes to a file and returns None, so
+        # calling it with one argument raises TypeError.) getattr-probe the
+        # name so a future rename degrades to a clear warning.
         get_scores = getattr(abc2xml, "getXmlScores", None)
         if get_scores is None:
             return music_error_wrap(

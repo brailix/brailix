@@ -43,10 +43,8 @@ from brailix.ir.inline import (
     MathInline,
     MusicInline,
     Number,
-    Percent,
     PhoneticInline,
     Punct,
-    Quantity,
     Space,
     Unknown,
     Word,
@@ -63,8 +61,6 @@ _Translator = _Callable[[_Any, BackendContext, BrailleProfile], list[BrailleCell
 _DISPATCH: dict[type[InlineNode], _Translator] = {
     Number: number_backend.translate_number,
     Date: number_backend.translate_date,
-    Percent: number_backend.translate_percent,
-    Quantity: number_backend.translate_quantity,
     Punct: punct_backend.translate_punct,
     Space: punct_backend.translate_space,
     Connector: punct_backend.translate_connector,
@@ -153,8 +149,8 @@ def _enforce_source_spans(
     Applied at **every** boundary a ``LanguageBackend`` is called across, not
     just :func:`translate_node`: the second one is
     :func:`brailix.backend.number.translate_date`, which resolves the same
-    registry to translate a date's markers. It used to call straight through,
-    so a plugin whose ``translate_word`` was checked could return span-less
+    registry to translate a date's markers. Calling straight through there
+    would let a plugin whose ``translate_word`` is checked return span-less
     cells from ``translate_date_marker`` and break traceability with every
     contract test still green. A new call site that resolves the registry
     must come through here too.

@@ -48,9 +48,11 @@ class TestSimplifyFractionFeature:
     def test_on_by_default(self, profile):
         assert profile.feature("math.simplify_fraction", False) is True
 
-    def test_legacy_alias_works(self, profile):
-        # ``math_simplify_fraction`` is the old flat name.
-        assert profile.feature("math_simplify_fraction", False) is True
+    def test_the_old_flat_name_is_not_a_second_spelling(self, profile):
+        # ``math_simplify_fraction`` was the flat spelling before the features
+        # table was grouped. One flag, one name: the flat form now reads as the
+        # unset feature it is, so nothing answers to two keys.
+        assert profile.feature("math_simplify_fraction", "unset") == "unset"
 
     def test_atomic_letter_pair_simplified(self, profile):
         cells, _ = emit(

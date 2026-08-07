@@ -141,11 +141,11 @@ def _finite_positive(value: float, fallback: float) -> float:
     Non-finite is the case a ``<= 0`` guard misses: ``float("nan")`` compares
     false against everything and ``float("1e999")`` is genuinely greater than
     zero, yet both are what an SVG ``width="nan"`` or an overflowing length
-    parses to. They used to travel all the way into the raster's physical
-    metadata and out the other side as a PDF ``MediaBox`` reading ``nan`` —
-    and now that :class:`~brailix.ir.tactile.TactileRaster` refuses them at
-    construction, they would take :func:`rasterize`'s "never raises on bad
-    geometry" contract down with it.
+    parses to. Left through, they travel into the raster's physical metadata
+    and out the other side as a PDF ``MediaBox`` reading ``nan`` — and since
+    :class:`~brailix.ir.tactile.TactileRaster` refuses them at construction,
+    they would take :func:`rasterize`'s "never raises on bad geometry"
+    contract down with it.
     """
     return value if _math.isfinite(value) and value > 0 else fallback
 
@@ -776,7 +776,7 @@ def _place_labels(
     label, flag any whose dots land on already-raised *figure* pixels (the
     raster carries no labels yet) and collect footprints for the
     label-to-label check; (2) stamp them. A missing braille profile is warned
-    once and the label skipped, mirroring the old inline behaviour."""
+    once and the label skipped."""
     placed: list[tuple[LabelStamper, str | None, list[BrailleCell], int, int]] = []
     label_boxes: list[tuple[str, tuple[int, int, int, int]]] = []
     figure_overlaps = 0
@@ -798,8 +798,8 @@ def _place_labels(
         dx, dy = st.dev(
             _parse_float(elem.get("x"), 0.0), _parse_float(elem.get("y"), 0.0)
         )
-        # Translate once; probe + paint reuse the same cells (so a label's
-        # translation runs exactly once, like the old inline path).
+        # Translate once; probe + paint reuse the same cells, so a label's
+        # translation runs exactly once.
         cells = st.labeler.translate(text)
         centers = st.labeler.dot_centers_from_cells(cells, dx, dy)
         if not centers:

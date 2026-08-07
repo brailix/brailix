@@ -9,13 +9,12 @@ class through, and how to answer a payload whose shape is simply not the one
 the field declares. What differs is only the node family — the factory that
 rebuilds one, the base type it must be, and how a message names it.
 
-They were separate implementations of those mechanics, and they drifted
-exactly the way separate implementations of one idea do: the block side
-type-checked its structural children from the start, the inline side did not,
-and a ``{"type": "quantity", "number": {"type": "word", ...}}`` payload
-round-tripped into a ``Quantity`` holding a ``Word`` until that was found and
-repaired on its own. Parameterising the difference is what stops the next
-repair from landing on one side again.
+Separate implementations of those mechanics drift the way separate
+implementations of one idea do: one side type-checks its structural children
+and the other does not, so a ``{"type": "table", "rows": [{"type":
+"paragraph", ...}]}`` payload round-trips into a ``Table`` holding a
+``Paragraph`` on whichever side was not repaired. Parameterising the difference
+is what keeps a repair from landing on one side only.
 
 **The deserialization boundary's contract.** A payload is arbitrary decoded
 JSON — it comes off disk, off a wire, out of a hand-edited file — so no field
@@ -28,7 +27,7 @@ things:
   carry: a ``blocks`` that is not a list, a ``source`` that is not a string,
   a span that is not two integers. Almost everything here raises this one.
 * :class:`TypeError` — that nested node is the wrong *class*: a ``Paragraph``
-  in ``Table.rows``, a ``Word`` in ``Quantity.number``. Raised by
+  in ``Table.rows``, a bare string in ``Date.parts``. Raised by
   :func:`typed_child`, the one check about node identity rather than wire
   shape, and deliberately the same signal a caller assembling the tree in
   code gets for the same mistake.
@@ -38,10 +37,9 @@ somewhere it cannot be diagnosed — ``"blocks": null`` raising ``TypeError:
 'NoneType' object is not iterable`` from inside a comprehension, or a
 ``MathBlock`` whose ``source`` is a list reaching a registry lookup and raising
 ``unhashable type``, three layers from the file that said so.
-``tests/ir/test_ir_schema.py`` pins the pair (``_DOCUMENTED_REJECTIONS``), and
-this paragraph promised only the first of them for a while — which read as a
-rule ``typed_child`` was breaking, rather than the two-part contract the
-boundary actually keeps.
+``tests/ir/test_ir_schema.py`` pins the pair (``_DOCUMENTED_REJECTIONS``) —
+both of them, since a contract stated as one rejection reads as a rule
+``typed_child`` is breaking.
 
 Private to the IR layer: nothing here is API, and neither is the module's
 existence — it holds no IR types, only the plumbing the type modules share.
@@ -123,7 +121,7 @@ def typed_child[NodeT](
     A declared field type is not enforced by anything at runtime: the
     deserializer dispatches on the field *name* and rebuilds whatever the
     payload's own ``type`` tag says it is. So a payload can put a ``Paragraph``
-    in a ``TableRow.cells`` list, or a ``Word`` in ``Quantity.number``, and the
+    in a ``TableRow.cells`` list, or a bare string in ``Date.parts``, and the
     result type-checks at the dataclass level while breaking every consumer
     that reads the field — the backend writes the wrong cells for it, or none.
 
@@ -131,7 +129,7 @@ def typed_child[NodeT](
     assembling a tree by hand can hand over the node rather than its dict form.
 
     ``label`` names the field in the error the way its own side names things
-    (``"Table.rows"``, ``"inline field 'number'"``) and ``kind`` is the word for
+    (``"Table.rows"``, ``"inline field 'parts'"``) and ``kind`` is the word for
     what the offending payload claimed to be (``"block"`` / ``"node"``), so one
     implementation still produces each side's diagnostic.
     """
@@ -196,9 +194,9 @@ def payload_list(payload: Mapping[str, _Any], key: str, what: str) -> Sequence[_
 
     ``None`` is refused rather than treated as absent: a payload that spells a
     field ``null`` is saying something different from one that omits it, and
-    the loaders used to let it through to a ``for`` loop that raised
-    ``TypeError: 'NoneType' object is not iterable`` from a comprehension with
-    no idea which field it was reading.
+    letting it through reaches a ``for`` loop that raises ``TypeError:
+    'NoneType' object is not iterable`` from a comprehension with no idea
+    which field it was reading.
     """
     value = payload.get(key)
     if value is None and key not in payload:
@@ -271,12 +269,12 @@ def _resolve_hints(cls: type) -> dict[str, _Any]:
     ``typing.get_type_hints`` resolves a class **all at once**: one annotation
     it cannot evaluate — a name a refactor moved, a forward reference to a type
     that is only imported under ``TYPE_CHECKING`` at the wrong place — and it
-    raises for the whole class. Catching that and returning ``{}``, which is
-    what this used to do, turns one unresolvable annotation into *no wire-type
-    checking at all* for that node type: every field of it silently stops being
-    validated, and the payload shapes :func:`check_wire_value` exists to stop
-    (a ``source`` that is a list, an ``ordered`` that is the string ``"false"``)
-    load successfully again. Nothing fails, nothing says so.
+    raises for the whole class. Catching that and returning ``{}`` would turn
+    one unresolvable annotation into *no wire-type checking at all* for that
+    node type: every field of it silently stops being validated, and the
+    payload shapes :func:`check_wire_value` exists to stop (a ``source`` that
+    is a list, an ``ordered`` that is the string ``"false"``) load
+    successfully. Nothing fails, nothing says so.
 
     So a failure degrades **per field** instead: each annotation is resolved on
     its own, and only the ones that genuinely cannot be resolved go unchecked.
@@ -289,7 +287,8 @@ def _resolve_hints(cls: type) -> dict[str, _Any]:
     agrees with it right up until it doesn't. (``"int"`` written as a string
     literal is stored by PEP 563 as ``'"int"'``, two levels of quoting deep;
     a plain ``eval`` returns the *string* ``int`` and silently drops the
-    field's check. Which is the bug this whole function is about, one level in.)
+    field's check — the same silent loss of validation this function exists to
+    keep to one field, one level in.)
     """
     try:
         return _typing.get_type_hints(cls)
@@ -318,8 +317,8 @@ def _report_unresolved_annotations(cls: type, exc: Exception) -> None:
 
     A production document load must not die because a type checker's view of
     the IR broke, so this is a warning rather than a raise. It has to be
-    *something*, though: the silent ``return {}`` it replaces meant the only
-    evidence was validation quietly no longer happening.
+    *something*, though: with a silent ``return {}`` the only evidence would
+    be validation quietly no longer happening.
 
     A :class:`RuntimeWarning` because the standard library's own filters show
     it by default and pytest turns it into a visible entry (and into an error
@@ -376,11 +375,11 @@ def check_wire_value(cls: type, key: str, value: _Any, what: str) -> _Any:
     heading out of a payload that says no such thing.
 
     Raises :class:`ValueError` — the malformed-payload signal for this whole
-    boundary. What it stops is not a crash but the shapes that used to load
-    *successfully*: a ``MathBlock`` whose ``source`` was a list (accepted here,
-    ``unhashable type`` at the registry lookup much later), a ``List`` whose
-    ``ordered`` was the string ``"false"`` (accepted here, truthy everywhere
-    after).
+    boundary. What it stops is not a crash but the shapes that would otherwise
+    load *successfully*: a ``MathBlock`` whose ``source`` is a list (accepted
+    here, ``unhashable type`` at the registry lookup much later), a ``List``
+    whose ``ordered`` is the string ``"false"`` (accepted here, truthy
+    everywhere after).
     """
     allowed = _wire_types(cls).get(key)
     if allowed is None:

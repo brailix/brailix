@@ -39,6 +39,16 @@ fallback rules, third-party adapters) is an application concern and
 lives there: an application can wrap these functions as registered
 adapters behind its own registry.
 
+Which extensions *this* layer routes, though, is this layer's own fact, and
+it is published — :data:`ROUTED_SUFFIXES`, plus the per-format sets beside
+each reader (``markdown.MARKDOWN_SUFFIXES``, ``docx.DOCX_SUFFIXES`` /
+``DOC_SUFFIXES``, ``music_xml.MUSIC_SUFFIXES`` / ``BINARY_SCORE_SUFFIXES`` /
+``DEFERRED_SCORE_SUFFIXES``). An application that has to *name* the formats
+otherwise re-types them, and a re-typed list is one that stops matching — a
+file dialog's filter and an application-side input registry each holding their
+own copy is how ``.abc`` and ``.mid`` came to be score routes here and plain
+text one layer up.
+
 :func:`parse_file` is the in-house convenience dispatcher, so
 GUIs / CLIs / scripts don't each reinvent ``read_text + pick parser``.
 Its routing is a **data table** (:data:`_FORMAT_ROUTES`) mapping a
@@ -59,11 +69,20 @@ from dataclasses import field as _field
 from pathlib import Path as _Path
 
 from brailix.core._xml import xml_root_element as _xml_root_element
+from brailix.input.docx import (
+    DOC_SUFFIXES as _DOC_SUFFIXES,
+)
+from brailix.input.docx import (
+    DOCX_SUFFIXES as _DOCX_SUFFIXES,
+)
 from brailix.input.docx import parse_doc, parse_docx
 from brailix.input.limits import (
     DEFAULT_INPUT_LIMITS,
     InputLimits,
     InputTooLargeError,
+)
+from brailix.input.markdown import (
+    MARKDOWN_SUFFIXES as _MARKDOWN_SUFFIXES,
 )
 from brailix.input.markdown import parse_markdown
 from brailix.input.music_xml import (
@@ -96,12 +115,16 @@ __all__ = (
     "InputLimits",
     "InputTooLargeError",
     "DEFAULT_INPUT_LIMITS",
+    "ROUTED_SUFFIXES",
 )
 
 
-_MARKDOWN_SUFFIXES = frozenset({".md", ".markdown"})
-_DOCX_SUFFIXES = frozenset({".docx", ".docm"})
-_DOC_SUFFIXES = frozenset({".doc"})
+# Which extensions each format claims now lives beside its reader
+# (``markdown.MARKDOWN_SUFFIXES``, ``docx.DOCX_SUFFIXES`` / ``DOC_SUFFIXES``,
+# ``music_xml.MUSIC_SUFFIXES`` and friends) and is imported here under private
+# aliases: this table routes with them, but a facade's namespace is a promise,
+# so what an application reads it imports from the module that owns it.
+#
 # ``.xml`` is a generic container (MathML, DocBook, arbitrary XML), so it is
 # sniffed (see ``_looks_like_musicxml``) before being handed to the music
 # adapter; non-score ``.xml`` falls back to plain text instead of producing
@@ -255,11 +278,15 @@ def _route_xml(ctx: _FileCtx) -> _DocumentIR:
     # otherwise plain text, so a non-score .xml (MathML, DocBook, arbitrary
     # XML) doesn't yield misleading MUSIC_* warnings / an empty score tree.
     #
-    # Sniff via the BOM-aware reader parse_musicxml uses, NOT ctx.text's flat
-    # utf-8-sig: XML may legitimately be UTF-16 (Finale / some Windows
-    # exporters emit a BOM), and utf-8-sig raises UnicodeDecodeError on those
-    # valid files before the sniff runs — so a UTF-16 score .xml used to crash
-    # where the byte-identical .musicxml parsed fine. Both routes now agree.
+    # Sniff via the XML reader parse_musicxml uses, NOT ctx.text's flat
+    # utf-8-sig: an XML document's bytes say what encoding they are — a BOM,
+    # the ``<?xml`` declaration's byte pattern, or the encoding that
+    # declaration names — and the flat decode raises UnicodeDecodeError on
+    # perfectly legal files (UTF-16 from Finale and some Windows exporters, an
+    # ISO-8859-1 declaration) before the sniff can run. Same reader as the
+    # ``.musicxml`` route and the same rule the MusicXML / MathML / SVG
+    # adapters apply to bytes handed to them, so one payload gets one answer
+    # whichever entry point reads it.
     #
     # Through ``ctx.limits``, not a defaulted reader: this route used to call
     # a free function whose ``limits`` parameter defaulted to
@@ -274,7 +301,7 @@ def _route_xml(ctx: _FileCtx) -> _DocumentIR:
     # ``.docx`` route is already held to. Both branches build from this
     # snapshot: ``_score_document`` is the tail of ``parse_musicxml`` for a
     # text-suffix score, which is precisely what the sniff has established.
-    text = ctx.limits.read_bounded_text(ctx.path, normalize_newlines=True)
+    text = ctx.limits.read_bounded_xml(ctx.path)
     # This path reads directly (not via ``ctx.text``), so apply the decoded-
     # character gate here too — the file-byte gate already ran in parse_file.
     ctx.limits.check_text_length(text)
@@ -313,6 +340,15 @@ _SUFFIX_ROUTES: dict[str, _Handler] = {
     suffix: handler for suffixes, handler in _FORMAT_ROUTES for suffix in suffixes
 }
 
+ROUTED_SUFFIXES = frozenset(_SUFFIX_ROUTES)
+"""Every extension :func:`parse_file` routes to a format of its own.
+
+Derived from the routing table rather than listed beside it, so it cannot fall
+behind: a format added there is announced here the same day. Anything absent is
+read as plain text — the right answer for an unknown extension, the wrong one
+for a format this set would have named, which is exactly the check an
+application's file dialog wants before deciding what it can open."""
+
 
 def parse_file(
     path: str | _os.PathLike[str],
@@ -347,15 +383,22 @@ def parse_file(
       here)
     * everything else (including ``.txt`` and no suffix) → :func:`parse_plain`
 
-    Word formats are read as bytes by the underlying adapters; text
-    formats are read here as UTF-8 so the dispatch can hand the parsers
-    a ``str``. Callers wanting a non-default mapping (feeding a ``.tex``
-    file through the markdown parser, say) should call the underlying
-    ``parse_*`` directly after reading the file themselves.
+    Word formats are read as bytes by the underlying adapters; text formats
+    are decoded here so the dispatch can hand the parsers a ``str``. How they
+    are decoded depends on what the bytes can say about themselves: an
+    ``.xml`` / ``.musicxml`` is decoded by XML's own rules (a byte order mark,
+    the ``<?xml`` declaration's byte pattern, or the ``encoding`` it names —
+    UTF-8 only when none of them speaks), while prose formats (``.txt`` /
+    ``.md`` / ``.abc``), which carry no such declaration, honour a UTF-16 BOM
+    and are otherwise read as UTF-8. Callers wanting a non-default mapping
+    (feeding a ``.tex`` file through the markdown parser, say) should call the
+    underlying ``parse_*`` directly after reading the file themselves.
 
     ``mathtype_fallback`` is forwarded to :func:`parse_docx` for ``.docx`` /
-    ``.docm`` (ignored for every other format, the same way
-    ``chem_detection`` is). It defaults to ``"off"`` — the native MTEF
+    ``.docm`` and ignored for every other format. ``chem_detection`` reaches
+    both Word routes — :func:`parse_docx` and, for a legacy ``.doc``,
+    :func:`parse_doc` — and is ignored elsewhere. ``mathtype_fallback``
+    defaults to ``"off"`` — the native MTEF
     adapter only, so old MTEF files it can't decode come back as
     ``<merror>`` placeholders. Pass ``"auto"`` (or ``"libreoffice"``) to
     engage the LibreOffice safety net, where the document is re-parsed
@@ -384,7 +427,9 @@ def parse_file(
     Errors propagate as-is: :class:`FileNotFoundError` when ``path``
     doesn't exist, :class:`InputTooLargeError` when its bytes or its decoded
     text exceed ``limits``,
-    :class:`UnicodeDecodeError` when text bytes aren't valid UTF-8,
+    :class:`UnicodeDecodeError` when a prose format's bytes are neither UTF-8
+    nor UTF-16-BOM-prefixed and :class:`ValueError` when an XML one's bytes do
+    not decode under the encoding they declare,
     :class:`MissingExtraError` when a needed extra (``docx`` for Word,
     ``midi`` for MIDI) isn't installed at input time — ``.abc`` defers its
     ``abc`` extra to frontend time, so reading one never raises here —

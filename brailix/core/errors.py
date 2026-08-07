@@ -302,13 +302,13 @@ PROGRAMMING_ERRORS: tuple[type[BaseException], ...] = (
 #
 # It lives here rather than in any one chain because there are three of them —
 # zh analyzer, zh pinyin, ja analyzer — and the *fact* of which errors mean
-# "unavailable" is one fact with one owner. Written out per chain it drifted
-# immediately: the zh analyzer caught all four, the pinyin resolver two, the ja
-# analyzer one, while ``IncompatibleDependencyError`` went on documenting
-# itself as a signal "the ``auto`` selection chains" honour — true of exactly
-# one of them. The failure that shape produces is quiet: an adapter starts
-# raising a version-compatibility error correctly, its language's chain doesn't
-# list that type, and what used to degrade now crashes the translation.
+# "unavailable" is one fact with one owner. Written out per chain it drifts
+# immediately — one chain catching all four, the next two, the third one —
+# while a type like ``IncompatibleDependencyError`` goes on documenting itself
+# as a signal every ``auto`` chain honours. The failure that shape produces is
+# quiet: an adapter starts raising a version-compatibility error correctly, its
+# language's chain doesn't list that type, and what should degrade crashes the
+# translation instead.
 #
 # Only the *tuple* is shared. Each chain keeps its own loop, its own preference
 # order and its own cache: zh and ja are independently replaceable language
@@ -350,11 +350,11 @@ CANDIDATE_UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (
 # there is more than one ZIP container in the tree — ``.docx`` (input layer)
 # and ``.mxl`` (music frontend) — and *which exceptions mean "unreadable
 # member"* is one fact about ``zipfile``, not a per-adapter opinion. Written
-# out twice it drifted immediately: ``.mxl`` classified all five while the
-# ``.docx`` preflight caught only ``BadZipFile``, so an encrypted or
-# exotically-compressed ``.docx`` leaked a raw ``RuntimeError`` /
-# ``NotImplementedError`` / ``zlib.error`` past ``parse_docx``'s documented
-# "malformed OOXML → ParseError" surface.
+# out twice it drifts immediately — one container classifying all five, the
+# other only ``BadZipFile`` — and then an encrypted or exotically-compressed
+# ``.docx`` leaks a raw ``RuntimeError`` / ``NotImplementedError`` /
+# ``zlib.error`` past ``parse_docx``'s documented "malformed OOXML →
+# ParseError" surface.
 #
 # Only the *tuple* is shared. Each adapter keeps its own read loop, its own
 # size budget, its own rootfile logic and its own failure mode (``.docx``
@@ -386,16 +386,16 @@ class _FrozenAnchor(dict):  # type: ignore[type-arg]
     """The read-only mapping :attr:`Warning.anchor` holds.
 
     :class:`Warning` is a frozen value object and every field of it is
-    immutable — except that one, whose ``dict`` stayed writable from both
-    sides. Mutating the dict you *passed* rewrote a diagnostic that had
+    immutable. A plain ``dict`` here would be the exception, writable from
+    both sides — mutating the dict you *passed* rewrites a diagnostic that has
     already been recorded::
 
         anchor = {"measure": "1"}
         collector.warn(..., anchor=anchor)
-        anchor["measure"] = "99"        # the stored warning now says 99
+        anchor["measure"] = "99"        # the stored warning would now say 99
 
-    and ``warning.anchor["measure"] = "99"`` rewrote it directly. Neither
-    failed; both silently changed a record that a block cache, the editor's
+    and ``warning.anchor["measure"] = "99"`` rewrites it directly. Neither
+    fails; both silently change a record that a block cache, the editor's
     navigation and a test comparison all read as fixed.
 
     A ``dict`` **subclass** rather than :class:`types.MappingProxyType`,
@@ -409,18 +409,18 @@ class _FrozenAnchor(dict):  # type: ignore[type-arg]
 
     ``dict``'s mutators are C-level and do not route through one another —
     overriding ``__setitem__`` does nothing for ``update`` or ``|=`` — so every
-    one is overridden by hand, the lesson ``_BoundaryRegistry`` in the frontend
-    learned by missing exactly one of them. ``__reduce__`` belongs to that
-    list: the pickle / deepcopy protocol rebuilds a ``dict`` subclass by
-    *setting its items*, so without it the copying this class exists to keep
-    possible would be refused by its own guard.
+    one is overridden by hand; missing a single one leaves a documented way to
+    write (the same rule ``_BoundaryRegistry`` in the frontend keeps).
+    ``__reduce__`` belongs to that list: the pickle / deepcopy protocol
+    rebuilds a ``dict`` subclass by *setting its items*, so without it the
+    copying this class exists to keep possible is refused by its own guard.
 
-    ``__init__`` belongs to it as well, and was the one left off. It is how the
-    mapping is filled, so it cannot simply refuse — but it is also an ordinary
-    public method of the object, and ``dict.__init__`` fills an *existing*
-    mapping in C without passing through ``__setitem__``. So
-    ``warning.anchor.__init__({"measure": "99"})`` rewrote a recorded
-    diagnostic through the one door left open, no base-class trickery needed.
+    ``__init__`` belongs to it as well, and is the least obvious member. It is
+    how the mapping is filled, so it cannot simply refuse — but it is also an
+    ordinary public method of the object, and ``dict.__init__`` fills an
+    *existing* mapping in C without passing through ``__setitem__``, so
+    ``warning.anchor.__init__({"measure": "99"})`` would rewrite a recorded
+    diagnostic with no base-class trickery at all.
     Sealing after the first call closes it: construction goes through, a second
     call is refused like any other write. (``dict.__setitem__(anchor, k, v)``
     still reaches past every override, as it does past any Python-level guard
@@ -591,10 +591,10 @@ class WarningCollector:
             raise StrictModeError(warning)
         if self.mode is RunMode.LENIENT and warning.level is WarningLevel.ERROR:
             # Drop ERROR to WARN, preserving every other field. Use
-            # dataclasses.replace, not a hand-listed rebuild: the old
-            # field-by-field copy silently dropped any field added to Warning
-            # later (surface / span / candidates / source / anchor each had to
-            # be remembered here), losing diagnostics in LENIENT mode.
+            # dataclasses.replace, not a hand-listed rebuild: a field-by-field
+            # copy silently drops any field added to Warning later (surface /
+            # span / candidates / source / anchor would each have to be
+            # remembered here), losing diagnostics in LENIENT mode.
             warning = _replace(warning, level=WarningLevel.WARN)
         self.warnings.append(warning)
 

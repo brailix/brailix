@@ -55,8 +55,6 @@ from brailix.ir.inline import (
     LatinWord,
     MathInline,
     Number,
-    Percent,
-    Quantity,
     Space,
     Word,
 )
@@ -320,10 +318,10 @@ def shift_token_spans(
     spans.
 
     ``base == 0`` is a fast path that returns the input list unchanged (no
-    allocation) — but only when every token already carries a span. It used
-    to be unconditional, which silently skipped the synthesis this function
-    documents: with ``base == 0`` a spanless token stayed spanless, and the
-    same input at ``base == 5`` came back with coordinates.
+    allocation) — but only when every token already carries a span. Taking it
+    unconditionally would skip the synthesis this function documents: a
+    spanless token stays spanless at ``base == 0`` while the same input at
+    ``base == 5`` comes back with coordinates.
     """
     if base == 0 and all(t.span is not None for t in tokens):
         return tokens
@@ -347,14 +345,14 @@ def _local_spans(tokens: list[ChineseToken]) -> list[Span]:
     the cursor is the end of the previous token's span — so consecutive
     spanless tokens tile the source instead of each restarting at zero.
 
-    That restart was the bug: every spanless token was given
-    ``Span(0, len(surface))`` independently, so two of them in a row
-    produced ``(0,2)`` then ``(0,1)`` — overlapping, non-monotonic
-    coordinates flowing straight into the IR, where source↔braille
-    navigation and warning highlights read them as positions in the
-    document. Built-in adapters all set spans, so the damage was confined to
-    hand-built token lists and third-party adapters — which is to say, to
-    exactly the extension point this helper exists to be defensive for.
+    The cursor is what makes that true. Giving each spanless token
+    ``Span(0, len(surface))`` independently makes two in a row produce
+    ``(0,2)`` then ``(0,1)`` — overlapping, non-monotonic coordinates flowing
+    straight into the IR, where source↔braille navigation and warning
+    highlights read them as positions in the document. Built-in adapters all
+    set spans, so that only ever reaches hand-built token lists and
+    third-party adapters — which is to say exactly the extension point this
+    helper exists to be defensive for.
 
     A token whose adapter *did* give a span always wins, even where that
     contradicts the cursor: coordinates that came from a real analyzer are
@@ -382,8 +380,8 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
 
     1. **Node construction** — every token becomes one :class:`Word`,
        whatever its length, with pinyin / POS / confidence carried across.
-       (Single characters used to become a separate ``HanziChar`` node; that
-       distinction bought nothing — see :class:`~brailix.ir.inline.Word`.)
+       (A single character is a one-character ``Word``, not a node of its
+       own — see :class:`~brailix.ir.inline.Word`.)
     2. **Word-boundary spacing** — Chinese braille writes characters
        within a word without gaps and separates adjacent words with
        one blank cell (write a word together, separate words with a
@@ -414,8 +412,6 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
             surface=t.surface,
             span=span,
             reading=t.pinyin,
-            pos=t.pos,
-            confidence=t.confidence,
         )
         for t, span in zip(tokens, _local_spans(tokens), strict=True)
     ]
@@ -438,18 +434,19 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
 
 _CHINESE_NODE_TYPES: tuple[type[InlineNode], ...] = (Word, HanziMarker)
 _FOREIGN_NODE_TYPES: tuple[type[InlineNode], ...] = (LatinWord, MathInline)
-# Normalizer composites — a whole date / measured quantity / percentage,
-# each its own "word", set off from adjacent Chinese on BOTH sides with a
-# boundary Space: 在2026年 是 在 ⟂ 2026年, 2026年去 是 2026年 ⟂ 去. (A bare
-# Number is not a composite — an ordinal-bound number like 第3 stays tight,
-# so the Chinese ↔ Number boundary keeps its own policy.)
-_COMPOSITE_NODE_TYPES: tuple[type[InlineNode], ...] = (Date, Quantity, Percent)
+# Normalizer composites — a whole date, its own "word", set off from adjacent
+# Chinese on BOTH sides with a boundary Space: 在2026年 是 在 ⟂ 2026年,
+# 2026年去 是 2026年 ⟂ 去. (A bare Number is not a composite — an ordinal-bound
+# number like 第3 stays tight, so the Chinese ↔ Number boundary keeps its own
+# policy.) A one-member tuple for the same reason as _FOREIGN_LETTER_TYPES
+# below: what is declared is the membership, not the one type in it today.
+_COMPOSITE_NODE_TYPES: tuple[type[InlineNode], ...] = (Date,)
 # A foreign *letter* run (Latin and Greek both flow through this one IR type
 # per the Normalizer) can bind to a hanzi as one compound word; a MathInline
 # ($...$) never does, so it's excluded from the compound check and always
 # takes the space path below. A one-member tuple rather than a bare class
-# because the membership is the thing being declared: an all-caps run was a
-# second entry here until the backend started reading it off the surface.
+# because the membership is what is being declared: which node kinds may bind
+# to a hanzi is a list that a new IR type joins, not a type this code names.
 _FOREIGN_LETTER_TYPES: tuple[type[InlineNode], ...] = (LatinWord,)
 
 
@@ -492,9 +489,8 @@ def insert_cross_kind_boundary_spaces(
     :func:`brailix.backend.number.translate_date`, where 年 is the lone
     exception that skips the connector.)
 
-    **Composite ↔ Chinese** (``在2026年`` / ``…日我`` / ``3.5kg重`` /
-    ``50%的``) takes a word-boundary :class:`Space` on *either* side. A
-    Date / Quantity / Percent is a whole word, set off from the
+    **Composite ↔ Chinese** (``在2026年`` / ``…日我``) takes a word-boundary
+    :class:`Space` on *either* side. A Date is a whole word, set off from the
     surrounding prose; without a separator it abuts the neighbouring
     hanzi. A plain Space, not a connector. A bare :class:`Number` is
     different — an ordinal-bound number (``第3``) stays tight — so the
@@ -585,15 +581,14 @@ def _is_chinese_number_boundary(prev: InlineNode, cur: InlineNode) -> bool:
 
 
 def _is_composite_chinese_boundary(prev: InlineNode, cur: InlineNode) -> bool:
-    """Whether a normalizer composite (Date / Quantity / Percent) is
+    """Whether a normalizer composite (Date) is
     directly adjacent to a Chinese run on **either** side, so a
     word-boundary :class:`Space` belongs between them.
 
-    These nodes are whole words — a date, a measured quantity, a
-    percentage — set off from the surrounding prose on both sides:
-    ``在2026年`` is 在 + a date (在 ⟂ 2026年), ``2026年去`` is a date +
+    Such a node is a whole word, set off from the surrounding prose on both
+    sides: ``在2026年`` is 在 + a date (在 ⟂ 2026年), ``2026年去`` is a date +
     去 (2026年 ⟂ 去). Without a separator the composite abuts the hanzi
-    (its trailing 日 / unit / ⠴, or the number sign at its head running
+    (its trailing 日, or the number sign at its head running
     straight on from the preceding syllable). A plain Space, not a
     connector: the composite isn't bound to the neighbouring word.
 

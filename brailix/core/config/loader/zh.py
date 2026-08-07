@@ -126,11 +126,11 @@ def _load_zh_exceptions_tone_omission(
             f"'by_initial' / 'zero_initial' sub-objects"
         )
     # Validate every per-initial rule loudly rather than silently dropping a
-    # malformed one: a "b": "4" shorthand (instead of "b": {"omit_tone": "4"})
-    # used to be filtered out by an `isinstance(v, dict)` comprehension, so the
-    # backend never saw that initial's rule and emitted the tone anyway —
-    # silently wrong braille with no diagnostic. Fail at load like the
-    # char/word override loaders do.
+    # malformed one: an `isinstance(v, dict)` comprehension filters out a
+    # "b": "4" shorthand (instead of "b": {"omit_tone": "4"}), so the backend
+    # never sees that initial's rule and emits the tone anyway — silently
+    # wrong braille with no diagnostic. Fail at load like the char/word
+    # override loaders do.
     for initial, rule in by_initial.items():
         if not isinstance(rule, dict):
             raise ConfigurationError(

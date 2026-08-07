@@ -67,10 +67,8 @@ from brailix.ir.inline import (
     MathInline,
     MusicInline,
     Number,
-    Percent,
     PhoneticInline,
     Punct,
-    Quantity,
     Space,
     Unknown,
     Word,
@@ -127,23 +125,13 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
     surface = draw(_surfaces)
     span = draw(_spans())
     if kind == "word":
-        return Word(
-            surface=surface,
-            span=span,
-            reading=draw(_opt_short),
-            pos=draw(_opt_short),
-            confidence=draw(st.one_of(st.none(), st.floats(0, 1, allow_nan=False))),
-        )
-    if kind == "word":
         return Word(surface=surface, span=span, reading=draw(_opt_short))
     if kind == "number":
-        return Number(surface=surface, span=span, role=draw(_opt_short))
+        return Number(surface=surface, span=span)
     if kind == "hanzi_marker":
         return HanziMarker(surface=surface, span=span, reading=draw(_opt_short))
     if kind == "punct":
         return Punct(surface=surface, span=span)
-    if kind == "latin_word":
-        return LatinWord(surface=surface, span=span)
     if kind == "latin_word":
         return LatinWord(surface=surface, span=span)
     if kind == "code_inline":
@@ -180,25 +168,14 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
 
 @st.composite
 def inline_nodes(draw: st.DrawFn) -> InlineNode:
-    kind = draw(st.sampled_from(["leaf", "leaf", "date", "quantity", "percent"]))
+    kind = draw(st.sampled_from(["leaf", "leaf", "date"]))
     if kind == "leaf":
         return draw(_leaf_inline_nodes())
-    surface = draw(_surfaces)
-    if kind == "date":
-        return Date(
-            surface=surface,
-            span=draw(_spans()),
-            parts=draw(st.lists(_leaf_inline_nodes(), max_size=3)),
-        )
-    number = draw(st.one_of(st.none(), _leaf_inline_nodes().filter(lambda n: isinstance(n, Number))))
-    if kind == "quantity":
-        return Quantity(
-            surface=surface,
-            number=number,
-            unit=draw(_opt_short),
-            unit_canonical=draw(_opt_short),
-        )
-    return Percent(surface=surface, number=number)
+    return Date(
+        surface=draw(_surfaces),
+        span=draw(_spans()),
+        parts=draw(st.lists(_leaf_inline_nodes(), max_size=3)),
+    )
 
 
 # --- blocks ---------------------------------------------------------------------

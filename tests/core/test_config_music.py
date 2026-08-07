@@ -27,7 +27,6 @@ def cn_current():
 
 class TestMusicFeatures:
     def test_features_dotted_lookup(self, cn_current):
-        assert cn_current.feature("music.standard") == "bana_2015"
         assert cn_current.feature("music.octave_rule") == "interval16"
         assert cn_current.feature("music.show_lyrics") is True
         assert cn_current.feature("music.in_accord_marker") is True

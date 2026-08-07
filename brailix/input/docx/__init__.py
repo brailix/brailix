@@ -113,6 +113,18 @@ __all__ = (
     "parse_doc",
 )
 
+DOCX_SUFFIXES = frozenset({".docx", ".docm"})
+"""Modern OOXML Word documents, read by :func:`parse_docx`."""
+
+DOC_SUFFIXES = frozenset({".doc"})
+"""Legacy binary Word documents, read by :func:`parse_doc` — which needs
+LibreOffice (``soffice``) on PATH, so an application may want to offer them
+differently."""
+
+# Both sets live beside the readers rather than in ``brailix.input``'s routing
+# table, for the reason given on ``markdown.MARKDOWN_SUFFIXES``: whoever
+# presents the formats has to be able to read which extensions they are.
+
 
 # ---------------------------------------------------------------------------
 # Archive resource caps (zip-bomb / OOM guard)
@@ -141,10 +153,10 @@ def _read_docx_bytes(p: _Path, limits: InputLimits) -> bytes:
     The bytes returned here are the **only** copy the rest of the parse sees:
     the preflight and python-docx both consume this blob, so what was checked
     and what is parsed cannot be two different files. Opening the path a
-    second time for python-docx was the hole — the archive could be atomically
-    replaced (or a symlink repointed) between the preflight and the parse, and
-    a caller's tightened ``max_file_bytes`` never reached the second open at
-    all.
+    second time for python-docx is the hole that closes: the archive can be
+    atomically replaced (or a symlink repointed) between the preflight and the
+    parse, and a caller's tightened ``max_file_bytes`` would not reach the
+    second open at all.
 
     Two ceilings apply, in this order:
 
@@ -177,14 +189,14 @@ def _preflight_docx_archive(data: bytes, p: _Path) -> None:
     The member *count* is checked first, by walking the central directory
     itself (:func:`~brailix.core._zip.zip_entry_count_exceeds`) — before
     :class:`zipfile.ZipFile` is constructed at all, and stopping one record
-    past the cap. It used to be checked from ``zf.infolist()``, which is the
-    list the constructor builds by parsing that whole directory: by then every
-    ``ZipInfo`` the cap would have rejected already exists. A few megabytes of
-    archive hold tens of thousands of records, and the whole cost of turning
-    those into objects lands inside that constructor. The ``infolist()`` check
-    below stays as a backstop: the walk is a mirror of what the constructor
-    does, and a mirror can drift if :mod:`zipfile` ever locates or steps
-    through the directory differently.
+    past the cap. Checking ``zf.infolist()`` instead is too late: that list is
+    what the constructor builds by parsing the whole directory, so by then
+    every ``ZipInfo`` the cap would have rejected already exists. A few
+    megabytes of archive hold tens of thousands of records, and the whole cost
+    of turning those into objects lands inside that constructor. The
+    ``infolist()`` check below stays as a backstop: the walk is a mirror of
+    what the constructor does, and a mirror can drift if :mod:`zipfile` ever
+    locates or steps through the directory differently.
 
     Then the *actual* decompressed bytes of each member are counted (chunked,
     then discarded — peak cost is one chunk, not the whole part), aborting
@@ -200,14 +212,14 @@ def _preflight_docx_archive(data: bytes, p: _Path) -> None:
     :class:`ParseError` with its usual message, keeping one error surface.
 
     An archive whose *directory* is fine but whose member cannot be read is a
-    different case, and one this had to start converting: reading a member is
-    exactly what this function does, so it — not python-docx — is where an
-    encrypted entry (``RuntimeError``), an unimplemented compression method
+    different case, and one this converts: reading a member is exactly what
+    this function does, so it — not python-docx — is where an encrypted entry
+    (``RuntimeError``), an unimplemented compression method
     (``NotImplementedError``) or a corrupt deflate stream (``zlib.error``)
-    surfaces, and each escaped ``parse_docx`` raw, past the documented
+    surfaces. Left raw, each escapes ``parse_docx`` past the documented
     "malformed OOXML → ``ParseError``" surface and past every caller catching
-    :class:`~brailix.core.errors.BrailixError`. The classification is shared
-    with the ``.mxl`` reader, which had the full set while this had one
+    :class:`~brailix.core.errors.BrailixError`. Which exceptions those are is
+    one fact shared with the ``.mxl`` reader
     (:data:`~brailix.core.errors.UNREADABLE_ZIP_MEMBER_ERRORS`).
     """
     if zip_entry_count_exceeds(data, _MAX_DOCX_MEMBERS):

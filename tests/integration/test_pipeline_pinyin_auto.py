@@ -88,7 +88,17 @@ def test_default_pipeline_falls_back_without_real_backends(monkeypatch):
     assert any(w.code == "MISSING_PINYIN" for w in result.warnings)
 
 
-def test_pipeline_preserves_multi_char_confidence():
+def test_a_multi_char_resolver_reading_reaches_the_ir():
+    """The resolver's reading is what the pipeline carries onto the Word.
+
+    Its ``confidence`` is not: that number is a probability the pinyin layer
+    compares against ``low_confidence_threshold`` to decide whether to raise
+    ``LOW_CONFIDENCE_PINYIN`` (see ``frontend/zh/pinyin/adapters/_align.py``),
+    and it was copied onto the IR node as well, where nothing read it. The
+    warning is the whole downstream effect, and it is pinned where it is
+    produced.
+    """
+
     class _OneWordAnalyzer:
         name = "confidence-analyzer"
 
@@ -123,8 +133,8 @@ def test_pipeline_preserves_multi_char_confidence():
             profile="cn_current",
             analyzer="confidence-test",
             resolver="confidence-test",
-        ).translate_text("\u4f60\u597d")
+        ).translate_text("你好")
         child = result.ir.blocks[0].children[0]
 
         assert isinstance(child, Word)
-        assert child.confidence == 0.67
+        assert child.reading == "ni3 hao3"

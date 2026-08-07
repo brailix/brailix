@@ -79,10 +79,10 @@ def generator_kinds() -> tuple[str, ...]:
 def _num(value: _Any, default: float = 0.0) -> float:
     """A spec field as a drawable number, or ``default``.
 
-    Non-finite counts as unreadable, not as a number: it used to convert
-    cleanly and then propagate, so ``{"values": [1, Infinity, 3]}`` produced a
-    line chart whose every mapped coordinate was ``NaN`` — a figure that
-    rasterised, carried no warning, and showed nothing. The adapter rejects
+    Non-finite counts as unreadable, not as a number: it converts cleanly and
+    then propagates, so ``{"values": [1, Infinity, 3]}`` yields a line chart
+    whose every mapped coordinate is ``NaN`` — a figure that rasterises,
+    carries no warning, and shows nothing. The adapter rejects
     such a spec outright before a generator ever runs
     (:func:`~brailix.frontend.graphics._numbers.non_finite_paths`); this keeps
     the arithmetic below sound for a generator reached any other way.
@@ -136,8 +136,8 @@ def _label(x: float, y: float, text: _Any) -> dict[str, _Any]:
 # reports it as unreadable through GRAPHICS_LABEL_OVERLAP /
 # GRAPHICS_FEATURES_TOO_CLOSE — which is the layer that knows the page's
 # physical geometry and so is the one that can say how close is too close.
-# Before this, the same spec one order of magnitude further along ran for
-# minutes and allocated the SVG in the hundreds of megabytes.
+# Unbounded, the same spec one order of magnitude further along runs for
+# minutes and allocates the SVG in the hundreds of megabytes.
 _MAX_TICKS = 10_000
 
 # Ticks are ``lo + i * step``, but their *count* comes from a division, and
@@ -153,13 +153,13 @@ _TICK_EPS = 1e-9
 def _ticks(lo: float, hi: float, step: float) -> list[float]:
     """Tick values from ``lo`` to ``hi`` inclusive, spaced by ``step``.
 
-    **Never past** ``hi``. The count used to be rounded, so ``_ticks(0, 11, 3)``
-    read 11/3 as four steps and returned a tick at 12 — which the number-line
-    and axes generators then mapped past the end of the plot area and
-    labelled, giving an axis that runs further than the range its author wrote
-    down, with nothing raised and nothing warned. Flooring is what makes the
-    stated upper bound the real one, and the values are filtered against it
-    besides, since ``lo + i * step`` accumulates its own error.
+    **Never past** ``hi``. Rounding the count instead reads ``_ticks(0, 11, 3)``
+    as four steps and returns a tick at 12 — which the number-line and axes
+    generators map past the end of the plot area and label, giving an axis
+    that runs further than the range its author wrote down, with nothing
+    raised and nothing warned. Flooring is what makes the stated upper bound
+    the real one, and the values are filtered against it besides, since
+    ``lo + i * step`` accumulates its own error.
 
     Two refusals, both raising :class:`FigureSpecError` for the adapter to turn
     into a warning:
@@ -169,8 +169,8 @@ def _ticks(lo: float, hi: float, step: float) -> list[float]:
       axis labelled 0 to 0.1 for a figure whose author wrote 0 to 1, and a
       chart that is wrong reads exactly like a chart that is right;
     * a span or quotient that overflows to infinity on *finite* endpoints
-      (``-1e308`` to ``1e308``; ``1e308`` at step ``1e-308``). This is where
-      ``round()`` used to raise ``OverflowError`` from inside a drawing
+      (``-1e308`` to ``1e308``; ``1e308`` at step ``1e-308``) — where an
+      unguarded ``round()`` raises ``OverflowError`` from inside a drawing
       routine, out through an adapter documented to soft-fail.
 
     Degenerate arguments — a non-positive step, an empty or inverted range,

@@ -117,7 +117,9 @@ The compiler is a stack of layers. The Profile and its resource tables sit along
 **The backend has two output domains, not one.** Text, math and music semantic IR compile
 into a `BrailleDocument` (a cell sequence); a tactile graphic's SVG tree rasterizes into a
 `TactileRaster` (a dot grid). Both are *output-domain IR* — the backend's product and the
-renderer's input — and each is encoded to bytes by the renderers that understand it. Both
+renderer's input — and each is encoded into an external representation by the renderers that
+understand it (bytes, a string, a list of cells, a JSON structure; the `Renderer` protocol's
+return type is `Any` for that reason). Both
 sets of renderers share one `renderer_registry`, each self-describing what it takes via
 `consumes` — saying nothing means `"braille"`, a tactile renderer says
 `"tactile_raster"`, and the result object compares the two before handing over its IR (a
@@ -133,7 +135,7 @@ Each layer answers exactly one question:
 | Frontend | what each piece of input *is* |
 | IR | how that meaning is structured |
 | Backend | how the rules write it (cells, or raised dots) |
-| Renderer | what bytes it becomes |
+| Renderer | what form it leaves in |
 
 **The input/frontend boundary.** Input answers only "what blocks does this document have, and where is the raw content": it cracks open containers (the `.docx` OOXML and OLE, the `.mxl` ZIP), picks a parser by file identity (suffix or content sniff), and yields a `DocumentIR` of block structure with inline content still raw text. Frontend answers "what each inline region is": it translates a known source dialect (LaTeX, MathML, OMML, MTEF, MIDI, ...) into normalized IR (a MathML or MusicXML tree), picking an adapter by context and soft-failing to `<merror>` / `<music-error>`. Both parse source formats; the dividing line is **payload shape**, not timing:
 
@@ -190,7 +192,7 @@ brailix/
 │   │   └── music_xml.py      # .musicxml / .xml / .mxl direct; .mid/.midi eager (binary); .abc deferred (text)
 │   ├── frontend/             # text → structured IR
 │   │   ├── segmentation.py   # block segmentation + inline-region detection
-│   │   ├── normalization.py  # tag numbers / dates / units / percent signs
+│   │   ├── normalization.py  # tag numbers / dates
 │   │   ├── zh/               # Chinese-specific (language folder)
 │   │   │   ├── __init__.py        # umbrella: re-exports the analyzer's subsystem entry points
 │   │   │   ├── analyzer/          # segmentation subsystem
@@ -219,7 +221,7 @@ brailix/
 │   │   └── tactile.py        # TactileRaster: tactile dot grid (tactile-backend product, the graphics counterpart of BrailleIR)
 │   ├── backend/              # semantic IR → output-domain IR (BrailleIR / TactileRaster)
 │   │   ├── dispatch.py       # dispatch by node type; prose nodes then pick a LanguageBackend by profile.language
-│   │   ├── number.py         # language-agnostic translator (numbers / dates / percent / quantities)
+│   │   ├── number.py         # language-agnostic translator (numbers / dates)
 │   │   ├── latin.py          # Latin backend (standalone, separate from punct)
 │   │   ├── punct.py
 │   │   ├── block.py          # heading/list/table block-level translation
@@ -286,7 +288,6 @@ Block types: `heading / paragraph / list / list_item / table / table_row / table
   "type": "word",
   "surface": "重庆",
   "reading": "chong2 qing4",
-  "confidence": 0.99,
   "span": [15, 17]
 }
 ```
@@ -294,7 +295,7 @@ Block types: `heading / paragraph / list / list_item / table / table_row / table
 Inline token types:
 
 ```
-word / number / hanzi_marker / date / quantity / percent /
+word / number / hanzi_marker / date /
 punct / latin_word /
 code_inline / phonetic_inline / math_inline / music_inline / graphic_inline /
 space / connector / unknown
@@ -809,7 +810,7 @@ The suite is organised by layer, because that is the promise being kept: each di
 | Frontend | type recognition, segmentation, pinyin and polyphone resolution, the Japanese kana and wakachigaki path, and the math / music / graphics parse entry points | the Backend |
 | IR | the mediator types on their own terms: serialization round-trips, nested-block validation, JSON-schema conformance, and the nesting-depth limits | every stage — it carries core primitives alone, which is checked by loading it in a fresh interpreter |
 | Backend | fixed IR → fixed BrailleIR, per language and per subsystem (Chinese, Latin, Japanese, math, music, chemistry), plus the tactile backend turning a normalized SVG tree into a `TactileRaster` | segmentation models, so model drift cannot move the assertions |
-| Renderer | cells and dots into bytes: Unicode, BRF, layout and pagination, music layout schemes, and the raster encoders (BMP, PNG, PDF, and the U+2800 preview) | the source language — everything needed is already in the cells |
+| Renderer | cells and dots into their external form: Unicode, BRF, the cell listing, layout and pagination, music layout schemes, and the raster encoders (BMP, PNG, PDF, and the U+2800 preview) | the source language — everything needed is already in the cells |
 | Pipeline | the layers together: end-to-end compilation, incremental recompilation and cache identity, override application, span provenance, and mixed pages carrying braille beside figures | — this is the level where the seams are the subject |
 | Public surface and architecture | that `__all__`, the hand-written manifest and the runtime namespace agree; that the layer matrix holds in the source *and* in a fresh interpreter's `sys.modules`; that this document, the docstrings and the user guides still describe the code | — these read the tree rather than compile anything |
 

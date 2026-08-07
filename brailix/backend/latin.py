@@ -44,7 +44,6 @@ English-braille profile is added.
 
 from __future__ import annotations
 
-from brailix.backend._letters import letter_sign_repeats
 from brailix.backend.punct import lookup_or_unknown
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
@@ -165,10 +164,19 @@ def _emit_all_caps_word(
     Only called for pure-ASCII all-letter all-upper surfaces of length
     ≥ 2 (``CPU`` / ``NVDA``), so ``bare_letter`` always hits; dotted
     acronyms (``U.S.A.``) and mixed words keep the ordinary path.
+
+    The sign is written **twice**, always — the caller's own precondition
+    (all-capital, two letters or more) is exactly the condition the doubling
+    asks about, so there is nothing left to decide here. It used to be a
+    shared predicate answering 1-or-2, because the quantity-unit emitter
+    walked mixed-case runs (``mW``) and needed the other answer; that emitter
+    is gone, and a mixed-case word now takes the ordinary path, where the
+    first letter's sign is the only one and mid-word case is the documented
+    loss.
     """
     first_sp = Span(base, base + 1) if has_span else None
     prefix = profile.math_structure("letter_prefix.latin_upper")
-    for _ in range(letter_sign_repeats("latin_upper", len(surface))):
+    for _ in range(2):
         out.extend(
             BrailleCell(
                 dots=dots,

@@ -35,11 +35,10 @@ scoped.
 
 Scoped, not *published*: the whole package is internal, like every path outside
 the facades and the extension surface (see the top-level :mod:`brailix`
-docstring). This docstring used to call those names "stable public API", which
-said the opposite of the policy one level up and left the question of whether
-they carry a compatibility promise answerable two ways — and one of the three,
-a convenience wrapper for tests, is now :func:`_emit_tree` for the same reason:
-a plain name reads as an offer.
+docstring). Calling these names "stable public API" here would say the opposite
+of the policy one level up and leave the question of whether they carry a
+compatibility promise answerable two ways. The convenience wrapper the tests
+use is ``_emit_tree`` for the same reason: a plain name reads as an offer.
 """
 
 from __future__ import annotations

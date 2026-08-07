@@ -1,15 +1,10 @@
 import pytest
 
-from brailix.backend.number import (
-    translate_date,
-    translate_number,
-    translate_percent,
-    translate_quantity,
-)
+from brailix.backend.number import translate_date, translate_number
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
-from brailix.ir.inline import Date, HanziMarker, Number, Percent, Quantity
+from brailix.ir.inline import Date, HanziMarker, Number
 
 
 @pytest.fixture(scope="module")
@@ -60,15 +55,13 @@ class TestTranslateNumber:
         assert [c.source_text for c in digit_cells] == ["4", "2"]
         assert [c.source_span for c in digit_cells] == [Span(5, 6), Span(6, 7)]
 
-    def test_number_sign_disabled_via_profile(self, ctx, profile):
-        # Mutate a copy of the profile by directly changing its features.
-        profile.features["number_sign"] = False
-        try:
-            cells = translate_number(Number(surface="9"), ctx, profile)
-            assert len(cells) == 1
-            assert cells[0].role == "digit"
-        finally:
-            profile.features["number_sign"] = True
+    def test_number_sign_disabled_via_profile(self, ctx, profile, monkeypatch):
+        # The flag by the name the profile writes it under — ``zh.number_sign``,
+        # the Chinese prose one, not ``math.number_sign``.
+        monkeypatch.setitem(profile.features["zh"], "number_sign", False)
+        cells = translate_number(Number(surface="9"), ctx, profile)
+        assert len(cells) == 1
+        assert cells[0].role == "digit"
 
     def test_unknown_digit_emits_warning(self, ctx, profile):
         # Superscript 2 is a digit char, but not a decimal digit.
@@ -91,222 +84,6 @@ class TestTranslateNumber:
         ]
         assert [c.source_text for c in digit_cells] == ["１", "２", "３"]
         assert not any(w.code == "UNKNOWN_DIGIT" for w in ctx.warnings)
-
-
-class TestTranslatePercent:
-    def test_basic(self, ctx, profile):
-        node = Percent(
-            surface="12%",
-            span=Span(0, 3),
-            number=Number(surface="12", span=Span(0, 2)),
-        )
-        cells = translate_percent(node, ctx, profile)
-        # number_sign + 1 + 2 + percent punct  → 4 cells
-        assert len(cells) == 4
-        assert cells[-1].role == "punct"
-        assert cells[-1].source_text == "%"
-
-    def test_empty_percent_emits_nothing(self, ctx, profile):
-        # The frontend never builds an empty Percent, but a hand-rolled
-        # node / IR round-trip could; node.surface[-1] must not IndexError.
-        assert translate_percent(Percent(surface=""), ctx, profile) == []
-
-    def test_fullwidth_digits_in_percent(self, ctx, profile):
-        node = Percent(
-            surface="１２％",
-            span=Span(0, 3),
-            number=Number(surface="１２", span=Span(0, 2)),
-        )
-        cells = translate_percent(node, ctx, profile)
-        digit_cells = [c for c in cells if c.role == "digit"]
-        assert [c.dots for c in digit_cells] == [
-            profile.digits["1"],
-            profile.digits["2"],
-        ]
-        assert cells[-1].role == "punct"
-        assert cells[-1].source_text == "％"
-        assert not any(w.code == "UNKNOWN_DIGIT" for w in ctx.warnings)
-
-    def test_non_percent_tail_fails_loud(self, ctx, profile):
-        # A hand-rolled / round-tripped Percent whose surface doesn't end in a
-        # percent sign (e.g. "5:") must not render the stray char as ordinary
-        # punctuation just because it's in the punct table — fail loud with an
-        # unknown cell + warning instead of masking the malformed node.
-        node = Percent(
-            surface="5:", span=Span(0, 2), number=Number(surface="5", span=Span(0, 1))
-        )
-        cells = translate_percent(node, ctx, profile)
-        assert cells[-1].role == "unknown"
-        assert cells[-1].source_text == ":"
-        assert any(w.code == "UNKNOWN_NUMBER_PART" for w in ctx.warnings)
-
-
-class TestTranslateQuantity:
-    def test_kg(self, ctx, profile):
-        node = Quantity(
-            surface="3kg",
-            span=Span(0, 3),
-            number=Number(surface="3", span=Span(0, 1)),
-            unit="kg",
-            unit_canonical="kilogram",
-        )
-        cells = translate_quantity(node, ctx, profile)
-        # number_sign + digit 3 + (56 + k + g) = 5 cells — one lowercase
-        # sign covers the same-class run "kg" (e.g. 47cm is ⠼⠙⠛⠰⠉⠍).
-        assert cells[0].role == "number_sign"
-        assert cells[1].role == "digit"
-        unit_cells = [c for c in cells if c.role == "quantity_unit"]
-        assert len(unit_cells) == 3
-        assert [c.source_text for c in unit_cells] == ["kg", "k", "g"]
-        assert [c.dots for c in unit_cells] == [(5, 6), (1, 3), (1, 2, 4, 5)]
-        # Unit lookup hits the letter tables → no UNKNOWN_NUMBER_PART warnings.
-        assert not any(w.code == "UNKNOWN_NUMBER_PART" for w in ctx.warnings)
-
-    def test_missing_letter_prefix_warns(self, ctx, profile, monkeypatch):
-        # A profile that hits a letter class but defines no letter_prefix for
-        # it emits the unit letters bare; in cn_current a bare "a" shares a
-        # cell with digit "1", so "47cm" would read ambiguously against the
-        # digit run. Warn rather than silently drop the sign (shipped cn_*
-        # profiles define letter_prefix, so this only fires on an incomplete
-        # one — simulated by dropping the structure here).
-        real = type(profile).math_structure
-        monkeypatch.setattr(
-            type(profile),
-            "math_structure",
-            lambda self, key, *a, **k: ()
-            if key.startswith("letter_prefix")
-            else real(self, key, *a, **k),
-        )
-        node = Quantity(
-            surface="47cm",
-            span=Span(0, 4),
-            number=Number(surface="47", span=Span(0, 2)),
-            unit="cm",
-            unit_canonical="centimetre",
-        )
-        cells = translate_quantity(node, ctx, profile)
-        assert any(w.code == "MISSING_NUMBER_PART" for w in ctx.warnings)
-        # the letters are still emitted, just without the (missing) sign
-        assert [c.source_text for c in cells if c.role == "quantity_unit"] == [
-            "c",
-            "m",
-        ]
-
-    def test_unit_case_change_starts_new_sign(self, ctx, profile):
-        # "mW" — the class change (lower → upper) starts a new sign, so
-        # mixed-case units stay lossless: ⠰⠍⠠⠺ (milliwatt ≠ megawatt).
-        node = Quantity(
-            surface="5mW",
-            span=Span(0, 3),
-            number=Number(surface="5", span=Span(0, 1)),
-            unit="mW",
-            unit_canonical=None,
-        )
-        cells = translate_quantity(node, ctx, profile)
-        unit_cells = [c for c in cells if c.role == "quantity_unit"]
-        assert [c.dots for c in unit_cells] == [
-            (5, 6), (1, 3, 4), (6,), (2, 4, 5, 6),
-        ]
-
-    def test_unit_all_caps_run_doubles_capital_sign(self, ctx, profile):
-        # "MW" — whole-run capitals double the capital sign: ⠠⠠⠍⠺.
-        node = Quantity(
-            surface="5MW",
-            span=Span(0, 3),
-            number=Number(surface="5", span=Span(0, 1)),
-            unit="MW",
-            unit_canonical=None,
-        )
-        cells = translate_quantity(node, ctx, profile)
-        unit_cells = [c for c in cells if c.role == "quantity_unit"]
-        assert [c.dots for c in unit_cells] == [
-            (6,), (6,), (1, 3, 4), (2, 4, 5, 6),
-        ]
-        # Letters keep their own source spans; the signs sit on the run's
-        # first letter.
-        assert unit_cells[0].source_span == Span(1, 2)
-        assert unit_cells[-1].source_span == Span(2, 3)
-
-    def test_unit_span_derives_from_number_span_end(self, ctx, profile):
-        # When the digit surface was normalized (here a thousands separator
-        # stripped: source "1,000g" → number.surface "1000"), the unit char
-        # span must start at the number's *source* span end, not at
-        # ``span.start + len(surface)`` which would drift by the stripped char.
-        node = Quantity(
-            surface="1,000g",
-            span=Span(0, 6),
-            number=Number(surface="1000", span=Span(0, 5)),  # covers "1,000"
-            unit="g",
-            unit_canonical="gram",
-        )
-        cells = translate_quantity(node, ctx, profile)
-        unit_cells = [c for c in cells if c.role == "quantity_unit"]
-        assert unit_cells, "expected a unit cell"
-        # "g" sits at source index 5 (right after "1,000"), so span is (5, 6) —
-        # not (4, 5) as the old len-based offset would have produced.
-        assert unit_cells[-1].source_span == Span(5, 6)
-
-    def test_unit_falls_back_to_unknown_when_table_misses(self, ctx, profile):
-        # An exotic unit char absent from both math_identifiers and
-        # punctuation should warn and emit one unknown cell.
-        node = Quantity(
-            surface="3·",
-            span=Span(0, 2),
-            number=Number(surface="3", span=Span(0, 1)),
-            unit="☃",  # snowman — not in any table
-            unit_canonical=None,
-        )
-        cells = translate_quantity(node, ctx, profile)
-        assert cells[-1].role == "unknown"
-        assert any(w.code == "UNKNOWN_NUMBER_PART" for w in ctx.warnings)
-
-    def test_unit_falls_back_to_punctuation_table(self, ctx, profile):
-        # A unit char that's NOT in the math identifier/letter table
-        # but IS in the punctuation table should be emitted as a
-        # "punct"-role cell (no warning). This exercises the
-        # punctuation-fallback arm of ``_unit_char_cells``.
-        # ":" is in cn_current's punctuation table but not in any
-        # letter / math-identifier table.
-        node = Quantity(
-            surface="3:",
-            span=Span(0, 2),
-            number=Number(surface="3", span=Span(0, 1)),
-            unit=":",  # punctuation char (cn_current ⠒)
-            unit_canonical=None,
-        )
-        cells = translate_quantity(node, ctx, profile)
-        punct_cells = [c for c in cells if c.role == "punct"]
-        assert punct_cells, "expected at least one punct-role cell"
-        # The cell carries the source char as its source_text.
-        assert punct_cells[0].source_text == ":"
-        # No warning — the punctuation table hit cleanly.
-        assert not any(w.code == "UNKNOWN_NUMBER_PART" for w in ctx.warnings)
-
-
-class TestTranslatePercentTrailingNotPercent:
-    """A Percent whose surface doesn't end in a mapped percent sign
-    (a hand-rolled / round-tripped node) must fail loud — warn + unknown
-    cell — instead of silently dropping the trailing char."""
-
-    def test_percent_with_unmapped_trailing_char_warns_not_silent(
-        self, ctx, profile
-    ):
-        # Surface ends in a char (`§`) that has no punctuation mapping in
-        # cn_current. The digit cells still render; the trailing char now
-        # surfaces as an unknown cell + warning rather than vanishing.
-        node = Percent(
-            surface="5§",
-            span=Span(0, 2),
-            number=Number(surface="5", span=Span(0, 1)),
-        )
-        cells = translate_percent(node, ctx, profile)
-        assert any(c.role == "number_sign" for c in cells)
-        assert any(c.role == "digit" for c in cells)
-        # § isn't a percent sign — emit an unknown cell, never drop it.
-        unknowns = [c for c in cells if c.role == "unknown"]
-        assert len(unknowns) == 1
-        assert unknowns[0].source_text == "§"
-        assert "UNKNOWN_NUMBER_PART" in [w.code for w in ctx.warnings]
 
 
 class TestMissingNumberPart:
@@ -349,11 +126,11 @@ class TestTranslateDate:
             surface="2026年5月17日",
             span=Span(0, 10),
             parts=[
-                Number(surface="2026", role="year", span=Span(0, 4)),
+                Number(surface="2026", span=Span(0, 4)),
                 HanziMarker(surface="年", span=Span(4, 5)),
-                Number(surface="5", role="month", span=Span(5, 6)),
+                Number(surface="5", span=Span(5, 6)),
                 HanziMarker(surface="月", span=Span(6, 7)),
-                Number(surface="17", role="day", span=Span(7, 9)),
+                Number(surface="17", span=Span(7, 9)),
                 HanziMarker(surface="日", span=Span(9, 10)),
             ],
         )
@@ -386,7 +163,7 @@ class TestTranslateDate:
             surface="2026年",
             span=Span(0, 5),
             parts=[
-                Number(surface="2026", role="year", span=Span(0, 4)),
+                Number(surface="2026", span=Span(0, 4)),
                 HanziMarker(surface="年", span=Span(4, 5), reading="nian2"),
             ],
         )
@@ -409,7 +186,7 @@ class TestTranslateDate:
             surface="5月",
             span=Span(0, 2),
             parts=[
-                Number(surface="5", role="month", span=Span(0, 1)),
+                Number(surface="5", span=Span(0, 1)),
                 HanziMarker(surface="月", span=Span(1, 2), reading="yue4"),
             ],
         )
@@ -428,7 +205,7 @@ class TestTranslateDate:
             surface="3旬",
             span=Span(0, 2),
             parts=[
-                Number(surface="3", role="year", span=Span(0, 1)),
+                Number(surface="3", span=Span(0, 1)),
                 HanziMarker(surface="旬", span=Span(1, 2)),  # no pinyin
             ],
         )
@@ -446,7 +223,7 @@ class TestTranslateDate:
             surface="3旬",
             span=Span(0, 2),
             parts=[
-                Number(surface="3", role="year", span=Span(0, 1)),
+                Number(surface="3", span=Span(0, 1)),
                 HanziMarker(surface="旬", span=Span(1, 2), reading="xun2"),
             ],
         )

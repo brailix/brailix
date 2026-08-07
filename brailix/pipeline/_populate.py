@@ -265,12 +265,11 @@ def populate_music_block(
     text, _doc_span, leaf_span = _ensure_block_span(block)
 
     # A full :class:`ScoreBlock` runs in ``"score"`` mode; a single-passage
-    # :class:`MusicBlock` in ``"block"`` mode. Previously both were forced
-    # to ``"score"``, so a MusicBlock never received its declared mode — a
-    # third-party adapter that honours the public MusicContext contract
-    # would have been misinformed. Since ``mode`` is now a real parse input,
-    # it becomes the tree-cache salt so two blocks with identical source +
-    # text but different modes can't share one cached tree.
+    # :class:`MusicBlock` in ``"block"`` mode. Forcing both to ``"score"``
+    # would misinform any adapter that honours the ``MusicContext`` contract
+    # about what it is being handed. ``mode`` is a real parse input, so it is
+    # also the tree-cache salt: two blocks with identical source + text but
+    # different modes can't share one cached tree.
     mode: Literal["block", "score"] = (
         "score" if isinstance(block, ScoreBlock) else "block"
     )
@@ -361,13 +360,13 @@ def populate_math_block(
         # UNKNOWN_NODE warning from the dispatcher — expected, and slightly
         # more precise than one warning for the whole block.
         #
-        # Every character gets its own leaf-local span, unconditionally. It
-        # used to depend on whether the caller supplied a block span, and to
-        # count from that span's start when they had: a formula that failed to
-        # parse was then the one construct in a compiled document whose cells
-        # were untraceable (ARCHITECTURE#arch-traceability), or traceable to
-        # the wrong coordinate system. ``_ensure_block_span`` has already
-        # given the block a span either way, so there is nothing left for the
+        # Every character gets its own leaf-local span, unconditionally.
+        # Making that depend on whether the caller supplied a block span — and
+        # counting from that span's start when they did — leaves a formula
+        # that fails to parse as the one construct in a compiled document
+        # whose cells are untraceable (ARCHITECTURE#arch-traceability), or
+        # traceable to the wrong coordinate system. ``_ensure_block_span``
+        # gives the block a span either way, so there is nothing for the
         # distinction to protect.
         block.children = [
             Unknown(surface=ch, span=Span(i, i + 1))

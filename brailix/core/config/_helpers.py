@@ -40,25 +40,6 @@ def _is_metadata_key(k: str) -> bool:
     return len(k) > 1 and k.startswith("_")
 
 
-# Legacy flat names → dotted names for the features table. The old
-# profile JSON used flat ``math_simplify_fraction``; new JSON groups
-# them under ``features.math.simplify_fraction``. Callers can use
-# either form via :meth:`BrailleProfile.feature`.
-_FEATURE_FLAT_ALIASES: dict[str, str] = {
-    "math_simplify_fraction":         "math.simplify_fraction",
-    "math_simplify_script":           "math.simplify_script",
-    "math_op_spacing":                "math.op_spacing",
-    "tone":               "zh.tone",
-    "tone_omit_neutral":  "zh.tone_omit_neutral",
-    "number_sign":        "zh.number_sign",
-}
-
-# Reverse map (dotted → legacy flat) for O(1) reverse lookup.
-_FEATURE_DOTTED_TO_FLAT: dict[str, str] = {
-    v: k for k, v in _FEATURE_FLAT_ALIASES.items()
-}
-
-
 def _read_json(path: Path) -> dict[str, Any]:
     """Read a JSON object from ``path``, normalising every failure mode
     into :class:`ConfigurationError` — the ``load_profile`` contract is
@@ -199,25 +180,23 @@ def _entity_to_char(name: str, *, file: str | None = None) -> str:
     return expanded
 
 
-def _feature_keys_to_try(key: str) -> list[str]:
-    """Return the canonical + legacy variants of a feature key.
-
-    For a key already in the legacy → dotted alias map, return both
-    forms. For an unmapped key, return just itself plus its reverse
-    alias if any.
-    """
-    alias = _FEATURE_FLAT_ALIASES.get(key) or _FEATURE_DOTTED_TO_FLAT.get(key)
-    if alias is not None:
-        return [key, alias]
-    return [key]
-
-
 def _feature_lookup(features: dict[str, Any], key: str, default: Any) -> Any:
     """Walk a (possibly) nested features dict by dotted path.
 
     A plain (no-dot) key is looked up directly at the top level.
     Dotted keys walk into sub-dicts. Returns ``default`` if any
     segment is missing or hits a non-dict intermediate.
+
+    One key, one place to look. Six flags used to have a second, flat
+    spelling as well (``tone`` for ``zh.tone``, ``math_op_spacing`` for
+    ``math.op_spacing``, ...), tried in turn — which meant a flag could be
+    read under a name the shipped profiles never write, and it was: the
+    Chinese tone policy asked for ``"tone"`` *deliberately*, because the flat
+    form is tried first and a test setting a top-level ``features["tone"]``
+    would otherwise not be seen. Production code choosing its lookup key so a
+    test's override lands is the alias map earning its keep by breaking the
+    thing it was supposed to be invisible to. The group a flag lives in is
+    part of its name now, on both sides of the read.
     """
     if "." not in key:
         return features.get(key, default)

@@ -1,14 +1,14 @@
 """Property-based tests for the pure config helpers.
 
-Three small functions every profile load leans on, pinned against
+Two small functions every profile load leans on, pinned against
 independent models over generated inputs:
 
 * ``_feature_lookup`` — dotted-path walk over a (possibly) nested feature
   dict: equals a hand-rolled walk for any dict shape, any path, default
-  on any miss or non-dict intermediate;
-* ``_feature_keys_to_try`` — the canonical + legacy key variants: checked
-  data-driven over the REAL alias tables (both directions), so the test
-  can't drift from the mapping it guards;
+  on any miss or non-dict intermediate. It is now the *whole* of how a
+  feature is found — the legacy flat-name alias table that used to sit in
+  front of it, and the ``_feature_keys_to_try`` fan-out that read it, are
+  gone;
 * ``_to_dots`` / ``_extract_dots`` — the single point every profile dot
   tuple is built: order-preserving, exactly the 1..8-unique domain, and
   the documented acceptance model for bare-list vs cell-spec-object vs
@@ -27,10 +27,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from brailix.core.config._helpers import (
-    _FEATURE_DOTTED_TO_FLAT,
-    _FEATURE_FLAT_ALIASES,
     _extract_dots,
-    _feature_keys_to_try,
     _feature_lookup,
     _to_dots,
 )
@@ -70,21 +67,34 @@ class TestFeatureLookup:
             features, key, default
         )
 
-    def test_alias_tables_round_both_directions(self) -> None:
-        # Data-driven over the real tables: every legacy flat key tries
-        # itself first, then its dotted form — and vice versa. A new alias
-        # is covered the moment it's added to the map.
-        assert _FEATURE_FLAT_ALIASES, "alias table unexpectedly empty"
-        for flat, dotted in _FEATURE_FLAT_ALIASES.items():
-            assert _feature_keys_to_try(flat) == [flat, dotted]
-        for dotted, flat in _FEATURE_DOTTED_TO_FLAT.items():
-            assert _feature_keys_to_try(dotted) == [dotted, flat]
+    @settings(max_examples=100)
+    @given(
+        features=st.dictionaries(
+            st.sampled_from(_SEGMENTS), _feature_dicts, max_size=3
+        ),
+        key=_keys,
+    )
+    def test_a_key_is_looked_for_at_exactly_one_address(
+        self, features: dict, key: str
+    ) -> None:
+        """No second place to find a flag.
 
-    @settings(max_examples=60)
-    @given(key=_keys)
-    def test_unmapped_key_tries_only_itself(self, key: str) -> None:
-        if key not in _FEATURE_FLAT_ALIASES and key not in _FEATURE_DOTTED_TO_FLAT:
-            assert _feature_keys_to_try(key) == [key]
+        The walk used to be tried twice per lookup — once for the key as
+        written, once for its legacy flat / dotted counterpart — so a value
+        stored under *either* spelling answered. Deleting a key's own address
+        must now make the lookup miss, whatever else the dict holds: that is
+        what "one flag, one name" means operationally, and a generated dict
+        is what says it about shapes nobody wrote down.
+        """
+        missing = object()
+        if _feature_lookup(features, key, missing) is missing:
+            return
+        *parents, leaf = key.split(".")
+        node: Any = features
+        for segment in parents:
+            node = node[segment]
+        del node[leaf]
+        assert _feature_lookup(features, key, missing) is missing
 
 
 class TestDotHelpers:

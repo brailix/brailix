@@ -86,27 +86,23 @@ class TestBasicTonePolicy:
             parsed=ParsedPinyin(initial="m", final="a", tone=""),
         )
 
-    def test_flag_off_disables(self, cn_current):
-        cn_current.features["tone"] = False
-        try:
-            p = BasicTonePolicy(profile=cn_current)
-            assert not p.should_emit_tone(
-                syllable="ma2",
-                parsed=ParsedPinyin(initial="m", final="a", tone="2"),
-            )
-        finally:
-            del cn_current.features["tone"]
+    def test_flag_off_disables(self, cn_current, monkeypatch):
+        monkeypatch.setitem(cn_current.features["zh"], "tone", False)
+        p = BasicTonePolicy(profile=cn_current)
+        assert not p.should_emit_tone(
+            syllable="ma2",
+            parsed=ParsedPinyin(initial="m", final="a", tone="2"),
+        )
 
-    def test_neutral_flag_off_emits_5(self, cn_current):
-        cn_current.features["tone_omit_neutral"] = False
-        try:
-            p = BasicTonePolicy(profile=cn_current)
-            assert p.should_emit_tone(
-                syllable="ma5",
-                parsed=ParsedPinyin(initial="m", final="a", tone="5"),
-            )
-        finally:
-            del cn_current.features["tone_omit_neutral"]
+    def test_neutral_flag_off_emits_5(self, cn_current, monkeypatch):
+        monkeypatch.setitem(
+            cn_current.features["zh"], "tone_omit_neutral", False
+        )
+        p = BasicTonePolicy(profile=cn_current)
+        assert p.should_emit_tone(
+            syllable="ma5",
+            parsed=ParsedPinyin(initial="m", final="a", tone="5"),
+        )
 
 
 # ---------------------------------------------------------------------------

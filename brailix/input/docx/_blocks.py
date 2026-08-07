@@ -72,9 +72,9 @@ def _iter_effective_body_children(parent: Element):
 
     ``<w:ins>`` / ``<w:del>`` / ``<w:moveFrom>`` / ``<w:moveTo>`` /
     ``<w:customXml>`` hold their blocks directly; a block-level ``<w:sdt>``
-    (content control) holds them under ``<w:sdtContent>``. Without this a
-    tracked-changes or content-control wrapped paragraph would be silently
-    dropped (the old ``else: continue`` in :func:`_iter_body_blocks`).
+    (content control) holds them under ``<w:sdtContent>``. Without the
+    descent, a tracked-changes or content-control wrapped paragraph is
+    silently dropped.
     """
     for child in parent:
         tag = _local(child.tag)
@@ -347,9 +347,9 @@ def _iter_paragraph_tokens(
     * ``("block", MathBlock | ImageAlt)`` — a standalone display equation,
       or an embedded picture's placeholder (both split the paragraph).
 
-    This is the old body of :func:`_walk_paragraph_content`, re-expressed
-    so the run-level vertical-alignment survives down to the coalescer
-    instead of being flattened into bare text.
+    A token stream rather than flat text, so a run's vertical alignment
+    survives down to the coalescer instead of being flattened away before
+    the scripts can be assembled.
     """
     field_state = _FieldState()
     # Iterate top-level children only — ``.iter()`` would re-visit nested
@@ -391,9 +391,9 @@ def _emit_child_tokens(
     content-control (``<w:sdt>``), smart-tag and custom-XML wrappers can
     recurse through the *same* dispatch. Word emits ordinary runs — including
     inline ``<m:oMath>`` islands, ``<w:object>`` OLE math and run
-    ``<w:vertAlign>`` scripts — inside these wrappers; the old text-only
-    ``else`` scrape destroyed all of that (a tracked-changes insertion of a
-    formula came out as bare literal text, an OLE equation vanished).
+    ``<w:vertAlign>`` scripts — inside these wrappers, so scraping a wrapper
+    for its text alone destroys all of it: a tracked-changes insertion of a
+    formula comes out as bare literal text, an OLE equation vanishes.
     """
     tag = _local(child.tag)
     if tag == "oMathPara":
@@ -891,10 +891,10 @@ def _walk_alternate_content(
     if fallback is not None:
         pieces = list(_walk_alt_subtree(fallback, ole_blobs))
         # Short-circuit Choice only when Fallback yielded *real* content. An
-        # empty placeholder run yields ("", None), which used to set produced=
-        # True and suppress Choice — silently dropping a formula that lived
-        # only in Choice. Consumers filter empty pieces, so yielding them is
-        # harmless; the decision must hinge on whether any was non-empty.
+        # empty placeholder run yields ("", None); counting that as produced
+        # suppresses Choice and silently drops a formula that lives only
+        # there. Consumers filter empty pieces, so yielding them is harmless;
+        # the decision must hinge on whether any was non-empty.
         if any(piece or math is not None for piece, math in pieces):
             yield from pieces
             return

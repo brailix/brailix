@@ -97,7 +97,7 @@ class Segmenter(_Protocol):
 @_runtime_checkable
 class Normalizer(_Protocol):
     """Promote raw :class:`Segment` runs into typed inline nodes where
-    possible (numbers, dates, percent, latin words, math_inline).
+    possible (numbers, dates, latin words, math_inline).
     Segments the normalizer doesn't recognize pass through untouched
     so the Pipeline's per-type frontend dispatch can take over."""
 

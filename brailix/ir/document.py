@@ -80,13 +80,13 @@ class Block:
     # refuses an entry that is not the declared class — so a tree that
     # serializes is a tree that reloads.
     #
-    # It exists because the two directions used to be written separately, and
-    # only one of them failed when a subclass forgot: the deserializer rejected
-    # an unregistered nested payload loudly, while the serializer *skipped* the
-    # field — so a new block type with a structural field saved successfully,
-    # produced valid JSON, and came back from a reload without the field. Now
-    # the base loop refuses to serialize nested IR nobody declared, so the
-    # omission surfaces where the tree is built rather than after a round trip.
+    # One declaration rather than two, because the directions fail
+    # asymmetrically when a subclass forgets: a deserializer rejects an
+    # unregistered nested payload loudly, while a serializer *skips* the field
+    # — a new block type with a structural field saves successfully, produces
+    # valid JSON, and comes back from a reload without the field. The base
+    # loop refuses to serialize nested IR nobody declared, so the omission
+    # surfaces where the tree is built rather than after a round trip.
     structural_fields: _ClassVar[dict[str, _BlockClass]] = {}
     id: str | None = None
     children: list[InlineNode] = _field(default_factory=list)
@@ -504,17 +504,17 @@ class DocumentIR:
         is not:
 
         * the root ``type`` must be ``"document"``. :meth:`to_dict` writes it
-          and the JSON Schema declares it a constant, but nothing used to read
-          it back, so a *block* payload — or any object whose shape happened to
-          parse — loaded as a document without complaint.
+          and the JSON Schema declares it a constant, but nothing else reads
+          it back, so without this check a *block* payload — or any object
+          whose shape happens to parse — loads as a document without complaint.
         * ``version`` must be a string, and one this release knows
-          (:data:`_SUPPORTED_IR_VERSIONS`). An unknown version used to be
-          stored verbatim and echoed back out by :meth:`to_dict`, while the
-          fields that version added were dropped by
+          (:data:`_SUPPORTED_IR_VERSIONS`). Storing an unknown version
+          verbatim and echoing it back out of :meth:`to_dict` — while the
+          fields that version added are dropped by
           :func:`block_from_dict` (which skips fields the dataclass does not
-          declare — deliberate forward tolerance *within* a known version).
-          The result was not a document degraded to 1.0 but a file still
-          claiming to be a 2.0 document with its 2.0 content gone. Refusing
+          declare — deliberate forward tolerance *within* a known version) —
+          yields not a document degraded to 1.0 but a file still claiming to
+          be a 2.0 document with its 2.0 content gone. Refusing
           the load says so; a future version arrives with an explicit
           migration, not by silently half-reading.
 

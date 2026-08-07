@@ -195,7 +195,152 @@ def _translate_children(
         # unrelated caller to trip over.
         ctx.options.pop("_next_inline_sibling", None)
         ctx.options.pop("_english_run_active", None)
+    return _drop_separator_before_attached_punct(
+        _collapse_adjacent_blanks(out), profile
+    )
+
+
+def _is_typed_blank(cell: BrailleCell) -> bool:
+    """Whether a blank cell stands for a space character in the source.
+
+    The provenance convention every synthesised separator follows — the
+    frontend's word boundaries, the punctuation table's auto-spaces, a date's
+    component gap: no ``source_text`` and a zero-width span at the boundary it
+    was emitted for. A space the author typed carries the character and the
+    span it occupies.
+
+    Both spacing passes below turn on this distinction, and for the same
+    reason: a synthesised separator is one rule's opinion about a boundary and
+    another rule may overrule it, whereas a typed space is content and neither
+    pass is allowed to edit the source.
+    """
+    span = cell.source_span
+    return bool(cell.source_text) or (span is not None and not span.is_empty())
+
+
+def _collapse_adjacent_blanks(cells: list[BrailleCell]) -> list[BrailleCell]:
+    """Merge a run of consecutive word-separator blanks into one.
+
+    A blank between two words is a *separator*, and a separator repeated is
+    still one separator — but nothing upstream is in a position to know that.
+    The spacing a document ends up with is decided independently in several
+    places: the punctuation table's ``space_before`` / ``space_after`` for a
+    mark, the boundary pass for a hanzi↔letter or composite↔hanzi seam, the
+    source's own typed space. Each is right about its own rule and none can
+    see the others, so two of them agreeing on "put a blank here" writes two
+    blanks — which reads as a word gap where there is none.
+
+    Collapsing here is what lets those rules be stated *generously*: a
+    profile can declare the orthographic spacing a mark takes without first
+    proving no other rule already supplies it.
+
+    Judged by **role**, never by ``dots == ()``. The layout control sentinels
+    (``line_break`` / ``hang_open`` / ``hang_close`` / ``cases_*``) and an
+    unknown placeholder are dots-empty too, and they are backend→renderer wire
+    protocol, not spacing — merging them would silently drop a matrix row
+    break. The same rule
+    :func:`brailix.backend.math.utils._last_is_blank` states for the math
+    emitters.
+
+    Deliberately **not** trimming a leading or trailing blank. A blank at the
+    edge of a block is not obviously redundant: for a degenerate formula
+    (``$$``, ``$ $``) the blank *is* the whole output, and an abbreviation's
+    own ``space_after`` puts one at the end of ``i.e.`` — thirteen golden
+    cases turn on that. Whether an edge blank should survive is an
+    orthographic decision per case, not a de-duplication.
+
+    And only a **synthesised** separator is ever dropped. A blank the author
+    typed is content: ``选项是(   )`` — the fill-in blank of a multiple-choice
+    item — is three spaces wide because the writer made it three wide, and
+    merging them rewrites the question. The two are told apart by provenance,
+    the convention the frontend already follows: a synthesised separator
+    carries ``surface=""`` and a zero-width span at the boundary, a typed
+    space carries the character and the span it occupies.
+
+    So within a run of adjacent blanks: if any came from the source, those are
+    what survive and the synthesised ones beside them go; if the run is all
+    synthesised, one survives — the **first**, so the separator keeps the
+    coordinate of the boundary it was emitted for and a proofreader clicking
+    it lands where the rule pointed.
+    """
+    if len(cells) < 2:
+        return cells
+    out: list[BrailleCell] = []
+    i = 0
+    while i < len(cells):
+        if cells[i].role != "space":
+            out.append(cells[i])
+            i += 1
+            continue
+        j = i
+        while j < len(cells) and cells[j].role == "space":
+            j += 1
+        run = cells[i:j]
+        typed = [c for c in run if _is_typed_blank(c)]
+        out.extend(typed if typed else run[:1])
+        i = j
     return out
+
+
+def _drop_separator_before_attached_punct(
+    cells: list[BrailleCell], profile: BrailleProfile
+) -> list[BrailleCell]:
+    """Drop a synthesised separator standing in front of a punctuation mark
+    that is written against the word before it.
+
+    The companion to :func:`_collapse_adjacent_blanks`, and the other half of
+    what lets the punctuation table state its spacing generously. That pass
+    settles two rules that *agree*; this one settles a rule against the table
+    entry of whatever comes next. ``space_after`` says "a word ends here",
+    which is true of ``50%`` and of ``i.e.`` — but when the next thing is not
+    a word, it is a mark belonging to the word just written and there is no
+    gap: ``50%，`` is ⠨⠐, ``（注）。`` is ⠠⠆⠐⠆.
+
+    A mark's entry declares the spacing on **both** its sides, so a missing
+    ``space_before`` is not silence. In a table whose own note says there is
+    no blanket "add one space" default, it is the statement that this mark is
+    written attached — which makes it a veto over a separator some other rule
+    supplied, not merely a request declined. Every closing and every sentence
+    mark in the shipped tables is in that class; the marks that open something
+    (``（`` ``“`` ``《``) carry ``space_before`` and keep the blank.
+
+    Only a **synthesised** separator is dropped, the same line
+    :func:`_collapse_adjacent_blanks` draws: the space in ``50% ，`` is one the
+    author typed, and neither pass edits the source. And only a ``punct`` cell
+    can veto — the dots-empty layout sentinels and the unknown placeholder are
+    not punctuation, and the marker cells (list bullet, footnote ref) are
+    print structure that :func:`expand_block` places outside this pass
+    entirely, along with the table column separators.
+    """
+    if len(cells) < 2:
+        return cells
+    out: list[BrailleCell] = []
+    for i, cell in enumerate(cells):
+        if (
+            cell.role == "space"
+            and not _is_typed_blank(cell)
+            and i + 1 < len(cells)
+            and _punct_attaches_left(cells[i + 1], profile)
+        ):
+            continue
+        out.append(cell)
+    return out
+
+
+def _punct_attaches_left(cell: BrailleCell, profile: BrailleProfile) -> bool:
+    """Whether ``cell`` is a punctuation mark whose table entry asks for no
+    blank in front of it — one written against the preceding word.
+
+    Looked up by the cell's own ``source_text``, which for a punctuation cell
+    is the mark as the table keys it (including the two-char ``——``), so a
+    multi-cell mark answers the same whichever of its cells is asked. A cell
+    with no ``source_text`` names no table entry and so vetoes nothing —
+    declining to drop a blank is the answer that changes nothing.
+    """
+    if cell.role != "punct" or not cell.source_text:
+        return False
+    space_before, _ = profile.punctuation_spaces(cell.source_text)
+    return not space_before
 
 
 # ---- List -----------------------------------------------------------------
@@ -242,10 +387,10 @@ def _list_marker_cells(
     is synthesised print structure, not a character of ``item.text``,
     so the whole run anchors to the item text's LEADING EDGE in
     leaf-local coordinates: ``Span(0, 0)``, the same zero-width-anchor
-    convention as the number sign. (It previously inherited spans
-    derived from the item's block-level span, mixing document
-    coordinates into an otherwise leaf-local cell sequence — an ordinal
-    digit then claimed item-text characters it never came from.)
+    convention as the number sign. (Deriving them from the item's
+    block-level span instead mixes document coordinates into an
+    otherwise leaf-local cell sequence, and an ordinal digit then
+    claims item-text characters it never came from.)
     """
     cells: list[BrailleCell] = []
     if ordered:
@@ -351,10 +496,11 @@ def _footnote_ref_cells(ref: str, profile: BrailleProfile) -> list[BrailleCell]:
     Like a list marker (:func:`_list_marker_cells`), the ref is synthesised
     print structure rather than a character of the footnote's ``text``, so
     every cell it produces anchors to the body text's LEADING EDGE in
-    leaf-local coordinates: ``Span(0, 0)``. It used to walk
-    ``Footnote.span`` — a *document* coordinate, and one that describes the
-    footnote body, not the ref — so each ref character claimed a body
-    character it never came from, offset by wherever the footnote sat in the
+    leaf-local coordinates: ``Span(0, 0)``. Walking
+    ``Footnote.span`` instead — a *document* coordinate, and one that
+    describes the footnote body rather than the ref — makes each ref
+    character claim a body character it never came from, offset by wherever
+    the footnote sits in the
     source. Giving the ref its own precise positions would need a coordinate
     contract for ``ref`` itself; ``Block.span`` cannot supply one.
     """

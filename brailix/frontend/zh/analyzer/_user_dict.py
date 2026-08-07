@@ -120,12 +120,12 @@ def _prefix_trie(
 
     The scan below extends a run one token at a time and has to know when to
     stop. "Until the surface is longer than the longest key in the dictionary"
-    was the wrong bound, and the only one available without this: it is a
+    is the only bound available without this, and it is the wrong one: it is a
     property of the whole dictionary rather than of the text at hand, so one
-    long entry — a legitimate one, and nothing rejected it — made **every**
+    long entry — a legitimate one, and nothing rejects it — makes **every**
     token position accumulate up to that length, re-copying the growing string
     each step. Quadratic in the longest key, once per token: a synthetic
-    8000-token block took over twenty seconds.
+    8000-token block takes over twenty seconds.
 
     Descending this answers the question that actually decides it — "can any
     key still extend what has been read" — in one dictionary lookup per
@@ -135,8 +135,8 @@ def _prefix_trie(
     its length to store, and the point here is that a long key costs nothing
     it does not use.
 
-    ``longest`` reproduces the old "nothing here could match anything" exit for
-    a dictionary of single characters, which the rewrite rule refuses
+    ``longest`` keeps the cheap "nothing here could match anything" exit for a
+    dictionary of single characters, which the rewrite rule refuses
     (:data:`_MIN_SURFACE_LEN`).
     """
     root: dict[str, object] = {}
@@ -244,8 +244,8 @@ def normalize_seg_dict(
     * **Pieces that aren't a sequence of strings** — ``None``, a number, an
       object that will not iterate, a ``None`` sitting among real pieces.
       This one is *structural*: the three below all assume the value can be
-      walked as strings at all, and the walk itself used to be the thing
-      that raised (``tuple(None)`` → ``TypeError``, out of a function whose
+      walked as strings at all, and unchecked it is the walk itself that
+      raises (``tuple(None)`` → ``TypeError``, out of a function whose
       contract is to skip and carry on). A bare string is refused too, not
       read: ``{"国家": "国家"}`` would iterate to ``("国", "家")`` and so mean
       the opposite of what it looks like — *cut this apart* where the author

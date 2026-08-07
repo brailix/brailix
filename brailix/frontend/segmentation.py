@@ -32,7 +32,7 @@ ChineseAnalyzer):
 
 * ``hanzi_text``  — CJK Unified Ideographs run.
 * ``digit_run``   — ASCII or fullwidth digit run (Normalizer turns
-  this into ``number`` / ``date`` / ``quantity`` / ``percent`` etc.).
+  this into ``number`` / ``date``).
 * ``latin_text``  — ASCII letters.
 * ``greek_text``  — Greek alphabet letters (Α-Ω / α-ω + variants
   ϕ ϵ ϑ ϱ ς). Split from latin_text so each script gets its own
@@ -74,10 +74,10 @@ if _TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 # Inline math wrapped in single $...$. Detected by a paired scan
-# (:func:`_iter_inline_math_spans`) rather than a regex: the old
-# lookaround pattern ``(?<!\$)\$(?!\$)([^$\n]+)\$(?!\$)`` rejected two
-# *adjacent* islands like ``$a$$b$`` (each side of the ``$$`` junction
-# tripped the other's guard). We still do not treat ``$$...$$`` (display
+# (:func:`_iter_inline_math_spans`) rather than a regex: a lookaround pattern
+# like ``(?<!\$)\$(?!\$)([^$\n]+)\$(?!\$)`` rejects two *adjacent* islands
+# such as ``$a$$b$``, because each side of the ``$$`` junction trips the
+# other's guard. We still do not treat ``$$...$$`` (display
 # math) as inline here; the input layer marks display math as a
 # math_block.
 
@@ -381,8 +381,8 @@ def _drop_overlapping(
 
     Both sides arrive sorted by start and internally disjoint, so one index
     walks ``others`` forward across the whole stream rather than restarting per
-    candidate: a text alternating math islands and phonetic candidates used to
-    cost one full scan of every math span per phonetic span.
+    candidate — which on a text alternating math islands and phonetic
+    candidates costs one full scan of every math span per phonetic span.
     """
     at = 0
     total = len(others)
@@ -506,8 +506,8 @@ AUTO_SEGMENTER = "auto"
 
 # The built-in, language-neutral segmenter's registered name, kept distinct
 # from the name above: one is what THIS adapter is called, the other is what
-# a caller who names nothing gets. Conflating them is what used to make
-# ``segmenter="default"`` unselectable — passing it read as "no preference".
+# a caller who names nothing gets. Conflating them makes
+# ``segmenter="default"`` unselectable — passing it reads as "no preference".
 BUILTIN_SEGMENTER = "default"
 
 segmenter_registry.register(BUILTIN_SEGMENTER, DefaultSegmenter)
@@ -554,7 +554,7 @@ def segment(block, ctx: FrontendContext | None = None) -> list[Segment]:
 # (see :mod:`brailix`), which is where a third-party segmenter registers — and
 # the subsystem entry point the orchestrator calls, which the
 # :mod:`brailix.frontend` facade re-exports. The concrete adapters, the
-# adapter-name constants and the character-class helpers are internal, and
-# ``from ... import *`` was offering all of them (along with ``Block``,
-# ``Segment``, ``Span`` and ``Registry``) until this list said otherwise.
+# adapter-name constants and the character-class helpers are internal; without
+# this list ``from ... import *`` offers all of them, along with ``Block``,
+# ``Segment``, ``Span`` and ``Registry``.
 __all__ = ("segmenter_registry", "segment")

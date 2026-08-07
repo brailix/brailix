@@ -11,8 +11,6 @@ from brailix.ir.inline import (
     MathInline,
     MusicInline,
     Number,
-    Percent,
-    Quantity,
     Segment,
     Unknown,
     Word,
@@ -31,18 +29,8 @@ class TestConstruction:
         assert w.reading is None
 
     def test_word_full(self):
-        w = Word(
-            surface="重庆",
-            reading="chong2 qing4",
-            pos="ns",
-            span=Span(0, 2),
-            confidence=0.99,
-        )
+        w = Word(surface="重庆", reading="chong2 qing4", span=Span(0, 2))
         assert w.reading == "chong2 qing4"
-
-    def test_number_with_role(self):
-        n = Number(surface="2026", role="year", span=Span(0, 4))
-        assert n.role == "year"
 
     def test_unknown_with_reason(self):
         u = Unknown(surface="??", reason="bad encoding")
@@ -55,30 +43,16 @@ class TestCompositeStructures:
             surface="2026年5月17日",
             span=Span(0, 11),
             parts=[
-                Number(surface="2026", role="year"),
+                Number(surface="2026"),
                 HanziMarker(surface="年", reading="nian2"),
-                Number(surface="5", role="month"),
+                Number(surface="5"),
                 HanziMarker(surface="月", reading="yue4"),
-                Number(surface="17", role="day"),
+                Number(surface="17"),
                 HanziMarker(surface="日", reading="ri4"),
             ],
         )
         assert len(d.parts) == 6
         assert d.parts[0].surface == "2026"
-
-    def test_quantity(self):
-        q = Quantity(
-            surface="3.5kg",
-            number=Number(surface="3.5"),
-            unit="kg",
-            unit_canonical="kilogram",
-        )
-        assert q.number.surface == "3.5"
-        assert q.unit_canonical == "kilogram"
-
-    def test_percent(self):
-        p = Percent(surface="12%", number=Number(surface="12"))
-        assert p.number.surface == "12"
 
 
 class TestSerializationWord:
@@ -109,11 +83,11 @@ class TestSerializationComposite:
             surface="2026年5月17日",
             span=Span(0, 11),
             parts=[
-                Number(surface="2026", role="year"),
+                Number(surface="2026"),
                 HanziMarker(surface="年", reading="nian2"),
-                Number(surface="5", role="month"),
+                Number(surface="5"),
                 HanziMarker(surface="月", reading="yue4"),
-                Number(surface="17", role="day"),
+                Number(surface="17"),
                 HanziMarker(surface="日", reading="ri4"),
             ],
         )
@@ -121,68 +95,28 @@ class TestSerializationComposite:
         assert payload["type"] == "date"
         assert payload["span"] == [0, 11]
         assert len(payload["parts"]) == 6
-        assert payload["parts"][0] == {"type": "number", "surface": "2026", "role": "year"}
+        assert payload["parts"][0] == {"type": "number", "surface": "2026"}
 
         restored = from_dict(payload)
         assert isinstance(restored, Date)
         assert len(restored.parts) == 6
         assert isinstance(restored.parts[0], Number)
-        assert restored.parts[0].role == "year"
+        assert restored.parts[0].surface == "2026"
         assert isinstance(restored.parts[1], HanziMarker)
         assert restored.parts[1].reading == "nian2"
 
 
 class TestNestedChildTypesAreEnforced:
-    """``Quantity.number`` / ``Percent.number`` are declared ``Number | None``,
-    and deserialization must hold the declaration.
+    """``Date.parts`` is declared ``list[InlineNode]``, and deserialization
+    must hold the declaration.
 
-    It dispatches on the field *name* and rebuilt whatever the payload claimed
-    to be, so a malformed document could produce a ``Quantity`` whose
-    ``number`` is a ``Word``: IR that satisfies the dataclass and breaks every
-    consumer reading it, silently and at a distance. The block side already
-    verified its nested children (``TableRow.cells``, ``Table.rows``,
-    ``List.items``); the inline side is the same idea, and had drifted.
+    It dispatches on the field *name* and rebuilds whatever each entry claims
+    to be, so a malformed document could put something that is not a node in
+    the list: IR that satisfies the dataclass and breaks every consumer
+    walking it, silently and at a distance. The block side already verified
+    its nested children (``TableRow.cells``, ``Table.rows``, ``List.items``);
+    the inline side is the same idea, and had drifted.
     """
-
-    @pytest.mark.parametrize("holder", ["quantity", "percent"])
-    def test_a_wrong_typed_number_is_refused(self, holder: str) -> None:
-        with pytest.raises(TypeError, match="expects Number"):
-            from_dict(
-                {
-                    "type": holder,
-                    "surface": "abc kg",
-                    "number": {"type": "word", "surface": "abc"},
-                }
-            )
-
-    def test_a_well_typed_number_still_round_trips(self) -> None:
-        q = Quantity(
-            surface="3.5kg",
-            number=Number(surface="3.5"),
-            unit="kg",
-            unit_canonical="kg",
-        )
-        restored = from_dict(q.to_dict())
-        assert isinstance(restored, Quantity)
-        assert isinstance(restored.number, Number)
-        assert restored.number.surface == "3.5"
-
-    def test_an_explicit_null_number_is_still_accepted(self) -> None:
-        restored = from_dict(
-            {"type": "percent", "surface": "12%", "number": None}
-        )
-        assert isinstance(restored, Percent)
-        assert restored.number is None
-
-    def test_a_prebuilt_node_passes_through(self) -> None:
-        """Assembling a tree by hand — a built node instead of its dict form —
-        keeps working; the check is on the type, not on the payload shape."""
-        restored = from_dict(
-            {"type": "quantity", "surface": "3kg", "number": Number(surface="3")}
-        )
-        assert isinstance(restored, Quantity)
-        assert restored.number is not None
-        assert restored.number.surface == "3"
 
     def test_a_non_node_in_parts_is_refused(self) -> None:
         """``Date.parts`` takes any inline node, so what is checked there is

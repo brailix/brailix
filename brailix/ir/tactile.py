@@ -47,10 +47,9 @@ metadata (and as the number a caller reads back to ask "how fine is this?").
 It is a single scalar, so it cannot describe a grid whose two axes ended up
 at slightly different densities — pixel counts round, and the raster cap can
 scale a page down — which is exactly why it is not what an encoder consults.
-It used to be: the BMP and PNG headers were written from ``dpi`` while the
-PDF ``MediaBox`` was written from the millimetres, so the two disagreed
-whenever they were not exactly in step, and the same drawing embossed at one
-size and printed at another.
+An encoder that reads it instead disagrees with one that reads the
+millimetres whenever the two are not exactly in step, and the same drawing
+embosses at one size and prints at another.
 """
 
 from __future__ import annotations
@@ -197,17 +196,17 @@ class TactileRaster:
                 f"bit_depth must be one of {sorted(SUPPORTED_BIT_DEPTHS)}, "
                 f"got {self.bit_depth!r}"
             )
-        # The TYPE first, before anything reads a length. ``if not self.data``
-        # was the whole test, and "falsy" is not "omitted": ``None``, ``False``,
-        # ``0``, ``[]`` and ``{}`` all matched it, so a value that contradicts
+        # The TYPE first, before anything reads a length. Testing ``if not
+        # self.data`` instead reads "falsy" as "omitted": ``None``, ``False``,
+        # ``0``, ``[]`` and ``{}`` all match it, so a value that contradicts
         # the declared type — an unset variable, a deserialiser returning
-        # ``None`` for a missing key — was silently rewritten into a blank grid
-        # of the right size. The call then *succeeded* and produced an
-        # all-flat page, which is worse than failing: an embosser run comes
-        # back empty and nothing upstream ever reported a fault. The other
-        # half was as bad in the other direction — a non-falsy value with no
-        # ``len()`` (an ``object()``, an ``int``) raised a bare ``TypeError``
-        # from the length check, naming neither the field nor the raster.
+        # ``None`` for a missing key — is silently rewritten into a blank grid
+        # of the right size. The call then *succeeds* and produces an all-flat
+        # page, which is worse than failing: an embosser run comes back empty
+        # and nothing upstream ever reported a fault. The other half is as bad
+        # in the other direction — a non-falsy value with no ``len()`` (an
+        # ``object()``, an ``int``) raises a bare ``TypeError`` from the length
+        # check, naming neither the field nor the raster.
         if isinstance(self.data, bytearray):
             grid = self.data
         elif isinstance(self.data, (bytes, memoryview)):
@@ -248,10 +247,10 @@ class TactileRaster:
 
         The grid is deliberately *not* allocated here: an omitted ``data`` is
         what :meth:`__post_init__` fills with ``bytearray(width * height)``,
-        after the field checks. Allocating in this factory put the allocator
-        ahead of those checks, so the same illegal ``width`` that
+        after the field checks. Allocating in this factory would put the
+        allocator ahead of those checks, so the same illegal ``width`` that
         ``TactileRaster(width=...)`` refuses with a ``ValueError`` naming the
-        field came back from here as whichever error ``bytearray`` happened to
+        field comes back from here as whichever error ``bytearray`` happens to
         raise — ``TypeError: cannot convert 'float' object to bytearray`` for
         ``1.5``, ``TypeError: string argument without an encoding`` for
         ``"4"``, a bare ``negative count`` for ``-1``. One type, one

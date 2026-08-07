@@ -102,27 +102,8 @@ def is_math_symbol(ch: str) -> bool:
     return len(ch) == 1 and _unicodedata.category(ch) == "Sm"
 
 
-# Every spelling of the percent sign a document can carry: ASCII and the
-# full-width form Chinese input methods produce.
-#
-# Shared because both sides of one decision need it and they sit in different
-# layers. The frontend decides that a number followed by one of these is a
-# :class:`~brailix.ir.inline.Percent`; the backend decides how to write that
-# node in braille. Kept as two hand-synchronised copies — which is what it
-# was, complete with a "keep in sync" comment — a third spelling added to the
-# frontend would have it building a valid ``Percent`` that the backend then
-# treats as malformed IR. One definition removes the possibility rather than
-# leaving a comment asking someone to remember.
-#
-# Here rather than in either layer for the reason this module exists at all
-# (see the module docstring): a lexical fact about the input, which frontend
-# and backend can both depend on without a reverse import.
-PERCENT_CHARS: frozenset[str] = frozenset({"%", "％"})
-
-
 __all__ = (
     "INVISIBLE_CPS",
-    "PERCENT_CHARS",
     "fold_fullwidth",
     "is_math_symbol",
     "nonstandard_char_hint",

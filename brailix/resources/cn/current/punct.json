@@ -27,8 +27,8 @@
     "?":  {"cells": ["c_236"],               "space_after": true},
     ":":  {"cells": ["c_25"],                "space_after": true},
     ";":  {"cells": ["c_23"],                "space_after": true},
-    "%":  "c_46",
-    "％": "c_46",
+    "%":  {"cells": ["c_46"],                "space_after": true},
+    "％": {"cells": ["c_46"],                "space_after": true},
 
     "（": {"cells": ["c_56", "c_3"],          "space_before": true},
     "）": {"cells": ["c_6", "c_23"],          "space_after": true},

@@ -59,8 +59,8 @@ re-exported here, and here is where to import them from.
 One qualification, because that package's own docstring could be read as
 promising more than this one does: what ``brailix.pipeline`` resolves to *is*
 pinned by the test suite, exactly and in order. That is not a second supported
-address; it is a guard on the namespace a third party can reach, which stops
-private helpers accumulating in it (they had) and stops the list growing by
+address; it is a guard on the namespace a third party can reach, which keeps
+private helpers from accumulating in it and the list from growing by
 accident. The compatibility promise is this package's ``__all__`` and the
 facades named above — one list, one place.
 
@@ -81,14 +81,14 @@ resolved **lazily**, on first attribute access (PEP 562): ``import brailix``
 loads no layer at all, and ``from brailix import Pipeline`` is what pulls in
 the orchestrator and everything under it. That is not a startup micro-
 optimisation — it is what keeps the layering real at runtime. Python runs a
-package's ``__init__`` before any of its submodules, so while this file
-imported :mod:`brailix.pipeline` eagerly, ``import brailix.ir`` — the neutral
-mediator layer that promises to load carrying core primitives alone — first
-executed *this* file, and with it the frontend, the backend, the renderers
-and the input layer. The dependency matrix was one-directional in the source
-and reconnected into the whole compiler at import time, and the AST guard
-that checks the matrix walks the layer directories, so it never saw the edge
-a facade added. ``tests/test_core_layering.py`` now also asserts the real
+package's ``__init__`` before any of its submodules, so an eager
+``import brailix.pipeline`` here would mean that ``import brailix.ir`` — the
+neutral mediator layer that promises to load carrying core primitives alone —
+executes *this* file first, and with it the frontend, the backend, the
+renderers and the input layer. The dependency matrix would be one-directional
+in the source and reconnected into the whole compiler at import time, with the
+AST guard none the wiser: it walks the layer directories, and the edge is one
+a facade adds. ``tests/test_core_layering.py`` also asserts the real
 ``sys.modules`` set from a fresh interpreter, which is the only place that
 question has an honest answer.
 

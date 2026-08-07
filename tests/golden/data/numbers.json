@@ -40,10 +40,13 @@
       ]
     },
     "percent": {
-      "description": "Percent sign",
+      "description": "Percent sign — a Number beside a Punct, with the spacing in the punctuation table",
       "cases": [
-        {"src": "50%", "expected": "⠼⠑⠚⠨", "note": "percent sign ⠨ after digits"},
-        {"src": "99.5%", "expected": "⠼⠊⠊⠂⠑⠨", "note": "decimal percentage"}
+        {"src": "50%", "expected": "⠼⠑⠚⠨⠀", "note": "percent sign ⠨ after digits, then %'s own space_after. The trailing blank is the raw cell stream; the layout renderer trims a line's trailing blanks, exactly as it does for the comma in '你，'"},
+        {"src": "99.5%", "expected": "⠼⠊⠊⠂⠑⠨⠀", "note": "decimal percentage"},
+        {"src": "50%的人", "expected": "⠼⠑⠚⠨⠀⠙⠢⠀⠚⠴⠂", "note": "a percentage is a whole word, and the blank that says so is %'s space_after — it used to need a composite IR node because the table could not express it"},
+        {"src": "50%，很多", "expected": "⠼⠑⠚⠨⠐⠀⠓⠴⠄⠙⠕⠁", "note": "no blank before the comma: the mark is written against the word it follows, so its table entry vetoes the separator %'s space_after asked for"},
+        {"src": "50% 是", "expected": "⠼⠑⠚⠨⠀⠱⠆", "note": "one blank, not two: %'s space_after and the author's own space both land here and the adjacent-blank merge keeps the typed one"}
       ]
     },
     "quantity": {
@@ -51,7 +54,8 @@
       "cases": [
         {"src": "3kg", "expected": "⠼⠉⠰⠅⠛", "note": "3 kg: digits + one latin_lower sign for the unit run (docx 计量单位 例1: 47cm → ⠼⠙⠛⠰⠉⠍)"},
         {"src": "5m", "expected": "⠼⠑⠰⠍", "note": "5 m"},
-        {"src": "100mg", "expected": "⠼⠁⠚⠚⠰⠍⠛", "note": "100 mg"}
+        {"src": "100mg", "expected": "⠼⠁⠚⠚⠰⠍⠛", "note": "100 mg"},
+        {"src": "3.5kg重", "expected": "⠼⠉⠂⠑⠰⠅⠛⠀⠌⠲⠆", "note": "a number+unit abutting Chinese takes a word boundary — and the blank comes from the latin↔hanzi rule, not from any composite node: the same text with a non-unit run (3.5foo重) renders with the identical structure, which is why there is no unit table"}
       ]
     },
     "math_number": {

@@ -405,10 +405,10 @@ def _last_is_blank(cells: list[BrailleCell]) -> bool:
 
     Judge by *role*, not by ``dots == ()``. BLANK_CELL, LINE_BREAK_CELL,
     HANG_OPEN_CELL, HANG_CLOSE_CELL and unknown placeholder cells all
-    carry empty dots, so the old ``dots == ()`` test treated every one of
-    them as a blank. That swallowed the required space before a binary
+    carry empty dots, so a ``dots == ()`` test reads every one of them as
+    a blank. That swallows the required space before a binary
     operator after a matrix / determinant / equation-system (which ends
-    in HANG_CLOSE_CELL): ``|A| = 5`` lost the blank before ``=``. Only a
+    in HANG_CLOSE_CELL): ``|A| = 5`` loses the blank before ``=``. Only a
     real space and a line break count as separation here — a line break
     renders to whitespace so a following blank stays suppressed, but a
     closed hanging group or an unknown symbol is content the next

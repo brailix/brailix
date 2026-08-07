@@ -104,10 +104,8 @@ _FACADE: dict[str, list[str]] = {
         "MathInline",
         "MusicInline",
         "Number",
-        "Percent",
         "PhoneticInline",
         "Punct",
-        "Quantity",
         "Segment",
         "Space",
         "Unknown",
@@ -170,6 +168,13 @@ _FACADE: dict[str, list[str]] = {
         "InputLimits",
         "InputTooLargeError",
         "DEFAULT_INPUT_LIMITS",
+        # What ``parse_file`` routes, derived from its own table. Published
+        # because the question "can this application open that file?" is asked
+        # from outside — a desktop file dialog builds its filter from it — and
+        # the answer was previously re-typed by each caller, which is how
+        # ``.abc`` and ``.mid`` became formats the library read and the
+        # desktop opened as plain text.
+        "ROUTED_SUFFIXES",
     ],
     "brailix.frontend": [
         "segment",
@@ -1723,71 +1728,31 @@ def test_an_extension_module_still_resolves_everything_it_promises(
     )
 
 
-# Addresses the extension surface promised, that have moved. Each stays
-# importable and warns until the release named beside it, at which point the
-# entry (and the shim in ``brailix.frontend._deprecated_paths``) go together.
-_MOVED_EXTENSION_PATHS: dict[str, tuple[str, str, str]] = {
-    "brailix.frontend.segment": (
-        "segmenter_registry",
-        "brailix.frontend.segmentation",
-        "0.2",
-    ),
-    "brailix.frontend.normalize": (
-        "normalizer_registry",
-        "brailix.frontend.normalization",
-        "0.2",
-    ),
-}
-
-
-@pytest.mark.parametrize("old", sorted(_MOVED_EXTENSION_PATHS))
-def test_a_moved_extension_path_still_resolves_and_says_so(old: str) -> None:
-    """A promised address that moves leaves a shim behind, not a crater.
+def test_a_moved_extension_path_is_gone_rather_than_aliased() -> None:
+    """A registry that moves moves — it leaves no second address behind.
 
     ``brailix.frontend.segment`` / ``.normalize`` were renamed to end a name
     collision with the facade's own :func:`~brailix.frontend.segment` function,
-    which is a real fix — but ``from brailix.frontend.segment import
-    segmenter_registry`` was in the extension manifest and *worked* (it
-    resolves through ``sys.modules``, so the collision never touched it), and
-    an adapter written against it got ``ModuleNotFoundError`` on upgrade.
-    Editing the manifest to match the new reality is not the same as keeping
-    the promise the old one made.
+    and for a while the old addresses stayed resolvable through
+    :data:`sys.modules` shims that warned on read. They are deleted: an alias
+    kept "for one release" is a second published address for a registry with
+    state, a second thing every check here has to reason about, and a promise
+    that has to be un-made later anyway. The manifest above is the whole
+    extension surface, and these paths are not on it.
 
-    Both spellings are pinned here on purpose: the new path is what the
-    manifest above promises going forward, the old one is what still has to
-    resolve — to the same object — until the release named in
-    :data:`_MOVED_EXTENSION_PATHS`.
-    """
-    name, new, removed_in = _MOVED_EXTENSION_PATHS[old]
-    current = getattr(importlib.import_module(new), name)
-
-    with pytest.warns(DeprecationWarning, match=removed_in) as record:
-        legacy = getattr(importlib.import_module(old), name)
-
-    assert legacy is current, (
-        f"{old}.{name} must forward to {new}.{name}, not to a second object — "
-        f"a registry has state, and two of them means adapters registered "
-        f"through the old address are invisible through the new one."
-    )
-    assert new in str(record[0].message), (
-        "the warning has to name where the caller should import from instead"
-    )
-
-
-def test_a_moved_path_does_not_shadow_the_function_that_took_its_name() -> None:
-    """Importing the old address must not put a module where the function is.
-
-    The rename happened because ``brailix.frontend.segment`` cannot be both a
-    published function and a submodule. A shim written as a *file* would
-    resolve the old import and, as a side effect of loading, bind itself onto
-    the package under exactly the name the function holds — re-arming the
-    collision the moment anyone touched the compatibility path, for every
-    caller in the process. This is why the shims are ``sys.modules`` entries.
+    Asserted rather than assumed, because a shim is exactly the kind of thing
+    that comes back: a ``segment.py`` file added under ``frontend/`` would
+    resolve the old import *and*, as a side effect of loading, bind itself onto
+    the package under the name the published function holds — re-arming the
+    collision the rename existed to end, for every caller in the process. So
+    both halves are checked: the old address does not resolve, and the facade
+    name is still the function.
     """
     import brailix.frontend as facade
 
-    importlib.import_module("brailix.frontend.segment")
-    importlib.import_module("brailix.frontend.normalize")
+    for old in ("brailix.frontend.segment", "brailix.frontend.normalize"):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(old)
 
     assert callable(facade.segment) and not isinstance(
         facade.segment, types.ModuleType

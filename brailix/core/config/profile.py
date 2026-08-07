@@ -22,7 +22,6 @@ from dataclasses import replace as _replace
 from typing import Any as _Any
 
 from brailix.core.config._helpers import (
-    _feature_keys_to_try,
     _feature_lookup,
     _feature_merge,
 )
@@ -166,26 +165,21 @@ class BrailleProfile:
     # -- Features -----------------------------------------------------
 
     def feature(self, key: str, default: _Any = None) -> _Any:
-        """Look up a feature by name.
+        """Look up a feature by its dotted name (``"math.simplify_fraction"``,
+        ``"zh.tone"``), returning ``default`` when it isn't set.
 
-        Supports both new dotted form (``"math.simplify_fraction"``)
-        and legacy flat form (``"math_simplify_fraction"``). Legacy
-        keys are routed to the dotted lookup via
-        :data:`_FEATURE_FLAT_ALIASES`. Missing keys return ``default``.
+        The key is the path, whole: the group a flag lives in is part of what
+        it is called, and it is the same string :meth:`with_features` and the
+        ``profile_features`` pipeline field write by. A flag declared at the
+        top level of the features table (a plugin's own switch, say) is
+        addressed by its bare name, which is that same rule with one segment.
 
-        Live changes to ``self.features`` (e.g. via ``monkeypatch.setitem``
-        in tests) are honoured — we re-walk the dict on every call
-        rather than caching the flat lookup once at load time.
+        Live changes to ``self.features`` are honoured — the dict is re-walked
+        on every call rather than the lookup being cached at load time.
         """
-        # Try the literal key first against the live features dict —
-        # both as a flat key and as a dotted path. Then try its
-        # alias counterpart.
         sentinel = object()
-        for k in _feature_keys_to_try(key):
-            value = _feature_lookup(self.features, k, sentinel)
-            if value is not sentinel:
-                return value
-        return default
+        value = _feature_lookup(self.features, key, sentinel)
+        return default if value is sentinel else value
 
     def with_features(self, overrides: _Mapping[str, _Any]) -> BrailleProfile:
         """A copy of this profile with ``overrides`` written into its features.
@@ -346,17 +340,6 @@ class BrailleProfile:
         result = self._compose_letter(ch)
         self._letter_cache[ch] = result
         return result
-
-    def math_identifier(self, ch: str) -> tuple[tuple[int, ...], ...] | None:
-        """Backwards-compatible alias for :meth:`letter`.
-
-        The method was renamed ``math_identifier`` → ``letter`` when the
-        letter tables were generalised beyond math (§P4.5 / §R5+). Kept so
-        external / legacy callers documented against the old name (and the
-        ARCHITECTURE / math-redesign / math-boundaries docs that promise
-        the alias) keep working.
-        """
-        return self.letter(ch)
 
     def bare_letter(self, ch: str) -> tuple[int, ...] | None:
         """Look up the bare letter cell for ``ch`` — **without** the

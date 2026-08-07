@@ -9,8 +9,8 @@ pre-NCB profile uses.  Emit a tone cell whenever:
 * the master switch ``features.zh.tone`` is on (defaults True).
 
 The :func:`BasicTonePolicy.should_emit_tone` body re-reads the two
-flags every call so test code that monkeypatches
-``profile.features["tone"] = False`` is honoured — caching the
+flags every call so a caller that changes one on a live profile
+(``profile.features["zh"]["tone"] = False``) is honoured — caching the
 booleans at policy build time would silently skip those changes.
 """
 
@@ -39,19 +39,13 @@ class BasicTonePolicy:
         next_parsed: ParsedPinyin | None = None,
     ) -> bool:
         del syllable, next_syllable, next_parsed  # pure flag logic
-        # Read the master switch via the legacy flat ``"tone"`` key, not
-        # the dotted ``"zh.tone"``: ``feature()`` tries the literal key
-        # first, so a test that sets a top-level
-        # ``profile.features["tone"] = False`` is honoured. Normally there
-        # is no top-level ``tone`` and the lookup falls through the
-        # ``tone → zh.tone`` alias to the nested JSON value (the two agree);
-        # ``feature("zh.tone")`` would resolve that nested value first and
-        # never see the top-level test override.
-        if not self.profile.feature("tone", True):
+        if not self.profile.feature("zh.tone", True):
             return False
         if not parsed.tone:
             return False
-        if parsed.tone == "5" and self.profile.feature("tone_omit_neutral", True):
+        if parsed.tone == "5" and self.profile.feature(
+            "zh.tone_omit_neutral", True
+        ):
             return False
         return True
 

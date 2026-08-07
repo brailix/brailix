@@ -110,12 +110,11 @@ class CompilationSession:
         did.
 
         Every ``translate_*`` entry point ends here, so the diagnostic does not
-        depend on which one the caller picked. It used to live only in the
-        block-level compile, on the reasoning that only that path returns a
-        cache key — but the blend is a property of the *run*, not of the result
-        shape: a whole-document translation straddling a registration is just
-        as much a mix of two implementations, and silently returning it told
-        the caller nothing.
+        depend on which one the caller picked. Putting it only in the
+        block-level compile — on the reasoning that only that path returns a
+        cache key — misplaces it: the blend is a property of the *run*, not of
+        the result shape, and a whole-document translation straddling a
+        registration is just as much a mix of two implementations.
         """
         if not self.epoch_drifted():
             return False

@@ -226,6 +226,104 @@ def test_the_renderer_protocol_names_every_registered_renderer() -> None:
     )
 
 
+# What each shipped renderer actually hands back. Written out per renderer
+# rather than as "one of these types", because the loose form is what the
+# documents had: "output-domain IR → bytes", said of a layer where ``unicode``
+# returns a ``str``, ``cells`` a list or a dict, and ``tactile_preview`` a page
+# of U+2800 characters. Three of eight, stated as all eight, in the sentence a
+# reader meets the layer through — and nothing could contradict it, because the
+# ``Renderer`` protocol's return type is deliberately ``Any`` and every one of
+# these conformed.
+#
+# So this is the executable half of that sentence. It is not a claim that these
+# types can never change: it is a claim that changing one is a change to the
+# published output contract, which lands here and in the documents together.
+_RENDERER_OUTPUT: dict[str, tuple[type, ...]] = {
+    "unicode": (str,),
+    "brf": (bytes,),
+    # JSON-serialisable by design: a flat cell list for a sequence, a document
+    # object for a document.
+    "cells": (list, dict),
+    # ``str`` unless an encoding was configured, hence both.
+    "layout": (str, bytes),
+    "bmp": (bytes,),
+    "png": (bytes,),
+    "pdf": (bytes,),
+    # A U+2800 page for a refreshable display — text, not an image file.
+    "tactile_preview": (str,),
+}
+
+
+def _sample_ir(domain: str) -> object:
+    """The smallest IR of ``domain`` a renderer can be handed."""
+    from brailix.ir.braille import BrailleBlock, BrailleCell, BrailleDocument
+    from brailix.ir.tactile import TactileRaster
+
+    if domain == _TACTILE_DOMAIN:
+        return TactileRaster(
+            width=4, height=4, dpi=20.0, page_width_mm=5.0, page_height_mm=5.0
+        )
+    return BrailleDocument(
+        metadata={},
+        blocks=[
+            BrailleBlock(
+                block_type="paragraph",
+                cells=[BrailleCell(dots=frozenset({1}), source_span=None)],
+            )
+        ],
+    )
+
+
+def test_every_renderer_produces_what_the_output_contract_says() -> None:
+    """The layer is a *dumb encoder*, not a byte encoder.
+
+    Rendered for real, because the type is the whole claim and a docstring
+    saying ``bytes`` renders exactly as well as one saying ``str``. The
+    manifest above is compared as an exact set too: a new renderer arrives with
+    its output category written down, rather than being discovered later by
+    whoever assumed the layer emits bytes.
+    """
+    partition = _domain_partition()
+    registered = {name for names in partition.values() for name in names}
+    assert registered == set(_RENDERER_OUTPUT), (
+        f"renderers with no declared output category: "
+        f"{sorted(registered - set(_RENDERER_OUTPUT))}; categories declared "
+        f"for renderers that no longer exist: "
+        f"{sorted(set(_RENDERER_OUTPUT) - registered)}"
+    )
+
+    wrong: list[str] = []
+    for domain, names in partition.items():
+        ir = _sample_ir(domain)
+        for name in sorted(names):
+            produced = renderer_registry.get(name).render(ir)
+            expected = _RENDERER_OUTPUT[name]
+            if not isinstance(produced, expected):
+                wrong.append(
+                    f"{name} returned {type(produced).__name__}, the contract "
+                    f"says {'/'.join(t.__name__ for t in expected)}"
+                )
+    assert not wrong, (
+        "renderers whose output type no longer matches the published "
+        "contract:\n  " + "\n  ".join(wrong)
+    )
+
+
+def test_the_renderers_do_not_all_produce_bytes() -> None:
+    """The sentence this pins, stated as the fact it stands on.
+
+    Reads the manifest rather than rendering again: what it guards is a future
+    edit *to the manifest* that quietly makes every entry ``bytes`` — at which
+    point the check above would pass on a claim the documents are once more
+    entitled to make, and nobody would have looked at the documents.
+    """
+    categories = {t for types in _RENDERER_OUTPUT.values() for t in types}
+    assert categories - {bytes}, (
+        "every renderer now produces bytes — if that is really true, the "
+        "architecture overviews and docs/index.md may go back to saying so"
+    )
+
+
 def test_the_documents_describe_both_output_domains() -> None:
     """Each document that describes the architecture names both domains.
 

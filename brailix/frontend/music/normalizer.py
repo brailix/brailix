@@ -104,9 +104,9 @@ def _normalize_voice_numbers(root: _ET.Element) -> None:
             seen,
             # ``isdecimal`` matches int()'s actual domain — ``isdigit``
             # also accepts circled / superscript digits ("①", "²") that
-            # int() rejects, so a malformed <voice> used to raise out of
-            # the normalizer's never-raises contract instead of sorting
-            # into the non-numeric bucket.
+            # int() rejects, so a malformed <voice> raises out of the
+            # normalizer's never-raises contract instead of sorting into
+            # the non-numeric bucket.
             key=lambda s: (0, int(s), s) if s.isdecimal() else (1, 0, s),
         )
         remap = {old: str(i + 1) for i, old in enumerate(ordered)}

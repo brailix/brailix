@@ -580,20 +580,21 @@ class LayoutRenderer:
             the user sees it as a runaway line and can restructure).
 
             Iterative, not recursive: a single break-point-free word
-            (e.g. a very long number) wraps across one line per atom-run,
-            so on a long enough word the old tail-recursion blew Python's
-            recursion limit (RecursionError) at the default line width.
-            Each branch that used to recurse on a suffix of ``atoms`` now
-            rebinds ``atoms`` and loops instead.
+            (e.g. a very long number) wraps one atom-run per line, so
+            recursing on the remaining suffix costs one stack frame per
+            line and hits Python's recursion limit on a long enough word
+            at the default line width. Each branch rebinds ``atoms`` and
+            loops instead.
             """
             nonlocal cur
             # Walk ``atoms`` with an index cursor + a running total instead of
             # re-slicing the suffix and re-summing it every pass.  A word with
-            # no break points places only a few atoms per line, so the old
-            # ``atoms = atoms[placed:]`` + ``sum(len(a) for a in atoms)`` were
-            # both O(n) per pass — O(n²) overall (a ~30k-cell unbroken run took
-            # seconds).  ``start`` advances; ``remaining_total`` is kept equal
-            # to ``sum(len(a) for a in atoms[start:])``.  The placement scan
+            # no break points places only a few atoms per line, so
+            # ``atoms = atoms[placed:]`` + ``sum(len(a) for a in atoms)`` are
+            # each O(n) per pass — O(n²) overall, which costs seconds on a
+            # ~30k-cell unbroken run.  ``start`` advances; ``remaining_total``
+            # is kept equal to ``sum(len(a) for a in atoms[start:])``.
+            # The placement scan
             # iterates by index (not ``atoms[start:]``) so its early break
             # isn't preceded by a full-suffix slice copy.
             start = 0
@@ -685,9 +686,8 @@ class LayoutRenderer:
                                 continue
                             # Otherwise the continuation indent alone is
                             # >= line_width: flushing this indent-only
-                            # line would emit a stray blank line (one per
-                            # cell — the old double-flush bug), so force a
-                            # single cell onto this over-wide line
+                            # line emits a stray blank line, one per cell,
+                            # so force a single cell onto this over-wide line
                             # instead.  The width overflow is unavoidable
                             # when the indent exceeds it, but the cursor
                             # still advances so we can't spin forever.

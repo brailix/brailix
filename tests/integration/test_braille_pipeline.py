@@ -33,11 +33,13 @@ class TestPipelineSmoke:
         """Punct survives the full pipeline as Unicode braille."""
         pipe = Pipeline(profile="cn_current")
         result = pipe.translate_text("，。！？")
-        # ， → 1 cell + space (2);
-        # 。 → 2 cells, no space (2);
-        # ！ → 2 cells, no space (2);
-        # ？ → 2 cells, no space (2).  Total: 8.
-        assert len(result.render()) == 8
+        # ， → 1 cell (1);
+        # 。 → 2 cells (2);
+        # ！ → 2 cells (2);
+        # ？ → 2 cells (2).  Total: 7.
+        # ，'s space_after does not survive: the 。 next to it is written
+        # against what precedes it, so there is no blank between two marks.
+        assert len(result.render()) == 7
         # No warnings — every char is mapped.
         codes = {w.code for w in result.warnings}
         assert "UNKNOWN_PUNCT" not in codes
@@ -165,11 +167,11 @@ class TestHandAnnotatedDocument:
                 surface="2026年5月17日",
                 span=Span(2, 12),
                 parts=[
-                    Number(surface="2026", role="year", span=Span(2, 6)),
+                    Number(surface="2026", span=Span(2, 6)),
                     HanziMarker(surface="年", span=Span(6, 7), reading="nian2"),
-                    Number(surface="5", role="month", span=Span(7, 8)),
+                    Number(surface="5", span=Span(7, 8)),
                     HanziMarker(surface="月", span=Span(8, 9), reading="yue4"),
-                    Number(surface="17", role="day", span=Span(9, 11)),
+                    Number(surface="17", span=Span(9, 11)),
                     HanziMarker(surface="日", span=Span(11, 12), reading="ri4"),
                 ],
             ),
@@ -290,7 +292,7 @@ class TestProvenance:
 
 
 class TestProfileFeature:
-    def test_disabling_tone_shortens_output(self):
+    def test_disabling_tone_shortens_output(self, monkeypatch):
         """When tone is suppressed, the same content yields fewer cells."""
         profile = load_profile("cn_current")
         ctx = BackendContext(profile="cn_current")
@@ -302,13 +304,10 @@ class TestProfileFeature:
             translate_document(doc, ctx, profile)
         )
 
-        profile.features["tone"] = False
-        try:
-            ctx2 = BackendContext(profile="cn_current")
-            rendered_no_tone = UnicodeBrailleRenderer().render(
-                translate_document(doc, ctx2, profile)
-            )
-        finally:
-            profile.features["tone"] = True
+        monkeypatch.setitem(profile.features["zh"], "tone", False)
+        ctx2 = BackendContext(profile="cn_current")
+        rendered_no_tone = UnicodeBrailleRenderer().render(
+            translate_document(doc, ctx2, profile)
+        )
 
         assert len(rendered_no_tone) < len(rendered_with_tone)

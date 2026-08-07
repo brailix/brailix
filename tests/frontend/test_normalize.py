@@ -1,5 +1,4 @@
 
-import pytest
 
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
@@ -16,9 +15,7 @@ from brailix.ir.inline import (
     LatinWord,
     MathInline,
     Number,
-    Percent,
     Punct,
-    Quantity,
     Segment,
     Space,
     Unknown,
@@ -158,10 +155,10 @@ class TestDate:
         assert d.span == Span(0, 10)  # 2,0,2,6,年,5,月,1,7,日 = 10 chars
         # parts: year, 年, month, 月, day, 日
         assert len(d.parts) == 6
-        assert isinstance(d.parts[0], Number) and d.parts[0].role == "year"
+        assert isinstance(d.parts[0], Number) and d.parts[0].surface == "2026"
         assert isinstance(d.parts[1], HanziMarker) and d.parts[1].surface == "年"
-        assert d.parts[2].role == "month"
-        assert d.parts[4].role == "day"
+        assert d.parts[2].surface == "5"
+        assert d.parts[4].surface == "17"
         # ARCHITECTURE#arch-boundaries: structural-marker readings are filled by the
         # normalizer (fixed 年→nián etc.), NOT the PinyinResolver — guard
         # that observable result so a deleted/renamed _MARKER_PINYIN can't
@@ -175,7 +172,7 @@ class TestDate:
         d = out[0]
         assert isinstance(d, Date)
         assert len(d.parts) == 2
-        assert d.parts[0].role == "year"
+        assert d.parts[0].surface == "2026"
         assert d.parts[1].surface == "年"
 
     def test_year_and_month(self):
@@ -183,7 +180,7 @@ class TestDate:
         d = out[0]
         assert isinstance(d, Date)
         assert len(d.parts) == 4
-        assert d.parts[2].role == "month"
+        assert d.parts[2].surface == "5"
 
     def test_date_followed_by_hanzi_splits_correctly(self):
         # 日 is peeled off the trailing hanzi_text "日去了重庆"
@@ -210,80 +207,35 @@ class TestDate:
 
 
 # ---------------------------------------------------------------------------
-# Percent
+# Percentages — not a composite
 # ---------------------------------------------------------------------------
 
 
-class TestPercent:
-    def test_basic(self):
+class TestPercentageIsNotAComposite:
+    """``12%`` is a :class:`Number` beside a :class:`Punct`.
+
+    It had a node type of its own, and the one thing that node decided was
+    the blank between a percentage and the word after it. That blank now
+    comes from ``%``'s own ``space_after`` in the punctuation table — where
+    the sign's cells already lived — so there is nothing left for a composite
+    to hold. Same shape as ``3.5kg`` above it.
+    """
+
+    def test_a_percentage_is_a_number_and_a_punct(self):
         out = _normalize_text("12%")
-        p = out[0]
-        assert isinstance(p, Percent)
-        assert p.surface == "12%"
-        assert p.number.surface == "12"
+        assert [type(n).__name__ for n in out] == ["Number", "Punct"]
+        assert out[0].surface == "12"
+        assert out[1].surface == "%"
 
-    def test_fullwidth_percent(self):
+    def test_the_fullwidth_sign_reads_the_same_way(self):
         out = _normalize_text("12％")
-        assert isinstance(out[0], Percent)
+        assert [type(n).__name__ for n in out] == ["Number", "Punct"]
+        assert out[1].surface == "％"
 
-    def test_decimal_percent(self):
+    def test_a_decimal_percentage_keeps_its_number_whole(self):
         out = _normalize_text("3.5%")
-        assert isinstance(out[0], Percent)
-        assert out[0].number.surface == "3.5"
-
-
-# ---------------------------------------------------------------------------
-# Quantity
-# ---------------------------------------------------------------------------
-
-
-class TestQuantity:
-    def test_basic(self):
-        out = _normalize_text("3.5kg")
-        q = out[0]
-        assert isinstance(q, Quantity)
-        assert q.surface == "3.5kg"
-        assert q.number.surface == "3.5"
-        assert q.unit == "kg"
-        assert q.unit_canonical == "kilogram"
-
-    def test_case_insensitive_unit(self):
-        out = _normalize_text("3GHz")
-        q = out[0]
-        assert isinstance(q, Quantity)
-        assert q.unit_canonical == "gigahertz"
-
-    def test_unknown_unit_falls_back(self):
-        # "100foo" — foo isn't a unit, should split as Number + LatinWord
-        out = _normalize_text("100foo")
         assert isinstance(out[0], Number)
-        assert isinstance(out[1], LatinWord)
-
-    def test_digits_followed_by_non_latin_is_not_quantity(self):
-        # Hits _try_quantity's early-out: digit_run + non-latin next.
-        # "12 foo" — digit + space + latin → digit not absorbed.
-        out = _normalize_text("12 foo")
-        assert isinstance(out[0], Number)
-        assert isinstance(out[1], Space)
-        assert isinstance(out[2], LatinWord)
-
-    def test_lowercase_single_letter_unit_still_matches(self):
-        # The case-sensitive single-letter rule must not break real lowercase
-        # symbols: "5g" is still 5 grams.
-        out = _normalize_text("5g")
-        assert isinstance(out[0], Quantity)
-        assert out[0].unit_canonical == "gram"
-
-    @pytest.mark.parametrize("text", ["5G", "4T", "5M"])
-    def test_uppercase_single_letter_is_not_a_unit(self, text):
-        # "5G" (network), "4T" (drive), "5M" (bandwidth) are common tech-prose
-        # tokens, NOT 5 grams / 4 tonnes / 5 metres. Case-insensitive folding
-        # used to misclassify them as quantities with unit_canonical="gram"
-        # etc.; an uppercase single letter must not match a lowercase-keyed
-        # single-letter unit. Regression.
-        out = _normalize_text(text)
-        assert isinstance(out[0], Number)
-        assert not any(isinstance(n, Quantity) for n in out)
+        assert out[0].surface == "3.5"
 
 
 class TestEmDash:

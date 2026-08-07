@@ -306,9 +306,9 @@ def _try_emit_atomic_lower_digit(
     the number sign and lowers the digits for a subscript that is a
     non-negative number carrying no comma, and for an exponent that is an
     integer; a determinant's elements are written ``a₁₁`` → ``⠡⠂⠂`` and
-    ``a₁₂`` → ``⠡⠂⠆``, two lowered digits each. This used to stop at one
-    digit, so ``a₁₁`` came out ``⠡⠼⠁⠁`` — number sign and upper digits —
-    while ``a₁`` beside it was correctly ``⠡⠂``.
+    ``a₁₂`` → ``⠡⠂⠆``, two lowered digits each. Stopping at one digit gives
+    ``a₁₁`` as ``⠡⠼⠁⠁`` — number sign and upper digits — beside a correct
+    ``a₁`` → ``⠡⠂``.
 
     Returns False for anything that is not a bare run of digits (``x^{n}``,
     ``x^{n+1}``, a negative or non-integer exponent), which keeps the

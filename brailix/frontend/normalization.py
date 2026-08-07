@@ -5,8 +5,6 @@ Segmenter and the rest of the frontend. It recognizes structural
 patterns and turns them into proper InlineNodes:
 
 * ``2026年5月17日`` → :class:`Date` with year/month/day parts
-* ``12%`` / ``12％`` → :class:`Percent`
-* ``3.5kg`` → :class:`Quantity` with normalized unit
 * bare ``2026`` → :class:`Number`
 * protected math_inline segments → atomic InlineNodes
 * punctuation / space / latin segments → atomic InlineNodes
@@ -16,6 +14,16 @@ downstream ChineseAnalyzer can tokenize it.
 
 The normalizer never crashes on weird input; unrecognized patterns
 fall through to :class:`Unknown`.
+
+Deliberately **not** composites: ``3.5kg`` and ``12%``. Each had a node type of
+its own and neither changed a single braille cell by having one. The blank
+that sets a quantity off from adjacent Chinese comes from the latin↔hanzi
+boundary rule, which a non-unit run like ``3.5foo`` gets too, so ``3.5kg`` is a
+:class:`Number` beside a :class:`LatinWord` and there is no table here of which
+latin runs count as units. A percentage's blank was the last one with no
+second source, and it now has one: ``%`` carries ``space_after`` in the
+punctuation table, where the rest of its orthography already lived. Both are
+pinned in ``tests/golden/data/numbers.json``.
 """
 
 from __future__ import annotations
@@ -25,7 +33,6 @@ from dataclasses import dataclass as _dataclass
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core import inline_math
-from brailix.core.chars import PERCENT_CHARS
 from brailix.core.context import FrontendContext
 from brailix.core.protocols import Normalizer
 from brailix.core.registry import Registry
@@ -38,10 +45,8 @@ from brailix.ir.inline import (
     LatinWord,
     MathInline,
     Number,
-    Percent,
     PhoneticInline,
     Punct,
-    Quantity,
     Segment,
     Space,
     Unknown,
@@ -63,31 +68,6 @@ if _TYPE_CHECKING:
 _MATH_OP_CANONICAL: dict[str, str] = {
     "-": "−",  # U+002D hyphen-minus → U+2212 (matches `minus;` entity)
 }
-
-# Known units: surface forms mapped to canonical names.
-# Kept intentionally small for now — domain-specific units arrive with
-# their respective adapters / profiles later.
-_UNITS: dict[str, str] = {
-    "kg": "kilogram",
-    "g": "gram",
-    "mg": "milligram",
-    "t": "tonne",
-    "m": "metre",
-    "cm": "centimetre",
-    "mm": "millimetre",
-    "km": "kilometre",
-    "ml": "millilitre",
-    "l": "litre",
-    "s": "second",
-    "ms": "millisecond",
-    "min": "minute",
-    "h": "hour",
-    "hz": "hertz",
-    "khz": "kilohertz",
-    "mhz": "megahertz",
-    "ghz": "gigahertz",
-}
-
 
 # ---------------------------------------------------------------------------
 # Output type alias
@@ -119,21 +99,9 @@ class DefaultNormalizer:
             seg = segs[i]
             # Composite patterns (multi-segment) — try longest first.
             # The variable is annotated as the broadest union so reusing
-            # it for date / percent / quantity probes type-checks; each
-            # probe returns its own concrete InlineNode subtype.
+            # it for the date / dash probes type-checks; each probe
+            # returns its own concrete InlineNode subtype.
             consumed: tuple[InlineNode, int] | None = _try_date(segs, i)
-            if consumed is not None:
-                node, next_i = consumed
-                out.append(node)
-                i = next_i
-                continue
-            consumed = _try_percent(segs, i)
-            if consumed is not None:
-                node, next_i = consumed
-                out.append(node)
-                i = next_i
-                continue
-            consumed = _try_quantity(segs, i)
             if consumed is not None:
                 node, next_i = consumed
                 out.append(node)
@@ -162,22 +130,17 @@ class DefaultNormalizer:
 # ---------------------------------------------------------------------------
 
 
-# Canonical pinyin for the structural hanzi markers.  Only 年/月/日 are
-# currently emitted (by ``_try_date``); 号/时/点/分/秒 are reserved for a
-# future clock matcher (the backend already speaks ``reading``, so they
-# need no further wiring).  Filling this here keeps the backend language-
-# agnostic — it just reads the IR.  These are *fixed* readings (always
-# 年→nián, 月→yuè), not context-sensitive polyphone resolution; the latter
-# is still the PinyinResolver's job and is intentionally not done here.
+# Canonical pinyin for the structural hanzi markers.  Exactly the three
+# :func:`_try_date` builds — a clock matcher that wanted 号/时/点/分/秒 would
+# add its readings in the same commit that gives them a way to be reached, and
+# entries no caller can name are not a head start.  Filling this here keeps the
+# backend language-agnostic — it just reads the IR.  These are *fixed* readings
+# (always 年→nián, 月→yuè), not context-sensitive polyphone resolution; the
+# latter is still the PinyinResolver's job and is intentionally not done here.
 _MARKER_PINYIN: dict[str, str] = {
     "年": "nian2",
     "月": "yue4",
     "日": "ri4",
-    "号": "hao4",
-    "时": "shi2",
-    "点": "dian3",
-    "分": "fen1",
-    "秒": "miao3",
 }
 
 
@@ -197,7 +160,7 @@ def _span_range(
     """Return ``Span(start_span.start, end_span.end)`` when both endpoints
     are present, else ``None``.
 
-    Composite InlineNodes (Date / Percent / Quantity) derive their own
+    Composite InlineNodes (Date) derive their own
     span from their first and last constituent segments. Segments built
     by the default segmenter always carry spans, but hand-built test
     fixtures occasionally pass ``span=None``; this helper propagates
@@ -220,7 +183,7 @@ def _try_date(segs: list[Segment], i: int) -> tuple[Date, int] | None:
         return None
 
     parts: list[InlineNode] = [
-        Number(surface=segs[i].surface, span=segs[i].span, role="year"),
+        Number(surface=segs[i].surface, span=segs[i].span),
         _marker("年", segs[i + 1].span),
     ]
     end_idx = i + 2
@@ -232,7 +195,7 @@ def _try_date(segs: list[Segment], i: int) -> tuple[Date, int] | None:
         and segs[end_idx].type == "digit_run"
         and _peel_marker_if_starts_with(segs, end_idx + 1, "月")
     ):
-        parts.append(Number(surface=segs[end_idx].surface, span=segs[end_idx].span, role="month"))
+        parts.append(Number(surface=segs[end_idx].surface, span=segs[end_idx].span))
         parts.append(_marker("月", segs[end_idx + 1].span))
         end_span = segs[end_idx + 1].span
         end_idx += 2
@@ -243,7 +206,7 @@ def _try_date(segs: list[Segment], i: int) -> tuple[Date, int] | None:
         and segs[end_idx].type == "digit_run"
         and _peel_marker_if_starts_with(segs, end_idx + 1, "日")
     ):
-        parts.append(Number(surface=segs[end_idx].surface, span=segs[end_idx].span, role="day"))
+        parts.append(Number(surface=segs[end_idx].surface, span=segs[end_idx].span))
         parts.append(_marker("日", segs[end_idx + 1].span))
         end_span = segs[end_idx + 1].span
         end_idx += 2
@@ -251,54 +214,6 @@ def _try_date(segs: list[Segment], i: int) -> tuple[Date, int] | None:
     surface = "".join(p.surface for p in parts)
     span = _span_range(segs[i].span, end_span)
     return Date(surface=surface, span=span, parts=parts), end_idx
-
-
-def _try_percent(segs: list[Segment], i: int) -> tuple[Percent, int] | None:
-    if segs[i].type != "digit_run":
-        return None
-    if i + 1 >= len(segs):
-        return None
-    nxt = segs[i + 1]
-    if nxt.type != "punct" or nxt.surface not in PERCENT_CHARS:
-        return None
-    number = Number(surface=segs[i].surface, span=segs[i].span)
-    span = _span_range(segs[i].span, nxt.span)
-    return Percent(surface=segs[i].surface + nxt.surface, span=span, number=number), i + 2
-
-
-def _try_quantity(segs: list[Segment], i: int) -> tuple[Quantity, int] | None:
-    if segs[i].type != "digit_run":
-        return None
-    if i + 1 >= len(segs):
-        return None
-    nxt = segs[i + 1]
-    if nxt.type != "latin_text":
-        return None
-    unit = nxt.surface
-    # SI unit symbols are case-sensitive, and for a SINGLE letter the case is
-    # meaningful: "g"/"m"/"t"/"l"/"s"/"h" are units, but their uppercase forms
-    # are not — and "G"/"T"/"M" collide with very common non-unit tokens in
-    # tech prose ("5G" network, "4T" drive, "5M" bandwidth). Match single-
-    # letter units case-sensitively (the table is keyed lowercase, so an
-    # uppercase single letter simply misses and falls back to Number + latin);
-    # keep multi-letter units case-insensitive so "GHz"/"ghz"/"GHZ" all
-    # resolve (a multi-letter run is unambiguous).
-    unit_key = unit if len(unit) == 1 else unit.lower()
-    canonical = _UNITS.get(unit_key)
-    if canonical is None:
-        return None
-    number = Number(surface=segs[i].surface, span=segs[i].span)
-    span = _span_range(segs[i].span, nxt.span)
-    return (
-        Quantity(
-            surface=segs[i].surface + nxt.surface,
-            span=span,
-            number=number,
-            unit=unit,
-            unit_canonical=canonical,
-        ),
-        i + 2,
-    )
 
 
 def _try_dash(segs: list[Segment], i: int) -> tuple[Punct, int] | None:

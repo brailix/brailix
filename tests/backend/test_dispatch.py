@@ -13,9 +13,7 @@ from brailix.ir.inline import (
     LatinWord,
     MathInline,
     Number,
-    Percent,
     Punct,
-    Quantity,
     Space,
     Unknown,
     Word,
@@ -266,27 +264,6 @@ class TestDispatchPerNodeType:
         cells = translate_node(node, ctx, profile)
         assert any(c.role == "math_identifier" for c in cells)
 
-    def test_percent(self, ctx, profile):
-        node = Percent(surface="12%", number=Number(surface="12"))
-        cells = translate_node(node, ctx, profile)
-        # number_sign + digits + percent
-        assert cells[0].role == "number_sign"
-
-    def test_quantity(self, ctx, profile):
-        node = Quantity(
-            surface="3kg",
-            number=Number(surface="3", span=Span(0, 1)),
-            unit="kg",
-            unit_canonical="kilogram",
-            span=Span(0, 3),
-        )
-        cells = translate_node(node, ctx, profile)
-        # number_sign + 1 digit + (56 + k + g) = 5 cells — one letter
-        # sign covers the same-class run "kg".
-        assert cells[0].role == "number_sign"
-        assert len(cells) == 5
-        assert any(c.role == "quantity_unit" for c in cells)
-
     def test_code_inline(self, ctx, profile):
         cells = translate_node(CodeInline(surface="ab"), ctx, profile)
         assert len(cells) == 2
@@ -359,3 +336,186 @@ class TestPipeline:
         assert payload["text"] == "。"
         assert payload["ir"]["type"] == "document"
         assert payload["braille_ir"]["type"] == "braille_document"
+
+
+class TestLatinWordIsNotAWordThatHappensToBeLatin:
+    """Why there are two prose-ish node types, measured rather than asserted.
+
+    ``Word`` is language prose: the dispatcher routes it to the profile
+    language's registered ``LanguageBackend``, which spells it from its
+    *reading*. ``LatinWord`` is a letter run: it goes to the language-neutral
+    Latin translator, which spells it from the letters and adds the capital /
+    class signs. Feeding one to the other's path is not a near-miss — it is a
+    different set of cells, or none.
+
+    This exists because "isn't a Latin word just a Word?" is a reasonable
+    question to ask of a taxonomy, and the answer has to be findable without
+    re-deriving it. (The same question about ``Quantity`` had the opposite
+    answer: that node's output was identical to ``Number`` + ``LatinWord``,
+    so it is gone.)
+    """
+
+    def test_the_same_surface_compiles_to_different_cells(self, ctx, profile):
+        latin = translate_node(LatinWord(surface="CPU", span=Span(0, 3)), ctx, profile)
+        word = translate_node(Word(surface="CPU", span=Span(0, 3)), ctx, profile)
+        assert [c.dots for c in latin] != [c.dots for c in word]
+        # The letter run spells out, with the doubled capital sign in front.
+        assert all(c.role == "latin_letter" for c in latin)
+        # Routed as prose it has no reading to spell from, so every cell is
+        # unknown and the run is reported — not silently rendered.
+        assert all(c.role == "unknown" for c in word)
+        assert any(w.code == "MISSING_PINYIN" for w in ctx.warnings)
+
+    def test_the_boundary_rule_keys_on_the_type_too(self, profile):
+        """``x轴`` is one compound word joined by the connector ⠤; the rule
+        that decides it looks for a *letter run* beside the hanzi. A ``Word``
+        there is prose meeting prose, and nothing is inserted at all."""
+        from brailix.frontend.zh import insert_cross_kind_boundary_spaces
+
+        as_latin = insert_cross_kind_boundary_spaces(
+            [LatinWord(surface="x", span=Span(0, 1)),
+             Word(surface="轴", span=Span(1, 2))],
+            profile.zh_compounds,
+        )
+        as_word = insert_cross_kind_boundary_spaces(
+            [Word(surface="x", span=Span(0, 1)),
+             Word(surface="轴", span=Span(1, 2))],
+            profile.zh_compounds,
+        )
+        assert [type(n).__name__ for n in as_latin] == [
+            "LatinWord", "Connector", "Word"
+        ]
+        assert [type(n).__name__ for n in as_word] == ["Word", "Word"]
+
+
+class TestAdjacentBlanksCollapse:
+    """Two rules agreeing on "a blank goes here" must write one blank.
+
+    Spacing is decided independently in several places — the punctuation
+    table's ``space_before`` / ``space_after``, the boundary pass at a
+    hanzi↔letter seam, the source's own typed space — and none of them can see
+    the others. Collapsing the overlap is what lets each be stated without
+    first proving the others are silent.
+
+    What must NOT collapse is the interesting half, and it is why this is
+    provenance-aware rather than a plain de-duplication.
+    """
+
+    def test_a_typed_run_of_spaces_is_content(self, pipe=None):
+        """``选项是(   )`` — the fill-in blank of a multiple-choice item is
+        three cells wide because the writer made it three wide."""
+        from brailix import Pipeline
+
+        out = Pipeline(profile="cn_current").translate_text("选项是(   )").render()
+        assert "⠣⠀⠀⠀⠜" in out
+
+    def test_two_synthesised_separators_become_one(self, ctx, profile):
+        from brailix.backend.block import _collapse_adjacent_blanks
+        from brailix.ir.braille import BrailleCell
+
+        sep = BrailleCell(dots=(), role="space", source_span=Span(3, 3), source_text="")
+        kept = _collapse_adjacent_blanks([sep, sep])
+        assert len(kept) == 1
+        assert kept[0].source_span == Span(3, 3)  # the first one's coordinate
+
+    def test_a_synthesised_separator_beside_a_typed_space_gives_way(
+        self, ctx, profile
+    ):
+        from brailix.backend.block import _collapse_adjacent_blanks
+        from brailix.ir.braille import BrailleCell
+
+        sep = BrailleCell(dots=(), role="space", source_span=Span(3, 3), source_text="")
+        typed = BrailleCell(
+            dots=(), role="space", source_span=Span(3, 4), source_text=" "
+        )
+        for run in ([sep, typed], [typed, sep]):
+            kept = _collapse_adjacent_blanks(list(run))
+            assert [c.source_text for c in kept] == [" "], run
+
+    def test_layout_sentinels_are_not_blanks(self, ctx, profile):
+        """``line_break`` / ``hang_open`` / ``hang_close`` carry empty dots too
+        and are backend→renderer wire protocol, not spacing — merging them
+        would drop a matrix row break. Judged by role, never by ``dots``."""
+        from brailix.backend.block import _collapse_adjacent_blanks
+        from brailix.ir.braille import BrailleCell
+
+        run = [
+            BrailleCell(dots=(), role="line_break"),
+            BrailleCell(dots=(), role="line_break"),
+            BrailleCell(dots=(), role="hang_open"),
+        ]
+        assert _collapse_adjacent_blanks(list(run)) == run
+
+
+class TestSeparatorBeforeAttachedPunct:
+    """A blank separates two words. A mark that closes the word just written
+    is not the next word, so no blank goes in front of it.
+
+    The other half of what lets ``space_after`` be stated without checking who
+    comes next: :class:`TestAdjacentBlanksCollapse` settles two rules that
+    agree, this settles one rule against the next mark's own table entry.
+    """
+
+    def test_space_after_does_not_survive_the_next_mark(self):
+        """``（注）。`` — ）asks for a blank after it, but 。is written
+        against what it follows, so the two marks meet."""
+        from brailix import Pipeline
+
+        out = Pipeline(profile="cn_current").translate_text("见（注）。").render()
+        assert "⠠⠆⠐⠆" in out
+
+    def test_an_opening_mark_keeps_its_blank(self):
+        """``：“`` — ：wants one after, “ wants one before. They collapse to
+        one blank; the veto is about what the next mark declares, not about
+        two marks being adjacent."""
+        from brailix import Pipeline
+
+        out = Pipeline(profile="cn_current").translate_text("他说：“好”").render()
+        assert "⠒⠀⠘⠘" in out
+
+    def test_a_typed_space_before_a_mark_is_content(self, profile):
+        """The author's own space is not a rule's opinion and is not vetoed —
+        the same line :func:`_collapse_adjacent_blanks` draws."""
+        from brailix.backend.block import _drop_separator_before_attached_punct
+        from brailix.ir.braille import BrailleCell
+
+        typed = BrailleCell(
+            dots=(), role="space", source_span=Span(3, 4), source_text=" "
+        )
+        comma = BrailleCell(
+            dots=(5,), role="punct", source_span=Span(4, 5), source_text="，"
+        )
+        assert _drop_separator_before_attached_punct([typed, comma], profile) == [
+            typed,
+            comma,
+        ]
+
+    def test_only_a_punct_cell_vetoes(self, profile):
+        """A dots-empty layout sentinel is not punctuation, and neither is the
+        unknown placeholder — a separator in front of either stays."""
+        from brailix.backend.block import _drop_separator_before_attached_punct
+        from brailix.ir.braille import BrailleCell
+
+        sep = BrailleCell(dots=(), role="space", source_span=Span(3, 3), source_text="")
+        for nxt in (
+            BrailleCell(dots=(), role="line_break"),
+            BrailleCell(dots=(), role="unknown", source_text="。"),
+            BrailleCell(dots=(5,), role="list_marker", source_text="。"),
+        ):
+            run = [sep, nxt]
+            assert _drop_separator_before_attached_punct(list(run), profile) == run, nxt
+
+    def test_a_trailing_separator_has_no_mark_to_answer_to(self, profile):
+        """Nothing follows, so nothing vetoes. Trimming a block-edge blank is
+        a separate orthographic question (``你，`` ends in one on purpose)."""
+        from brailix.backend.block import _drop_separator_before_attached_punct
+        from brailix.ir.braille import BrailleCell
+
+        comma = BrailleCell(
+            dots=(5,), role="punct", source_span=Span(0, 1), source_text="，"
+        )
+        sep = BrailleCell(dots=(), role="space", source_span=Span(1, 1), source_text="")
+        assert _drop_separator_before_attached_punct([comma, sep], profile) == [
+            comma,
+            sep,
+        ]

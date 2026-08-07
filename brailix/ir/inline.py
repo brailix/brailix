@@ -15,17 +15,15 @@ first, and formats like ``.docx`` have no document-wide character coordinate
 for it to be right about in the first place.
 
 Hierarchy — one level, every type a direct subclass. There is no inline node
-that specialises another; a composite (:class:`Date`, :class:`Quantity`)
-*contains* nodes rather than inheriting from one, which is why the backend can
-dispatch on the exact type through a flat table:
+that specialises another; a composite (:class:`Date`) *contains* nodes rather
+than inheriting from one, which is why the backend can dispatch on the exact
+type through a flat table:
 
     InlineNode (abstract)
       ├── Word              # prose word (any length), with its reading
       ├── Number            # numeric literal
       ├── HanziMarker       # structural hanzi inside a composite (年/月/日 in a Date)
       ├── Date              # holds an internal ``parts`` structure
-      ├── Quantity          # number + unit
-      ├── Percent
       ├── Punct
       ├── LatinWord         # Latin / Greek letter run (all-caps included)
       ├── CodeInline
@@ -102,31 +100,25 @@ class Word(InlineNode):
     point of the shared prose IR: a new language registers a frontend and a
     backend, and reuses these nodes rather than adding its own.
 
-    **A single character is just a one-character word.** There used to be a
-    separate ``HanziChar`` node for that case, and it was a distinction
-    without a difference: both language backends translated it through the
-    identical call, every consumer discriminated on the tuple
-    ``(Word, HanziChar)`` rather than on either alone, and the only thing it
-    really carried was "shorter than two characters" — which ``surface``
-    already says. What it cost was real: one more required method on
-    :class:`~brailix.core.protocols.LanguageBackend` for every language to
-    implement twice, and a tuple every consumer had to remember to write, where
-    forgetting half of it silently skipped single characters.
+    **A single character is just a one-character word.** There is no separate
+    single-character node, because there is nothing for one to carry that this
+    does not: both language backends translate a lone character through the
+    identical call, and "shorter than two characters" is what ``surface``
+    says. A second type would cost a second required method on
+    :class:`~brailix.core.protocols.LanguageBackend` for every language, and a
+    two-type tuple in every consumer that discriminates — where writing half
+    of it silently skips single characters.
     """
 
     type: _ClassVar[str] = "word"
     reading: str | None = None
-    pos: str | None = None
-    confidence: float | None = None
 
 
 @_dataclass(slots=True)
 class Number(InlineNode):
-    """A bare numeric literal. ``role`` is set by structural parents
-    (e.g. ``"year"`` inside a :class:`Date`)."""
+    """A bare numeric literal."""
 
     type: _ClassVar[str] = "number"
-    role: str | None = None
 
 
 @_dataclass(slots=True)
@@ -144,24 +136,6 @@ class Date(InlineNode):
 
     type: _ClassVar[str] = "date"
     parts: list[InlineNode] = _field(default_factory=list)
-
-
-@_dataclass(slots=True)
-class Quantity(InlineNode):
-    """A number paired with a unit, e.g. ``3.5kg``."""
-
-    type: _ClassVar[str] = "quantity"
-    number: Number | None = None
-    unit: str | None = None
-    unit_canonical: str | None = None
-
-
-@_dataclass(slots=True)
-class Percent(InlineNode):
-    """A percentage, e.g. ``12%``."""
-
-    type: _ClassVar[str] = "percent"
-    number: Number | None = None
 
 
 @_dataclass(slots=True)
@@ -329,8 +303,6 @@ _INLINE_REGISTRY: dict[str, type[InlineNode]] = {
         Number,
         HanziMarker,
         Date,
-        Quantity,
-        Percent,
         Punct,
         LatinWord,
         CodeInline,
@@ -345,34 +317,21 @@ _INLINE_REGISTRY: dict[str, type[InlineNode]] = {
 }
 
 
-# Type tags that older builds wrote into saved documents, and what they are
-# read back as. A project file outlives the schema that produced it, so a
-# retired tag has to keep resolving or every document saved before the change
-# fails to open — the one failure mode a proofreader cannot work around.
-#
-# ``hanzi_char`` was a single-character word; ``Word`` now covers that, and the
-# fields it carried (``surface`` / ``span`` / ``reading``) are all fields
-# ``Word`` has, so the payload deserializes unchanged. Nothing writes the old
-# tag any more, so a re-saved file quietly moves to the current one.
-_LEGACY_TYPE_ALIASES: dict[str, str] = {
-    "hanzi_char": "word",
-    # ``latin_acronym`` was an all-caps Latin word. It carried no field the
-    # plain word lacks, and the backend never read the type — the doubled
-    # capital sign comes from ``surface.isupper()``, which the payload still
-    # says. So the stored node deserializes to the same cells it always did.
-    "latin_acronym": "latin_word",
-}
-
-
 def inline_node_for(type_name: str) -> type[InlineNode]:
     """Look up the dataclass for an inline node type name.
 
-    Retired tags from older saved documents resolve to their replacement (see
-    :data:`_LEGACY_TYPE_ALIASES`).
+    Retired tags do **not** resolve. There was a compatibility table here
+    mapping ``hanzi_char`` to :class:`Word` and ``latin_acronym`` to
+    :class:`LatinWord`, justified by "a project file outlives the schema that
+    produced it" — but no file this library reads carries inline IR. A ``.blx``
+    project stores the source text and its overrides and recompiles the IR on
+    open; the proofread JSON is a write-only export. The two tags therefore
+    bridged nothing, which is also why retiring ``Quantity`` and ``Percent``
+    added no entries: the table had stopped describing "retired" some time
+    before it was removed.
     """
-    resolved = _LEGACY_TYPE_ALIASES.get(type_name, type_name)
     try:
-        return _INLINE_REGISTRY[resolved]
+        return _INLINE_REGISTRY[type_name]
     except KeyError as e:
         raise KeyError(f"unknown inline node type: {type_name!r}") from e
 
@@ -397,8 +356,8 @@ def from_dict(payload: dict[str, _Any]) -> InlineNode:
             continue
         # Convert, then hold the converted value to the field's declared type
         # — the same wire-shape guard the block side applies, for the same
-        # reason: ``{"type": "word", "reading": []}`` used to build a Word
-        # whose reading was a list, and every consumer downstream believes
+        # reason: unchecked, ``{"type": "word", "reading": []}`` builds a Word
+        # whose ``reading`` is a list, and every consumer downstream believes
         # the annotation.
         kwargs[key] = _serde.check_wire_value(
             cls, key, _deserialize_value(key, value), f"{cls.__name__} node"
@@ -458,13 +417,13 @@ def _deserialize_xml_tree(key: str, value: _Any) -> _ET.Element | None:
     """Deserialize a MathML / MusicXML tree field (``math`` / ``score``).
 
     Accepts ``None`` (kept), a serialized XML string (re-parsed with the safe
-    parser), or a pre-parsed :class:`ET.Element`. Either way the stored tree
-    is namespace-stripped: the backend dispatches on bare local names, so a
+    parser), or a pre-parsed :class:`ET.Element`. **Either way** the stored
+    tree is namespace-stripped — both shapes, not just the string one: the
+    backend dispatches on bare local names, so a
     ``{http://www.w3.org/1998/Math/MathML}mi`` matches nothing and degrades to
-    a blank cell plus a misleading "unsupported element" warning. That used to
-    depend on which of the two legal shapes the caller passed — the string was
-    stripped and the Element was not, so the *same* namespaced XML compiled to
-    braille one way and to nothing the other.
+    a blank cell plus a misleading "unsupported element" warning. Strip one
+    shape only and the *same* namespaced XML compiles to braille through one
+    argument type and to nothing through the other.
 
     The Element is normalized in place and returned, not copied. This branch
     exists to skip a serialize / re-parse round trip for a caller that already
@@ -500,10 +459,10 @@ def _typed_inline_child(
 ) -> InlineNode:
     """Deserialize ``payload`` and verify it is an instance of ``expected``.
 
-    ``Quantity.number`` and ``Percent.number`` are declared ``Number | None``,
-    but the deserializer dispatches on the field *name* and rebuilt whatever
-    the payload said it was — so ``{"type": "quantity", "number": {"type":
-    "word", ...}}`` round-tripped into a ``Quantity`` holding a ``Word``.
+    ``Date.parts`` is declared ``list[InlineNode]``, but the deserializer
+    dispatches on the field *name* and rebuilds whatever each entry's payload
+    said it was — so ``{"type": "date", "parts": ["17日"]}`` would otherwise
+    put a bare string where every consumer walks nodes.
 
     The check itself is :func:`brailix.ir._serde.typed_child`, shared with the
     block side; this binds it to the inline node family and its wording.
@@ -524,8 +483,6 @@ def _deserialize_value(key: str, value: _Any) -> _Any:
         # ``Date.parts`` is declared ``list[InlineNode]``, so any node type is
         # legal there — what the check adds is that each entry IS a node.
         return [_typed_inline_child(key, v, InlineNode) for v in value]
-    if key == "number":
-        return None if value is None else _typed_inline_child(key, value, Number)
     if key in ("math", "score", "svg"):
         return _deserialize_xml_tree(key, value)
     _serde.reject_unhandled_nested_payload(key, value)

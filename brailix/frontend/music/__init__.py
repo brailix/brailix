@@ -106,9 +106,10 @@ def parse_music_tree(
     except Exception as e:  # noqa: BLE001 — pipeline must never crash
         # Adapters promise soft failure (<music-error> + warning) and
         # the normalizer promises never to raise, but the registry is
-        # deliberately open and our own have slipped (a circled-digit
-        # <voice> used to raise out of the voice remap).  Degrade to
-        # the standard <music-error> tree and keep translating.
+        # deliberately open and the promise is only as good as the code
+        # keeping it — an exotic <voice> value reaching int() is enough to
+        # break it.  Degrade to the standard <music-error> tree and keep
+        # translating.
         surface = src if isinstance(src, str) else repr(src)
         try:
             return normalize(
