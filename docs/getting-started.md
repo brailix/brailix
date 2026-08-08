@@ -101,7 +101,7 @@ Nothing above needs an extra: parsing SVG and writing BMP, PNG, and PDF are all 
 
 ## Choosing engines
 
-The Chinese segmenter and pinyin resolver are selected by name in the `Pipeline` constructor; the default `"auto"` picks the best engine you have installed:
+The Chinese word-segmentation engine and the pinyin resolver are selected by name in the `Pipeline` constructor; the default `"auto"` picks the best engine you have installed:
 
 ```python
 pipe = Pipeline(
