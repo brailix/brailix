@@ -1,3 +1,4 @@
+import dataclasses
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -9,7 +10,6 @@ from brailix.ir.inline import (
     DateComponent,
     InlineNode,
     MathInline,
-    MusicInline,
     Number,
     Unknown,
     Word,
@@ -229,40 +229,7 @@ class TestSerializationMathInline:
         assert from_string.math.tag == from_element.math.tag == "math"
         assert from_string.math[0].tag == from_element.math[0].tag == "mi"
 
-    def test_namespaced_preparsed_music_and_svg_elements_are_normalized(self):
-        # Same rule, same implementation, for the other two tree fields:
-        # the deserializer must not normalize whichever field someone
-        # happened to write a test for.
-        from brailix.ir.inline import GraphicInline
-
-        score = ET.fromstring(
-            "<score-partwise xmlns='http://www.musicxml.org/ns'>"
-            "<part id='P1'/></score-partwise>"
-        )
-        svg = ET.fromstring(
-            "<svg xmlns='http://www.w3.org/2000/svg'><line x1='0'/></svg>"
-        )
-        music = from_dict({"type": "music_inline", "surface": "", "score": score})
-        graphic = from_dict({"type": "graphic_inline", "surface": "", "svg": svg})
-
-        assert isinstance(music, MusicInline)
-        assert music.score.tag == "score-partwise"
-        assert music.score[0].tag == "part"
-        assert isinstance(graphic, GraphicInline)
-        assert graphic.svg.tag == "svg"
-        assert graphic.svg[0].tag == "line"
-
-    @pytest.mark.parametrize(
-        "type_name, field, root_tag",
-        [
-            ("math_inline", "math", "math"),
-            ("music_inline", "score", "score-partwise"),
-            ("graphic_inline", "svg", "svg"),
-        ],
-    )
-    def test_preparsed_element_carrying_a_comment_deserializes(
-        self, type_name, field, root_tag
-    ):
+    def test_preparsed_element_carrying_a_comment_deserializes(self):
         # A comment / processing instruction is a child node whose ``tag`` is
         # a function, not a string, so the namespace strip this boundary runs
         # raised AttributeError on it — and AttributeError is what the
@@ -270,16 +237,18 @@ class TestSerializationMathInline:
         # adapter handing over a pre-parsed tree with a vendor comment in it
         # crashed the compile. ET.fromstring drops comments, which is why only
         # the (equally supported) pre-parsed shape ever hit this.
-        root = ET.Element(f"{{urn:x}}{root_tag}")
+        #
+        # The block side of the same loader is covered in ``test_document``;
+        # both go through ``_serde.deserialize_xml_tree``.
+        root = ET.Element("{urn:x}math")
         root.append(ET.Comment("vendor note"))
         ET.SubElement(root, "{urn:x}child")
 
-        node = from_dict({"type": type_name, "surface": "", field: root})
+        node = from_dict({"type": "math_inline", "surface": "", "math": root})
 
-        tree = getattr(node, field)
-        assert tree.tag == root_tag
-        assert tree[0].text == "vendor note"  # comment kept, body intact
-        assert tree[1].tag == "child"  # sibling below it still stripped
+        assert node.math.tag == "math"
+        assert node.math[0].text == "vendor note"  # comment kept, body intact
+        assert node.math[1].tag == "child"  # sibling below it still stripped
 
     def test_round_trip_strips_xmlns_attribute_tree(self):
         # Regression: a producer (e.g. normalize._try_atomic's math_op
@@ -298,43 +267,35 @@ class TestSerializationMathInline:
         assert restored[0].text == "+"
 
 
-class TestSerializationMusicInline:
-    def test_music_inline_with_none_serializes_without_score_key(self):
-        node = MusicInline(surface="do re mi", source="plain", score=None)
-        payload = node.to_dict()
-        assert "score" not in payload
-        restored = from_dict(payload)
-        assert restored.score is None
+class TestTheCarriersAreGone:
+    """``music_inline`` / ``graphic_inline`` were never produced by any
+    frontend: each existed only to carry a *block*'s parsed tree in a
+    one-element ``children`` list.
 
-    def test_from_dict_rejects_dict_score_value(self):
-        # score must be None / str / ET.Element. A dict should raise so
-        # malformed payloads fail loudly instead of silently storing junk.
-        with pytest.raises(ValueError):
-            from_dict({
-                "type": "music_inline",
-                "surface": "x",
-                "score": {"kind": "note", "pitch": "C"},
-            })
+    The block holds its own tree now, so the tags resolve to nothing — which
+    is what the registry is supposed to say about a type that does not exist,
+    rather than half-rebuilding a node no consumer handles.
+    """
 
-    def test_from_dict_accepts_explicit_none_score_value(self):
-        restored = from_dict({
-            "type": "music_inline",
-            "surface": "x",
-            "score": None,
-        })
-        assert isinstance(restored, MusicInline)
-        assert restored.score is None
+    @pytest.mark.parametrize("tag", ["music_inline", "graphic_inline"])
+    def test_the_retired_tags_do_not_resolve(self, tag):
+        with pytest.raises(KeyError):
+            inline_node_for(tag)
 
-    def test_from_dict_accepts_et_element_score_value(self):
-        # Pass-through when an upstream frontend hands a pre-parsed tree.
-        tree = ET.fromstring("<score-partwise/>")
-        restored = from_dict({
-            "type": "music_inline",
-            "surface": "",
-            "score": tree,
-        })
-        assert isinstance(restored, MusicInline)
-        assert restored.score is tree
+    @pytest.mark.parametrize("tag", ["music_inline", "graphic_inline"])
+    def test_a_payload_carrying_a_retired_tag_is_refused(self, tag):
+        with pytest.raises(KeyError):
+            from_dict({"type": tag, "surface": ""})
+
+    def test_math_is_the_only_inline_node_with_a_tree(self):
+        from brailix.ir.inline import _INLINE_REGISTRY
+
+        with_trees = [
+            cls.__name__
+            for cls in _INLINE_REGISTRY.values()
+            if any(f.name == "math" for f in dataclasses.fields(cls))
+        ]
+        assert with_trees == ["MathInline"]
 
 
 class TestRegistry:
@@ -342,7 +303,6 @@ class TestRegistry:
         assert inline_node_for("word") is Word
         assert inline_node_for("date") is Date
         assert inline_node_for("math_inline") is MathInline
-        assert inline_node_for("music_inline") is MusicInline
 
     def test_lookup_unknown_raises(self):
         with pytest.raises(KeyError):

@@ -6,7 +6,7 @@ its ``source_text`` (``[p=<part_id>,m=<measure_number>]`` suffix).
 This lets proofread / front-end tooling map any cell back to its measure
 without re-parsing the MusicXML tree.
 
-Bare _emit_tree() calls (no surrounding <part>/<measure>) leave
+Bare translate_tree() calls (no surrounding <part>/<measure>) leave
 source_text untouched so existing low-level tests stay valid.
 """
 
@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import _emit_tree
+from brailix.backend.music import translate_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 
@@ -42,7 +42,7 @@ class TestBareElementUnchanged:
             "<note><pitch><step>C</step><octave>4</octave></pitch>"
             "<duration>1</duration><type>quarter</type></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # No <part>/<measure> wrapper → no [p=...,m=...] suffix.
         for c in cells:
             text = c.source_text or ""
@@ -63,7 +63,7 @@ class TestMeasureAnnotation:
             "<duration>1</duration><type>quarter</type></note>"
             "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         # Every emitted cell carries [m=3] but no [p=...].
         for c in cells:
             text = c.source_text or ""
@@ -80,7 +80,7 @@ class TestMeasureAnnotation:
             "<duration>1</duration><type>quarter</type></note>"
             "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         for c in cells:
             text = c.source_text or ""
             assert "[m=" not in text
@@ -100,7 +100,7 @@ class TestMeasureAnnotation:
             "</measure>"
             "</part>"
         )
-        cells = _emit_tree(part, ctx, profile)
+        cells = translate_tree(part, ctx, profile)
         note_cells = [c for c in cells if c.role == "music_note"]
         assert len(note_cells) == 2
         assert "[p=P1,m=1]" in (note_cells[0].source_text or "")
@@ -122,7 +122,7 @@ class TestPartAndMeasureAnnotation:
             "</measure>"
             "</part>"
         )
-        cells = _emit_tree(part, ctx, profile)
+        cells = translate_tree(part, ctx, profile)
         for c in cells:
             text = c.source_text or ""
             assert "[p=RH,m=5]" in text
@@ -137,7 +137,7 @@ class TestPartAndMeasureAnnotation:
             "</measure>"
             "</part>"
         )
-        cells = _emit_tree(part, ctx, profile)
+        cells = translate_tree(part, ctx, profile)
         for c in cells:
             text = c.source_text or ""
             assert "[m=1]" in text
@@ -160,7 +160,7 @@ class TestPartAndMeasureAnnotation:
             "</part>"
             "</score-partwise>"
         )
-        cells = _emit_tree(score, ctx, profile)
+        cells = translate_tree(score, ctx, profile)
         note_cells = [c for c in cells if c.role == "music_note"]
         assert len(note_cells) == 2
         assert "[p=P1," in (note_cells[0].source_text or "")
@@ -185,7 +185,7 @@ class TestAllKindsAnnotated:
             "</measure>"
             "</part>"
         )
-        cells = _emit_tree(part, ctx, profile)
+        cells = translate_tree(part, ctx, profile)
         # 2 key + 3 time + 3 clef = 8 cells, all carry the suffix.
         assert len(cells) == 8
         for c in cells:
@@ -201,7 +201,7 @@ class TestAllKindsAnnotated:
             "<bar-style>light-heavy</bar-style></barline>"
             "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         bar_cells = [c for c in cells if c.role == "music_bar_line"]
         assert len(bar_cells) == 2
         for c in bar_cells:

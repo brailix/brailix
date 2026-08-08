@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import _emit_tree
+from brailix.backend.music import translate_tree
 from brailix.backend.music.utils import accidental_entity_name
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
@@ -54,7 +54,7 @@ class TestDot:
             "<note><pitch><step>C</step><octave>4</octave></pitch>"
             "<duration>3</duration><type>quarter</type><dot/></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # [fourth octave, quarter C, dot]
         # dot_added_value = "'" = (3,)
         assert _dots(cells) == [(5,), (1, 4, 5, 6), (3,)]
@@ -65,7 +65,7 @@ class TestDot:
             "<note><pitch><step>G</step><octave>4</octave></pitch>"
             "<duration>7</duration><type>half</type><dot/><dot/></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # [fourth octave, half G, dot, dot]
         # half G = "R" = (1,2,3,5)
         assert _dots(cells) == [(5,), (1, 2, 3, 5), (3,), (3,)]
@@ -78,7 +78,7 @@ class TestDot:
         rest = ET.fromstring(
             "<note><rest/><duration>3</duration><type>quarter</type><dot/></note>"
         )
-        cells = _emit_tree(rest, ctx, profile)
+        cells = translate_tree(rest, ctx, profile)
         # quarter rest = "v" = (1,2,3,6); + dot
         assert _dots(cells) == [(1, 2, 3, 6), (3,)]
         assert _roles(cells) == ["music_rest", "music_dot"]
@@ -88,7 +88,7 @@ class TestDot:
             "<note><pitch><step>C</step><octave>4</octave></pitch>"
             "<duration>1</duration><type>quarter</type></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # Just octave + note.
         assert "music_dot" not in _roles(cells)
 
@@ -104,7 +104,7 @@ class TestDot:
             "<note><pitch><step>C</step><octave>4</octave></pitch>"
             "<duration>3</duration><type>quarter</type><dot/></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # Falls back to separate form — dot cell still present.
         assert _dots(cells)[-1] == (3,)
         codes = [w.code for w in ctx.warnings.warnings]
@@ -154,7 +154,7 @@ class TestAccidentalEmission:
             "</pitch><duration>1</duration><type>quarter</type>"
             "<accidental>sharp</accidental></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # [sharp, fourth octave, quarter F]
         # sharp = "%" = (1,4,6); fourth octave = (5,); quarter F = "]" = (1,2,4,5,6)
         assert _dots(cells) == [(1, 4, 6), (5,), (1, 2, 4, 5, 6)]
@@ -168,7 +168,7 @@ class TestAccidentalEmission:
             "</pitch><duration>1</duration><type>quarter</type>"
             "<accidental>flat</accidental></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # [flat, fourth octave, quarter B]
         # flat = "<" = (1,2,6); quarter B = "W" = (2,4,5,6)
         assert _dots(cells) == [(1, 2, 6), (5,), (2, 4, 5, 6)]
@@ -179,7 +179,7 @@ class TestAccidentalEmission:
             "<duration>1</duration><type>quarter</type>"
             "<accidental>natural</accidental></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # natural = "*" = (1,6)
         assert _dots(cells)[0] == (1, 6)
         assert _roles(cells)[0] == "music_accidental"
@@ -190,7 +190,7 @@ class TestAccidentalEmission:
             "</pitch><duration>1</duration><type>quarter</type>"
             "<accidental>double-sharp</accidental></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # double_sharp = "%%" = (1,4,6) twice
         assert _dots(cells)[:2] == [(1, 4, 6), (1, 4, 6)]
         assert _roles(cells)[:2] == [
@@ -205,7 +205,7 @@ class TestAccidentalEmission:
             "</pitch><duration>3</duration><type>quarter</type>"
             "<dot/><accidental>sharp</accidental></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert _roles(cells) == [
             "music_accidental", "music_octave", "music_note", "music_dot",
         ]
@@ -216,7 +216,7 @@ class TestAccidentalEmission:
             "<duration>1</duration><type>quarter</type>"
             "<accidental>sharp-up</accidental></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # Note still rendered; accidental skipped + warning.
         roles = _roles(cells)
         assert "music_accidental" not in roles
@@ -229,7 +229,7 @@ class TestAccidentalEmission:
             "<note><pitch><step>C</step><octave>4</octave></pitch>"
             "<duration>1</duration><type>quarter</type></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_accidental" not in _roles(cells)
         assert ctx.warnings.warnings == []
 
@@ -277,7 +277,7 @@ class TestAccidentalPersistInMeasure:
         # Two C#4 in a row — the second's accidental cell is dropped
         # under default ``accidental_persist_in_measure=true``.
         tree = _make_measure([_SHARP_C4, _SHARP_C4])
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         roles = _roles(cells)
         # First note: [accidental, octave, note]
         # Second note: [note] (octave skipped by interval rule; accidental
@@ -291,7 +291,7 @@ class TestAccidentalPersistInMeasure:
             False,
         )
         tree = _make_measure([_SHARP_C4, _SHARP_C4])
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         assert _roles(cells).count("music_accidental") == 2
 
     def test_different_pitch_not_suppressed(self, profile, ctx):
@@ -302,7 +302,7 @@ class TestAccidentalPersistInMeasure:
             "<accidental>sharp</accidental></note>"
         )
         tree = _make_measure([_SHARP_C4, sharp_d4])
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         assert _roles(cells).count("music_accidental") == 2
 
     def test_different_octave_not_suppressed(self, profile, ctx):
@@ -312,7 +312,7 @@ class TestAccidentalPersistInMeasure:
             "<accidental>sharp</accidental></note>"
         )
         tree = _make_measure([_SHARP_C4, sharp_c5])
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         assert _roles(cells).count("music_accidental") == 2
 
     def test_different_accidental_kind_not_suppressed(self, profile, ctx):
@@ -324,14 +324,14 @@ class TestAccidentalPersistInMeasure:
             "<accidental>flat</accidental></note>"
         )
         tree = _make_measure([_SHARP_C4, flat_c4])
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         assert _roles(cells).count("music_accidental") == 2
 
     def test_cross_measure_resets(self, profile, ctx):
         # C#4 in measure 1, C#4 in measure 2 — both print
         # (Par. 6.2 expires at the bar line).
         tree = _make_two_measures([_SHARP_C4], [_SHARP_C4])
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         assert _roles(cells).count("music_accidental") == 2
 
     def test_natural_after_sharp_in_same_measure(self, profile, ctx):
@@ -344,5 +344,5 @@ class TestAccidentalPersistInMeasure:
             "<accidental>natural</accidental></note>"
         )
         tree = _make_measure([_SHARP_C4, natural_c4])
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         assert _roles(cells).count("music_accidental") == 2

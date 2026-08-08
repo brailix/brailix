@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import _emit_tree
+from brailix.backend.music import translate_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 
@@ -36,7 +36,7 @@ def _roles(cells):
 
 
 def _chord_block(notes_xml: list[str]) -> ET.Element:
-    """Wrap a list of <note> fragments in a parent so _emit_tree can
+    """Wrap a list of <note> fragments in a parent so translate_tree can
     walk them in order."""
     return ET.fromstring(
         '<part id="P1"><measure number="1">'
@@ -73,7 +73,7 @@ class TestChordNoteSuppression:
             "</note>",
         ]
         tree = _chord_block(notes)
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         tie_cells = [c for c in cells if c.role == "music_tie"]
         # tie_between_chords = c_46 + c_14 (Table 10).
         assert [c.dots for c in tie_cells] == [(4, 6), (1, 4)]
@@ -99,7 +99,7 @@ class TestChordNoteSuppression:
             "</note>",
         ]
         tree = _chord_block(notes)
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         marker_count = _roles(cells).count("music_lyric_marker")
         assert marker_count == 2, (
             "every authored <lyric> in the chord run lands exactly once"
@@ -119,7 +119,7 @@ class TestChordNoteSuppression:
             "</note>",
         ]
         tree = _chord_block(notes)
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         slur_count = _roles(cells).count("music_slur")
         assert slur_count == 1
 
@@ -138,7 +138,7 @@ class TestChordNoteSuppression:
             "<duration>4</duration><type>quarter</type></note>",
         ]
         tree = _chord_block(notes)
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         # Root emits a music_note, chord notes emit music_interval.
         assert _roles(cells).count("music_note") == 1
         assert _roles(cells).count("music_interval") == 2
@@ -156,7 +156,7 @@ class TestChordNoteSuppression:
             "<duration>6</duration><type>quarter</type><dot/></note>",
         ]
         tree = _chord_block(notes)
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         dot_count = _roles(cells).count("music_dot")
         assert dot_count == 1  # root only — chord interval has no dot
 
@@ -182,7 +182,7 @@ class TestNonChordUnaffected:
             "</note>",
         ]
         tree = _chord_block(notes)
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         tie_count = _roles(cells).count("music_tie")
         assert tie_count == 4  # 2 cells × 2 notes
 
@@ -226,7 +226,7 @@ class TestChordReorderKeepsTieAndLyric:
         # Treble: written note = uppermost (G4); the source C4 carrying
         # the tie + lyric becomes an interval member.
         tree = self._chord_with_clef("G", 2)
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         tie_cells = [c for c in cells if c.role == "music_tie"]
         assert [c.dots for c in tie_cells] == [(4, 6), (1, 4)]
         assert _roles(cells).count("music_lyric_marker") == 1
@@ -235,7 +235,7 @@ class TestChordReorderKeepsTieAndLyric:
         # Bass: written note = lowermost (C4 itself) — the chord-level
         # outcome is identical either way.
         tree = self._chord_with_clef("F", 4)
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         tie_cells = [c for c in cells if c.role == "music_tie"]
         assert [c.dots for c in tie_cells] == [(4, 6), (1, 4)]
         assert _roles(cells).count("music_lyric_marker") == 1
@@ -273,7 +273,7 @@ class TestChordRootUnreadablePitch:
             "<duration>4</duration><type>quarter</type></note>",
         ]
         tree = _chord_block(notes)
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         # The member must NOT emit an interval measured from the stale
         # (G,4) root; it orphans instead.
         assert _roles(cells).count("music_interval") == 0
@@ -313,7 +313,7 @@ class TestChordNotSplitByInterposedDirection:
             "<duration>4</duration><type>quarter</type></note>",
         ]
         tree = _chord_block(notes)
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         roles = _roles(cells)
         # Chord kept whole (note + interval), dynamic after it — not split.
         assert roles == [
@@ -343,7 +343,7 @@ class TestChordNotSplitByInterposedDirection:
             "</direction-type></direction>",
         ]
         tree = _chord_block(notes)
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         roles = _roles(cells)
         assert roles == [
             "music_octave",

@@ -1,4 +1,5 @@
 import json
+import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import ClassVar
@@ -312,7 +313,7 @@ class TestBaseToDictSelfConsistency:
 class TestDocumentIR:
     def test_default_construction(self):
         doc = DocumentIR()
-        assert doc.version == "1.0"
+        assert doc.version == "2.0"
         assert doc.metadata == {}
         assert doc.blocks == []
 
@@ -326,7 +327,7 @@ class TestDocumentIR:
             blocks=[Heading(level=1, text="标题"), Paragraph(text="正文")],
         )
         d = doc.to_dict()
-        assert d["version"] == "1.0"
+        assert d["version"] == "2.0"
         assert d["type"] == "document"
         assert d["metadata"] == {"language": "zh-CN"}
         assert len(d["blocks"]) == 2
@@ -354,7 +355,7 @@ class TestDocumentIRLoadBoundary:
         with pytest.raises(ValueError, match="document"):
             DocumentIR.from_dict(
                 {
-                    "version": "1.0",
+                    "version": "2.0",
                     "type": "paragraph",
                     "metadata": {},
                     "blocks": [],
@@ -364,19 +365,19 @@ class TestDocumentIRLoadBoundary:
     def test_rejects_missing_root_type(self):
         with pytest.raises(ValueError, match="document"):
             DocumentIR.from_dict(
-                {"version": "1.0", "metadata": {}, "blocks": []}
+                {"version": "2.0", "metadata": {}, "blocks": []}
             )
 
     def test_rejects_unsupported_version(self):
-        """The bug this closes was not the *refusal* of a 2.0 payload but the
-        acceptance of one: the version was stored verbatim, the fields 2.0
-        added were dropped by ``block_from_dict``, and ``to_dict`` wrote
-        ``"2.0"`` back out — a file still claiming a format whose content had
+        """The bug this closes was not the *refusal* of a future payload but
+        the acceptance of one: the version was stored verbatim, the fields it
+        added were dropped by ``block_from_dict``, and ``to_dict`` wrote the
+        version back out — a file still claiming a format whose content had
         been silently discarded."""
         with pytest.raises(ValueError, match="unsupported"):
             DocumentIR.from_dict(
                 {
-                    "version": "2.0",
+                    "version": "3.0",
                     "type": "document",
                     "metadata": {},
                     "blocks": [
@@ -387,6 +388,21 @@ class TestDocumentIRLoadBoundary:
                         }
                     ],
                 }
+            )
+
+    def test_rejects_the_retired_1_0_format(self):
+        """1.0 is refused by name, not migrated and not half-read.
+
+        Its blocks put a math / music / graphic tree one level down, in a
+        ``children`` list holding a carrier node, and no carrier node type
+        exists any more. Nothing in the library reads a document-IR payload
+        back — it is written as an export, and a ``.blx`` project stores source
+        plus overrides and recompiles — so there is no in-tree reader for a
+        migration to serve, and reading one anyway would drop the formula and
+        say nothing."""
+        with pytest.raises(ValueError, match="unsupported"):
+            DocumentIR.from_dict(
+                {"version": "1.0", "type": "document", "metadata": {}, "blocks": []}
             )
 
     @pytest.mark.parametrize(
@@ -422,14 +438,14 @@ class TestDocumentIRLoadBoundary:
         doc = DocumentIR.from_dict(
             {"type": "document", "metadata": {}, "blocks": []}
         )
-        assert doc.version == "1.0"
+        assert doc.version == "2.0"
 
     def test_rejects_unsupported_version_at_construction_too(self):
         """Both directions, or the invariant only looks closed: a document
         built with an unloadable version would serialize to a payload its own
         ``from_dict`` refuses."""
         with pytest.raises(ValueError, match="unsupported"):
-            DocumentIR(version="2.0")
+            DocumentIR(version="1.0")
 
     def test_every_supported_version_actually_loads(self):
         """Guard against the set and the loader drifting apart — an entry added
@@ -452,7 +468,7 @@ class TestDocumentIRLoadBoundary:
         foreign data, and dropping it stays the documented behaviour."""
         doc = DocumentIR.from_dict(
             {
-                "version": "1.0",
+                "version": "2.0",
                 "type": "document",
                 "metadata": {},
                 "blocks": [{"type": "paragraph", "text": "x", "future": "y"}],
@@ -516,3 +532,89 @@ class TestDeserializeBlockGuard:
 
         rows = _deserialize_block_value(Table, "rows", [{"type": "table_row"}])
         assert isinstance(rows[0], TableRow)
+
+
+class TestEmbeddedBlockTree:
+    """A math / music / graphic block carries its parsed tree itself.
+
+    It used to hang one level down, on a carrier inline node that was the
+    block's only child — a node type per domain whose whole job was to move
+    the tree from the frontend to the backend. These are the cases that used
+    to be asserted on the inline side; they are the block's now, and they go
+    through the same shared loader (``_serde.deserialize_xml_tree``) the one
+    remaining inline tree field does.
+    """
+
+    def test_none_tree_is_omitted_from_the_payload(self):
+        block = ScoreBlock(text="do re mi", source="plain")
+        payload = block.to_dict()
+        assert "tree" not in payload
+        assert block_from_dict(payload).tree is None
+
+    def test_tree_round_trips_as_xml_text(self):
+        block = ScoreBlock(
+            text="", source="musicxml", tree=ET.fromstring("<score-partwise/>")
+        )
+        payload = block.to_dict()
+        assert payload["tree"] == "<score-partwise />"
+        restored = block_from_dict(payload)
+        assert isinstance(restored, ScoreBlock)
+        assert restored.tree is not None
+        assert restored.tree.tag == "score-partwise"
+
+    def test_a_dict_tree_value_is_refused(self):
+        # tree must be None / str / ET.Element. A dict raises so malformed
+        # payloads fail loudly instead of silently storing junk.
+        with pytest.raises(ValueError, match="ScoreBlock.tree"):
+            block_from_dict(
+                {"type": "score", "tree": {"kind": "note", "pitch": "C"}}
+            )
+
+    def test_a_malformed_xml_string_names_its_format(self):
+        with pytest.raises(ValueError, match="not well-formed MusicXML"):
+            block_from_dict({"type": "score", "tree": "<score-partwise>"})
+
+    def test_the_format_named_is_the_block_s_own(self):
+        with pytest.raises(ValueError, match="not well-formed SVG"):
+            block_from_dict({"type": "graphic", "tree": "<svg>"})
+
+    def test_an_explicit_none_is_accepted(self):
+        assert block_from_dict({"type": "math_block", "tree": None}).tree is None
+
+    def test_a_preparsed_element_passes_through_without_a_copy(self):
+        tree = ET.fromstring("<math><mi>x</mi></math>")
+        restored = block_from_dict({"type": "math_block", "tree": tree})
+        assert restored.tree is tree
+
+    @pytest.mark.parametrize(
+        ("type_name", "root_tag"),
+        [
+            ("math_block", "math"),
+            ("score", "score-partwise"),
+            ("graphic", "svg"),
+        ],
+    )
+    def test_a_preparsed_namespaced_tree_is_stripped(self, type_name, root_tag):
+        # The backends dispatch on bare local names, so a Clark-notated tag
+        # matches nothing and degrades to blank cells plus a misleading
+        # "unsupported element" warning. A comment rides along because its
+        # ``tag`` is a function rather than a string, which is what once made
+        # the strip raise AttributeError — the one exception class the
+        # soft-failure boundaries deliberately re-raise.
+        root = ET.Element(f"{{urn:x}}{root_tag}")
+        root.append(ET.Comment("vendor note"))
+        ET.SubElement(root, "{urn:x}child")
+
+        tree = block_from_dict({"type": type_name, "tree": root}).tree
+
+        assert tree.tag == root_tag
+        assert tree[0].text == "vendor note"
+        assert tree[1].tag == "child"
+
+    def test_the_tree_stays_out_of_the_structure_key(self):
+        """``repr`` of an Element carries its memory address, so folding the
+        tree into the cache key would mint a different key for every parse of
+        the same formula and no cache would ever hit."""
+        parsed = MathBlock(text="x", source="latex", tree=ET.fromstring("<math/>"))
+        bare = MathBlock(text="x", source="latex")
+        assert parsed.structure_key() == bare.structure_key()

@@ -368,25 +368,31 @@ class TestPopulatedDocConfigInvalidation:
     def test_config_invalidation_clears_the_stamp_with_the_children(
         self, base: Pipeline
     ) -> None:
-        """A stamp describes the children currently on the block, so dropping
-        them for a configuration mismatch must drop it too.
+        """A stamp describes the content currently on the block, so dropping
+        it for a configuration mismatch must drop the stamp too.
 
         Normally the rebuild immediately re-stamps and nothing shows. When the
         rebuild *aborts* — strict mode raising on the first diagnostic, an
-        adapter blowing up — the old path left the block at ``children == []``
-        while still advertising the configuration that built the children it
-        no longer has: the "no stamped-but-empty block" invariant that populate
-        maintains on the success path, broken on the failure path.
+        adapter blowing up — the old path left the block empty while still
+        advertising the configuration that built the content it no longer has:
+        the "no stamped-but-empty block" invariant that populate maintains on
+        the success path, broken on the failure path.
+
+        A math block is the case with two things to drop, and it is the reason
+        this uses one: its content is a parsed ``tree`` plus the ``tree_text``
+        recording what that tree was parsed from, and a stale ``tree_text``
+        surviving the drop would make the next populate skip the block
+        entirely.
         """
         from brailix.core.errors import StrictModeError
         from brailix.ir.document import DocumentIR, MathBlock
 
-        # Populated by A: an unknown math source soft-fails to a carrier with
-        # no tree (a MATH_ADAPTER_MISSING warning), which is still a populate.
+        # Populated by A: an unknown math source soft-fails to no tree at all
+        # (a MATH_ADAPTER_MISSING warning), which is still a populate.
         block = MathBlock(text="x", source="no_such_source")
         doc = DocumentIR(blocks=[block])
         base.translate_document(doc)
-        assert block.children
+        assert block.tree_text == "x"
         assert block.frontend_fingerprint == base.fingerprint
 
         # B differs in configuration (mode is fingerprinted) AND raises on the
@@ -395,7 +401,8 @@ class TestPopulatedDocConfigInvalidation:
         assert strict.fingerprint != base.fingerprint
         with pytest.raises(StrictModeError):
             strict.translate_document(doc)
-        assert block.children == []
+        assert block.tree is None
+        assert block.tree_text is None
         assert block.frontend_fingerprint is None
 
     def test_table_cells_rebased_after_config_invalidation(

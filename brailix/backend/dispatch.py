@@ -7,8 +7,9 @@ composes them via a ``type -> translator`` table.
 
 Block-level translation (``translate_document`` / ``expand_block``)
 lives in :mod:`brailix.backend.block`, which
-imports ``translate_node`` from here for inline children — a clean
-one-way dependency.
+imports ``translate_node`` from here for inline children and
+``translate_embedded`` for a block whose content is a domain tree rather than
+children — a clean one-way dependency.
 
 Richer Latin translators replace the V1 fallback in ``latin``
 without touching the dispatcher.
@@ -32,7 +33,9 @@ from brailix.core.context import BackendContext
 from brailix.core.errors import BackendContractError
 from brailix.core.protocols import LanguageBackend
 from brailix.core.registry import Registry
+from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
+from brailix.ir.document import EmbeddedBlock
 from brailix.ir.inline import (
     CodeInline,
     Connector,
@@ -41,7 +44,6 @@ from brailix.ir.inline import (
     InlineNode,
     LatinWord,
     MathInline,
-    MusicInline,
     Number,
     PhoneticInline,
     Punct,
@@ -68,8 +70,41 @@ _DISPATCH: dict[type[InlineNode], _Translator] = {
     CodeInline: punct_backend.translate_code_inline,
     PhoneticInline: phonetic_backend.translate_phonetic,
     MathInline: math_backend.translate,
-    MusicInline: music_backend.translate,
     Unknown: punct_backend.translate_unknown,
+}
+
+
+def _no_cells(
+    tree: _Any,
+    ctx: BackendContext,
+    profile: BrailleProfile,
+    *,
+    surface: str = "",
+    span: _Any = None,
+) -> list[BrailleCell]:
+    """A tactile figure contributes no braille cells.
+
+    Not an omission: a figure compiles to a
+    :class:`~brailix.ir.tactile.TactileRaster`, and its dots ride there,
+    attached to the compiled block beside these (absent) cells. The empty braille block is what
+    holds the figure's place in the flow.
+
+    Spelled out as an entry in the table rather than left to a missing key,
+    because "no translator registered" and "nothing to translate" are
+    different facts and only one of them is a bug.
+    """
+    return []
+
+
+# Embedded-block domain -> the translator for that domain's tree. Keyed on
+# ``EmbeddedBlock.domain`` rather than on the block class, because what decides
+# how a tree is written is which language it is written in: a ScoreBlock and a
+# MusicBlock differ in how they were *parsed* (score vs block mode, decided in
+# the frontend), not in how MusicXML becomes braille.
+_EMBEDDED_DISPATCH: dict[str, _Callable[..., list[BrailleCell]]] = {
+    "math": math_backend.translate_tree,
+    "music": music_backend.translate_tree,
+    "graphic": _no_cells,
 }
 
 
@@ -172,6 +207,53 @@ def _enforce_source_spans(
                 f"the span-less sentinels"
             )
     return cells
+
+
+def translate_embedded(
+    block: EmbeddedBlock, ctx: BackendContext, profile: BrailleProfile
+) -> list[BrailleCell]:
+    """Translate an embedded block's domain tree, routed by its ``domain``.
+
+    The block-level counterpart of :func:`translate_node`, and here for the
+    same reason: this module is the one place that knows the full
+    thing-to-translator map. :mod:`brailix.backend.block` calls it for every
+    :class:`~brailix.ir.document.EmbeddedBlock` instead of walking children,
+    because those blocks have none — the tree is the content.
+
+    Spans are **leaf-local**, like every coordinate below the block boundary,
+    so the tree is handed its own extent within the block's text rather than
+    the block's document span.
+
+    No traceability post-condition here, unlike :func:`translate_node`: that
+    check exists because the language-backend registry is an *open* extension
+    point a third party plugs into, and these three translators are in-tree.
+
+    A domain with no entry warns rather than silently producing nothing — the
+    same treatment an unhandled inline node gets, and the same reason: a block
+    that quietly compiles to nothing is indistinguishable from one that was
+    written to be empty.
+    """
+    handler = _EMBEDDED_DISPATCH.get(block.domain)
+    if handler is None:
+        ctx.warnings.warn(
+            code="UNHANDLED_NODE_TYPE",
+            message=(
+                f"no translator for embedded domain {block.domain!r} "
+                f"({type(block).__name__})"
+            ),
+            surface=block.text or "",
+            span=block.span,
+            source="backend.dispatch",
+        )
+        return []
+    text = block.text or ""
+    return handler(
+        block.tree,
+        ctx,
+        profile,
+        surface=text,
+        span=Span(0, len(text)) if text else None,
+    )
 
 
 def translate_node(

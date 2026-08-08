@@ -32,7 +32,7 @@ pytest.importorskip("hypothesis")
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from brailix.backend.music import _emit_tree
+from brailix.backend.music import translate_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 from brailix.core.errors import (
@@ -114,7 +114,7 @@ def score_trees(draw: st.DrawFn) -> ET.Element:
 def _run(tree: ET.Element, mode: RunMode) -> tuple[list[BrailleCell], list]:
     warnings = WarningCollector(mode=mode)
     ctx = BackendContext(profile="cn_current", mode=mode, warnings=warnings)
-    cells = _emit_tree(tree, ctx, _PROFILE)
+    cells = translate_tree(tree, ctx, _PROFILE)
     return cells, list(warnings)
 
 
@@ -158,8 +158,8 @@ class TestStateIsolation:
         shared = BackendContext(
             profile="cn_current", mode=RunMode.NORMAL, warnings=warnings
         )
-        _emit_tree(first, shared, _PROFILE)
-        chained = _emit_tree(second, shared, _PROFILE)
+        translate_tree(first, shared, _PROFILE)
+        chained = translate_tree(second, shared, _PROFILE)
         fresh, _ = _run(second, RunMode.NORMAL)
         assert chained == fresh
 

@@ -19,8 +19,8 @@
         "type": {
           "enum": [
             "word", "number", "date", "punct", "latin_word",
-            "code_inline", "phonetic_inline", "math_inline", "music_inline",
-            "graphic_inline", "space", "connector", "unknown"
+            "code_inline", "phonetic_inline", "math_inline",
+            "space", "connector", "unknown"
           ]
         },
         "surface": { "type": "string" },
@@ -34,15 +34,7 @@
         "source": { "type": "string" },
         "math": {
           "type": "string",
-          "description": "Serialized MathML — ET trees ride the JSON as XML strings."
-        },
-        "score": {
-          "type": "string",
-          "description": "Serialized MusicXML."
-        },
-        "svg": {
-          "type": "string",
-          "description": "Serialized SVG."
+          "description": "Serialized MathML — ET trees ride the JSON as XML strings. The one inline node that carries a tree; music and graphics reach the backend as blocks, which carry their own."
         }
       }
     },
@@ -98,7 +90,11 @@
         "ref": { "type": "string" },
         "language": { "type": "string" },
         "source": { "type": "string" },
-        "target": { "type": "string" }
+        "target": { "type": "string" },
+        "tree": {
+          "type": "string",
+          "description": "Serialized domain tree — MathML for math_block, MusicXML for score / music_block, SVG for graphic. ET trees ride the JSON as XML strings."
+        }
       }
     },
     "document": {
@@ -107,7 +103,7 @@
       "additionalProperties": false,
       "properties": {
         "version": {
-          "enum": ["1.0"],
+          "enum": ["2.0"],
           "description": "Serialization format version. Enumerates exactly what DocumentIR.from_dict loads (brailix.ir.document._SUPPORTED_IR_VERSIONS — a test compares the two sets), so a payload this schema accepts is a payload the loader accepts. A future version joins both together with its migration."
         },
         "type": { "const": "document" },

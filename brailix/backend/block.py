@@ -20,11 +20,12 @@ sees the expanded form and never has to look inside ``children``
 again.
 
 This module is **purely backend** — it never reaches back into the
-Frontend. MathBlock and CodeBlock children are pre-populated by
-:meth:`brailix.pipeline.frontend_driver.FrontendDriver.populate_block` (MathBlock children
-become :class:`MathInline` nodes with parsed MathML; CodeBlock
-children become :class:`CodeInline`). expand_block then dispatches
-them like any other inline children.
+Frontend. What a block carries by the time it arrives is
+:meth:`brailix.pipeline.frontend_driver.FrontendDriver.populate_block`'s doing:
+a code block's verbatim text as one :class:`CodeInline`, an embedded block's
+parsed domain tree on the block itself. :func:`expand_block` dispatches
+children through :func:`~brailix.backend.dispatch.translate_node` and a domain
+tree through :func:`~brailix.backend.dispatch.translate_embedded`.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from __future__ import annotations
 from dataclasses import replace as _replace
 
 from brailix.backend import number as number_backend
-from brailix.backend.dispatch import translate_node
+from brailix.backend.dispatch import translate_embedded, translate_node
 from brailix.backend.latin import english_run_role
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
@@ -46,8 +47,8 @@ from brailix.ir.braille import (
 from brailix.ir.document import (
     Block,
     DocumentIR,
+    EmbeddedBlock,
     Footnote,
-    GraphicBlock,
     ImageAlt,
     List,
     Table,
@@ -94,16 +95,18 @@ def expand_block(
         return _expand_list(block, ctx, profile)
     if isinstance(block, Table):
         return _expand_table(block, ctx, profile)
-    if isinstance(block, GraphicBlock):
-        # A tactile figure carries no braille cells — it rasterises to a
-        # TactileRaster, attached to the CompiledBlock by
-        # Pipeline.translate_block.
-        # Emit an empty "graphic" block so the figure holds its place in the
-        # flow WITHOUT translating its GraphicInline child, which has no
-        # braille cells and would otherwise warn UNHANDLED_NODE_TYPE.
+    if isinstance(block, EmbeddedBlock):
+        # Math, music and graphics: the content is the parsed tree, not
+        # children, so the tree goes to its domain's translator rather than
+        # through the inline dispatcher. (A figure's translator returns no
+        # cells at all — its dots ride on the raster attached to the compiled
+        # block; see ``dispatch._no_cells``.)
         return [
             BrailleBlock(
-                block_type=block.type, id=block.id, align=block.align
+                block_type=block.type,
+                id=block.id,
+                align=block.align,
+                cells=translate_embedded(block, ctx, profile),
             )
         ]
     if isinstance(block, ImageAlt):

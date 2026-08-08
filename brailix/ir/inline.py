@@ -28,8 +28,6 @@ type through a flat table:
       ├── CodeInline
       ├── PhoneticInline    # IPA transcription; ``surface`` holds the raw phoneme run
       ├── MathInline        # ``math`` field holds the normalised MathML ET.Element tree
-      ├── MusicInline       # ``score`` field holds the normalised MusicXML ET.Element tree
-      ├── GraphicInline     # ``svg`` field holds the normalised SVG ET.Element tree (graphics IR carrier)
       ├── Space
       ├── Connector         # synthetic connector ⠤: letter↔hanzi compound (x轴 / T恤)
       └── Unknown           # fallback, never lets the pipeline crash
@@ -49,7 +47,6 @@ from dataclasses import fields as _fields
 from typing import Any as _Any
 from typing import ClassVar as _ClassVar
 
-from brailix.core._xml import safe_fromstring, strip_namespace
 from brailix.core.span import Span, merge_spans
 from brailix.ir import _serde
 
@@ -234,7 +231,7 @@ class PhoneticInline(InlineNode):
 
 @_dataclass(slots=True)
 class MathInline(InlineNode):
-    """Inline math.
+    """Inline math — a ``$...$`` fragment inside a run of prose.
 
     ``math`` carries the normalised MathML tree as an :class:`ET.Element`
     once the math frontend has run; until then it stays ``None`` and only
@@ -242,56 +239,20 @@ class MathInline(InlineNode):
 
     The MathML tree itself is the math IR — there is no separate IR
     dataclass.
+
+    The **only** inline node that carries a domain tree, and it earns it: a
+    formula genuinely appears inside a sentence, between a Word and a Punct,
+    and the dispatcher routes it there like any other token. There were three
+    such types — ``MusicInline`` and ``GraphicInline`` beside it — but neither
+    of those was ever produced by a frontend at all: they existed only to
+    carry a *block*'s tree in a one-element ``children`` list. The block owns
+    its tree now (:class:`~brailix.ir.document.EmbeddedBlock`), so there is no
+    carrier left to be.
     """
 
     type: _ClassVar[str] = "math_inline"
     source: str = "plain"  # latex / mathml / plain
     math: _ET.Element | None = None
-
-
-@_dataclass(slots=True)
-class MusicInline(InlineNode):
-    """Inline music. Also the in-children carrier of :class:`ScoreBlock`
-    / :class:`MusicBlock` — the
-    block layer never holds the tree itself, mirroring how
-    :class:`MathBlock` defers to :class:`MathInline`.
-
-    ``score`` carries the normalised MusicXML tree as an
-    :class:`ET.Element` once the music frontend has run; until then it
-    stays ``None`` and only the raw surface + source format are recorded.
-
-    The MusicXML tree itself is the music IR — there is no separate IR
-    dataclass.
-    """
-
-    type: _ClassVar[str] = "music_inline"
-    source: str = "plain"  # musicxml / mxl / midi / abc / plain
-    score: _ET.Element | None = None
-
-
-@_dataclass(slots=True)
-class GraphicInline(InlineNode):
-    """In-children carrier of :class:`~brailix.ir.document.GraphicBlock`,
-    mirroring how :class:`MathInline` carries a :class:`MathBlock`'s tree
-    and :class:`MusicInline` a score's.
-
-    ``svg`` carries the normalised SVG tree as an :class:`ET.Element` once
-    the graphics frontend has run; until then it stays ``None`` and only the
-    raw surface + source format are recorded. The SVG tree itself is the
-    graphics IR — there is no separate vector model, exactly as MathML is the
-    math IR and MusicXML the music IR.
-
-    Unlike :class:`MathInline` / :class:`MusicInline`, this node is **not** on
-    the braille dispatch table: a tactile graphic does not translate to braille
-    cells. It is rasterised to a :class:`~brailix.ir.tactile.TactileRaster` by
-    :meth:`~brailix.pipeline.Pipeline.translate_graphic` via the tactile
-    backend; this node is only the tree carrier between frontend and that
-    backend.
-    """
-
-    type: _ClassVar[str] = "graphic_inline"
-    source: str = "svg"  # svg / primitives / figure / image
-    svg: _ET.Element | None = None
 
 
 @_dataclass(slots=True)
@@ -345,8 +306,6 @@ _INLINE_REGISTRY: dict[str, type[InlineNode]] = {
         CodeInline,
         PhoneticInline,
         MathInline,
-        MusicInline,
-        GraphicInline,
         Space,
         Connector,
         Unknown,
@@ -405,27 +364,6 @@ def from_dict(payload: dict[str, _Any]) -> InlineNode:
 # --- helpers ---------------------------------------------------------
 
 
-def _strip_xml_namespace(elem: _ET.Element) -> _ET.Element:
-    """Drop ``{namespace}`` Clark-notation prefixes (in place) and return
-    ``elem`` for chaining.
-
-    The IR round-trip serializes a math / score tree with ``ET.tostring``
-    and re-parses it with ``ET.fromstring``; if the producer left an
-    ``xmlns`` attribute on the root, the reparse rewrites every tag to
-    Clark notation and the backend — which dispatches on bare local names —
-    fails to match, yielding blank cells + spurious warnings. Stripping at
-    the IR boundary keeps the *string* round-trip (``ET.tostring`` →
-    ``ET.fromstring``) lossless, and a pre-parsed ``ET.Element`` gets the
-    same treatment: what the deserializer stores is a bare-tag tree, whichever
-    of the two legal shapes the same XML arrived in. Delegates to the shared
-    :func:`brailix.core._xml.strip_namespace` (a core helper, so the IR
-    layer takes no frontend dependency); this thin wrapper just returns
-    ``elem`` so the deserializer can strip-and-return in one expression.
-    """
-    strip_namespace(elem)
-    return elem
-
-
 def _serialize_value(value: _Any) -> _Any:
     if isinstance(value, (InlineNode, DateComponent)):
         return value.to_dict()
@@ -433,62 +371,12 @@ def _serialize_value(value: _Any) -> _Any:
         return [_serialize_value(v) for v in value]
     if isinstance(value, Span):
         return list(value.to_tuple())
-    # MathInline.math is an ``ET.Element`` — serialize as a MathML
-    # string. JSON consumers see a plain string; reading code goes
-    # through :func:`ET.fromstring` (see ``_deserialize_value``).
+    # MathInline.math is an ``ET.Element`` — serialized as MathML text. JSON
+    # consumers see a plain string; reading code goes back through the shared
+    # loader (see ``_deserialize_value``).
     if isinstance(value, _ET.Element):
-        return _ET.tostring(value, encoding="unicode")
+        return _serde.serialize_xml_tree(value)
     return value
-
-
-# Maps each XML-tree field to (qualified field label, human format name) for the
-# "must be None / a <fmt> string / an ET.Element" error message.
-_XML_TREE_FIELDS: dict[str, tuple[str, str]] = {
-    "math": ("MathInline.math", "MathML"),
-    "score": ("MusicInline.score", "MusicXML"),
-    "svg": ("GraphicInline.svg", "SVG"),
-}
-
-
-def _deserialize_xml_tree(key: str, value: _Any) -> _ET.Element | None:
-    """Deserialize a MathML / MusicXML tree field (``math`` / ``score``).
-
-    Accepts ``None`` (kept), a serialized XML string (re-parsed with the safe
-    parser), or a pre-parsed :class:`ET.Element`. **Either way** the stored
-    tree is namespace-stripped — both shapes, not just the string one: the
-    backend dispatches on bare local names, so a
-    ``{http://www.w3.org/1998/Math/MathML}mi`` matches nothing and degrades to
-    a blank cell plus a misleading "unsupported element" warning. Strip one
-    shape only and the *same* namespaced XML compiles to braille through one
-    argument type and to nothing through the other.
-
-    The Element is normalized in place and returned, not copied. This branch
-    exists to skip a serialize / re-parse round trip for a caller that already
-    holds the tree, and deep-copying a full score's tree would hand most of
-    that cost back; the node aliases the caller's Element either way, so a
-    copy would not be buying isolation it does not already lack. Stripping is
-    idempotent, so an already-bare tree — what every in-tree frontend
-    produces — is walked once and left alone.
-
-    A wrong type — or a string that isn't well-formed XML (``ET.ParseError``
-    is re-raised as :class:`ValueError`) — fails loudly at the IR boundary as
-    a :class:`ValueError` instead of silently storing junk.
-    """
-    if value is None:
-        return None
-    field_label, fmt = _XML_TREE_FIELDS[key]
-    if isinstance(value, str):
-        try:
-            parsed = safe_fromstring(value)
-        except _ET.ParseError as e:
-            raise ValueError(f"{field_label} is not well-formed {fmt}: {e}") from e
-        return _strip_xml_namespace(parsed)
-    if isinstance(value, _ET.Element):
-        return _strip_xml_namespace(value)
-    raise ValueError(
-        f"{field_label} must be None, a {fmt} string, or an ET.Element; "
-        f"got {type(value).__name__}"
-    )
 
 
 _DATE_COMPONENT_FIELDS: frozenset[str] = frozenset(
@@ -538,7 +426,9 @@ def _deserialize_value(key: str, value: _Any) -> _Any:
         return None if value is None else Span.from_tuple(value)
     if key == "components" and isinstance(value, list):
         return [_date_component(v) for v in value]
-    if key in ("math", "score", "svg"):
-        return _deserialize_xml_tree(key, value)
+    if key == "math":
+        return _serde.deserialize_xml_tree(
+            value, label="MathInline.math", fmt="MathML"
+        )
     _serde.reject_unhandled_nested_payload(key, value)
     return value

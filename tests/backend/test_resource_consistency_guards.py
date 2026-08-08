@@ -17,8 +17,8 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.math import _emit_tree as math_emit_tree
-from brailix.backend.music import _emit_tree as music_emit_tree
+from brailix.backend.math import translate_tree as math_translate_tree
+from brailix.backend.music import translate_tree as music_translate_tree
 from brailix.core.config import load_profile
 from brailix.core.config.profile import BrailleProfile
 from brailix.core.context import BackendContext
@@ -61,7 +61,7 @@ def test_math_symbol_with_cells_but_no_role_warns(
     # the validator would reject) → MATH_SYMBOL_MISSING_ROLE, defaulting to op.
     assert profile.math_symbol("+") is not None  # has cells
     monkeypatch.setattr(BrailleProfile, "math_symbol_role", lambda self, ch: None)
-    math_emit_tree(ET.fromstring("<math><mo>+</mo></math>"), ctx, profile)
+    math_translate_tree(ET.fromstring("<math><mo>+</mo></math>"), ctx, profile)
     assert "MATH_SYMBOL_MISSING_ROLE" in _codes(ctx)
 
 
@@ -71,7 +71,7 @@ def test_unknown_octave_warns(profile, ctx, monkeypatch) -> None:
         "<note><pitch><step>C</step><octave>4</octave></pitch>"
         "<duration>4</duration><type>quarter</type></note>"
     )
-    music_emit_tree(note, ctx, profile)
+    music_translate_tree(note, ctx, profile)
     assert "MUSIC_UNKNOWN_OCTAVE" in _codes(ctx)
 
 
@@ -82,7 +82,7 @@ def test_unknown_rest_warns_and_emits_fallback(
     rest = ET.fromstring(
         "<note><rest/><duration>4</duration><type>quarter</type></note>"
     )
-    cells = music_emit_tree(rest, ctx, profile)
+    cells = music_translate_tree(rest, ctx, profile)
     assert "MUSIC_UNKNOWN_REST" in _codes(ctx)
     assert any(c.role == "music_unknown" for c in cells)
 
@@ -95,5 +95,5 @@ def test_unknown_time_signature_warns(profile, ctx, monkeypatch) -> None:
         "<attributes><time><beats>4</beats>"
         "<beat-type>4</beat-type></time></attributes>"
     )
-    music_emit_tree(attrs, ctx, profile)
+    music_translate_tree(attrs, ctx, profile)
     assert "MUSIC_UNKNOWN_TIME" in _codes(ctx)

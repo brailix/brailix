@@ -40,10 +40,9 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.math import _emit_tree as math_emit_tree
 from brailix.backend.math import translate as math_translate
-from brailix.backend.music import _emit_tree as music_emit_tree
-from brailix.backend.music import translate as music_translate
+from brailix.backend.math import translate_tree as math_translate_tree
+from brailix.backend.music import translate_tree as music_translate_tree
 from brailix.backend.tactile import rasterize
 from brailix.backend.tactile.profile import load_tactile_profile
 from brailix.core.config import load_profile
@@ -52,7 +51,8 @@ from brailix.core.errors import WarningCollector
 from brailix.frontend.graphics.normalizer import normalize as normalize_svg
 from brailix.frontend.math.normalizer import normalize as normalize_mathml
 from brailix.frontend.music.normalizer import normalize as normalize_musicxml
-from brailix.ir.inline import GraphicInline, MathInline, MusicInline, from_dict
+from brailix.ir.document import GraphicBlock, ScoreBlock, block_from_dict
+from brailix.ir.inline import MathInline, from_dict
 
 # Far past Python's default recursion limit and the backends' empirical
 # ~470-level overflow point, so a recursive walk would certainly crash.
@@ -120,9 +120,9 @@ class TestDeepMathNeverCrashes:
         assert cells  # at least the single unknown fallback cell
         assert any(w.code == "MATH_ERROR" for w in ctx.warnings.warnings)
 
-    def test_backend_emit_tree_soft_fails(self, profile) -> None:
+    def test_backend_translate_tree_soft_fails(self, profile) -> None:
         ctx = BackendContext(profile="cn_current")
-        cells = math_emit_tree(_deep_math_tree(), ctx, profile)  # must not raise
+        cells = math_translate_tree(_deep_math_tree(), ctx, profile)  # must not raise
         assert cells
         assert any(w.code == "MATH_ERROR" for w in ctx.warnings.warnings)
 
@@ -131,7 +131,7 @@ class TestDeepMathNeverCrashes:
         # a normal fraction must still translate to real cells, no MATH_ERROR.
         ctx = BackendContext(profile="cn_current")
         tree = normalize_mathml("<math><mfrac><mn>1</mn><mn>2</mn></mfrac></math>")
-        cells = math_emit_tree(tree, ctx, profile)
+        cells = math_translate_tree(tree, ctx, profile)
         assert cells
         assert not any(w.code == "MATH_ERROR" for w in ctx.warnings.warnings)
 
@@ -172,31 +172,20 @@ class TestDeepMusicNeverCrashes:
         assert root.tag == "score-partwise"
 
     def test_ir_deserialization_does_not_raise(self) -> None:
-        node = from_dict(
+        block = block_from_dict(
             {
-                "type": "music_inline",
-                "surface": "x",
-                "score": _deep_musicxml(),
+                "type": "score",
+                "text": "x",
+                "tree": _deep_musicxml(),
             }
         )
-        assert isinstance(node, MusicInline)
-        assert node.score is not None
-        assert node.score.tag == "score-partwise"
+        assert isinstance(block, ScoreBlock)
+        assert block.tree is not None
+        assert block.tree.tag == "score-partwise"
 
-    def test_backend_translate_soft_fails(self, profile) -> None:
+    def test_backend_translate_tree_soft_fails(self, profile) -> None:
         ctx = BackendContext(profile="cn_current")
-        node = MusicInline(
-            surface="deep",
-            source="musicxml",
-            score=_nested_tree("score-partwise", "score-partwise", _DEEP),
-        )
-        cells = music_translate(node, ctx, profile)  # must not raise
-        assert cells  # the single soft-failure marker cell
-        assert any(w.code == "MUSIC_ERROR" for w in ctx.warnings.warnings)
-
-    def test_backend_emit_tree_soft_fails(self, profile) -> None:
-        ctx = BackendContext(profile="cn_current")
-        cells = music_emit_tree(
+        cells = music_translate_tree(
             _nested_tree("score-partwise", "score-partwise", _DEEP), ctx, profile
         )  # must not raise
         assert cells
@@ -209,16 +198,16 @@ class TestDeepMusicNeverCrashes:
         than trusting one representative tag, since each has its own handler
         and its own descent into children."""
         ctx = BackendContext(profile="cn_current")
-        cells = music_emit_tree(_nested_tree(tag, tag, _DEEP), ctx, profile)
+        cells = music_translate_tree(_nested_tree(tag, tag, _DEEP), ctx, profile)
         assert cells
         assert any(w.code == "MUSIC_ERROR" for w in ctx.warnings.warnings)
 
     def test_a_real_score_still_renders(self, profile) -> None:
         # A cap low enough to reject an ordinary score would fail here.
         ctx = BackendContext(profile="cn_current", block_type="score")
-        tree = normalize_musicxml(_REAL_SCORE)
-        node = MusicInline(surface="", source="musicxml", score=tree)
-        cells = music_translate(node, ctx, profile)
+        cells = music_translate_tree(
+            normalize_musicxml(_REAL_SCORE), ctx, profile
+        )
         assert any(c.role == "music_note" for c in cells)
         assert not any(w.code == "MUSIC_ERROR" for w in ctx.warnings.warnings)
 
@@ -255,21 +244,21 @@ class TestDeepGraphicNeverCrashes:
 
     def test_ir_deserialization_does_not_raise(self) -> None:
         """The gap that made the tactile backend crash: a project file stores
-        the SVG as a string and ``from_dict`` re-parses it directly, so the
-        normalizer's cap never runs on a reopened document."""
-        node = from_dict(
-            {"type": "graphic_inline", "surface": "g", "svg": _deep_svg()}
+        the SVG as a string and ``block_from_dict`` re-parses it directly, so
+        the normalizer's cap never runs on a reopened document."""
+        block = block_from_dict(
+            {"type": "graphic", "text": "g", "tree": _deep_svg()}
         )
-        assert isinstance(node, GraphicInline)
-        assert node.svg is not None
-        assert node.svg.tag == "svg"
+        assert isinstance(block, GraphicBlock)
+        assert block.tree is not None
+        assert block.tree.tag == "svg"
 
     def test_backend_rasterize_soft_fails(self, tactile_profile) -> None:
-        node = from_dict(
-            {"type": "graphic_inline", "surface": "g", "svg": _deep_svg()}
+        block = block_from_dict(
+            {"type": "graphic", "text": "g", "tree": _deep_svg()}
         )
         warnings = WarningCollector()
-        raster = rasterize(node.svg, tactile_profile, warnings)  # must not raise
+        raster = rasterize(block.tree, tactile_profile, warnings)  # must not raise
         # A blank page of the right physical size, not a crash.
         assert raster.width > 0 and raster.height > 0
         assert not any(raster.data)

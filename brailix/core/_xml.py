@@ -423,8 +423,9 @@ def strip_xml_invalid_chars(text: str) -> str:
 #
 # ``ET.fromstring`` drops both node types, so the string path never produced
 # one — but a **pre-parsed** ``ET.Element`` is an equally supported way to hand
-# a tree to :class:`~brailix.ir.inline.MathInline` / ``MusicInline`` /
-# ``GraphicInline``, and that path strips namespaces on whatever the caller
+# a tree to :class:`~brailix.ir.inline.MathInline` or to an
+# :class:`~brailix.ir.document.EmbeddedBlock`,
+# and that path strips namespaces on whatever the caller
 # built. An ``AttributeError`` there is also the one class of exception the
 # soft-failure boundaries deliberately re-raise (``PROGRAMMING_ERRORS``), so it
 # crashed the compile rather than degrading.

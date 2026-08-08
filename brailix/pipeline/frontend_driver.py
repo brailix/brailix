@@ -52,7 +52,7 @@ from brailix.frontend.graphics import (
     parse_graphic_tree as _frontend_parse_graphic_tree,
 )
 from brailix.frontend.music import parse_music_tree as _frontend_parse_music_tree
-from brailix.ir.document import Paragraph
+from brailix.ir.document import EmbeddedBlock, Paragraph
 from brailix.ir.inline import InlineNode, MathInline
 from brailix.pipeline._helpers import (
     _all_prose_types,
@@ -79,6 +79,44 @@ if _TYPE_CHECKING:
 # with two spaces (and the backend separates them with two blank cells), so a
 # cell's source spans are offset by the prior cells' lengths plus this gap.
 _TABLE_CELL_GAP = 2
+
+
+def _is_populated(block: _Any) -> bool:
+    """Whether the frontend has already filled this block's content in.
+
+    Two places content can live, so two things to ask: an embedded block's is
+    its parsed ``tree``, everything else's is its ``children``.
+
+    An embedded block also counts as populated when a populate **ran and
+    produced no tree** — a formula whose adapter is missing or whose source
+    does not parse. That is a settled outcome (the backend turns it into one
+    ``*_NO_IR`` warning plus the raw surface), not an empty slot, and treating
+    it as unpopulated would re-run the failing parse, and re-emit its warning,
+    on every recompile of the document.
+    """
+    if isinstance(block, EmbeddedBlock):
+        return block.tree is not None or block.tree_text is not None
+    return bool(block.children)
+
+
+def _populated_from(block: _Any) -> str | None:
+    """The source text a populated block's content currently describes.
+
+    Compared against ``block.text`` to catch an edit made after population
+    (:meth:`FrontendDriver._heal_stale_children`). A text block's children
+    carry their own surfaces, so the answer is reconstructed from them; a
+    parsed tree cannot be turned back into source text, so an embedded block
+    records what it parsed instead.
+
+    A tree with no such record was not put there by a populate — it was
+    hand-built, or assigned by a caller — so this answers with ``block.text``
+    itself: no record is no evidence of staleness, and the "content is used
+    as-is" contract hand-built IR relies on holds here the way it does for
+    hand-built children.
+    """
+    if isinstance(block, EmbeddedBlock):
+        return block.tree_text if block.tree_text is not None else block.text
+    return _block_surface(block)
 
 
 def _shift_node_spans(node: _Any, delta: int) -> None:
@@ -247,10 +285,12 @@ class FrontendDriver:
             return
         self._heal_stale_children(block)
 
-        # Leaf block.  Populate children from raw ``text`` only when it's
-        # present and nothing has filled them yet; the per-kind handlers in
+        # Leaf block.  Populate from raw ``text`` only when it's present and
+        # nothing has filled the block in yet; the per-kind handlers in
         # :mod:`brailix.pipeline._populate` differ only in *how* they populate.
-        if block.text and not block.children:
+        # "Filled in" is ``children`` for a text block and ``tree`` for an
+        # embedded one — the two places a block's content can live.
+        if block.text and not _is_populated(block):
             populate_leaf(self, block, ctx, tree_in=tree_in, tree_out=tree_out)
             # Stamp the configuration that built these children so a later
             # populate under a different configuration rebuilds them (see
@@ -379,9 +419,9 @@ class FrontendDriver:
         the state the populate path's "no stamp before children exist" rule
         exists to keep out of the IR.
         """
-        if not block.children:
+        if not _is_populated(block):
             return
-        if block.text is not None and _block_surface(block) != block.text:
+        if block.text is not None and _populated_from(block) != block.text:
             self._invalidate(block)
             return
         if not block.text:
@@ -396,14 +436,19 @@ class FrontendDriver:
 
     @staticmethod
     def _invalidate(block: _Any) -> None:
-        """Drop a block's populated ``children`` and the stamp describing them.
+        """Drop a block's populated content and the stamps describing it.
 
-        The single way children are invalidated, so the pair can't come apart:
-        a stamp is only ever true of children that exist (see
-        :meth:`_heal_stale_children`).
+        The single way a populated block is invalidated, so the pieces can't
+        come apart: a stamp is only ever true of content that exists (see
+        :meth:`_heal_stale_children`). An embedded block's content is its
+        ``tree`` and the ``tree_text`` recording what that tree was parsed
+        from; every other block's is its ``children``.
         """
         block.children = []
         block.frontend_fingerprint = None
+        if isinstance(block, EmbeddedBlock):
+            block.tree = None
+            block.tree_text = None
 
     # --- Frontend orchestration --------------------------------------
     #

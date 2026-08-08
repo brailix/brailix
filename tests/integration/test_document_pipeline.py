@@ -50,7 +50,6 @@ def pipe() -> Pipeline:
 class TestNoFrontendPollution:
     @pytest.mark.requires("latex2mathml")
     def test_math_block_uses_math_frontend_not_chinese(self, pipe):
-        from brailix.ir.inline import MathInline
 
         doc = parse_markdown("$$x + y = z$$", profile="cn_current", language="zh-CN")
         result = pipe.translate_document(doc)
@@ -58,13 +57,11 @@ class TestNoFrontendPollution:
         assert math_blocks
         # Original text preserved verbatim — no Chinese tokenization.
         assert math_blocks[0].text == "x + y = z"
-        # Children populated by the *math* frontend (one MathInline
-        # carrying the parsed MathML tree), not by the Chinese
-        # tokenizer (which would have spat out Word/Word garbage).
-        children = math_blocks[0].children
-        assert len(children) == 1
-        assert isinstance(children[0], MathInline)
-        assert children[0].math is not None
+        # Parsed by the *math* frontend into the block's own MathML tree, not
+        # by the Chinese tokenizer (which would have spat out Word/Word
+        # garbage into ``children``).
+        assert math_blocks[0].children == []
+        assert math_blocks[0].tree is not None
 
     def test_code_block_wrapped_as_codeinline_not_tokenized(self, pipe):
         from brailix.ir.inline import CodeInline

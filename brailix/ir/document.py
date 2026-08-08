@@ -9,6 +9,7 @@ block can carry raw text via ``text``.
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as _ET
 from dataclasses import dataclass as _dataclass
 from dataclasses import field as _field
 from dataclasses import fields as _fields
@@ -30,6 +31,17 @@ from brailix.ir.inline import from_dict as inline_from_dict
 # tag (a ``str``) instead. Aliased out here, at module scope, where ``type`` is
 # still the builtin.
 type _BlockClass = type[Block]
+
+# Fields the generic ``to_dict`` scalar loop never emits, and why each:
+#
+# * ``id`` / ``text`` / ``children`` / ``span`` — each has its own pass, in a
+#   fixed order the payload's readability depends on;
+# * ``frontend_fingerprint`` / ``tree_text`` — populate provenance rather than
+#   document content: which configuration built the children, and which text
+#   the parsed tree came from. Both are in-memory only.
+_PAYLOAD_EXCLUDED = frozenset(
+    {"id", "children", "text", "span", "frontend_fingerprint", "tree_text"}
+)
 
 
 @_dataclass(slots=True)
@@ -119,7 +131,7 @@ class Block:
         if self.id is not None:
             d["id"] = self.id
         for f in _fields(self):
-            if f.name in ("id", "children", "text", "span", "frontend_fingerprint"):
+            if f.name in _PAYLOAD_EXCLUDED:
                 continue
             value = getattr(self, f.name)
             # Omit defaults / empties (shared with inline to_dict).
@@ -143,6 +155,13 @@ class Block:
                     f"reload without the field; an inline child belongs in "
                     f"``children``."
                 )
+            # A domain tree (MathML / MusicXML / SVG) is not JSON-native
+            # either, but it *is* this loop's business: it rides the payload
+            # as XML text, the way it always has — it just used to do so from
+            # a carrier inline node one level down.
+            if isinstance(value, _ET.Element):
+                d[f.name] = _serde.serialize_xml_tree(value)
+                continue
             d[f.name] = value
         if self.text is not None:
             d["text"] = self.text
@@ -212,18 +231,12 @@ class Block:
         recursively, the structure of any nested block, so a ``Table``'s
         per-row column counts are captured, not just its row count) is
         captured automatically — a new structural field on any subclass is
-        covered without editing this method or the cache key.  ``children``
-        and ``text`` are excluded (the surface hash covers them); ``id`` and
-        ``span`` too (an edit elsewhere shifts ``span`` but must not
-        invalidate this block's cache entry); ``frontend_fingerprint`` too —
-        it is populate provenance, not structure, and the configuration it
-        names is :func:`~brailix.pipeline.block_hash`'s ``fingerprint``
-        dimension, so folding it here would make a populated block hash
-        apart from its identically-configured unpopulated twin.
+        covered without editing this method or the cache key.  What is left
+        out, and why, is :data:`_STRUCTURE_KEY_EXCLUDED`.
         """
         parts = [self.type]
         for f in _fields(self):
-            if f.name in ("id", "children", "text", "span", "frontend_fingerprint"):
+            if f.name in _STRUCTURE_KEY_EXCLUDED:
                 continue
             value = getattr(self, f.name)
             if isinstance(value, (list, tuple)):
@@ -240,6 +253,16 @@ class Block:
             else:
                 parts.append(f"{f.name}={value!r}")
         return "|".join(parts)
+
+
+# Fields :meth:`Block.structure_key` leaves out, on top of what the payload
+# already omits: ``tree`` is the *parsed form* of ``text`` under ``source``,
+# and both of those are in the key already (``text`` via the surface hash,
+# ``source`` through the loop). It has to be left out rather than merely being
+# redundant: ``repr`` of an ``ET.Element`` carries its memory address, so
+# folding it in would mint a different key for every parse of the same formula
+# and no cache would ever hit.
+_STRUCTURE_KEY_EXCLUDED = _PAYLOAD_EXCLUDED | {"tree"}
 
 
 def _is_ir_payload(value: _Any) -> bool:
@@ -342,33 +365,86 @@ class CodeBlock(Block):
 
 
 @_dataclass(slots=True)
-class MathBlock(Block):
-    """Display-mode math block. ``source`` is the source format the raw
-    formula text is written in (latex / mathml / plain)."""
+class EmbeddedBlock(Block):
+    """A block whose content is a **domain tree**, not prose.
 
-    type: _ClassVar[str] = "math_block"
+    Math, music and tactile graphics all arrive the same way: raw source text
+    in ``text``, the format it is written in in ``source``, and — once that
+    vertical's frontend has run — the normalised tree in ``tree``. MathML,
+    MusicXML and SVG *are* the IR for their domains; there is no dataclass
+    model of a formula or a score, so the tree rides as an
+    :class:`ET.Element`.
+
+    Each of them used to hold that tree one level down, in
+    ``children=[<a carrier inline node>]`` — a node whose only job was to
+    move the tree from the frontend to the backend. It cost three near-identical
+    inline types, a fourth entry in every dispatch table, and (for graphics,
+    whose carrier has no braille to give at all) a special case in the block
+    backend telling it *not* to translate that child. The block owns its tree
+    now, and the carrier types are gone.
+
+    The concrete subclasses stay separate rather than collapsing into one
+    tagged class, because their ``type`` tags are read downstream: the layout
+    pass distinguishes ``score`` from ``music_block``, and every braille block
+    carries its source block's tag. What they share is this shape, and sharing
+    it is what lets the backend route them through one branch keyed on
+    :attr:`domain`.
+
+    ``domain`` names the vertical (``"math"`` / ``"music"`` / ``"graphic"``) —
+    the routing key for the backend and the parsed-tree cache. ``tree_format``
+    is the human name of the XML dialect, used only in the "that isn't
+    well-formed MathML" diagnostic.
+    """
+
+    domain: _ClassVar[str] = ""
+    tree_format: _ClassVar[str] = "XML"
     source: str = "plain"
+    tree: _ET.Element | None = None
+    # The ``text`` :attr:`tree` was parsed from — the staleness record for a
+    # populated block, and the reason a block edited after population
+    # re-parses instead of compiling its old content. A text block gets this
+    # for free (its children carry the surfaces, so the driver reconstructs
+    # what they describe and compares); a tree cannot be compared back to
+    # source text, and while the tree hung off a carrier inline node the
+    # carrier's ``surface`` was standing in for this by accident. In-memory
+    # only, like ``frontend_fingerprint`` and for the same reason: it is
+    # populate provenance, not document content, so it stays out of equality,
+    # ``to_dict`` and ``structure_key``.
+    tree_text: str | None = _field(default=None, compare=False, repr=False)
 
 
 @_dataclass(slots=True)
-class ScoreBlock(Block):
-    """Full score (metadata + parts + measures). Holds only ``source``;
-    the parsed MusicXML tree is filled by ``FrontendDriver.populate_block``
-    into ``children=[MusicInline(score=tree)]`` — same indirection as
-    :class:`MathBlock` → :class:`~brailix.ir.inline.MathInline`."""
+class MathBlock(EmbeddedBlock):
+    """Display-mode math block. ``source`` is the source format the raw
+    formula text is written in (latex / mathml / plain); ``tree`` the
+    normalised MathML."""
+
+    type: _ClassVar[str] = "math_block"
+    domain: _ClassVar[str] = "math"
+    tree_format: _ClassVar[str] = "MathML"
+
+
+@_dataclass(slots=True)
+class ScoreBlock(EmbeddedBlock):
+    """Full score (metadata + parts + measures), as normalised MusicXML in
+    ``tree``."""
 
     type: _ClassVar[str] = "score"
+    domain: _ClassVar[str] = "music"
+    tree_format: _ClassVar[str] = "MusicXML"
     source: str = "plain"  # musicxml / mxl / midi / abc / plain
 
 
 @_dataclass(slots=True)
-class MusicBlock(Block):
+class MusicBlock(EmbeddedBlock):
     """Display-mode single-passage music block, analogue of
-    :class:`MathBlock`. Same children-carrier pattern as
+    :class:`MathBlock`. Parsed in ``"block"`` mode rather than
+    ``"score"`` mode — the one thing that distinguishes it from
     :class:`ScoreBlock`."""
 
     type: _ClassVar[str] = "music_block"
-    source: str = "plain"
+    domain: _ClassVar[str] = "music"
+    tree_format: _ClassVar[str] = "MusicXML"
 
 
 @_dataclass(slots=True)
@@ -388,24 +464,22 @@ class ImageAlt(Block):
 
 
 @_dataclass(slots=True)
-class GraphicBlock(Block):
+class GraphicBlock(EmbeddedBlock):
     """A tactile graphic. ``source`` is the format the raw graphic in
-    ``text`` is written in (``svg`` / ``primitives`` / ``figure`` / ``image``). The
-    normalised SVG tree (the graphics IR) is filled by
-    ``FrontendDriver.populate_block`` into ``children=[GraphicInline(svg=tree)]``
-    — the same children-carrier indirection as :class:`MathBlock` →
-    :class:`~brailix.ir.inline.MathInline` and :class:`ScoreBlock` →
-    :class:`~brailix.ir.inline.MusicInline`.
+    ``text`` is written in (``svg`` / ``primitives`` / ``figure`` / ``image``);
+    ``tree`` the normalised SVG, which *is* the graphics IR — there is no
+    separate vector model.
 
     A tactile graphic does **not** translate to braille cells; it compiles to a
     :class:`~brailix.ir.tactile.TactileRaster`. It does still go through the
-    *block-level* backend expansion like every other block, which recognises it
-    and emits an **empty** ``"graphic"`` braille block: the figure holds its
-    place in the block flow, and its inline child — which has no cells to give
-    — is never handed to the braille node dispatcher. The dots ride on the
-    raster instead, attached to the compiled block beside those empty cells."""
+    *block-level* backend expansion like every other block, which emits an
+    **empty** ``"graphic"`` braille block: the figure holds its place in the
+    block flow while its dots ride on the raster, attached to the compiled
+    block beside those empty cells."""
 
     type: _ClassVar[str] = "graphic"
+    domain: _ClassVar[str] = "graphic"
+    tree_format: _ClassVar[str] = "SVG"
     source: str = "svg"  # svg / primitives / figure / image
 
 
@@ -420,7 +494,16 @@ class GraphicBlock(Block):
 # on its own. ``tests/schemas/document-ir.schema.json`` pins the same set on
 # the schema side (a test compares them), so a reader validating against the
 # schema and a caller going through ``from_dict`` agree on what is loadable.
-_DEFAULT_IR_VERSION = "1.0"
+#
+# ``2.0`` reshapes the block payload: a math / music / graphic block carries
+# its parsed tree itself (``"tree"``) instead of in a one-element ``children``
+# list holding a carrier node. ``1.0`` is **not** in the set, and there is no
+# migration, because nothing reads a document-IR payload back: the library
+# writes one as an export (``TranslationResult.to_dict``) and a ``.blx``
+# project stores its source plus overrides and recompiles the IR on open. A
+# 1.0 payload from outside is therefore refused by name rather than
+# half-understood — which is exactly what this check is for.
+_DEFAULT_IR_VERSION = "2.0"
 _SUPPORTED_IR_VERSIONS: frozenset[str] = frozenset({_DEFAULT_IR_VERSION})
 
 
@@ -621,6 +704,12 @@ def _deserialize_block_value(cls: type[Block], key: str, value: _Any) -> _Any:
         return None if value is None else Span.from_tuple(value)
     if key == "children" and isinstance(value, list):
         return [inline_from_dict(v) for v in value]
+    if key == "tree":
+        return _serde.deserialize_xml_tree(
+            value,
+            label=f"{cls.__name__}.tree",
+            fmt=getattr(cls, "tree_format", "XML"),
+        )
     expected = cls.structural_fields.get(key)
     if expected is not None and isinstance(value, list):
         return [_typed_child(cls, key, v, expected) for v in value]

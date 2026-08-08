@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import _emit_tree
+from brailix.backend.music import translate_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 
@@ -59,7 +59,7 @@ def _value_sign_runs(cells) -> list[str]:
 
 class TestValueSigns:
     def test_uniform_durations_emit_no_sign(self, profile, ctx):
-        cells = _emit_tree(
+        cells = translate_tree(
             _measure(
                 _note("C", 4, "quarter"),
                 _note("D", 4, "quarter"),
@@ -72,7 +72,7 @@ class TestValueSigns:
 
     def test_half_then_32nd_emits_smaller_sign(self, profile, ctx):
         # BANA Example 2.4-1: half immediately followed by a 32nd.
-        cells = _emit_tree(
+        cells = translate_tree(
             _measure(_note("C", 4, "half"), _note("D", 4, "32nd")),
             ctx,
             profile,
@@ -80,7 +80,7 @@ class TestValueSigns:
         assert _value_sign_runs(cells) == ["value:small"]
 
     def test_32nd_then_half_emits_larger_sign(self, profile, ctx):
-        cells = _emit_tree(
+        cells = translate_tree(
             _measure(_note("C", 4, "32nd"), _note("D", 4, "half")),
             ctx,
             profile,
@@ -88,7 +88,7 @@ class TestValueSigns:
         assert _value_sign_runs(cells) == ["value:large"]
 
     def test_back_and_forth_emits_both(self, profile, ctx):
-        cells = _emit_tree(
+        cells = translate_tree(
             _measure(
                 _note("C", 4, "half"),
                 _note("D", 4, "32nd"),
@@ -105,7 +105,7 @@ class TestValueSigns:
         # [16th, BOGUS, 16th] keeps the stale "small" baseline and the
         # second 16th drops its sign; with the fix the second 16th re-marks
         # small (small -> large(bogus) -> small).
-        cells = _emit_tree(
+        cells = translate_tree(
             _measure(
                 _note("C", 4, "16th"),
                 _note("D", 4, "bogus"),
@@ -119,7 +119,7 @@ class TestValueSigns:
     def test_first_note_small_is_baseline_no_sign(self, profile, ctx):
         # First note establishes the baseline silently (the note-count
         # heuristic resolves a uniform small measure).
-        cells = _emit_tree(
+        cells = translate_tree(
             _measure(_note("C", 4, "16th"), _note("D", 4, "16th")),
             ctx,
             profile,
@@ -127,11 +127,11 @@ class TestValueSigns:
         assert _value_sign_runs(cells) == []
 
     def test_256th_always_signs_even_first(self, profile, ctx):
-        cells = _emit_tree(_measure(_note("C", 4, "256th")), ctx, profile)
+        cells = translate_tree(_measure(_note("C", 4, "256th")), ctx, profile)
         assert _value_sign_runs(cells) == ["value:v256"]
 
     def test_consecutive_256ths_are_one_passage(self, profile, ctx):
-        cells = _emit_tree(
+        cells = translate_tree(
             _measure(_note("C", 4, "256th"), _note("D", 4, "256th")),
             ctx,
             profile,
@@ -141,7 +141,7 @@ class TestValueSigns:
     def test_rest_participates_in_value_stream(self, profile, ctx):
         # A 32nd rest after a half note carries the smaller sign too.
         rest_32 = "<note><rest/><duration>1</duration><type>32nd</type></note>"
-        cells = _emit_tree(
+        cells = translate_tree(
             _measure(_note("C", 4, "half"), rest_32), ctx, profile
         )
         assert _value_sign_runs(cells) == ["value:small"]
@@ -156,7 +156,7 @@ class TestValueSigns:
             return original(self, name, default)
 
         monkeypatch.setattr(type(profile), "feature", _patched)
-        cells = _emit_tree(
+        cells = translate_tree(
             _measure(_note("C", 4, "half"), _note("D", 4, "32nd")),
             ctx,
             profile,

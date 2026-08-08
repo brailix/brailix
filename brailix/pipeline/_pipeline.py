@@ -989,7 +989,7 @@ class Pipeline:
             # compile path it uses for markdown / plain.
             # ``populate_music_block`` runs the matching source adapter at
             # compile time: for ``musicxml`` that is the pass-through parse
-            # into a MusicInline tree, for ``abc`` the ``abc`` adapter —
+            # onto the block's ``tree``, for ``abc`` the ``abc`` adapter —
             # whose missing extra soft-fails there rather than raising here,
             # which is the whole point of keeping a text dialect raw
             # (ARCHITECTURE#arch-layers rule 1).
@@ -1104,11 +1104,11 @@ class Pipeline:
         subset of the input, never empty when math or music exists).
 
         Entries are shared **by identity**, and a hit also lands the cached
-        tree on the returned IR (``MathInline.math`` / ``MusicInline.score``
-        / ``GraphicInline.svg``), so an ``ir_transformer`` that edits one of
-        those trees in place writes into the pool and corrupts every later
+        tree on the returned IR (an embedded block's ``tree``, an inline
+        formula's ``MathInline.math``), so an ``ir_transformer`` that edits one
+        of those trees in place writes into the pool and corrupts every later
         compile that hits the same entry. Clone-then-replace instead: deep-copy
-        the tree, edit the copy, assign it back onto the node. See
+        the tree, edit the copy, assign it back. See
         :data:`TreeSubcache` for the full immutability contract.
 
         Pipeline keeps **no cache of its own** — the caller consults its

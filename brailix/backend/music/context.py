@@ -1,9 +1,9 @@
 """Mutable per-score state for the music backend.
 
 The translator threads one :class:`MusicBrailleContext` instance
-through a single :class:`~brailix.ir.inline.MusicInline` translation.
-The entry point in :mod:`brailix.backend.music` constructs a fresh
-context per node so state never leaks across scores.
+through a single score's translation. The entry point in
+:mod:`brailix.backend.music` constructs a fresh context per tree so state
+never leaks across scores.
 """
 
 from __future__ import annotations

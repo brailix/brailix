@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import _emit_tree
+from brailix.backend.music import translate_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 
@@ -70,7 +70,7 @@ class TestSingleVoice:
             _note("C", 4),
             _note("D", 4),
         ])
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         # Single voice → no in-accord marker
         assert "music_in_accord" not in _roles(cells)
 
@@ -79,7 +79,7 @@ class TestSingleVoice:
             _note("C", 4, voice="1"),
             _note("E", 4, voice="1"),
         ])
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         assert "music_in_accord" not in _roles(cells)
 
 
@@ -100,7 +100,7 @@ class TestMultiVoice:
             + _note("E", 4, voice="2")
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         roles = _roles(cells)
         # Expected: [octave, C, in-accord, octave, E]
         # full_measure_in_accord = "<>" = (1,2,6)(3,4,5)
@@ -132,7 +132,7 @@ class TestMultiVoice:
             + _note("C", 4, voice="2")  # voice 2 → triggers multi-voice
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         roles = _roles(cells)
         assert "music_in_accord" in roles  # multi-voice path taken
         note_idx = roles.index("music_note")
@@ -147,7 +147,7 @@ class TestMultiVoice:
             + _note("E", 4, voice="2")
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         in_accord_cells = [c for c in cells if c.role == "music_in_accord"]
         # full_measure_in_accord = "<>" = (1,2,6)(3,4,5)
         assert [c.dots for c in in_accord_cells] == [(1, 2, 6), (3, 4, 5)]
@@ -162,7 +162,7 @@ class TestMultiVoice:
             + _note("C", 4)  # unvoiced -> implicit voice "1"
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         roles = _roles(cells)
         markers = [i for i, r in enumerate(roles) if r == "music_in_accord"]
         assert markers, "two voices should produce an in-accord marker"
@@ -176,7 +176,7 @@ class TestMultiVoice:
             + _note("G", 4, voice="3")
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         # 3 voices => 2 separator marker pairs
         assert _roles(cells).count("music_in_accord") == 4  # 2 markers × 2 cells
 
@@ -189,7 +189,7 @@ class TestMultiVoice:
             + _note("G", 4, voice="1")
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         # First emitted note should be C (voice 2 emitted first)
         # quarter C = "?" = (1,4,5,6); quarter G = "\\" = (1,2,5,6)
         note_cells = [c for c in cells if c.role == "music_note"]
@@ -215,7 +215,7 @@ class TestStateAcrossVoices:
             + _note("E", 4, voice="2")
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         roles = _roles(cells)
         # [octave, C, D (no octave), in-accord(2), octave, E]
         assert roles == [
@@ -235,7 +235,7 @@ class TestStateAcrossVoices:
             + _note("C", 4, voice="2", accidental="sharp")
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         accidental_cells = [c for c in cells if c.role == "music_accidental"]
         # Only the first voice's sharp prints.
         assert len(accidental_cells) == 1
@@ -257,7 +257,7 @@ class TestStateAcrossVoices:
             '<duration>4</duration><type>quarter</type></note>'
             '</measure>'
         )
-        _emit_tree(m, ctx, profile)
+        translate_tree(m, ctx, profile)
         msgs = [
             w.message for w in ctx.warnings
             if w.code == "MUSIC_UNSUPPORTED_NOTATION"
@@ -290,8 +290,8 @@ class TestStateAcrossVoices:
                 '<duration>4</duration><type>quarter</type></note>'
                 '</measure>'
             )
-        with_stop = _emit_tree(measure(True), ctx, profile)
-        without_stop = _emit_tree(measure(False), ctx, profile)
+        with_stop = translate_tree(measure(True), ctx, profile)
+        without_stop = translate_tree(measure(False), ctx, profile)
         assert len(with_stop) == len(without_stop)
 
     def test_measure_for_staff_routes_direction_to_its_staff(self):
@@ -341,7 +341,7 @@ class TestFeatureGates:
             + _note("E", 4, voice="2")
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         assert "music_in_accord" not in _roles(cells)
         # Both notes still present.
         assert _roles(cells).count("music_note") == 2
@@ -360,7 +360,7 @@ class TestFeatureGates:
             + _note("E", 4, voice="2")
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         # Fallback: full-measure in-accord output still produced.
         assert "music_in_accord" in _roles(cells)
         codes = [w.code for w in ctx.warnings.warnings]
@@ -384,7 +384,7 @@ class TestGlobals:
             + _note("E", 4, voice="2")
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         # Key signature cells appear once at the top.
         key_cells = [c for c in cells if c.role == "music_key_signature"]
         assert len(key_cells) == 2  # 2 sharps
@@ -398,7 +398,7 @@ class TestGlobals:
             + '<barline location="right"><bar-style>light-heavy</bar-style></barline>'
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         bar_cells = [c for c in cells if c.role == "music_bar_line"]
         # final_double_bar = 2 cells, one occurrence
         assert len(bar_cells) == 2
@@ -416,7 +416,7 @@ class TestGlobals:
             + '<barline location="right"><bar-style>light-heavy</bar-style></barline>'
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         roles = _roles(cells)
         # Bar cells must come *after* the voice-2 note (which is the
         # last music_note in the stream).
@@ -437,7 +437,7 @@ class TestGlobals:
             + _note("E", 4, voice="2")
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         roles = _roles(cells)
         # repeat cells come before any music_note.
         first_note_idx = next(i for i, r in enumerate(roles) if r == "music_note")
@@ -463,7 +463,7 @@ class TestGlobals:
             + _note("E", 4, voice="2")
             + "</measure>"
         )
-        cells = _emit_tree(m, ctx, profile)
+        cells = translate_tree(m, ctx, profile)
         roles = _roles(cells)
         first_note_idx = roles.index("music_note")
         dyn_idx = roles.index("music_dynamic")

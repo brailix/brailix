@@ -22,7 +22,6 @@ from brailix.backend.block import expand_block
 from brailix.core.errors import WarningCollector
 from brailix.ir.braille import BrailleCell
 from brailix.ir.document import Block, DocumentIR, GraphicBlock
-from brailix.ir.inline import GraphicInline
 from brailix.ir.tactile import TactileRaster
 from brailix.pipeline._helpers import block_hash
 from brailix.pipeline._results import CompiledBlock, TreeSubcache
@@ -189,18 +188,16 @@ def rasterize_graphic_block(
     The rasterising tail shared by the standalone tactile entry and the
     inline-in-a-braille-document path (:func:`compile_block`) — one
     rasteriser, not two. Pulls the
-    SVG tree off the block's :class:`GraphicInline` child
-    (``populate_graphic_block`` always lands one — an error-marked SVG on
-    soft-failure, never ``None`` — so a figure always rasterises to
-    *something*), loads the tactile profile, and rasterises. Returns
-    ``(raster, tree)``.
+    SVG tree off the block (``populate_graphic_block`` always lands one — an
+    error-marked SVG on soft-failure, never ``None`` — so a figure always
+    rasterises to *something*), loads the tactile profile, and rasterises.
+    Returns ``(raster, tree)``.
     """
     from brailix.backend.tactile import rasterize
     from brailix.backend.tactile.profile import load_tactile_profile
 
-    child = block.children[0] if block.children else None
-    tree = child.svg if isinstance(child, GraphicInline) else None
-    if tree is None:  # defensive — populate guarantees a GraphicInline tree
+    tree = block.tree
+    if tree is None:  # defensive — populate guarantees a tree
         tree = _ET.Element("svg", {"data-bk-error": "no graphic tree"})
     prof = (
         load_tactile_profile(tactile_profile)

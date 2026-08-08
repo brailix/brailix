@@ -26,19 +26,21 @@ The package is split into focused modules so each one stays scannable:
 * :mod:`.utils`     — small pure helpers (shape checks, unpackers, role
   tables, ``_emit_structure``, ``_unknown_cell``, etc.)
 
-This package's own entry points are :class:`MathBrailleContext` and
-:func:`translate` — what :mod:`brailix.backend.dispatch` calls to render a
-:class:`MathInline`. Everything else lives in the sub-modules; callers that
-need a helper import it from the sub-module that defines it (e.g. ``from
-brailix.backend.math.utils import _is_atomic``) so the package interface stays
-scoped.
+This package's own entry points are :class:`MathBrailleContext`,
+:func:`translate_tree` (a normalised MathML tree → cells, which is what a
+display :class:`~brailix.ir.document.MathBlock` hands over) and
+:func:`translate` (the thin node-taking wrapper
+:mod:`brailix.backend.dispatch` calls for an inline
+:class:`~brailix.ir.inline.MathInline`). Everything else lives in the
+sub-modules; callers that need a helper import it from the sub-module that
+defines it (e.g. ``from brailix.backend.math.utils import _is_atomic``) so the
+package interface stays scoped.
 
 Scoped, not *published*: the whole package is internal, like every path outside
 the facades and the extension surface (see the top-level :mod:`brailix`
 docstring). Calling these names "stable public API" here would say the opposite
 of the policy one level up and leave the question of whether they carry a
-compatibility promise answerable two ways. The convenience wrapper the tests
-use is ``_emit_tree`` for the same reason: a plain name reads as an offer.
+compatibility promise answerable two ways.
 """
 
 from __future__ import annotations
@@ -101,62 +103,69 @@ def _too_deep_fallback(
 # ---------------------------------------------------------------------------
 
 
-def translate(
-    node: MathInline, ctx: BackendContext, profile: BrailleProfile
+def translate_tree(
+    tree: ET.Element | None,
+    ctx: BackendContext,
+    profile: BrailleProfile,
+    *,
+    surface: str = "",
+    span: Span | None = None,
 ) -> list[BrailleCell]:
-    """Translate one :class:`MathInline` node into braille cells.
+    """Translate one normalised MathML tree into braille cells.
 
-    If :attr:`MathInline.math` was never populated by the math frontend
-    (missing adapter, ``source='plain'`` falling through), we fall back
-    to per-char unknown cells over the original surface so something
-    useful still lands in the output.
+    The package's one entry point, for both of the places a formula comes
+    from: an inline ``$...$`` fragment (a :class:`MathInline`, via
+    :func:`translate`) and a display block (a
+    :class:`~brailix.ir.document.MathBlock`, whose tree the backend reads
+    directly). ``surface`` / ``span`` are the formula's source text and extent,
+    used for provenance and for the fallbacks — a caller emitting a subtree it
+    cannot locate passes neither.
+
+    ``tree`` is ``None`` when the math frontend never produced one (missing
+    adapter, ``source='plain'`` falling through, a parse that failed and left
+    the block bare): warn ``MATH_NO_IR`` and fall back to per-char unknown
+    cells over the surface, so the formula still occupies the real estate it
+    would have and every cell still traces to a character.
     """
-    math_tree = node.math
-    if math_tree is None:
+    if tree is None:
         ctx.warnings.error(
             code="MATH_NO_IR",
             message=(
                 "math node lacks a parsed MathML tree; emitting raw "
                 "surface as unknown cells"
             ),
-            surface=node.surface,
-            span=node.span,
+            surface=surface,
+            span=span,
             source="backend.math",
         )
-        return _fallback_surface(node.surface, node.span)
+        return _fallback_surface(surface, span)
 
-    if tree_depth_exceeds(math_tree, _MAX_TREE_DEPTH):
-        return _too_deep_fallback(node.surface, node.span, ctx)
+    if tree_depth_exceeds(tree, _MAX_TREE_DEPTH):
+        return _too_deep_fallback(surface or None, span, ctx)
 
-    # Copy-on-write: never mutate node.math (cached + serialized as IR).
-    working_tree = _coalesce_identifier_runs(math_tree, profile)
-    mctx = MathBrailleContext(profile=profile, backend=ctx, span=node.span)
+    # Copy-on-write: never mutate the caller's tree (cached + serialized as IR).
+    working_tree = _coalesce_identifier_runs(tree, profile)
+    mctx = MathBrailleContext(profile=profile, backend=ctx, span=span)
     cells: list[BrailleCell] = []
     _emit_element(cells, mctx, working_tree)
     return cells
 
 
-def _emit_tree(
-    elem: ET.Element, ctx: BackendContext, profile: BrailleProfile
+def translate(
+    node: MathInline, ctx: BackendContext, profile: BrailleProfile
 ) -> list[BrailleCell]:
-    """Convenience for tests: emit a single MathML subtree directly.
+    """Translate one :class:`MathInline` node into braille cells.
 
-    Equivalent to wrapping the element in a fresh :class:`MathInline`
-    and calling :func:`translate`. Underscore-named because it is exactly
-    that — a test convenience with no caller in the compiler — and a plain
-    name sitting beside :func:`translate` offered it as if it were part of the
-    package's interface.
+    The inline dispatcher's entry: unpacks the node and hands its tree to
+    :func:`translate_tree`, which is where the work is.
     """
-    if tree_depth_exceeds(elem, _MAX_TREE_DEPTH):
-        return _too_deep_fallback(None, None, ctx)
-    working_tree = _coalesce_identifier_runs(elem, profile)
-    mctx = MathBrailleContext(profile=profile, backend=ctx)
-    cells: list[BrailleCell] = []
-    _emit_element(cells, mctx, working_tree)
-    return cells
+    return translate_tree(
+        node.math, ctx, profile, surface=node.surface, span=node.span
+    )
 
 
 __all__ = (
     "MathBrailleContext",
     "translate",
+    "translate_tree",
 )

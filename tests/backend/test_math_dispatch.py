@@ -127,7 +127,7 @@ class TestStateMachine:
         mctx = MathBrailleContext(profile=profile, backend=ctx)
         assert mctx.need_number_sign is True
 
-    def test_emit_tree_helper(self, profile):
+    def test_translate_tree_entry_point(self, profile):
         # Convenience function should produce the same cells as
         # translate() on a wrapping MathInline.
         tree = mml("<math><mi>x</mi></math>")

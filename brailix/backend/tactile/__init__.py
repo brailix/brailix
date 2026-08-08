@@ -126,8 +126,8 @@ _MM_PER_INCH = 25.4
 #
 # The frontend normalizer caps depth too, and this is not redundant with it: a
 # tree reaches the backend without passing the normalizer whenever it comes off
-# a ``.blx`` round-trip (``GraphicInline.svg`` is re-parsed straight from its
-# serialized string) or out of a directly-constructed ``GraphicInline``, which
+# a ``.blx`` round-trip (``GraphicBlock.tree`` is re-parsed straight from its
+# serialized string) or out of a block handed a tree directly, which
 # is exactly the gap that made a 6000-level ``<g>`` chain crash here. Its own
 # constant rather than an import of the frontend's: the backend does not depend
 # on the frontend (ARCHITECTURE#arch-layers), the same way ``backend.math``

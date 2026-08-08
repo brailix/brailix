@@ -432,7 +432,7 @@ class TestMathSubcache:
             MathBlock(text="\\sum x_i", source="latex"),
             tree_subcache={key: tree},
         )
-        assert out.ir.children[0].math is tree  # confirm the cache hit
+        assert out.ir.tree is tree  # confirm the cache hit
         assert ET.tostring(tree) == before  # backend left it untouched
 
 
@@ -505,7 +505,7 @@ class TestMusicSubcache:
         )
         # Reused tree is the exact object from the cache, and it's
         # threaded into the new compile's subcache for the next round.
-        out_tree = second.ir.children[0].score
+        out_tree = second.ir.tree
         assert out_tree is cached[key]
         assert second.tree_subcache[key] is out_tree
 
@@ -552,7 +552,7 @@ class TestMusicSubcache:
         )
         # It re-parses under the "block" salt instead of reusing "score".
         assert ("music", pipe.fingerprint, "musicxml", _SCORE_XML, "block") in music.tree_subcache
-        assert music.ir.children[0].score is not score_tree
+        assert music.ir.tree is not score_tree
 
     def test_backend_does_not_mutate_cached_tree(self, pipe: Pipeline) -> None:
         """The backend must read a shared cached tree READ-ONLY.
@@ -584,7 +584,7 @@ class TestMusicSubcache:
             ScoreBlock(text=_SCORE_XML, source="musicxml"),
             tree_subcache={key: tree},
         )
-        assert out.ir.children[0].score is tree  # confirm the cache hit
+        assert out.ir.tree is tree  # confirm the cache hit
         assert ET.tostring(tree) == before  # backend left it untouched
 
 
@@ -617,7 +617,7 @@ class TestGraphicSubcache:
             tree_subcache=first.tree_subcache,
         )
         # Identity, not equality: the pool handed back the same parsed tree.
-        assert second.ir.children[0].svg is first.tree_subcache[key]
+        assert second.ir.tree is first.tree_subcache[key]
 
     def test_backend_does_not_mutate_cached_tree(self, pipe: Pipeline) -> None:
         """Graphics parity with the math / music guards above: rasterizing a
@@ -640,7 +640,7 @@ class TestGraphicSubcache:
             GraphicBlock(text=_SVG_FIGURE, source="svg"),
             tree_subcache={key: tree},
         )
-        assert out.ir.children[0].svg is tree  # confirm the cache hit
+        assert out.ir.tree is tree  # confirm the cache hit
         assert out.raster is not None  # the backend really rasterised it
         assert ET.tostring(tree) == before  # backend left it untouched
 
@@ -674,7 +674,7 @@ class TestGraphicSubcache:
 
         block_a = GraphicBlock(text=ref, source="image")
         first = pipe_a.translate_block(block_a)
-        tree_a = block_a.children[0].svg
+        tree_a = block_a.tree
         assert tree_a is not None
 
         block_b = GraphicBlock(text=ref, source="image")
@@ -682,7 +682,7 @@ class TestGraphicSubcache:
             block_b, tree_subcache=first.tree_subcache
         )
         # B parsed through ITS resolver instead of reusing A's tree...
-        assert block_b.children[0].svg is not tree_a
+        assert block_b.tree is not tree_a
         # ...and the two compiles key apart everywhere a cache could look.
         assert second.source_hash != first.source_hash
         assert pipe_a.fingerprint != pipe_b.fingerprint
@@ -705,7 +705,7 @@ class TestGraphicSubcache:
         first = pipe.translate_block(block1)
         block2 = GraphicBlock(text="media/image1.png", source="image")
         second = pipe.translate_block(block2, tree_subcache=first.tree_subcache)
-        assert block2.children[0].svg is block1.children[0].svg
+        assert block2.tree is block1.tree
         assert second.source_hash == first.source_hash
 
 
@@ -760,12 +760,12 @@ class TestIrTransformerMeetsTheCacheContract:
         before = ET.tostring(pooled)
 
         def edit_a_note(doc: DocumentIR) -> None:
-            node = doc.blocks[0].children[0]
-            cloned = copy.deepcopy(node.score)
+            block = doc.blocks[0]
+            cloned = copy.deepcopy(block.tree)
             note = cloned.find(".//note")
             assert note is not None
             note.set("data-edited", "yes")
-            node.score = cloned
+            block.tree = cloned
 
         second = pipe.translate_block(
             ScoreBlock(text=_SCORE_XML, source="musicxml"),
@@ -773,7 +773,7 @@ class TestIrTransformerMeetsTheCacheContract:
             ir_transformer=edit_a_note,
         )
         # The block carries the edit...
-        edited = second.ir.children[0].score
+        edited = second.ir.tree
         assert edited.find(".//note").get("data-edited") == "yes"
         # ...on a different object, and the pooled tree is byte-identical to
         # what it was before the transformer ran.
@@ -873,9 +873,9 @@ class TestTreeSubcacheParseIdentity:
                 tree_subcache=first.tree_subcache,
             )
             # Same source + same surface, and B still got ITS tree, not A's.
-            assert _mi(first.ir.children[0].math) == "A"
-            assert _mi(second.ir.children[0].math) == "B"
-            assert second.ir.children[0].math is not first.ir.children[0].math
+            assert _mi(first.ir.tree) == "A"
+            assert _mi(second.ir.tree) == "B"
+            assert second.ir.tree is not first.ir.tree
 
     def test_reregistering_the_same_name_invalidates_the_pool(self) -> None:
         """The headline scenario: one live ``Pipeline``, one adapter name, a
@@ -896,7 +896,7 @@ class TestTreeSubcacheParseIdentity:
             first = pipe.translate_block(
                 MathBlock(text="f", source="swappable")
             )
-            assert _mi(first.ir.children[0].math) == "A"
+            assert _mi(first.ir.tree) == "A"
 
             math_source_registry.register(
                 "swappable", lambda: _FixedMathAdapter("B")
@@ -905,7 +905,7 @@ class TestTreeSubcacheParseIdentity:
                 MathBlock(text="f", source="swappable"),
                 tree_subcache=first.tree_subcache,
             )
-            assert _mi(second.ir.children[0].math) == "B"
+            assert _mi(second.ir.tree) == "B"
 
     def test_equal_configurations_still_share_the_pool(self) -> None:
         """The identity must not break the reuse it protects: two separately
@@ -933,7 +933,7 @@ class TestTreeSubcacheParseIdentity:
                 MathBlock(text="f", source="swappable"),
                 tree_subcache=first.tree_subcache,
             )
-            assert second.ir.children[0].math is first.ir.children[0].math
+            assert second.ir.tree is first.ir.tree
 
     def test_music_pool_misses_after_its_registry_generation_moves(
         self, pipe: Pipeline
@@ -952,7 +952,7 @@ class TestTreeSubcacheParseIdentity:
             ScoreBlock(text=_SCORE_XML, source="musicxml"),
             tree_subcache=first.tree_subcache,
         )
-        assert second.ir.children[0].score is not first.ir.children[0].score
+        assert second.ir.tree is not first.ir.tree
 
     def test_graphic_pool_keys_on_identity_too(self, pipe: Pipeline) -> None:
         """Graphics parity: the domain's own salt (the asset resolver) is
@@ -1004,14 +1004,22 @@ class TestStaleBlockSelfHeal:
         assert block.children[0] is first_child0
 
     def test_editing_score_block_text_reparses(self, pipe: Pipeline) -> None:
-        """Structured (math / score) carriers self-heal too: the MusicInline
-        rebuilt from the edited score reflects the new source, not the old."""
+        """An embedded block self-heals too: the tree rebuilt from the edited
+        score reflects the new source, not the old.
+
+        A parsed tree cannot be compared back to source text, so the block
+        records what it parsed (``tree_text``) and the heal compares *that*.
+        While the tree hung off a carrier inline node, the carrier's
+        ``surface`` was serving as that record by accident."""
         block = ScoreBlock(text=_SCORE_XML, source="musicxml")
         pipe.translate_block(block)
+        assert block.tree.find(".//step").text == "C"
+
         edited = _SCORE_XML.replace("<step>C</step>", "<step>D</step>")
         block.text = edited
         second = pipe.translate_block(block)
-        assert second.ir.children[0].surface == edited
+        assert second.ir.tree_text == edited
+        assert second.ir.tree.find(".//step").text == "D"
 
 
 class TestEditToEmptySelfHeal:
@@ -1254,10 +1262,18 @@ class TestBlockPopulateDispatch:
                 out.extend(descendants(sub))
             return out
 
+        from brailix.ir.document import _BLOCK_REGISTRY
+
+        # Registered kinds only: an abstract base (``EmbeddedBlock``) declares
+        # the ``source`` field its subclasses share but carries no type tag and
+        # is never what a document holds, so the dispatcher — keyed on the
+        # block's exact type — never sees one.
+        concrete = set(_BLOCK_REGISTRY.values())
         missing = sorted(
             b.__name__
             for b in descendants(Block)
-            if any(f.name == "source" for f in dc_fields(b))
+            if b in concrete
+            and any(f.name == "source" for f in dc_fields(b))
             and b not in BLOCK_POPULATORS
         )
         assert not missing, (

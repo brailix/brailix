@@ -61,11 +61,9 @@ from brailix.ir.inline import (
     Connector,
     Date,
     DateComponent,
-    GraphicInline,
     InlineNode,
     LatinWord,
     MathInline,
-    MusicInline,
     Number,
     PhoneticInline,
     Punct,
@@ -118,7 +116,7 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
             [
                 "word", "word", "number", "punct",
                 "latin_word", "latin_word", "code_inline", "phonetic_inline",
-                "space", "connector", "unknown", "math", "music", "graphic",
+                "space", "connector", "unknown", "math",
             ]
         )
     )
@@ -142,25 +140,11 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
         return Connector(surface=surface, span=span)
     if kind == "unknown":
         return Unknown(surface=surface, span=span, reason=draw(_opt_short))
-    if kind == "math":
-        return MathInline(
-            surface=surface,
-            span=span,
-            source=draw(st.sampled_from(["latex", "mathml", "plain"])),
-            math=draw(st.one_of(st.none(), _trees("math"))),
-        )
-    if kind == "music":
-        return MusicInline(
-            surface=surface,
-            span=span,
-            source=draw(st.sampled_from(["musicxml", "mxl", "midi", "abc", "plain"])),
-            score=draw(st.one_of(st.none(), _trees("score-partwise"))),
-        )
-    return GraphicInline(
+    return MathInline(
         surface=surface,
         span=span,
-        source=draw(st.sampled_from(["svg", "primitives", "figure", "image"])),
-        svg=draw(st.one_of(st.none(), _trees("svg"))),
+        source=draw(st.sampled_from(["latex", "mathml", "plain"])),
+        math=draw(st.one_of(st.none(), _trees("math"))),
     )
 
 
@@ -223,14 +207,30 @@ def _leaf_blocks(draw: st.DrawFn) -> Block:
     if kind == "code_block":
         return CodeBlock(language=draw(_opt_short), **common)
     if kind == "math_block":
-        return MathBlock(source=draw(st.sampled_from(["latex", "mathml", "plain"])), **common)
+        return MathBlock(
+            source=draw(st.sampled_from(["latex", "mathml", "plain"])),
+            tree=draw(st.one_of(st.none(), _trees("math"))),
+            **common,
+        )
     if kind == "score":
-        return ScoreBlock(source=draw(st.sampled_from(["musicxml", "jianpu", "plain"])), **common)
+        return ScoreBlock(
+            source=draw(st.sampled_from(["musicxml", "jianpu", "plain"])),
+            tree=draw(st.one_of(st.none(), _trees("score-partwise"))),
+            **common,
+        )
     if kind == "music_block":
-        return MusicBlock(source=draw(st.sampled_from(["musicxml", "plain"])), **common)
+        return MusicBlock(
+            source=draw(st.sampled_from(["musicxml", "plain"])),
+            tree=draw(st.one_of(st.none(), _trees("score-partwise"))),
+            **common,
+        )
     if kind == "image_alt":
         return ImageAlt(target=draw(st.one_of(st.none(), st.just("media/image1.png"))), **common)
-    return GraphicBlock(source=draw(st.sampled_from(["svg", "image"])), **common)
+    return GraphicBlock(
+        source=draw(st.sampled_from(["svg", "image"])),
+        tree=draw(st.one_of(st.none(), _trees("svg"))),
+        **common,
+    )
 
 
 @st.composite

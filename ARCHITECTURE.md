@@ -298,7 +298,7 @@ Inline token types:
 ```
 word / number / date /
 punct / latin_word /
-code_inline / phonetic_inline / math_inline / music_inline / graphic_inline /
+code_inline / phonetic_inline / math_inline /
 space / connector / unknown
 ```
 
@@ -325,7 +325,7 @@ A math formula uses its **normalized MathML tree** as its IR directly, a score u
 </math>
 ```
 
-Each tree hangs off an inline carrier — `math_inline`, `music_inline`, `graphic_inline` — which is how the block types `math_block`, `score` / `music_block` and `graphic` hold their content. The full math, music and tactile-graphics subsystems are described in §7 and §8.
+A block whose content is one of these trees holds it directly, on `EmbeddedBlock.tree` — the shared base of `math_block`, `score` / `music_block` and `graphic`, which is also what lets the backend route all three through one branch keyed on the block's `domain`. Each tree used to hang off an inline *carrier* node instead (`math_inline`, `music_inline`, `graphic_inline`), sitting alone in the block's `children`; two of those three had no other producer, and the graphics one had no braille to give at all, so the block backend carried a special case telling it not to translate that child. Only `math_inline` survives, for the case that earns it: a formula inside a sentence. The full math, music and tactile-graphics subsystems are described in §7 and §8.
 
 <a id="arch-braille-ir"></a>
 ### 5.4 BrailleIR (cell sequence)
