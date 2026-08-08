@@ -11,7 +11,6 @@ from brailix.ir.inline import (
     MathInline,
     MusicInline,
     Number,
-    Segment,
     Unknown,
     Word,
     _deserialize_value,
@@ -324,17 +323,6 @@ class TestRegistry:
         assert isinstance(d, Word)
 
 
-class TestSegment:
-    def test_basic(self):
-        s = Segment(type="hanzi_text", surface="我在", span=Span(0, 2))
-        assert s.type == "hanzi_text"
-        assert s.to_dict() == {"type": "hanzi_text", "surface": "我在", "span": [0, 2]}
-
-    def test_no_span(self):
-        s = Segment(type="math_inline", surface="x^2")
-        assert s.to_dict() == {"type": "math_inline", "surface": "x^2"}
-
-
 class TestChineseToken:
     def test_minimal(self):
         t = ChineseToken(surface="我")
@@ -438,34 +426,32 @@ class TestTheHierarchyDiagramMatchesTheClasses:
     """
 
     @staticmethod
-    def _diagram_names() -> list[str]:
+    def _diagram_rows() -> list[tuple[int, str]]:
+        """``(indent, class name)`` for every branch the diagram draws.
+
+        The diagram runs from its root line to the end of the docstring: it is
+        the last thing the module says about itself, and pinning the end to
+        whatever prose used to follow it made this guard fail with a
+        ``ValueError`` the day that prose was removed — reporting the wrong
+        problem about the wrong file.
+        """
         import re
 
         import brailix.ir.inline as mod
 
         doc = mod.__doc__ or ""
-        start = doc.index("InlineNode (abstract)")
-        end = doc.index("Also defined here:")
+        diagram = doc[doc.index("InlineNode (abstract)") :]
         return [
-            m.group(2)
-            for line in doc[start:end].splitlines()
+            (len(m.group(1)), m.group(2))
+            for line in diagram.splitlines()
             if (m := re.match(r"^(\s*)[├└]── (\w+)", line))
         ]
 
-    @staticmethod
-    def _diagram_indents() -> set[int]:
-        import re
+    def _diagram_names(self) -> list[str]:
+        return [name for _indent, name in self._diagram_rows()]
 
-        import brailix.ir.inline as mod
-
-        doc = mod.__doc__ or ""
-        start = doc.index("InlineNode (abstract)")
-        end = doc.index("Also defined here:")
-        return {
-            len(m.group(1))
-            for line in doc[start:end].splitlines()
-            if (m := re.match(r"^(\s*)[├└]── \w+", line))
-        }
+    def _diagram_indents(self) -> set[int]:
+        return {indent for indent, _name in self._diagram_rows()}
 
     def test_it_lists_exactly_the_registered_node_classes(self) -> None:
         from brailix.ir.inline import _INLINE_REGISTRY

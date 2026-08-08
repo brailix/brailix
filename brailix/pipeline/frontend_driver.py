@@ -41,6 +41,7 @@ from brailix.core.context import (
     FrontendContext,
     MathContext,
 )
+from brailix.core.segment import Segment
 from brailix.core.span import Span
 from brailix.frontend import _apply_boundary, language_frontend_registry
 from brailix.frontend import normalize as _frontend_normalize
@@ -52,7 +53,7 @@ from brailix.frontend.graphics import (
 )
 from brailix.frontend.music import parse_music_tree as _frontend_parse_music_tree
 from brailix.ir.document import Paragraph
-from brailix.ir.inline import InlineNode, MathInline, Segment
+from brailix.ir.inline import InlineNode, MathInline
 from brailix.pipeline._helpers import (
     _all_prose_types,
     _block_surface,

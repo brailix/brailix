@@ -61,10 +61,10 @@ from brailix.core.chars import fold_fullwidth, is_math_symbol
 from brailix.core.context import FrontendContext
 from brailix.core.protocols import Segmenter
 from brailix.core.registry import Registry
+from brailix.core.segment import Segment
 from brailix.core.span import Span
 from brailix.frontend._language_pick import pick_by_language
 from brailix.ir.document import Block
-from brailix.ir.inline import Segment
 
 if _TYPE_CHECKING:
     from collections.abc import Callable, Iterator

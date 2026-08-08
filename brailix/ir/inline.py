@@ -34,10 +34,6 @@ type through a flat table:
       ├── Space
       ├── Connector         # synthetic connector ⠤: letter↔hanzi compound (x轴 / T恤)
       └── Unknown           # fallback, never lets the pipeline crash
-
-Also defined here:
-
-    Segment       — Segmenter output (chunked by region type)
 """
 
 from __future__ import annotations
@@ -264,31 +260,6 @@ class Unknown(InlineNode):
 
     type: _ClassVar[str] = "unknown"
     reason: str | None = None
-
-
-# ---------------------------------------------------------------------------
-# Segment (Segmenter output)
-# ---------------------------------------------------------------------------
-
-
-@_dataclass(slots=True)
-class Segment:
-    """A coarse region produced by a :class:`~brailix.core.protocols.Segmenter`.
-
-    The Segmenter only classifies regions by type (hanzi_text, date,
-    number, math_inline, latin_text, punct, ...). Deeper analysis
-    (tokenization, pinyin, math parsing) happens later in the pipeline.
-    """
-
-    type: str
-    surface: str
-    span: Span | None = None
-
-    def to_dict(self) -> dict[str, _Any]:
-        d: dict[str, _Any] = {"type": self.type, "surface": self.surface}
-        if self.span is not None:
-            d["span"] = list(self.span.to_tuple())
-        return d
 
 
 # ---------------------------------------------------------------------------

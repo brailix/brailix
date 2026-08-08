@@ -27,10 +27,10 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from brailix.core.context import FrontendContext
+from brailix.core.segment import Segment
 from brailix.core.span import Span
 from brailix.frontend.segmentation import DefaultSegmenter
 from brailix.ir.document import Paragraph
-from brailix.ir.inline import Segment
 
 # A deliberately mixed alphabet: CJK (including a supplementary-plane hanzi,
 # which is one code point but two UTF-16 units — a classic off-by-one source),

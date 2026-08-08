@@ -243,9 +243,9 @@ class TestLanguageRegisteredSegmenterAndNormalizer:
         from dataclasses import dataclass
 
         from brailix import Pipeline
+        from brailix.core.segment import Segment
         from brailix.core.span import Span
         from brailix.frontend.segmentation import segmenter_registry
-        from brailix.ir.inline import Segment
 
         @dataclass(slots=True)
         class _OneBigPunctSegmenter:
@@ -296,9 +296,9 @@ class TestUnhandledSegmentType:
 
     def test_unknown_segment_type_emits_warning(self):
         from brailix import Pipeline
+        from brailix.core.segment import Segment
         from brailix.core.span import Span
         from brailix.frontend.segmentation import segmenter_registry
-        from brailix.ir.inline import Segment
 
         class _MysterySegmenter:
             name = "mystery"

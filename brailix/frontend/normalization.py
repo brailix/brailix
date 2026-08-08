@@ -36,6 +36,7 @@ from brailix.core import inline_math
 from brailix.core.context import FrontendContext
 from brailix.core.protocols import Normalizer
 from brailix.core.registry import Registry
+from brailix.core.segment import Segment
 from brailix.core.span import Span
 from brailix.frontend._language_pick import pick_by_language
 from brailix.ir.inline import (
@@ -47,7 +48,6 @@ from brailix.ir.inline import (
     Number,
     PhoneticInline,
     Punct,
-    Segment,
     Space,
     Unknown,
 )

@@ -172,6 +172,7 @@ brailix/
 │   │   ├── context.py        # FrontendContext / BackendContext / MathContext / MusicContext / GraphicsContext
 │   │   ├── errors.py         # ParseError / WarningCollector / RunMode
 │   │   ├── span.py           # Span utilities, source-position tracking for IR nodes
+│   │   ├── segment.py        # Segment — the segmenter→normalizer mediator (named by a core protocol, so not in the frontend; not an IR node either)
 │   │   ├── registry.py       # generic name→loader registry (lazy load + MissingExtraError)
 │   │   ├── protocols.py      # Segmenter / Normalizer / LanguageFrontend / LanguageBackend / MathSourceAdapter / MusicSourceAdapter / GraphicSourceAdapter / InlineTextTranslator / GraphicAssetResolver / Renderer
 │   │   ├── _xml.py           # shared XML helpers (safe_fromstring: parsing with entity expansion off; byte decoding by XML's own encoding rules; prologue scan to the root element)

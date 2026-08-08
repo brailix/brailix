@@ -1,6 +1,7 @@
 
 
 from brailix.core.context import FrontendContext
+from brailix.core.segment import Segment
 from brailix.core.span import Span
 from brailix.frontend.normalization import (
     DefaultNormalizer,
@@ -16,7 +17,6 @@ from brailix.ir.inline import (
     MathInline,
     Number,
     Punct,
-    Segment,
     Space,
     Unknown,
 )

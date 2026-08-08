@@ -27,6 +27,7 @@ from typing import Protocol as _Protocol
 from typing import runtime_checkable as _runtime_checkable
 
 from brailix.core.config import BrailleProfile as _BrailleProfile
+from brailix.core.segment import Segment as _Segment
 
 # The two families below are the ONLY annotations in the package that a
 # runtime introspector cannot read back, and both are deferred by a rule that
@@ -56,11 +57,10 @@ if _TYPE_CHECKING:
     from brailix.ir.inline import (
         HanziMarker,
         InlineNode,
-        Segment,
         Word,
     )
 
-    NormalizedItem = InlineNode | Segment
+    NormalizedItem = InlineNode | _Segment
     BrailleRenderable = BrailleDocument | BrailleSequence
 
 
@@ -91,12 +91,12 @@ class Segmenter(_Protocol):
 
     def segment(
         self, block: Block, ctx: FrontendContext | None
-    ) -> list[Segment]: ...
+    ) -> list[_Segment]: ...
 
 
 @_runtime_checkable
 class Normalizer(_Protocol):
-    """Promote raw :class:`Segment` runs into typed inline nodes where
+    """Promote raw :class:`~brailix.core.segment.Segment` runs into typed inline nodes where
     possible (numbers, dates, latin words, math_inline).
     Segments the normalizer doesn't recognize pass through untouched
     so the Pipeline's per-type frontend dispatch can take over."""
@@ -105,7 +105,7 @@ class Normalizer(_Protocol):
 
     def normalize(
         self,
-        segments: _Iterable[Segment],
+        segments: _Iterable[_Segment],
         ctx: FrontendContext | None = None,
     ) -> list[NormalizedItem]: ...
 
@@ -127,7 +127,7 @@ class LanguageFrontend(_Protocol):
     language — declare which segment types carry that language's prose,
     and register it; the orchestrator stays language-agnostic.
 
-    ``prose_types`` are the :class:`~brailix.ir.inline.Segment` type
+    ``prose_types`` are the :class:`~brailix.core.segment.Segment` type
     names this language's prose appears as (Chinese: ``{"hanzi_text"}``;
     a Japanese frontend might consume ``{"hanzi_text", "kana_text"}``).
     The Pipeline routes a segment here when its type is in this set, so

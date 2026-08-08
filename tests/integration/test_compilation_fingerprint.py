@@ -429,7 +429,7 @@ class _ShoutSegmenter:
     name = "probe"
 
     def segment(self, block, ctx=None):  # noqa: ANN001, ANN201 — protocol shape
-        from brailix.ir.inline import Segment
+        from brailix.core.segment import Segment
 
         text = block.text or ""
         return [

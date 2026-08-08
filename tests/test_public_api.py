@@ -106,7 +106,6 @@ _FACADE: dict[str, list[str]] = {
         "Number",
         "PhoneticInline",
         "Punct",
-        "Segment",
         "Space",
         "Unknown",
         "Word",
@@ -117,6 +116,7 @@ _FACADE: dict[str, list[str]] = {
     "brailix.core": [
         "Span",
         "merge_spans",
+        "Segment",
         "BackendContext",
         "FrontendContext",
         "GraphicsContext",
