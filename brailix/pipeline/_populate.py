@@ -1,10 +1,11 @@
-"""How a leaf block's ``children`` get filled, one handler per block kind.
+"""How a leaf block's content gets filled in, one handler per block kind.
 
 :meth:`brailix.pipeline.frontend_driver.FrontendDriver.populate_block` owns *whether* to
 populate (structural recursion, the stale-heal, the fingerprint stamp); this
 module owns *how*, per kind: a math / music / graphic block parses through its
-vertical's frontend into a single carrier inline node, a code block is wrapped
-verbatim, and everything else is prose and runs the language frontend.
+vertical's frontend into the block's own ``tree``, a code block is wrapped
+verbatim as one inline node, and everything else is prose and runs the language
+frontend.
 
 Split out of :mod:`brailix.pipeline.frontend_driver` so the driver stays the
 orchestration stage — the same extraction the pipeline package already applies
@@ -37,7 +38,6 @@ from brailix.core.context import (
     MusicContext,
 )
 from brailix.core.errors import PROGRAMMING_ERRORS, StrictModeError
-from brailix.core.span import Span
 from brailix.ir.document import (
     Block,
     CodeBlock,
@@ -46,13 +46,7 @@ from brailix.ir.document import (
     MusicBlock,
     ScoreBlock,
 )
-from brailix.ir.inline import (
-    CodeInline,
-    GraphicInline,
-    MathInline,
-    MusicInline,
-    Unknown,
-)
+from brailix.ir.inline import CodeInline
 from brailix.pipeline._fingerprint import asset_resolver_identity
 from brailix.pipeline._helpers import (
     _ensure_block_span,
@@ -108,9 +102,9 @@ def parse_cached_tree(
     parse call, the exception ladder, the warning, and recording a successful
     parse. What they do *differently* — how each recovers from a failed parse
     — deliberately does not: this returns ``(tree, error)`` and the caller
-    decides, because the recoveries are genuinely unlike each other (music
-    keeps a carrier with no tree, math abandons the carrier for one
-    :class:`Unknown` per character, graphics substitutes an error-marked SVG).
+    decides. Math and music both leave the block with no tree and let the
+    backend's ``*_NO_IR`` path write the surface out; graphics substitutes an
+    error-marked SVG, because a figure has to rasterise to *something*.
 
     The exception ladder is the part worth having in one place:
 
@@ -177,7 +171,8 @@ def populate_leaf(
     tree_in: TreeSubcache | None = None,
     tree_out: TreeSubcache | None = None,
 ) -> None:
-    """Fill one leaf block's ``children`` from its raw ``text``.
+    """Fill one leaf block's content from its raw ``text`` — ``children`` for a
+    text block, ``tree`` for an embedded one.
 
     Dispatches on the block's exact type through :data:`BLOCK_POPULATORS`; a
     block type absent from the table is prose and runs the language frontend.
@@ -204,7 +199,7 @@ def populate_prose_block(
     this stays the fallback.
     """
     text, _doc_span, _leaf_span = _ensure_block_span(block)
-    block.children = driver.run_frontend(
+    block.inlines = driver.run_frontend(
         text, ctx, tree_in=tree_in, tree_out=tree_out
     )
 
@@ -231,7 +226,7 @@ def populate_code_block(
     every cell with an offset the caller is documented to add for itself.
     """
     text, _doc_span, leaf_span = _ensure_block_span(block)
-    block.children = [CodeInline(surface=text, span=leaf_span)]
+    block.inlines = [CodeInline(surface=text, span=leaf_span)]
 
 
 def populate_music_block(
@@ -243,19 +238,14 @@ def populate_music_block(
     tree_out: TreeSubcache | None = None,
 ) -> None:
     """Parse a :class:`ScoreBlock` / :class:`MusicBlock`'s raw ``text`` via the
-    music frontend and populate ``children`` with a single :class:`MusicInline`
-    carrying the MusicXML tree.
-
-    Mirrors :func:`populate_math_block` for the music subsystem: the block
-    holds only ``source``; the parsed tree lives on a child ``MusicInline``,
-    so the backend dispatcher can route it like any other
-    inline node.
+    music frontend and fill the block's ``tree`` with the MusicXML.
 
     Soft-failure: if the adapter is missing the frontend returns ``None`` (a
     ``MUSIC_ADAPTER_MISSING`` warning is already recorded by then). Adapter
     parse errors land in a ``<music-error>`` tree that backend handlers will
-    surface as ``MUSIC_PARSE_RECOVERY``. Either way ``block.children`` ends up
-    populated and the pipeline keeps running.
+    surface as ``MUSIC_PARSE_RECOVERY``. Either way the block is left in a
+    state the backend can render (``MUSIC_NO_IR`` at worst) and the pipeline
+    keeps running.
 
     ``tree_in`` / ``tree_out`` are the shared parsed-tree reuse / record pools
     (see :meth:`Pipeline.translate_block`): on a key hit the whole MusicXML
@@ -273,7 +263,7 @@ def populate_music_block(
     mode: Literal["block", "score"] = (
         "score" if isinstance(block, ScoreBlock) else "block"
     )
-    # Recovery: keep the carrier with no tree. The backend's MUSIC_NO_IR path
+    # Recovery: leave the block with no tree. The backend's MUSIC_NO_IR path
     # turns that into a warning rather than a crash, so the document still
     # compiles around the unreadable score.
     tree, _error = parse_cached_tree(
@@ -298,14 +288,8 @@ def populate_music_block(
         tree_out=tree_out,
     )
 
-    block.children = [
-        MusicInline(
-            surface=text,
-            span=leaf_span,
-            source=block.source,
-            score=tree,
-        )
-    ]
+    block.tree = tree
+    block.tree_text = text
 
 
 def populate_math_block(
@@ -316,16 +300,18 @@ def populate_math_block(
     tree_in: TreeSubcache | None = None,
     tree_out: TreeSubcache | None = None,
 ) -> None:
-    """Parse a :class:`MathBlock`'s raw ``text`` via the math frontend and
-    populate ``block.children``.
+    """Parse a :class:`MathBlock`'s raw ``text`` via the math frontend and fill
+    the block's ``tree`` with the MathML.
 
     On adapter exceptions (deliberately wide ``except`` — adapter failure modes
-    vary): record a ``MATH_BLOCK_PARSE_FAILED`` warning and fall back to one
-    :class:`Unknown` per source character so layout still occupies real estate.
-    The per-char :class:`Unknown` will trigger ``UNKNOWN_NODE`` warnings via the
-    dispatcher when backend renders them — that's expected and slightly more
-    precise than the legacy single-warning behavior (each char is genuinely an
-    unknown to the backend).
+    vary) a ``MATH_BLOCK_PARSE_FAILED`` warning is recorded and the block is
+    left with no tree, exactly as music's recovery does. The backend's
+    ``MATH_NO_IR`` path then writes one unknown cell per source character, so
+    layout still occupies the real estate the formula would have and every cell
+    still traces to a character. (That used to be done here, by filling
+    ``children`` with one :class:`Unknown` per character — a second way for a
+    math block to carry content, and the reason a math block needed children at
+    all. The cells are the same either way.)
 
     Parsing goes through the injected ``driver._parse_math_tree`` — the same
     parser inline math (:meth:`~brailix.pipeline.frontend_driver.FrontendDriver.attach_math`)
@@ -333,7 +319,7 @@ def populate_math_block(
     """
     text, _doc_span, leaf_span = _ensure_block_span(block)
 
-    tree, error = parse_cached_tree(
+    tree, _error = parse_cached_tree(
         ctx,
         domain="math",
         source=block.source,
@@ -354,34 +340,8 @@ def populate_math_block(
         tree_in=tree_in,
         tree_out=tree_out,
     )
-    if error is not None:
-        # Recovery: one Unknown per source character, so layout still occupies
-        # the real estate the formula would have. Each will trigger its own
-        # UNKNOWN_NODE warning from the dispatcher — expected, and slightly
-        # more precise than one warning for the whole block.
-        #
-        # Every character gets its own leaf-local span, unconditionally.
-        # Making that depend on whether the caller supplied a block span — and
-        # counting from that span's start when they did — leaves a formula
-        # that fails to parse as the one construct in a compiled document
-        # whose cells are untraceable (ARCHITECTURE#arch-traceability), or
-        # traceable to the wrong coordinate system. ``_ensure_block_span``
-        # gives the block a span either way, so there is nothing for the
-        # distinction to protect.
-        block.children = [
-            Unknown(surface=ch, span=Span(i, i + 1))
-            for i, ch in enumerate(text)
-        ]
-        return
-
-    block.children = [
-        MathInline(
-            surface=text,
-            span=leaf_span,
-            source=block.source,
-            math=tree,
-        )
-    ]
+    block.tree = tree
+    block.tree_text = text
 
 
 def populate_graphic_block(
@@ -393,17 +353,15 @@ def populate_graphic_block(
     tree_out: TreeSubcache | None = None,
 ) -> None:
     """Parse a :class:`~brailix.ir.document.GraphicBlock`'s raw ``text`` via the
-    graphics frontend and populate ``block.children`` with a single
-    :class:`~brailix.ir.inline.GraphicInline` carrying the SVG tree.
+    graphics frontend and fill the block's ``tree`` with the SVG.
 
     Mirrors :func:`populate_math_block` / :func:`populate_music_block` for the
-    tactile-graphics subsystem: the
-    block holds only ``source``; the parsed SVG tree lives on the child carrier.
+    tactile-graphics subsystem.
     Parsing goes through the injected ``driver._parse_graphic_tree`` — the
     graphics frontend's single public entry, same shape as math / music — whose
     contract is "always a tree": a missing adapter or adapter failure degrades
     to an SVG bearing a ``data-bk-error`` marker, so the tactile backend can
-    surface ``GRAPHICS_SOFT_FAIL`` — ``block.children`` always ends up populated
+    surface ``GRAPHICS_SOFT_FAIL`` — ``block.tree`` always ends up populated
     and the pipeline keeps running. (A soft-*failure* promise, not a
     never-raises one: strict mode and a programming error still propagate, the
     same two exemptions math and music make.) Shares the ``("graphic", …)`` tree sub-cache domain
@@ -464,14 +422,8 @@ def populate_graphic_block(
             tree,
         )
 
-    block.children = [
-        GraphicInline(
-            surface=text,
-            span=leaf_span,
-            source=block.source,
-            svg=tree,
-        )
-    ]
+    block.tree = tree
+    block.tree_text = text
 
 
 # ---------------------------------------------------------------------------

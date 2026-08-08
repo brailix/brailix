@@ -91,7 +91,7 @@ class TestDispatcherIntegration:
         node = MathInline(
             surface="x",
             source="mathml",
-            math=mml("<math><mi>x</mi></math>"),
+            tree=mml("<math><mi>x</mi></math>"),
         )
         cells = translate_node(node, ctx, profile)
         assert any(c.role == "math_identifier" for c in cells)
@@ -127,7 +127,7 @@ class TestStateMachine:
         mctx = MathBrailleContext(profile=profile, backend=ctx)
         assert mctx.need_number_sign is True
 
-    def test_emit_tree_helper(self, profile):
+    def test_translate_tree_entry_point(self, profile):
         # Convenience function should produce the same cells as
         # translate() on a wrapping MathInline.
         tree = mml("<math><mi>x</mi></math>")

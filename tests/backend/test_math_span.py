@@ -40,7 +40,7 @@ def _emit(tree: ET.Element, profile, formula_span: Span | None = None):
     wc = WarningCollector(mode=RunMode.NORMAL)
     ctx = BackendContext(profile="cn_current", warnings=wc)
     node = MathInline(
-        surface="", source="mathml", span=formula_span, math=tree
+        surface="", source="mathml", span=formula_span, tree=tree
     )
     cells = translate(node, ctx, profile)
     return cells, wc

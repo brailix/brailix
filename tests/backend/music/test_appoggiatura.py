@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import _emit_tree
+from brailix.backend.music import translate_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 
@@ -49,7 +49,7 @@ class TestAppoggiatura:
             "<pitch><step>C</step><octave>4</octave></pitch>"
             "<duration>1</duration><type>eighth</type></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # long_appoggiatura = '"5' = (5,)(2,6)
         assert _dots(cells)[:2] == [(5,), (2, 6)]
         assert _roles(cells)[:2] == [
@@ -63,7 +63,7 @@ class TestAppoggiatura:
             "<pitch><step>C</step><octave>4</octave></pitch>"
             "<duration>1</duration><type>eighth</type></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # short_appoggiatura = '5' = (2,6)
         assert _dots(cells)[0] == (2, 6)
         assert _roles(cells)[0] == "music_appoggiatura"
@@ -74,7 +74,7 @@ class TestAppoggiatura:
             "<pitch><step>G</step><octave>5</octave></pitch>"
             "<duration>1</duration><type>eighth</type></note>"
         )
-        roles = _roles(_emit_tree(note, ctx, profile))
+        roles = _roles(translate_tree(note, ctx, profile))
         # [appoggiatura(2 cells), octave, note]
         # First non-appoggiatura cell is the octave mark.
         first_oct_idx = roles.index("music_octave")
@@ -99,7 +99,7 @@ class TestFeatureGating:
             "<pitch><step>C</step><octave>4</octave></pitch>"
             "<duration>1</duration><type>eighth</type></note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_appoggiatura" not in _roles(cells)
 
 
@@ -112,7 +112,7 @@ class TestCombinedOrdering:
             "<accidental>sharp</accidental>"
             "</note>"
         )
-        roles = _roles(_emit_tree(note, ctx, profile))
+        roles = _roles(translate_tree(note, ctx, profile))
         # [appoggiatura(2), accidental, octave, note, dot]
         # Verify appoggiatura first, then accidental, then octave.
         assert roles[:2] == ["music_appoggiatura", "music_appoggiatura"]
@@ -136,5 +136,5 @@ class TestRestNoAppoggiatura:
             "<note><grace/><rest/>"
             "<duration>1</duration><type>quarter</type></note>"
         )
-        cells = _emit_tree(rest, ctx, profile)
+        cells = translate_tree(rest, ctx, profile)
         assert "music_appoggiatura" not in _roles(cells)

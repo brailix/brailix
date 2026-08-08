@@ -16,8 +16,7 @@ from brailix.core.span import Span
 from brailix.ir.document import DocumentIR, Heading, Paragraph
 from brailix.ir.inline import (
     Date,
-    HanziMarker,
-    Number,
+    DateComponent,
     Punct,
     Word,
 )
@@ -160,19 +159,34 @@ class TestHandAnnotatedDocument:
         ctx = BackendContext(profile="cn_current")
 
         # 我 在 2026 年 5 月 17 日 去 了 重庆 银行 。
-        doc = DocumentIR(blocks=[Paragraph(children=[
+        doc = DocumentIR(blocks=[Paragraph(inlines=[
             Word(surface="我", reading="wo3", span=Span(0, 1)),
             Word(surface="在", reading="zai4", span=Span(1, 2)),
             Date(
                 surface="2026年5月17日",
                 span=Span(2, 12),
-                parts=[
-                    Number(surface="2026", span=Span(2, 6)),
-                    HanziMarker(surface="年", span=Span(6, 7), reading="nian2"),
-                    Number(surface="5", span=Span(7, 8)),
-                    HanziMarker(surface="月", span=Span(8, 9), reading="yue4"),
-                    Number(surface="17", span=Span(9, 11)),
-                    HanziMarker(surface="日", span=Span(11, 12), reading="ri4"),
+                components=[
+                    DateComponent(
+                        digits="2026",
+                        digits_span=Span(2, 6),
+                        marker="年",
+                        marker_span=Span(6, 7),
+                        reading="nian2",
+                    ),
+                    DateComponent(
+                        digits="5",
+                        digits_span=Span(7, 8),
+                        marker="月",
+                        marker_span=Span(8, 9),
+                        reading="yue4",
+                    ),
+                    DateComponent(
+                        digits="17",
+                        digits_span=Span(9, 11),
+                        marker="日",
+                        marker_span=Span(11, 12),
+                        reading="ri4",
+                    ),
                 ],
             ),
             Word(surface="去", reading="qu4", span=Span(12, 13)),
@@ -229,8 +243,8 @@ class TestMultipleBlocks:
         profile = load_profile("cn_current")
         ctx = BackendContext(profile="cn_current")
         doc = DocumentIR(blocks=[
-            Heading(level=1, children=[Word(surface="一", reading="yi1")]),
-            Paragraph(children=[Word(surface="文", reading="wen2")]),
+            Heading(level=1, inlines=[Word(surface="一", reading="yi1")]),
+            Paragraph(inlines=[Word(surface="文", reading="wen2")]),
         ])
         rendered = UnicodeBrailleRenderer().render(
             translate_document(doc, ctx, profile)
@@ -247,7 +261,7 @@ class TestProvenance:
     def test_every_braille_cell_traces_back_to_source(self):
         profile = load_profile("cn_current")
         ctx = BackendContext(profile="cn_current")
-        doc = DocumentIR(blocks=[Paragraph(children=[
+        doc = DocumentIR(blocks=[Paragraph(inlines=[
             Word(surface="我", reading="wo3", span=Span(0, 1)),
             Word(surface="在", reading="zai4", span=Span(1, 2)),
             Punct(surface="。", span=Span(2, 3)),
@@ -296,7 +310,7 @@ class TestProfileFeature:
         """When tone is suppressed, the same content yields fewer cells."""
         profile = load_profile("cn_current")
         ctx = BackendContext(profile="cn_current")
-        doc = DocumentIR(blocks=[Paragraph(children=[
+        doc = DocumentIR(blocks=[Paragraph(inlines=[
             Word(surface="在", reading="zai4", span=Span(0, 1)),
         ])])
 

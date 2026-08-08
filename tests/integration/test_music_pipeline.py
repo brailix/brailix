@@ -4,9 +4,9 @@ Drives :meth:`brailix.Pipeline.translate_document` over a single-part
 MusicXML score wrapped in a :class:`ScoreBlock`, and verifies that
 the Pipeline:
 
-* populates ``ScoreBlock.children`` with a :class:`MusicInline` whose
+* fills ``ScoreBlock.tree`` with the parsed MusicXML, whose
   ``score`` is the parsed (and namespace-stripped) MusicXML tree;
-* dispatches that MusicInline through the music backend;
+* dispatches that tree through the music backend;
 * lands the BANA cells on a :class:`BrailleBlock` with
   ``block_type="score"``;
 * survives soft failures (``<music-error>`` / missing adapter) with
@@ -24,7 +24,6 @@ import pytest
 
 from brailix import Pipeline
 from brailix.ir.document import DocumentIR, ScoreBlock
-from brailix.ir.inline import MusicInline
 
 SIMPLE_SCORE_XML = (
     '<score-partwise version="4.0">'
@@ -106,21 +105,17 @@ class TestScoreBlockTranslation:
     def test_score_block_round_trip_through_pipeline(self, pipe):
         # Build a one-block document with a ScoreBlock; Pipeline must
         # parse the MusicXML via the music frontend and dispatch the
-        # resulting MusicInline through the music backend.
+        # resulting tree through the music backend.
         doc = DocumentIR(
             blocks=[ScoreBlock(text=SIMPLE_SCORE_XML, source="musicxml")]
         )
         result = pipe.translate_document(doc)
 
-        # Frontend ran: ScoreBlock now carries one MusicInline child
-        # with a parsed score tree.
+        # Frontend ran: the ScoreBlock now carries its parsed score tree.
         score_block = result.ir.blocks[0]
         assert isinstance(score_block, ScoreBlock)
-        assert len(score_block.children) == 1
-        child = score_block.children[0]
-        assert isinstance(child, MusicInline)
-        assert isinstance(child.score, ET.Element)
-        assert child.score.tag == "score-partwise"
+        assert isinstance(score_block.tree, ET.Element)
+        assert score_block.tree.tag == "score-partwise"
 
         # Backend ran: cells include one octave prefix + 4 note cells
         # (C-D-E-F sit within 3° of each other so only the first marks
@@ -211,8 +206,8 @@ class TestSoftFailure:
     def test_unknown_source_produces_adapter_missing_warning(self, pipe):
         # Pipeline routes to the music frontend with an unknown source
         # name; the frontend warns MUSIC_ADAPTER_MISSING and returns
-        # None, so the populated MusicInline carries score=None and
-        # the backend emits per-char unknown cells.
+        # None, so the block is left with tree=None and the backend
+        # emits per-char unknown cells.
         doc = DocumentIR(
             blocks=[ScoreBlock(text="anything", source="nosuch")]
         )
@@ -229,8 +224,8 @@ class TestSoftFailure:
         # never reach the wide ``except`` in populate_music_block. This
         # exercises that guard directly: a music frontend that *raises*
         # an unexpected exception must be caught, recorded as
-        # ``MUSIC_BLOCK_PARSE_FAILED``, and fall back to a MusicInline
-        # with score=None — the backend then degrades that to
+        # ``MUSIC_BLOCK_PARSE_FAILED``, and leave the block with
+        # tree=None — the backend then degrades that to
         # ``MUSIC_NO_IR`` instead of letting the exception abort the
         # whole document. Mirror of the display-math guard in
         # tests/backend/test_block.py. populate_music_block parses via the
@@ -248,7 +243,7 @@ class TestSoftFailure:
         codes = [w.code for w in result.warnings.warnings]
         # The pipeline caught the crash and recorded it...
         assert "MUSIC_BLOCK_PARSE_FAILED" in codes
-        # ...and the backend degraded the score=None handoff rather than
+        # ...and the backend degraded the tree=None handoff rather than
         # crashing.
         assert "MUSIC_NO_IR" in codes
         # Did not abort: one fallback score block with cells still lands.
@@ -256,10 +251,8 @@ class TestSoftFailure:
         assert len(bblocks) == 1
         assert bblocks[0].block_type == "score"
         assert bblocks[0].cells, "expected fallback cells over the surface"
-        # The populated child is a MusicInline carrying no parsed tree.
-        child = result.ir.blocks[0].children[0]
-        assert isinstance(child, MusicInline)
-        assert child.score is None
+        # The block came back carrying no parsed tree.
+        assert result.ir.blocks[0].tree is None
 
 
 # ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ def mml(xml: str) -> ET.Element:
 def emit(tree, profile):
     wc = WarningCollector(mode=RunMode.NORMAL)
     ctx = BackendContext(profile="cn_current", warnings=wc)
-    node = MathInline(surface="", source="mathml", math=tree)
+    node = MathInline(surface="", source="mathml", tree=tree)
     cells = translate(node, ctx, profile)
     return cells, wc
 
@@ -333,7 +333,7 @@ class TestBoundaries:
         den.text = "2"
         wc = WarningCollector(mode=RunMode.NORMAL)
         ctx = BackendContext(profile="cn_current", warnings=wc)
-        node = MathInline(surface="", math=elem)
+        node = MathInline(surface="", tree=elem)
         cells = translate(node, ctx, profile)
         # Antoine fires.
         assert any(c.role == "math_digit_lower" for c in cells)
@@ -343,7 +343,7 @@ class TestBoundaries:
         elem = ET.Element("foobar")
         wc = WarningCollector(mode=RunMode.NORMAL)
         ctx = BackendContext(profile="cn_current", warnings=wc)
-        node = MathInline(surface="", math=elem)
+        node = MathInline(surface="", tree=elem)
         cells = translate(node, ctx, profile)
         assert any(c.role == "unknown" for c in cells)
         assert any(w.code == "MATH_UNSUPPORTED_ELEMENT" for w in wc)

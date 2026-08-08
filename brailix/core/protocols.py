@@ -27,6 +27,7 @@ from typing import Protocol as _Protocol
 from typing import runtime_checkable as _runtime_checkable
 
 from brailix.core.config import BrailleProfile as _BrailleProfile
+from brailix.core.segment import Segment as _Segment
 
 # The two families below are the ONLY annotations in the package that a
 # runtime introspector cannot read back, and both are deferred by a rule that
@@ -54,13 +55,12 @@ if _TYPE_CHECKING:
     )
     from brailix.ir.document import Block
     from brailix.ir.inline import (
-        HanziMarker,
+        DateComponent,
         InlineNode,
-        Segment,
         Word,
     )
 
-    NormalizedItem = InlineNode | Segment
+    NormalizedItem = InlineNode | _Segment
     BrailleRenderable = BrailleDocument | BrailleSequence
 
 
@@ -91,12 +91,12 @@ class Segmenter(_Protocol):
 
     def segment(
         self, block: Block, ctx: FrontendContext | None
-    ) -> list[Segment]: ...
+    ) -> list[_Segment]: ...
 
 
 @_runtime_checkable
 class Normalizer(_Protocol):
-    """Promote raw :class:`Segment` runs into typed inline nodes where
+    """Promote raw :class:`~brailix.core.segment.Segment` runs into typed inline nodes where
     possible (numbers, dates, latin words, math_inline).
     Segments the normalizer doesn't recognize pass through untouched
     so the Pipeline's per-type frontend dispatch can take over."""
@@ -105,7 +105,7 @@ class Normalizer(_Protocol):
 
     def normalize(
         self,
-        segments: _Iterable[Segment],
+        segments: _Iterable[_Segment],
         ctx: FrontendContext | None = None,
     ) -> list[NormalizedItem]: ...
 
@@ -127,7 +127,7 @@ class LanguageFrontend(_Protocol):
     language — declare which segment types carry that language's prose,
     and register it; the orchestrator stays language-agnostic.
 
-    ``prose_types`` are the :class:`~brailix.ir.inline.Segment` type
+    ``prose_types`` are the :class:`~brailix.core.segment.Segment` type
     names this language's prose appears as (Chinese: ``{"hanzi_text"}``;
     a Japanese frontend might consume ``{"hanzi_text", "kana_text"}``).
     The Pipeline routes a segment here when its type is in this set, so
@@ -162,10 +162,10 @@ class LanguageFrontend(_Protocol):
 class LanguageBackend(_Protocol):
     """Translate a language's prose IR nodes to cells.
 
-    Two node kinds, one required method each: :class:`Word` (a language's
-    prose word, of any length) and :class:`HanziMarker` (the date markers,
-    whose reading *and* number-joiner rule are the language's own — see
-    :meth:`translate_date_marker`). Both are required; the registry runs a
+    Two things to translate, one required method each: a :class:`Word` (a
+    language's prose word, of any length) and a :class:`DateComponent`'s marker
+    (年/月/日 …, whose reading *and* number-joiner rule are the language's own —
+    see :meth:`translate_date_marker`). Both are required; the registry runs a
     runtime protocol check on first resolution, so an implementation missing
     one is rejected at ``get()``.
 
@@ -188,20 +188,25 @@ class LanguageBackend(_Protocol):
 
     def translate_date_marker(
         self,
-        marker: HanziMarker,
-        follows_number: bool,
+        component: DateComponent,
         ctx: BackendContext,
         profile: _BrailleProfile,
     ) -> list[BrailleCell]:
-        """Translate a date marker (年/月/日/号/时/分/秒, …) to cells.
+        """Translate one date component's marker (年/月/日/号/时/分/秒, …).
 
         The language owns both the marker's **reading** and the
         orthographic **connector rule** — whether a number→marker joiner
-        cell precedes it when ``follows_number`` is true (Chinese exempts
-        the year marker 年; other markers take the connector). The
-        language-neutral :func:`brailix.backend.number.translate_date`
-        skeleton handles the numeric components and delegates each marker
-        here, so no date-marker rule lives outside a ``LanguageBackend``.
+        cell precedes it when the component has digits in front of the marker
+        (Chinese exempts the year marker 年; other markers take the
+        connector). The language-neutral
+        :func:`brailix.backend.number.translate_date` skeleton handles the
+        numeric halves and delegates each marker here, so no date-marker rule
+        lives outside a ``LanguageBackend``.
+
+        "Does a number precede this marker?" used to arrive as a separate
+        ``follows_number`` argument the caller re-derived by looking at the
+        previous sibling. The component carries its own digits, so it is now a
+        property of what is handed over rather than of how it was walked.
         """
         ...
 

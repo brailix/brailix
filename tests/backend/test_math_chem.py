@@ -35,7 +35,7 @@ def ce_cells(inner: str, profile):
     tree = normalize(convert_ce(inner))
     wc = WarningCollector(mode=RunMode.NORMAL)
     ctx = BackendContext(profile="cn_current", warnings=wc)
-    node = MathInline(surface="", source="chem", math=tree)
+    node = MathInline(surface="", source="chem", tree=tree)
     return translate(node, ctx, profile), wc
 
 
@@ -347,7 +347,7 @@ class TestConditions:
             options={"inline_text_translator": lambda _t: list(sentinel)},
         )
         cells = translate(
-            MathInline(surface="", source="chem", math=tree), ctx, profile
+            MathInline(surface="", source="chem", tree=tree), ctx, profile
         )
         d = dots(cells)
         # 46-prefix ⠨ + superscript sign ⠌ then the translator's cells, then close ⠱.
@@ -375,7 +375,7 @@ class TestChemModeIsolation:
         wc = WarningCollector(mode=RunMode.NORMAL)
         ctx = BackendContext(profile="cn_current", warnings=wc)
         tree = normalize("<math><msub><mi>x</mi><mn>2</mn></msub></math>")
-        node = MathInline(surface="", source="mathml", math=tree)
+        node = MathInline(surface="", source="mathml", tree=tree)
         cells = translate(node, ctx, profile)
         # The math subscript marker (script.sub) must still be present.
         assert any(c.role == "math_subscript" for c in cells)
@@ -876,7 +876,7 @@ def raw_chem_cells(mathml: str, profile):
     tree = normalize(mathml)
     wc = WarningCollector(mode=RunMode.NORMAL)
     ctx = BackendContext(profile="cn_current", warnings=wc)
-    node = MathInline(surface="", source="chem", math=tree)
+    node = MathInline(surface="", source="chem", tree=tree)
     return translate(node, ctx, profile), wc
 
 

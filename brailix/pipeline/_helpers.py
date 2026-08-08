@@ -77,22 +77,21 @@ def _block_surface(block: Any) -> str:
     Used by :meth:`Pipeline.translate_document` so the resulting
     :class:`TranslationResult` has a meaningful ``text`` value for
     proofread tooling. Falls back to the original raw ``text`` if
-    children haven't been populated; otherwise joins child surfaces.
-    Composite containers recurse into their ``items`` / ``rows`` /
-    ``cells``.
+    inlines haven't been populated; otherwise joins their surfaces.
+    Composite containers recurse into their nested ``blocks``.
     """
     from brailix.ir.document import List as ListBlock
     from brailix.ir.document import Table
 
     if isinstance(block, ListBlock):
-        return "\n".join(_block_surface(it) for it in block.items)
+        return "\n".join(_block_surface(it) for it in block.blocks)
     if isinstance(block, Table):
         return "\n".join(
-            " | ".join(_block_surface(c) for c in row.cells)
-            for row in block.rows
+            " | ".join(_block_surface(c) for c in row.blocks)
+            for row in block.blocks
         )
-    if block.children:
-        return "".join(child.surface for child in block.children)
+    if block.inlines:
+        return "".join(node.surface for node in block.inlines)
     return block.text or ""
 
 

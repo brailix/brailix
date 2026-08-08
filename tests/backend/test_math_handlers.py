@@ -35,7 +35,7 @@ def mml(xml: str) -> ET.Element:
 def emit(tree, profile):
     wc = WarningCollector(mode=RunMode.NORMAL)
     ctx = BackendContext(profile="cn_current", warnings=wc)
-    node = MathInline(surface="", source="mathml", math=tree)
+    node = MathInline(surface="", source="mathml", tree=tree)
     cells = translate(node, ctx, profile)
     return cells, wc
 
@@ -576,7 +576,7 @@ class TestProvenance:
         tree = mml("<math><mi>x</mi></math>")
         wc = WarningCollector(mode=RunMode.NORMAL)
         ctx = BackendContext(profile="cn_current", warnings=wc)
-        node = MathInline(surface="x", span=Span(5, 6), math=tree)
+        node = MathInline(surface="x", span=Span(5, 6), tree=tree)
         cells = translate(node, ctx, profile)
         # Every cell should report the formula-level span.
         for c in cells:
@@ -1053,7 +1053,7 @@ class TestFunctionNameCoalesce:
         assert name.source_text == "cos"
 
     def test_coalesce_does_not_mutate_input_tree(self, profile):
-        # MathInline.math is cached by the pipeline and serialized into the
+        # MathInline.tree is cached by the pipeline and serialized into the
         # proofread JSON; the backend must consume it read-only. The
         # function-name pre-pass must coalesce on a copy, never edit the
         # caller's tree.

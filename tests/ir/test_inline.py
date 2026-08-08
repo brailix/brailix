@@ -1,3 +1,4 @@
+import dataclasses
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -6,12 +7,10 @@ from brailix.core.span import Span
 from brailix.frontend.zh.tokens import ChineseToken
 from brailix.ir.inline import (
     Date,
-    HanziMarker,
+    DateComponent,
     InlineNode,
     MathInline,
-    MusicInline,
     Number,
-    Segment,
     Unknown,
     Word,
     _deserialize_value,
@@ -37,22 +36,38 @@ class TestConstruction:
         assert u.reason == "bad encoding"
 
 
+def _full_date() -> Date:
+    return Date(
+        surface="2026年5月17日",
+        span=Span(0, 11),
+        components=[
+            DateComponent(
+                digits="2026",
+                digits_span=Span(0, 4),
+                marker="年",
+                marker_span=Span(4, 5),
+                reading="nian2",
+            ),
+            DateComponent(digits="5", marker="月", reading="yue4"),
+            DateComponent(digits="17", marker="日", reading="ri4"),
+        ],
+    )
+
+
 class TestCompositeStructures:
-    def test_date_with_parts(self):
-        d = Date(
-            surface="2026年5月17日",
-            span=Span(0, 11),
-            parts=[
-                Number(surface="2026"),
-                HanziMarker(surface="年", reading="nian2"),
-                Number(surface="5"),
-                HanziMarker(surface="月", reading="yue4"),
-                Number(surface="17"),
-                HanziMarker(surface="日", reading="ri4"),
-            ],
-        )
-        assert len(d.parts) == 6
-        assert d.parts[0].surface == "2026"
+    def test_date_with_components(self):
+        d = _full_date()
+        assert len(d.components) == 3
+        assert d.components[0].digits == "2026"
+        assert d.components[0].marker == "年"
+
+    def test_a_component_reads_back_its_own_surface_and_span(self):
+        c = _full_date().components[0]
+        assert c.surface == "2026年"
+        assert c.span == Span(0, 5)
+
+    def test_an_unlocated_component_has_no_span(self):
+        assert DateComponent(digits="5", marker="月").span is None
 
 
 class TestSerializationWord:
@@ -71,68 +86,87 @@ class TestSerializationWord:
 
 
 class TestSerializationComposite:
-    def test_empty_parts_omitted_from_to_dict(self):
-        # ``parts`` is a default_factory=list field (f.default == MISSING),
-        # so an empty list must still be omitted from the JSON, not emitted
-        # as "parts": [].
+    def test_empty_components_omitted_from_to_dict(self):
+        # ``components`` is a default_factory=list field (f.default ==
+        # MISSING), so an empty list must still be omitted from the JSON, not
+        # emitted as "components": [].
         d = Date(surface="2026")
-        assert "parts" not in d.to_dict()
+        assert "components" not in d.to_dict()
 
     def test_date_round_trip(self):
-        d = Date(
-            surface="2026年5月17日",
-            span=Span(0, 11),
-            parts=[
-                Number(surface="2026"),
-                HanziMarker(surface="年", reading="nian2"),
-                Number(surface="5"),
-                HanziMarker(surface="月", reading="yue4"),
-                Number(surface="17"),
-                HanziMarker(surface="日", reading="ri4"),
-            ],
-        )
+        d = _full_date()
         payload = d.to_dict()
         assert payload["type"] == "date"
         assert payload["span"] == [0, 11]
-        assert len(payload["parts"]) == 6
-        assert payload["parts"][0] == {"type": "number", "surface": "2026"}
+        assert len(payload["components"]) == 3
+        assert payload["components"][0] == {
+            "digits": "2026",
+            "digits_span": [0, 4],
+            "marker": "年",
+            "marker_span": [4, 5],
+            "reading": "nian2",
+        }
 
         restored = from_dict(payload)
         assert isinstance(restored, Date)
-        assert len(restored.parts) == 6
-        assert isinstance(restored.parts[0], Number)
-        assert restored.parts[0].surface == "2026"
-        assert isinstance(restored.parts[1], HanziMarker)
-        assert restored.parts[1].reading == "nian2"
+        assert restored.components == d.components
+
+    def test_a_component_omits_the_halves_it_does_not_have(self):
+        assert DateComponent(digits="17").to_dict() == {"digits": "17"}
 
 
-class TestNestedChildTypesAreEnforced:
-    """``Date.parts`` is declared ``list[InlineNode]``, and deserialization
-    must hold the declaration.
+class TestComponentWireShapesAreEnforced:
+    """A payload is arbitrary decoded JSON, so ``components`` entries are
+    held to the record's own declaration.
 
-    It dispatches on the field *name* and rebuilds whatever each entry claims
-    to be, so a malformed document could put something that is not a node in
-    the list: IR that satisfies the dataclass and breaks every consumer
-    walking it, silently and at a distance. The block side already verified
-    its nested children (``TableRow.cells``, ``Table.rows``, ``List.items``);
-    the inline side is the same idea, and had drifted.
+    What this replaces is a *typed-child* check: while the markers were
+    ``HanziMarker`` nodes, ``Date.parts`` was a ``list[InlineNode]`` the
+    deserializer filled by rebuilding whatever each entry's ``type`` tag
+    claimed, so it had to refuse a bare string or a Table at runtime. A
+    component has one shape, declared once, and the payload only chooses
+    values.
     """
 
-    def test_a_non_node_in_parts_is_refused(self) -> None:
-        """``Date.parts`` takes any inline node, so what is checked there is
-        that an entry IS one — instead of an ``AttributeError`` from deep
-        inside the rebuild."""
-        with pytest.raises(TypeError, match="expects InlineNode"):
-            from_dict({"type": "date", "surface": "2026", "parts": [42]})
+    def test_a_non_object_component_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="date component"):
+            from_dict({"type": "date", "surface": "2026", "components": [42]})
+
+    def test_a_wrongly_typed_field_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="date component"):
+            from_dict(
+                {
+                    "type": "date",
+                    "surface": "2026",
+                    "components": [{"digits": ["2", "0"]}],
+                }
+            )
+
+    def test_unknown_component_keys_are_ignored(self) -> None:
+        """Same forward tolerance every node payload gets."""
+        node = from_dict(
+            {
+                "type": "date",
+                "surface": "2026",
+                "components": [{"digits": "2026", "future_field": 1}],
+            }
+        )
+        assert node.components == [DateComponent(digits="2026")]
+
+    def test_an_already_built_component_passes_through(self) -> None:
+        built = DateComponent(digits="5", marker="月")
+        node = from_dict(
+            {"type": "date", "surface": "5月", "components": [built]}
+        )
+        assert node.components == [built]
 
 
 class TestSerializationMathInline:
     def test_math_inline_with_none_serializes_without_math_key(self):
-        node = MathInline(surface="x^2", source="latex", math=None)
+        node = MathInline(surface="x^2", source="latex", tree=None)
         payload = node.to_dict()
         assert "math" not in payload
         restored = from_dict(payload)
-        assert restored.math is None
+        assert restored.tree is None
 
     def test_from_dict_rejects_dict_math_value(self):
         # Old IR format used a nested dict for math; the new schema
@@ -141,7 +175,7 @@ class TestSerializationMathInline:
             from_dict({
                 "type": "math_inline",
                 "surface": "x",
-                "math": {"kind": "identifier", "value": "x"},
+                "tree": {"kind": "identifier", "value": "x"},
             })
 
     def test_from_dict_rejects_malformed_xml_string(self):
@@ -151,20 +185,20 @@ class TestSerializationMathInline:
             from_dict({
                 "type": "math_inline",
                 "surface": "x",
-                "math": "<math><mo>+</mo>",  # unclosed <math>
+                "tree": "<math><mo>+</mo>",  # unclosed <math>
             })
 
     def test_from_dict_accepts_explicit_none_math_value(self):
-        # ``from_dict`` should accept an explicit ``"math": None`` even
+        # ``from_dict`` should accept an explicit ``"tree": None`` even
         # though ``to_dict`` strips it. This hits the
-        # ``_deserialize_value("math", None)`` branch directly.
+        # ``_deserialize_value("tree", None)`` branch directly.
         restored = from_dict({
             "type": "math_inline",
             "surface": "x",
-            "math": None,
+            "tree": None,
         })
         assert isinstance(restored, MathInline)
-        assert restored.math is None
+        assert restored.tree is None
 
     def test_from_dict_accepts_et_element_math_value(self):
         # If an upstream IR builder hands ``from_dict`` a pre-parsed
@@ -174,12 +208,12 @@ class TestSerializationMathInline:
         restored = from_dict({
             "type": "math_inline",
             "surface": "x",
-            "math": tree,
+            "tree": tree,
         })
         assert isinstance(restored, MathInline)
         # Must be the *same* element object — pass-through, not a copy.
-        assert restored.math is tree
-        assert restored.math[0].tag == "mi"  # already bare: untouched
+        assert restored.tree is tree
+        assert restored.tree[0].tag == "mi"  # already bare: untouched
 
     def test_namespaced_preparsed_math_element_is_normalized(self):
         # The two legal shapes of one payload — a serialized string and a
@@ -189,46 +223,13 @@ class TestSerializationMathInline:
         # spurious MATH_UNSUPPORTED_ELEMENT through the other.
         src = "<math xmlns='http://www.w3.org/1998/Math/MathML'><mi>x</mi></math>"
         payload = {"type": "math_inline", "surface": "x", "source": "mathml"}
-        from_string = from_dict({**payload, "math": src})
-        from_element = from_dict({**payload, "math": ET.fromstring(src)})
+        from_string = from_dict({**payload, "tree": src})
+        from_element = from_dict({**payload, "tree": ET.fromstring(src)})
 
-        assert from_string.math.tag == from_element.math.tag == "math"
-        assert from_string.math[0].tag == from_element.math[0].tag == "mi"
+        assert from_string.tree.tag == from_element.tree.tag == "math"
+        assert from_string.tree[0].tag == from_element.tree[0].tag == "mi"
 
-    def test_namespaced_preparsed_music_and_svg_elements_are_normalized(self):
-        # Same rule, same implementation, for the other two tree fields:
-        # the deserializer must not normalize whichever field someone
-        # happened to write a test for.
-        from brailix.ir.inline import GraphicInline
-
-        score = ET.fromstring(
-            "<score-partwise xmlns='http://www.musicxml.org/ns'>"
-            "<part id='P1'/></score-partwise>"
-        )
-        svg = ET.fromstring(
-            "<svg xmlns='http://www.w3.org/2000/svg'><line x1='0'/></svg>"
-        )
-        music = from_dict({"type": "music_inline", "surface": "", "score": score})
-        graphic = from_dict({"type": "graphic_inline", "surface": "", "svg": svg})
-
-        assert isinstance(music, MusicInline)
-        assert music.score.tag == "score-partwise"
-        assert music.score[0].tag == "part"
-        assert isinstance(graphic, GraphicInline)
-        assert graphic.svg.tag == "svg"
-        assert graphic.svg[0].tag == "line"
-
-    @pytest.mark.parametrize(
-        "type_name, field, root_tag",
-        [
-            ("math_inline", "math", "math"),
-            ("music_inline", "score", "score-partwise"),
-            ("graphic_inline", "svg", "svg"),
-        ],
-    )
-    def test_preparsed_element_carrying_a_comment_deserializes(
-        self, type_name, field, root_tag
-    ):
+    def test_preparsed_element_carrying_a_comment_deserializes(self):
         # A comment / processing instruction is a child node whose ``tag`` is
         # a function, not a string, so the namespace strip this boundary runs
         # raised AttributeError on it — and AttributeError is what the
@@ -236,16 +237,18 @@ class TestSerializationMathInline:
         # adapter handing over a pre-parsed tree with a vendor comment in it
         # crashed the compile. ET.fromstring drops comments, which is why only
         # the (equally supported) pre-parsed shape ever hit this.
-        root = ET.Element(f"{{urn:x}}{root_tag}")
+        #
+        # The block side of the same loader is covered in ``test_document``;
+        # both go through ``_serde.deserialize_xml_tree``.
+        root = ET.Element("{urn:x}math")
         root.append(ET.Comment("vendor note"))
         ET.SubElement(root, "{urn:x}child")
 
-        node = from_dict({"type": type_name, "surface": "", field: root})
+        node = from_dict({"type": "math_inline", "surface": "", "tree": root})
 
-        tree = getattr(node, field)
-        assert tree.tag == root_tag
-        assert tree[0].text == "vendor note"  # comment kept, body intact
-        assert tree[1].tag == "child"  # sibling below it still stripped
+        assert node.tree.tag == "math"
+        assert node.tree[0].text == "vendor note"  # comment kept, body intact
+        assert node.tree[1].tag == "child"  # sibling below it still stripped
 
     def test_round_trip_strips_xmlns_attribute_tree(self):
         # Regression: a producer (e.g. normalize._try_atomic's math_op
@@ -256,51 +259,43 @@ class TestSerializationMathInline:
         # warnings.  The IR boundary must normalise back to bare tags.
         m = ET.Element("math", {"xmlns": "http://www.w3.org/1998/Math/MathML"})
         ET.SubElement(m, "mo").text = "+"
-        node = MathInline(surface="+", source="mathml", math=m)
-        restored = from_dict(node.to_dict()).math
+        node = MathInline(surface="+", source="mathml", tree=m)
+        restored = from_dict(node.to_dict()).tree
         assert restored is not None
         assert restored.tag == "math"
         assert restored[0].tag == "mo"  # NOT '{http://...}mo'
         assert restored[0].text == "+"
 
 
-class TestSerializationMusicInline:
-    def test_music_inline_with_none_serializes_without_score_key(self):
-        node = MusicInline(surface="do re mi", source="plain", score=None)
-        payload = node.to_dict()
-        assert "score" not in payload
-        restored = from_dict(payload)
-        assert restored.score is None
+class TestTheCarriersAreGone:
+    """``music_inline`` / ``graphic_inline`` were never produced by any
+    frontend: each existed only to carry a *block*'s parsed tree in a
+    one-element ``children`` list.
 
-    def test_from_dict_rejects_dict_score_value(self):
-        # score must be None / str / ET.Element. A dict should raise so
-        # malformed payloads fail loudly instead of silently storing junk.
-        with pytest.raises(ValueError):
-            from_dict({
-                "type": "music_inline",
-                "surface": "x",
-                "score": {"kind": "note", "pitch": "C"},
-            })
+    The block holds its own tree now, so the tags resolve to nothing — which
+    is what the registry is supposed to say about a type that does not exist,
+    rather than half-rebuilding a node no consumer handles.
+    """
 
-    def test_from_dict_accepts_explicit_none_score_value(self):
-        restored = from_dict({
-            "type": "music_inline",
-            "surface": "x",
-            "score": None,
-        })
-        assert isinstance(restored, MusicInline)
-        assert restored.score is None
+    @pytest.mark.parametrize("tag", ["music_inline", "graphic_inline"])
+    def test_the_retired_tags_do_not_resolve(self, tag):
+        with pytest.raises(KeyError):
+            inline_node_for(tag)
 
-    def test_from_dict_accepts_et_element_score_value(self):
-        # Pass-through when an upstream frontend hands a pre-parsed tree.
-        tree = ET.fromstring("<score-partwise/>")
-        restored = from_dict({
-            "type": "music_inline",
-            "surface": "",
-            "score": tree,
-        })
-        assert isinstance(restored, MusicInline)
-        assert restored.score is tree
+    @pytest.mark.parametrize("tag", ["music_inline", "graphic_inline"])
+    def test_a_payload_carrying_a_retired_tag_is_refused(self, tag):
+        with pytest.raises(KeyError):
+            from_dict({"type": tag, "surface": ""})
+
+    def test_math_is_the_only_inline_node_with_a_tree(self):
+        from brailix.ir.inline import _INLINE_REGISTRY
+
+        with_trees = [
+            cls.__name__
+            for cls in _INLINE_REGISTRY.values()
+            if any(f.name == "tree" for f in dataclasses.fields(cls))
+        ]
+        assert with_trees == ["MathInline"]
 
 
 class TestRegistry:
@@ -308,7 +303,6 @@ class TestRegistry:
         assert inline_node_for("word") is Word
         assert inline_node_for("date") is Date
         assert inline_node_for("math_inline") is MathInline
-        assert inline_node_for("music_inline") is MusicInline
 
     def test_lookup_unknown_raises(self):
         with pytest.raises(KeyError):
@@ -322,17 +316,6 @@ class TestRegistry:
         # Forward-compatibility: unknown fields shouldn't break old readers.
         d = from_dict({"type": "word", "surface": "我", "future_field": 123})
         assert isinstance(d, Word)
-
-
-class TestSegment:
-    def test_basic(self):
-        s = Segment(type="hanzi_text", surface="我在", span=Span(0, 2))
-        assert s.type == "hanzi_text"
-        assert s.to_dict() == {"type": "hanzi_text", "surface": "我在", "span": [0, 2]}
-
-    def test_no_span(self):
-        s = Segment(type="math_inline", surface="x^2")
-        assert s.to_dict() == {"type": "math_inline", "surface": "x^2"}
 
 
 class TestChineseToken:
@@ -431,41 +414,38 @@ class TestTheHierarchyDiagramMatchesTheClasses:
 
     It had drifted into saying something false: ``Number`` was drawn indented
     under ``Word``, as though a numeric literal were a kind of prose word,
-    while both subclass ``InlineNode`` directly. ``HanziMarker`` was missing
-    from it entirely. Prose in general cannot be checked, but "this list is
-    the set of node types, all at one level" is a claim with a fact behind
-    it, so it is checked here rather than re-read.
+    while both subclass ``InlineNode`` directly. Prose in general cannot be
+    checked, but "this list is the set of node types, all at one level" is a
+    claim with a fact behind it, so it is checked here rather than re-read.
     """
 
     @staticmethod
-    def _diagram_names() -> list[str]:
+    def _diagram_rows() -> list[tuple[int, str]]:
+        """``(indent, class name)`` for every branch the diagram draws.
+
+        The diagram runs from its root line to the end of the docstring: it is
+        the last thing the module says about itself, and pinning the end to
+        whatever prose used to follow it made this guard fail with a
+        ``ValueError`` the day that prose was removed — reporting the wrong
+        problem about the wrong file.
+        """
         import re
 
         import brailix.ir.inline as mod
 
         doc = mod.__doc__ or ""
-        start = doc.index("InlineNode (abstract)")
-        end = doc.index("Also defined here:")
+        diagram = doc[doc.index("InlineNode (abstract)") :]
         return [
-            m.group(2)
-            for line in doc[start:end].splitlines()
+            (len(m.group(1)), m.group(2))
+            for line in diagram.splitlines()
             if (m := re.match(r"^(\s*)[├└]── (\w+)", line))
         ]
 
-    @staticmethod
-    def _diagram_indents() -> set[int]:
-        import re
+    def _diagram_names(self) -> list[str]:
+        return [name for _indent, name in self._diagram_rows()]
 
-        import brailix.ir.inline as mod
-
-        doc = mod.__doc__ or ""
-        start = doc.index("InlineNode (abstract)")
-        end = doc.index("Also defined here:")
-        return {
-            len(m.group(1))
-            for line in doc[start:end].splitlines()
-            if (m := re.match(r"^(\s*)[├└]── \w+", line))
-        }
+    def _diagram_indents(self) -> set[int]:
+        return {indent for indent, _name in self._diagram_rows()}
 
     def test_it_lists_exactly_the_registered_node_classes(self) -> None:
         from brailix.ir.inline import _INLINE_REGISTRY

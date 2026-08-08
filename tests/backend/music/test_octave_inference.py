@@ -1,7 +1,7 @@
 """Tests for BANA Par. 3.2.2 octave-mark inference.
 
 Exercises every branch of :func:`needs_octave_mark` and the
-end-to-end emission path through :func:`_emit_tree` so the rule is
+end-to-end emission path through :func:`translate_tree` so the rule is
 verified both as a pure function and as observed in cell streams.
 
 Rule:
@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import _emit_tree
+from brailix.backend.music import translate_tree
 from brailix.backend.music.utils import needs_octave_mark
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
@@ -135,7 +135,7 @@ class TestOctaveInferenceEndToEnd:
             ("D", 4, "quarter"),
             ("E", 4, "quarter"),
         ])
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         # Expected: [octave, C, D, E] -> 4 cells, first one is octave.
         assert len(cells) == 4
         assert _octave_roles(cells) == [True, False, False, False]
@@ -146,7 +146,7 @@ class TestOctaveInferenceEndToEnd:
             ("C", 4, "quarter"),
             ("A", 4, "quarter"),
         ])
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         # Expected: [octave, C, octave, A]
         assert _octave_roles(cells) == [True, False, True, False]
 
@@ -156,7 +156,7 @@ class TestOctaveInferenceEndToEnd:
             ("C", 4, "quarter"),
             ("F", 4, "quarter"),
         ])
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         assert _octave_roles(cells) == [True, False, False]
 
     def test_four_crossing_octave_marks(self, profile, ctx):
@@ -165,7 +165,7 @@ class TestOctaveInferenceEndToEnd:
             ("G", 4, "quarter"),
             ("C", 5, "quarter"),
         ])
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         assert _octave_roles(cells) == [True, False, True, False]
 
     def test_rest_does_not_break_pitch_memory(self, profile, ctx):
@@ -180,7 +180,7 @@ class TestOctaveInferenceEndToEnd:
             "<duration>1</duration><type>quarter</type></note>"
             "</measure></part></score-partwise>"
         )
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         # Expected sequence: [octave, C, rest, D] — only first cell
         # is the octave prefix; D doesn't re-mark.
         assert _octave_roles(cells) == [True, False, False, False]
@@ -201,7 +201,7 @@ class TestOctaveInferenceEndToEnd:
             "</measure></part>"
             "</score-partwise>"
         )
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         # The part boundary emits a structural ``music_part_sep`` cell
         # between the parts; drop it so the check is about the notes'
         # octave marks: [octave_P1, C, octave_P2, D].
@@ -229,7 +229,7 @@ class TestOctaveInferenceEndToEnd:
             "</measure>"
             "</part></score-partwise>"
         )
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         # [octave, C, E(omit), F(omit across barline)]
         assert _octave_roles(cells) == [True, False, False, False]
 
@@ -248,7 +248,7 @@ class TestOctaveInferenceEndToEnd:
             "</measure>"
             "</part></score-partwise>"
         )
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         assert _octave_roles(cells) == [True, False, True, False]
 
 
@@ -309,21 +309,21 @@ class TestOctaveRuleOverrides:
 
 
 class TestOctaveRuleFromProfile:
-    """End-to-end through ``_emit_tree`` (not a hand-injected context):
+    """End-to-end through ``translate_tree`` (not a hand-injected context):
     ``features.music.octave_rule`` must actually drive the backend."""
 
     def test_always_rule_from_profile_marks_every_note(
         self, profile, ctx, monkeypatch
     ):
         # feature() re-walks the live features dict, so setting it here
-        # is observed by _emit_tree's _resolve_octave_rule.
+        # is observed by translate_tree's _resolve_octave_rule.
         monkeypatch.setitem(profile.features["music"], "octave_rule", "always")
         tree = _make_measure([
             ("C", 4, "quarter"),
             ("D", 4, "quarter"),    # 2° — would normally skip the prefix
             ("E", 4, "quarter"),    # 2° — would normally skip the prefix
         ])
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         # Every note carries an octave prefix under "always".
         assert _octave_roles(cells) == [True, False, True, False, True, False]
 
@@ -334,7 +334,7 @@ class TestOctaveRuleFromProfile:
             ("D", 4, "quarter"),
             ("E", 4, "quarter"),
         ])
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         assert _octave_roles(cells) == [True, False, False, False]
 
     def test_invalid_octave_rule_falls_back(self, profile, ctx, monkeypatch):
@@ -345,6 +345,6 @@ class TestOctaveRuleFromProfile:
             ("C", 4, "quarter"),
             ("D", 4, "quarter"),
         ])
-        cells = _emit_tree(tree, ctx, profile)
+        cells = translate_tree(tree, ctx, profile)
         # interval16 behaviour: 2° skips the second prefix.
         assert _octave_roles(cells) == [True, False, False]

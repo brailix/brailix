@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import _emit_tree
+from brailix.backend.music import translate_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 
@@ -72,14 +72,14 @@ class TestTremoloRepetition:
         self, profile, ctx, strokes, expected_dots,
     ):
         note = _note_with_ornaments(f'<tremolo type="single">{strokes}</tremolo>')
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         tremolo_cells = [c for c in cells if c.role == "music_tremolo"]
         assert _dots(tremolo_cells) == expected_dots
 
     def test_default_strokes_is_one(self, profile, ctx):
         # <tremolo type="single"/> with no body → default 1 stroke.
         note = _note_with_ornaments('<tremolo type="single"/>')
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         tremolo_cells = [c for c in cells if c.role == "music_tremolo"]
         # repetition_8ths
         assert _dots(tremolo_cells) == [(4, 5), (1, 2)]
@@ -87,7 +87,7 @@ class TestTremoloRepetition:
     def test_default_type_is_single(self, profile, ctx):
         # <tremolo>2</tremolo> with no type attribute defaults to single.
         note = _note_with_ornaments("<tremolo>2</tremolo>")
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # repetition_16ths
         tremolo_cells = [c for c in cells if c.role == "music_tremolo"]
         assert _dots(tremolo_cells) == [(4, 5), (1, 2, 3)]
@@ -98,7 +98,7 @@ class TestTremoloAlternation:
         # 2 strokes alternation = "_l" wait — let me recompute.
         # alternation_8ths = ".b" = (4,6)(1,2)
         note = _note_with_ornaments('<tremolo type="start">1</tremolo>')
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         tremolo_cells = [c for c in cells if c.role == "music_tremolo"]
         # alternation_8ths
         assert _dots(tremolo_cells) == [(4, 6), (1, 2)]
@@ -106,7 +106,7 @@ class TestTremoloAlternation:
     def test_stop_emits_nothing(self, profile, ctx):
         # Alternation stop side — no cell.
         note = _note_with_ornaments('<tremolo type="stop">2</tremolo>')
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_tremolo" not in _roles(cells)
 
 
@@ -114,28 +114,28 @@ class TestTremoloEdgeCases:
     def test_six_strokes_warns(self, profile, ctx):
         # 6 strokes not in our table.
         note = _note_with_ornaments('<tremolo type="single">6</tremolo>')
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_tremolo" not in _roles(cells)
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
 
     def test_unmeasured_warns(self, profile, ctx):
         note = _note_with_ornaments('<tremolo type="unmeasured">3</tremolo>')
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_tremolo" not in _roles(cells)
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
 
     def test_unknown_type_warns(self, profile, ctx):
         note = _note_with_ornaments('<tremolo type="zigzag">2</tremolo>')
-        _emit_tree(note, ctx, profile)
+        translate_tree(note, ctx, profile)
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
 
     def test_non_integer_strokes_defaults_to_one(self, profile, ctx):
         # Malformed body — fall back to 1 stroke.
         note = _note_with_ornaments('<tremolo type="single">three</tremolo>')
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         tremolo_cells = [c for c in cells if c.role == "music_tremolo"]
         # repetition_8ths
         assert _dots(tremolo_cells) == [(4, 5), (1, 2)]
@@ -170,7 +170,7 @@ class TestOrnaments:
         self, profile, ctx, tag, expected_entity, expected_dots,
     ):
         note = _note_with_ornaments(f"<{tag}/>")
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         ornament_cells = [c for c in cells if c.role == "music_ornament"]
         assert _dots(ornament_cells) == expected_dots
         # source_text records the MusicXML tag.
@@ -179,7 +179,7 @@ class TestOrnaments:
     def test_multiple_ornaments_on_one_note(self, profile, ctx):
         # Trill + turn — both emit, in document order.
         note = _note_with_ornaments("<trill-mark/><turn/>")
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         ornament_cells = [c for c in cells if c.role == "music_ornament"]
         assert len(ornament_cells) == 2
         # trill = (2,3,5), turn = (2,5,6)
@@ -187,7 +187,7 @@ class TestOrnaments:
 
     def test_unknown_ornament_warns(self, profile, ctx):
         note = _note_with_ornaments("<schleifer/>")
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_ornament" not in _roles(cells)
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
@@ -199,7 +199,7 @@ class TestOrnaments:
         note = _note_with_ornaments(
             "<trill-mark/><accidental-mark>sharp</accidental-mark>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # Trill still emits.
         ornament_cells = [c for c in cells if c.role == "music_ornament"]
         assert len(ornament_cells) == 1
@@ -223,7 +223,7 @@ class TestFeatureGate:
             False,
         )
         note = _note_with_ornaments("<trill-mark/>")
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_ornament" not in _roles(cells)
 
     def test_show_ornaments_false_suppresses_tremolo(
@@ -235,7 +235,7 @@ class TestFeatureGate:
             False,
         )
         note = _note_with_ornaments('<tremolo type="single">2</tremolo>')
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_tremolo" not in _roles(cells)
 
 
@@ -257,7 +257,7 @@ class TestCombinedNote:
             "</notations>"
             "</note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         roles = _roles(cells)
         # Order in _emit_notations_post_note: tie → slur → ornaments → fingering.
         # Octave + note + (no dot) + tie + trill + fingering.

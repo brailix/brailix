@@ -22,22 +22,20 @@ type through a flat table:
     InlineNode (abstract)
       ├── Word              # prose word (any length), with its reading
       ├── Number            # numeric literal
-      ├── HanziMarker       # structural hanzi inside a composite (年/月/日 in a Date)
-      ├── Date              # holds an internal ``parts`` structure
+      ├── Date              # holds an internal ``components`` structure
       ├── Punct
       ├── LatinWord         # Latin / Greek letter run (all-caps included)
       ├── CodeInline
       ├── PhoneticInline    # IPA transcription; ``surface`` holds the raw phoneme run
       ├── MathInline        # ``math`` field holds the normalised MathML ET.Element tree
-      ├── MusicInline       # ``score`` field holds the normalised MusicXML ET.Element tree
-      ├── GraphicInline     # ``svg`` field holds the normalised SVG ET.Element tree (graphics IR carrier)
       ├── Space
       ├── Connector         # synthetic connector ⠤: letter↔hanzi compound (x轴 / T恤)
       └── Unknown           # fallback, never lets the pipeline crash
 
-Also defined here:
-
-    Segment       — Segmenter output (chunked by region type)
+A composite node's internals are **value objects, not nodes**:
+:class:`DateComponent` is a plain record :class:`Date` holds, the way
+:class:`~brailix.core.span.Span` is a record every node holds. Only something a
+consumer dispatches on independently earns a place in the list above.
 """
 
 from __future__ import annotations
@@ -49,8 +47,7 @@ from dataclasses import fields as _fields
 from typing import Any as _Any
 from typing import ClassVar as _ClassVar
 
-from brailix.core._xml import safe_fromstring, strip_namespace
-from brailix.core.span import Span
+from brailix.core.span import Span, merge_spans
 from brailix.ir import _serde
 
 # ---------------------------------------------------------------------------
@@ -121,21 +118,84 @@ class Number(InlineNode):
     type: _ClassVar[str] = "number"
 
 
-@_dataclass(slots=True)
-class HanziMarker(InlineNode):
-    """A single hanzi that plays a structural role inside a composite
-    token, e.g. 年/月/日 (year/month/day) inside a :class:`Date`."""
+@_dataclass(frozen=True, slots=True)
+class DateComponent:
+    """One ``<digits><marker>`` unit of a :class:`Date`: ``2026年``, ``5月``.
 
-    type: _ClassVar[str] = "hanzi_marker"
+    A **value object**, not an :class:`InlineNode`, and the difference is the
+    point. The three markers used to be a public ``HanziMarker`` node type, so
+    a date was a node whose ``parts`` was a ``list[InlineNode]`` that could in
+    principle hold anything, and the marker paid the full price of nodehood —
+    an entry in the inline registry, a wire tag, a slot in the public facade, a
+    recursive typed-child deserializer for ``parts`` — for a thing that has no
+    independent existence. There is no such thing as a loose 年: it is only
+    ever the second half of a date component, and nothing dispatches on it. So
+    it is a **field** of the unit it belongs to, and a date's structure is
+    fixed by its own declaration rather than by a runtime check on a list of
+    arbitrary nodes.
+
+    ``digits`` and ``marker`` keep separate spans because they are separate
+    runs of source text, and the backend needs both: the digits go through the
+    number-sign + digit pipeline, the marker through the profile language's
+    ``translate_date_marker``. ``reading`` is the marker's — the digits have no
+    reading. ``marker`` is ``None`` for a trailing bare-number component; the
+    digits may be empty for a marker with nothing in front of it. Both halves
+    being optional is what lets the component stay the whole model of a date's
+    structure instead of one shape among several.
+    """
+
+    digits: str = ""
+    digits_span: Span | None = None
+    marker: str | None = None
+    marker_span: Span | None = None
+    # The *marker*'s reading (年 → nián), filled by the frontend that built the
+    # date; the digits' pronunciation is the digit table's business.
     reading: str | None = None
+
+    @property
+    def surface(self) -> str:
+        """The source text this component was written as (``"2026年"``)."""
+        return f"{self.digits}{self.marker or ''}"
+
+    @property
+    def span(self) -> Span | None:
+        """The component's extent, or ``None`` when neither half is located.
+
+        Named ``span`` so a component answers the same question an inline node
+        does: the backend's traceability post-condition
+        (:func:`brailix.backend.dispatch._enforce_source_spans`) is applied at
+        the ``translate_date_marker`` boundary too, and it reads this.
+        """
+        return merge_spans(
+            s for s in (self.digits_span, self.marker_span) if s is not None
+        )
+
+    def to_dict(self) -> dict[str, _Any]:
+        d: dict[str, _Any] = {"digits": self.digits}
+        if self.digits_span is not None:
+            d["digits_span"] = list(self.digits_span.to_tuple())
+        if self.marker is not None:
+            d["marker"] = self.marker
+        if self.marker_span is not None:
+            d["marker_span"] = list(self.marker_span.to_tuple())
+        if self.reading is not None:
+            d["reading"] = self.reading
+        return d
 
 
 @_dataclass(slots=True)
 class Date(InlineNode):
-    """A date expression like ``2026年5月17日``."""
+    """A date expression like ``2026年5月17日``, as a list of
+    :class:`DateComponent`\\ s (``2026年`` / ``5月`` / ``17日``).
+
+    The node stays a node — the backend does make date-specific decisions the
+    parts could not express on their own (the blank between components, the
+    number→marker connector, routing the marker through the language backend)
+    — but what it holds is records, not more nodes.
+    """
 
     type: _ClassVar[str] = "date"
-    parts: list[InlineNode] = _field(default_factory=list)
+    components: list[DateComponent] = _field(default_factory=list)
 
 
 @_dataclass(slots=True)
@@ -171,64 +231,30 @@ class PhoneticInline(InlineNode):
 
 @_dataclass(slots=True)
 class MathInline(InlineNode):
-    """Inline math.
+    """Inline math — a ``$...$`` fragment inside a run of prose.
 
-    ``math`` carries the normalised MathML tree as an :class:`ET.Element`
-    once the math frontend has run; until then it stays ``None`` and only
-    the raw surface + source format are recorded.
+    ``tree`` carries the normalised MathML as an :class:`ET.Element` once the
+    math frontend has run; until then it stays ``None`` and only the raw
+    surface + source format are recorded. Same field name as an
+    :class:`~brailix.ir.document.EmbeddedBlock`'s, because it is the same
+    thing: one rule for where a parsed domain tree lives.
 
     The MathML tree itself is the math IR — there is no separate IR
     dataclass.
+
+    The **only** inline node that carries a domain tree, and it earns it: a
+    formula genuinely appears inside a sentence, between a Word and a Punct,
+    and the dispatcher routes it there like any other token. There were three
+    such types — ``MusicInline`` and ``GraphicInline`` beside it — but neither
+    of those was ever produced by a frontend at all: they existed only to
+    carry a *block*'s tree in a one-element ``children`` list. The block owns
+    its tree now (:class:`~brailix.ir.document.EmbeddedBlock`), so there is no
+    carrier left to be.
     """
 
     type: _ClassVar[str] = "math_inline"
     source: str = "plain"  # latex / mathml / plain
-    math: _ET.Element | None = None
-
-
-@_dataclass(slots=True)
-class MusicInline(InlineNode):
-    """Inline music. Also the in-children carrier of :class:`ScoreBlock`
-    / :class:`MusicBlock` — the
-    block layer never holds the tree itself, mirroring how
-    :class:`MathBlock` defers to :class:`MathInline`.
-
-    ``score`` carries the normalised MusicXML tree as an
-    :class:`ET.Element` once the music frontend has run; until then it
-    stays ``None`` and only the raw surface + source format are recorded.
-
-    The MusicXML tree itself is the music IR — there is no separate IR
-    dataclass.
-    """
-
-    type: _ClassVar[str] = "music_inline"
-    source: str = "plain"  # musicxml / mxl / midi / abc / plain
-    score: _ET.Element | None = None
-
-
-@_dataclass(slots=True)
-class GraphicInline(InlineNode):
-    """In-children carrier of :class:`~brailix.ir.document.GraphicBlock`,
-    mirroring how :class:`MathInline` carries a :class:`MathBlock`'s tree
-    and :class:`MusicInline` a score's.
-
-    ``svg`` carries the normalised SVG tree as an :class:`ET.Element` once
-    the graphics frontend has run; until then it stays ``None`` and only the
-    raw surface + source format are recorded. The SVG tree itself is the
-    graphics IR — there is no separate vector model, exactly as MathML is the
-    math IR and MusicXML the music IR.
-
-    Unlike :class:`MathInline` / :class:`MusicInline`, this node is **not** on
-    the braille dispatch table: a tactile graphic does not translate to braille
-    cells. It is rasterised to a :class:`~brailix.ir.tactile.TactileRaster` by
-    :meth:`~brailix.pipeline.Pipeline.translate_graphic` via the tactile
-    backend; this node is only the tree carrier between frontend and that
-    backend.
-    """
-
-    type: _ClassVar[str] = "graphic_inline"
-    source: str = "svg"  # svg / primitives / figure / image
-    svg: _ET.Element | None = None
+    tree: _ET.Element | None = None
 
 
 @_dataclass(slots=True)
@@ -267,31 +293,6 @@ class Unknown(InlineNode):
 
 
 # ---------------------------------------------------------------------------
-# Segment (Segmenter output)
-# ---------------------------------------------------------------------------
-
-
-@_dataclass(slots=True)
-class Segment:
-    """A coarse region produced by a :class:`~brailix.core.protocols.Segmenter`.
-
-    The Segmenter only classifies regions by type (hanzi_text, date,
-    number, math_inline, latin_text, punct, ...). Deeper analysis
-    (tokenization, pinyin, math parsing) happens later in the pipeline.
-    """
-
-    type: str
-    surface: str
-    span: Span | None = None
-
-    def to_dict(self) -> dict[str, _Any]:
-        d: dict[str, _Any] = {"type": self.type, "surface": self.surface}
-        if self.span is not None:
-            d["span"] = list(self.span.to_tuple())
-        return d
-
-
-# ---------------------------------------------------------------------------
 # Registry + (de)serialization
 # ---------------------------------------------------------------------------
 
@@ -301,15 +302,12 @@ _INLINE_REGISTRY: dict[str, type[InlineNode]] = {
     for cls in (
         Word,
         Number,
-        HanziMarker,
         Date,
         Punct,
         LatinWord,
         CodeInline,
         PhoneticInline,
         MathInline,
-        MusicInline,
-        GraphicInline,
         Space,
         Connector,
         Unknown,
@@ -323,9 +321,10 @@ def inline_node_for(type_name: str) -> type[InlineNode]:
     Retired tags do **not** resolve. There was a compatibility table here
     mapping ``hanzi_char`` to :class:`Word` and ``latin_acronym`` to
     :class:`LatinWord`, justified by "a project file outlives the schema that
-    produced it" — but no file this library reads carries inline IR. A ``.blx``
-    project stores the source text and its overrides and recompiles the IR on
-    open; the proofread JSON is a write-only export. The two tags therefore
+    produced it" — but no file this library reads carries inline IR. A
+    front-end that persists a project keeps the source text and its overrides
+    and recompiles the IR on open; the proofread JSON is a write-only export.
+    The two tags therefore
     bridged nothing, which is also why retiring ``Quantity`` and ``Percent``
     added no entries: the table had stopped describing "retired" some time
     before it was removed.
@@ -339,8 +338,8 @@ def inline_node_for(type_name: str) -> type[InlineNode]:
 def from_dict(payload: dict[str, _Any]) -> InlineNode:
     """Reconstruct an :class:`InlineNode` from its dict representation.
 
-    Composite types like :class:`Date` recursively deserialize their
-    ``parts`` / ``number`` children.
+    Composite types like :class:`Date` rebuild their ``components`` records
+    on the way through.
     """
     _serde.require_payload_object(payload, "inline")
     type_name = payload.get("type")
@@ -368,122 +367,71 @@ def from_dict(payload: dict[str, _Any]) -> InlineNode:
 # --- helpers ---------------------------------------------------------
 
 
-def _strip_xml_namespace(elem: _ET.Element) -> _ET.Element:
-    """Drop ``{namespace}`` Clark-notation prefixes (in place) and return
-    ``elem`` for chaining.
-
-    The IR round-trip serializes a math / score tree with ``ET.tostring``
-    and re-parses it with ``ET.fromstring``; if the producer left an
-    ``xmlns`` attribute on the root, the reparse rewrites every tag to
-    Clark notation and the backend — which dispatches on bare local names —
-    fails to match, yielding blank cells + spurious warnings. Stripping at
-    the IR boundary keeps the *string* round-trip (``ET.tostring`` →
-    ``ET.fromstring``) lossless, and a pre-parsed ``ET.Element`` gets the
-    same treatment: what the deserializer stores is a bare-tag tree, whichever
-    of the two legal shapes the same XML arrived in. Delegates to the shared
-    :func:`brailix.core._xml.strip_namespace` (a core helper, so the IR
-    layer takes no frontend dependency); this thin wrapper just returns
-    ``elem`` so the deserializer can strip-and-return in one expression.
-    """
-    strip_namespace(elem)
-    return elem
-
-
 def _serialize_value(value: _Any) -> _Any:
-    if isinstance(value, InlineNode):
+    if isinstance(value, (InlineNode, DateComponent)):
         return value.to_dict()
     if isinstance(value, list):
         return [_serialize_value(v) for v in value]
     if isinstance(value, Span):
         return list(value.to_tuple())
-    # MathInline.math is an ``ET.Element`` — serialize as a MathML
-    # string. JSON consumers see a plain string; reading code goes
-    # through :func:`ET.fromstring` (see ``_deserialize_value``).
+    # MathInline.tree is an ``ET.Element`` — serialized as MathML text. JSON
+    # consumers see a plain string; reading code goes back through the shared
+    # loader (see ``_deserialize_value``).
     if isinstance(value, _ET.Element):
-        return _ET.tostring(value, encoding="unicode")
+        return _serde.serialize_xml_tree(value)
     return value
 
 
-# Maps each XML-tree field to (qualified field label, human format name) for the
-# "must be None / a <fmt> string / an ET.Element" error message.
-_XML_TREE_FIELDS: dict[str, tuple[str, str]] = {
-    "math": ("MathInline.math", "MathML"),
-    "score": ("MusicInline.score", "MusicXML"),
-    "svg": ("GraphicInline.svg", "SVG"),
-}
+_DATE_COMPONENT_FIELDS: frozenset[str] = frozenset(
+    f.name for f in _fields(DateComponent)
+)
 
 
-def _deserialize_xml_tree(key: str, value: _Any) -> _ET.Element | None:
-    """Deserialize a MathML / MusicXML tree field (``math`` / ``score``).
+def _date_component(payload: _Any) -> DateComponent:
+    """Rebuild one :class:`DateComponent` from its serialized form.
 
-    Accepts ``None`` (kept), a serialized XML string (re-parsed with the safe
-    parser), or a pre-parsed :class:`ET.Element`. **Either way** the stored
-    tree is namespace-stripped — both shapes, not just the string one: the
-    backend dispatches on bare local names, so a
-    ``{http://www.w3.org/1998/Math/MathML}mi`` matches nothing and degrades to
-    a blank cell plus a misleading "unsupported element" warning. Strip one
-    shape only and the *same* namespaced XML compiles to braille through one
-    argument type and to nothing through the other.
+    A flat record, so this is a flat loader: no registry lookup, no type tag,
+    no recursion. That is the whole difference from what ``Date.parts`` needed
+    while the markers were nodes — there, each entry's own payload chose which
+    class to build, so a ``{"type": "date", "parts": ["17日"]}`` could put a
+    bare string (or a Table, or a formula) where every consumer walks date
+    parts, and a typed-child check had to say no at runtime. Here the shape is
+    the declaration's, and the only thing a payload gets to choose is the
+    values.
 
-    The Element is normalized in place and returned, not copied. This branch
-    exists to skip a serialize / re-parse round trip for a caller that already
-    holds the tree, and deep-copying a full score's tree would hand most of
-    that cost back; the node aliases the caller's Element either way, so a
-    copy would not be buying isolation it does not already lack. Stripping is
-    idempotent, so an already-bare tree — what every in-tree frontend
-    produces — is walked once and left alone.
-
-    A wrong type — or a string that isn't well-formed XML (``ET.ParseError``
-    is re-raised as :class:`ValueError`) — fails loudly at the IR boundary as
-    a :class:`ValueError` instead of silently storing junk.
+    An already-built component passes through, so a caller assembling a date in
+    code can hand the record over rather than its dict form — the same courtesy
+    :func:`brailix.ir._serde.typed_child` extends on the node side. Each field
+    is held to its declared type (:func:`~brailix.ir._serde.check_wire_value`),
+    and unknown keys are ignored, matching the forward tolerance
+    :func:`from_dict` gives every node.
     """
-    if value is None:
-        return None
-    field_label, fmt = _XML_TREE_FIELDS[key]
-    if isinstance(value, str):
-        try:
-            parsed = safe_fromstring(value)
-        except _ET.ParseError as e:
-            raise ValueError(f"{field_label} is not well-formed {fmt}: {e}") from e
-        return _strip_xml_namespace(parsed)
-    if isinstance(value, _ET.Element):
-        return _strip_xml_namespace(value)
-    raise ValueError(
-        f"{field_label} must be None, a {fmt} string, or an ET.Element; "
-        f"got {type(value).__name__}"
-    )
-
-
-def _typed_inline_child(
-    field_name: str, payload: _Any, expected: type[InlineNode]
-) -> InlineNode:
-    """Deserialize ``payload`` and verify it is an instance of ``expected``.
-
-    ``Date.parts`` is declared ``list[InlineNode]``, but the deserializer
-    dispatches on the field *name* and rebuilds whatever each entry's payload
-    said it was — so ``{"type": "date", "parts": ["17日"]}`` would otherwise
-    put a bare string where every consumer walks nodes.
-
-    The check itself is :func:`brailix.ir._serde.typed_child`, shared with the
-    block side; this binds it to the inline node family and its wording.
-    """
-    return _serde.typed_child(
-        payload,
-        expected=expected,
-        factory=from_dict,
-        label=f"inline field {field_name!r}",
-        kind="node",
-    )
+    if isinstance(payload, DateComponent):
+        return payload
+    mapping = _serde.require_payload_object(payload, "date component")
+    kwargs: dict[str, _Any] = {}
+    for key, value in mapping.items():
+        if key not in _DATE_COMPONENT_FIELDS:
+            continue
+        converted = (
+            (None if value is None else Span.from_tuple(value))
+            if key.endswith("_span")
+            else value
+        )
+        kwargs[key] = _serde.check_wire_value(
+            DateComponent, key, converted, "date component"
+        )
+    return DateComponent(**kwargs)
 
 
 def _deserialize_value(key: str, value: _Any) -> _Any:
     if key == "span":
         return None if value is None else Span.from_tuple(value)
-    if key == "parts" and isinstance(value, list):
-        # ``Date.parts`` is declared ``list[InlineNode]``, so any node type is
-        # legal there — what the check adds is that each entry IS a node.
-        return [_typed_inline_child(key, v, InlineNode) for v in value]
-    if key in ("math", "score", "svg"):
-        return _deserialize_xml_tree(key, value)
+    if key == "components" and isinstance(value, list):
+        return [_date_component(v) for v in value]
+    if key == "tree":
+        return _serde.deserialize_xml_tree(
+            value, label="MathInline.tree", fmt="MathML"
+        )
     _serde.reject_unhandled_nested_payload(key, value)
     return value

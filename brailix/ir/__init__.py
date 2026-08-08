@@ -45,6 +45,7 @@ from brailix.ir.document import (
     Block,
     CodeBlock,
     DocumentIR,
+    EmbeddedBlock,
     Footnote,
     GraphicBlock,
     Heading,
@@ -64,16 +65,13 @@ from brailix.ir.inline import (
     CodeInline,
     Connector,
     Date,
-    GraphicInline,
-    HanziMarker,
+    DateComponent,
     InlineNode,
     LatinWord,
     MathInline,
-    MusicInline,
     Number,
     PhoneticInline,
     Punct,
-    Segment,
     Space,
     Unknown,
     Word,
@@ -101,9 +99,12 @@ from brailix.ir.tactile import TactileRaster
 # ``TactilePageResult.pages``, ``CompiledBlock.raster``. A type a supported
 # entry point hands back has to be nameable from a supported module, or every
 # caller writing an annotation, an ``isinstance`` check or a serialiser is
-# forced into an internal path. The graphics *document-model* node types
-# (:class:`GraphicBlock`, :class:`GraphicInline`) are re-exported for the
+# forced into an internal path. The graphics *document-model* node type
+# (:class:`GraphicBlock`) is re-exported for the
 # same reason Math / Music are: they are first-class document IR citizens.
+# :class:`EmbeddedBlock`, their shared base, comes with them — a consumer that
+# wants "is this block a domain tree rather than prose?" should be able to ask
+# it the way the backend does, instead of listing the three subclasses.
 
 __all__ = (
     # braille
@@ -116,6 +117,7 @@ __all__ = (
     "Block",
     "CodeBlock",
     "DocumentIR",
+    "EmbeddedBlock",
     "Footnote",
     "GraphicBlock",
     "Heading",
@@ -134,16 +136,13 @@ __all__ = (
     "CodeInline",
     "Connector",
     "Date",
-    "GraphicInline",
-    "HanziMarker",
+    "DateComponent",
     "InlineNode",
     "LatinWord",
     "MathInline",
-    "MusicInline",
     "Number",
     "PhoneticInline",
     "Punct",
-    "Segment",
     "Space",
     "Unknown",
     "Word",

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from brailix.backend.music import _emit_tree
+from brailix.backend.music import translate_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 from brailix.frontend.music.normalizer import normalize
@@ -92,8 +92,8 @@ class TestChordMemberStaffVoiceInheritance:
                 "</measure></part></score-partwise>"
             )
 
-        omitted = _emit_tree(normalize(score("")), _ctx(), profile)
-        explicit = _emit_tree(normalize(score("<staff>2</staff>")), _ctx(), profile)
+        omitted = translate_tree(normalize(score("")), _ctx(), profile)
+        explicit = translate_tree(normalize(score("<staff>2</staff>")), _ctx(), profile)
         assert [(c.role, c.dots) for c in omitted] == [
             (c.role, c.dots) for c in explicit
         ]

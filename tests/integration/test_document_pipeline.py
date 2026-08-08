@@ -50,7 +50,6 @@ def pipe() -> Pipeline:
 class TestNoFrontendPollution:
     @pytest.mark.requires("latex2mathml")
     def test_math_block_uses_math_frontend_not_chinese(self, pipe):
-        from brailix.ir.inline import MathInline
 
         doc = parse_markdown("$$x + y = z$$", profile="cn_current", language="zh-CN")
         result = pipe.translate_document(doc)
@@ -58,13 +57,11 @@ class TestNoFrontendPollution:
         assert math_blocks
         # Original text preserved verbatim — no Chinese tokenization.
         assert math_blocks[0].text == "x + y = z"
-        # Children populated by the *math* frontend (one MathInline
-        # carrying the parsed MathML tree), not by the Chinese
-        # tokenizer (which would have spat out Word/Word garbage).
-        children = math_blocks[0].children
-        assert len(children) == 1
-        assert isinstance(children[0], MathInline)
-        assert children[0].math is not None
+        # Parsed by the *math* frontend into the block's own MathML tree, not
+        # by the Chinese tokenizer (which would have spat out Word/Word
+        # garbage into ``children``).
+        assert math_blocks[0].inlines == []
+        assert math_blocks[0].tree is not None
 
     def test_code_block_wrapped_as_codeinline_not_tokenized(self, pipe):
         from brailix.ir.inline import CodeInline
@@ -78,7 +75,7 @@ class TestNoFrontendPollution:
         assert code_blocks[0].language == "python"
         # Children: a single CodeInline carrying the verbatim text,
         # so the backend's punct path emits one cell per source char.
-        children = code_blocks[0].children
+        children = code_blocks[0].inlines
         assert len(children) == 1
         assert isinstance(children[0], CodeInline)
         assert children[0].surface == "x = 1"
@@ -88,7 +85,7 @@ class TestNoFrontendPollution:
         # math/code skip didn't accidentally short-circuit text blocks.
         doc = parse_markdown("一段中文。", profile="cn_current", language="zh-CN")
         result = pipe.translate_document(doc)
-        assert result.ir.blocks[0].children
+        assert result.ir.blocks[0].inlines
 
 
 # ---------------------------------------------------------------------------
@@ -138,10 +135,10 @@ class TestTableCellSpanRebasing:
         )
         pipe.translate_document(doc)
         table = next(b for b in doc.blocks if isinstance(b, Table))
-        header = table.rows[0]
+        header = table.blocks[0]
         # Row text "AB  CDE": cell0 at 0, cell1 at len("AB") + 2 == 4.
-        c0 = header.cells[0].children[0]
-        c1 = header.cells[1].children[0]
+        c0 = header.blocks[0].inlines[0]
+        c1 = header.blocks[1].inlines[0]
         assert (c0.span.start, c0.span.end) == (0, 2)  # "AB"
         assert (c1.span.start, c1.span.end) == (4, 7)  # "CDE", not (0, 3)
 
@@ -175,7 +172,7 @@ class TestTableCellSpanRebasing:
         )
         pipe.translate_document(doc)
         table = next(b for b in doc.blocks if isinstance(b, Table))
-        child = table.rows[0].cells[0].children[0]
+        child = table.blocks[0].blocks[0].inlines[0]
         assert child.span.start == 0
 
 
@@ -196,14 +193,14 @@ class TestTableCellSpanRebasingOnRecompile:
     @staticmethod
     def _row_text(row) -> str:
         # What the backend flattens a row into: cells joined by two spaces.
-        return "  ".join(cell.text for cell in row.cells)
+        return "  ".join(cell.text for cell in row.blocks)
 
     def _assert_row_local(self, row) -> None:
         text = self._row_text(row)
-        for cell in row.cells:
+        for cell in row.blocks:
             assert cell.span is not None
             assert text[cell.span.start : cell.span.end] == cell.text
-            for child in cell.children:
+            for child in cell.inlines:
                 assert child.span is not None
                 assert text[child.span.start : child.span.end] == child.surface
 
@@ -216,14 +213,14 @@ class TestTableCellSpanRebasingOnRecompile:
 
     def test_widening_first_column_moves_later_columns(self, pipe):
         doc, table = self._table(pipe, "| AB | CDE |\n| --- | --- |\n")
-        self._assert_row_local(table.rows[0])
+        self._assert_row_local(table.blocks[0])
 
         # Column 0 grows by two characters; column 1's own text is untouched,
         # so its children are reused — they must still be rebased.
-        table.rows[0].cells[0].text = "ABCD"
+        table.blocks[0].blocks[0].text = "ABCD"
         pipe.translate_document(doc)
-        self._assert_row_local(table.rows[0])
-        c1 = table.rows[0].cells[1].children[0]
+        self._assert_row_local(table.blocks[0])
+        c1 = table.blocks[0].blocks[1].inlines[0]
         assert (c1.span.start, c1.span.end) == (6, 9)  # was (4, 7)
 
     def test_editing_a_later_column_does_not_double_shift(self, pipe):
@@ -231,55 +228,55 @@ class TestTableCellSpanRebasingOnRecompile:
         # Column 1's text changes: its children are dropped and rebuilt, and
         # the span left over from the previous compile is already row-local —
         # shifting it again would land the cell past the end of the row.
-        table.rows[0].cells[1].text = "XY"
+        table.blocks[0].blocks[1].text = "XY"
         pipe.translate_document(doc)
-        self._assert_row_local(table.rows[0])
-        cell = table.rows[0].cells[1]
+        self._assert_row_local(table.blocks[0])
+        cell = table.blocks[0].blocks[1]
         assert (cell.span.start, cell.span.end) == (4, 6)
 
     def test_shrinking_first_column_pulls_later_columns_back(self, pipe):
         doc, table = self._table(pipe, "| ABCD | EF |\n| --- | --- |\n")
-        table.rows[0].cells[0].text = "A"
+        table.blocks[0].blocks[0].text = "A"
         pipe.translate_document(doc)
-        self._assert_row_local(table.rows[0])
+        self._assert_row_local(table.blocks[0])
 
     def test_repeated_translation_is_idempotent(self, pipe):
         doc, table = self._table(pipe, "| AB | CDE | F |\n| --- | --- | --- |\n")
         before = [
-            (cell.span.start, cell.span.end) for cell in table.rows[0].cells
+            (cell.span.start, cell.span.end) for cell in table.blocks[0].blocks
         ]
         pipe.translate_document(doc)
         pipe.translate_document(doc)
         after = [
-            (cell.span.start, cell.span.end) for cell in table.rows[0].cells
+            (cell.span.start, cell.span.end) for cell in table.blocks[0].blocks
         ]
         assert before == after
-        self._assert_row_local(table.rows[0])
+        self._assert_row_local(table.blocks[0])
 
     def test_multi_row_multi_column_with_empty_cell(self, pipe):
         doc, table = self._table(
             pipe,
             "| AB | CDE |\n| --- | --- |\n|  | GH |\n| IJ | KL |\n",
         )
-        table.rows[0].cells[0].text = "ABCDEF"
-        table.rows[2].cells[0].text = "I"
+        table.blocks[0].blocks[0].text = "ABCDEF"
+        table.blocks[2].blocks[0].text = "I"
         pipe.translate_document(doc)
-        for row in table.rows:
+        for row in table.blocks:
             text = self._row_text(row)
-            for cell in row.cells:
+            for cell in row.blocks:
                 if not cell.text:
                     continue
                 assert text[cell.span.start : cell.span.end] == cell.text
-                for child in cell.children:
+                for child in cell.inlines:
                     assert (
                         text[child.span.start : child.span.end] == child.surface
                     )
 
     def test_braille_cell_source_text_matches_row_slice(self, pipe):
         doc, table = self._table(pipe, "| AB | CDE |\n| --- | --- |\n")
-        table.rows[0].cells[0].text = "ABCD"
+        table.blocks[0].blocks[0].text = "ABCD"
         result = pipe.translate_document(doc)
-        row_text = self._row_text(table.rows[0])
+        row_text = self._row_text(table.blocks[0])
         rows = [
             b for b in result.braille_ir.blocks if b.block_type == "table_row"
         ]
@@ -379,7 +376,7 @@ class TestKitchenSinkDocument:
 class TestPopulateBlockRecursion:
     def test_table_cells_run_through_frontend(self, pipe):
         # Build a Table directly (no Markdown shortcut) and confirm the
-        # Chinese frontend reaches into TableRow.cells[].children. This
+        # Chinese frontend reaches into TableRow.cells[].inlines. This
         # exercises the Table-recursion branch of ``populate_block``.
         from brailix.ir.document import (
             DocumentIR,
@@ -391,8 +388,8 @@ class TestPopulateBlockRecursion:
         doc = DocumentIR(
             metadata={"language": "zh-CN", "profile": "cn_current"},
             blocks=[
-                Table(rows=[
-                    TableRow(cells=[
+                Table(blocks=[
+                    TableRow(blocks=[
                         TableCell(text="甲"),
                         TableCell(text="乙"),
                     ]),
@@ -402,7 +399,7 @@ class TestPopulateBlockRecursion:
         result = pipe.translate_document(doc)
         # Frontend populated each cell's children.
         table = result.ir.blocks[0]
-        assert all(cell.children for row in table.rows for cell in row.cells)
+        assert all(cell.inlines for row in table.blocks for cell in row.blocks)
         # Result text is a "cell1 | cell2" reconstruction (see
         # _block_surface for Tables).
         assert "甲" in result.text and "乙" in result.text
@@ -449,7 +446,7 @@ class TestPopulateBlockRecursion:
         from brailix.ir.document import DocumentIR, Paragraph
         from brailix.ir.inline import Word
 
-        p = Paragraph(children=[Word(surface="字")], text="字", span=None)
+        p = Paragraph(inlines=[Word(surface="字")], text="字", span=None)
         assert p.span is None
         doc = DocumentIR(blocks=[p])
         pipe.translate_document(doc)
@@ -457,8 +454,8 @@ class TestPopulateBlockRecursion:
         assert p.span.start == 0
         assert p.span.end == len("字")
         # Pre-populated children left intact (frontend didn't re-run).
-        assert len(p.children) == 1
-        assert p.children[0].surface == "字"
+        assert len(p.inlines) == 1
+        assert p.inlines[0].surface == "字"
 
 
 # ---------------------------------------------------------------------------
@@ -562,17 +559,17 @@ class TestResolvedProfileIdentity:
             pipe.parse_text("# 标题\n\n正文\n", format="markdown"),
         ):
             assert doc.blocks
-            assert all(not b.children for b in doc.blocks)
+            assert all(not b.inlines for b in doc.blocks)
             assert any(b.text for b in doc.blocks)
 
         path = tmp_path / "sample.txt"
         path.write_text("我在重庆。", encoding="utf-8")
         doc = pipe.parse_file(path)
-        assert doc.blocks and all(not b.children for b in doc.blocks)
+        assert doc.blocks and all(not b.inlines for b in doc.blocks)
 
         # ...and translating it is what fills them in.
         pipe.translate_document(doc)
-        assert all(b.children for b in doc.blocks)
+        assert all(b.inlines for b in doc.blocks)
 
     def test_translate_document_replaces_stale_requested(self, alias_dir):
         # A doc first stamped by an alias pipeline, re-translated by the
@@ -608,8 +605,8 @@ class TestPipelineTranslateFile:
         assert isinstance(result.ir.blocks[0], Heading)
         assert isinstance(result.ir.blocks[1], Paragraph)
         # Frontend ran over both text-bearing blocks.
-        assert result.ir.blocks[0].children
-        assert result.ir.blocks[1].children
+        assert result.ir.blocks[0].inlines
+        assert result.ir.blocks[1].inlines
         # Braille IR was produced for each.
         assert len(result.braille_ir.blocks) >= 2
 

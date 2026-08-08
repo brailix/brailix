@@ -97,7 +97,7 @@ def safe_fromstring(text: str | bytes) -> _ET.Element:
 
     A drop-in for :func:`xml.etree.ElementTree.fromstring` at every
     boundary that parses externally-supplied XML (MathML / MusicXML
-    payloads, ``.mxl`` container, ``.blx`` round-trip). Raises
+    payloads, an ``.mxl`` container, a serialized document reloaded). Raises
     :class:`~xml.etree.ElementTree.ParseError` if the source declares any
     ``<!ENTITY>`` — so a malformed/malicious file soft-fails the same way
     any other parse error does, rather than exhausting memory.
@@ -423,8 +423,9 @@ def strip_xml_invalid_chars(text: str) -> str:
 #
 # ``ET.fromstring`` drops both node types, so the string path never produced
 # one — but a **pre-parsed** ``ET.Element`` is an equally supported way to hand
-# a tree to :class:`~brailix.ir.inline.MathInline` / ``MusicInline`` /
-# ``GraphicInline``, and that path strips namespaces on whatever the caller
+# a tree to :class:`~brailix.ir.inline.MathInline` or to an
+# :class:`~brailix.ir.document.EmbeddedBlock`,
+# and that path strips namespaces on whatever the caller
 # built. An ``AttributeError`` there is also the one class of exception the
 # soft-failure boundaries deliberately re-raise (``PROGRAMMING_ERRORS``), so it
 # crashed the compile rather than degrading.
@@ -439,7 +440,8 @@ def strip_namespace(elem: _ET.Element) -> None:
 
     Iterative (explicit stack) rather than recursive so an adversarially
     deep tree — thousands of nested elements in an untrusted MathML /
-    MusicXML payload or a ``.blx`` round-trip — can't overflow Python's
+    MusicXML payload, or in one reloaded from a serialized document — can't
+    overflow Python's
     recursion limit here: the IR-deserialization and MathML-normalizer
     boundaries both rely on this strip being depth-safe.
 

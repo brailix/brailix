@@ -4,7 +4,7 @@ from brailix.backend.number import translate_date, translate_number
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
-from brailix.ir.inline import Date, HanziMarker, Number
+from brailix.ir.inline import Date, DateComponent, Number
 
 
 @pytest.fixture(scope="module")
@@ -125,13 +125,25 @@ class TestTranslateDate:
         node = Date(
             surface="2026年5月17日",
             span=Span(0, 10),
-            parts=[
-                Number(surface="2026", span=Span(0, 4)),
-                HanziMarker(surface="年", span=Span(4, 5)),
-                Number(surface="5", span=Span(5, 6)),
-                HanziMarker(surface="月", span=Span(6, 7)),
-                Number(surface="17", span=Span(7, 9)),
-                HanziMarker(surface="日", span=Span(9, 10)),
+            components=[
+                DateComponent(
+                    digits="2026",
+                    digits_span=Span(0, 4),
+                    marker="年",
+                    marker_span=Span(4, 5),
+                ),
+                DateComponent(
+                    digits="5",
+                    digits_span=Span(5, 6),
+                    marker="月",
+                    marker_span=Span(6, 7),
+                ),
+                DateComponent(
+                    digits="17",
+                    digits_span=Span(7, 9),
+                    marker="日",
+                    marker_span=Span(9, 10),
+                ),
             ],
         )
         cells = translate_date(node, ctx, profile)
@@ -162,9 +174,14 @@ class TestTranslateDate:
         node = Date(
             surface="2026年",
             span=Span(0, 5),
-            parts=[
-                Number(surface="2026", span=Span(0, 4)),
-                HanziMarker(surface="年", span=Span(4, 5), reading="nian2"),
+            components=[
+                DateComponent(
+                    digits="2026",
+                    digits_span=Span(0, 4),
+                    marker="年",
+                    marker_span=Span(4, 5),
+                    reading="nian2",
+                ),
             ],
         )
         cells = translate_date(node, ctx, profile)
@@ -185,9 +202,14 @@ class TestTranslateDate:
         node = Date(
             surface="5月",
             span=Span(0, 2),
-            parts=[
-                Number(surface="5", span=Span(0, 1)),
-                HanziMarker(surface="月", span=Span(1, 2), reading="yue4"),
+            components=[
+                DateComponent(
+                    digits="5",
+                    digits_span=Span(0, 1),
+                    marker="月",
+                    marker_span=Span(1, 2),
+                    reading="yue4",
+                ),
             ],
         )
         cells = translate_date(node, ctx, profile)
@@ -204,9 +226,13 @@ class TestTranslateDate:
         node = Date(
             surface="3旬",
             span=Span(0, 2),
-            parts=[
-                Number(surface="3", span=Span(0, 1)),
-                HanziMarker(surface="旬", span=Span(1, 2)),  # no pinyin
+            components=[
+                DateComponent(
+                    digits="3",
+                    digits_span=Span(0, 1),
+                    marker="旬",
+                    marker_span=Span(1, 2),
+                ),  # no pinyin
             ],
         )
         cells = translate_date(node, ctx, profile)
@@ -222,9 +248,14 @@ class TestTranslateDate:
         node = Date(
             surface="3旬",
             span=Span(0, 2),
-            parts=[
-                Number(surface="3", span=Span(0, 1)),
-                HanziMarker(surface="旬", span=Span(1, 2), reading="xun2"),
+            components=[
+                DateComponent(
+                    digits="3",
+                    digits_span=Span(0, 1),
+                    marker="旬",
+                    marker_span=Span(1, 2),
+                    reading="xun2",
+                ),
             ],
         )
         cells = translate_date(node, ctx, profile)
@@ -251,22 +282,35 @@ class TestDateMarkerDecoupling:
     def test_zh_backend_owns_connector_rule(self, ctx, profile):
         from brailix.backend.zh import translate_date_marker
 
-        year = HanziMarker(surface="年", span=Span(0, 1), reading="nian2")
-        month = HanziMarker(surface="月", span=Span(0, 1), reading="yue4")
-        # 年 following a number takes NO connector (NCB exemption)...
+        def component(marker: str, reading: str, digits: str) -> DateComponent:
+            return DateComponent(
+                digits=digits,
+                digits_span=Span(0, len(digits)) if digits else None,
+                marker=marker,
+                marker_span=Span(len(digits), len(digits) + 1),
+                reading=reading,
+            )
+
+        # 年 written against digits takes NO connector (NCB exemption)...
         assert not any(
             c.role == "connector"
-            for c in translate_date_marker(year, True, ctx, profile)
+            for c in translate_date_marker(
+                component("年", "nian2", "2026"), ctx, profile
+            )
         )
         # ...but 月 does.
         assert any(
             c.role == "connector"
-            for c in translate_date_marker(month, True, ctx, profile)
+            for c in translate_date_marker(
+                component("月", "yue4", "5"), ctx, profile
+            )
         )
-        # A marker that does not follow a number takes no connector either.
+        # A marker with no digits in front of it takes no connector either.
         assert not any(
             c.role == "connector"
-            for c in translate_date_marker(month, False, ctx, profile)
+            for c in translate_date_marker(
+                component("月", "yue4", ""), ctx, profile
+            )
         )
 
     def test_language_backend_protocol_declares_marker_method(self):

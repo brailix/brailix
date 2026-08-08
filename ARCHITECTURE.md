@@ -172,6 +172,7 @@ brailix/
 │   │   ├── context.py        # FrontendContext / BackendContext / MathContext / MusicContext / GraphicsContext
 │   │   ├── errors.py         # ParseError / WarningCollector / RunMode
 │   │   ├── span.py           # Span utilities, source-position tracking for IR nodes
+│   │   ├── segment.py        # Segment — the segmenter→normalizer mediator (named by a core protocol, so not in the frontend; not an IR node either)
 │   │   ├── registry.py       # generic name→loader registry (lazy load + MissingExtraError)
 │   │   ├── protocols.py      # Segmenter / Normalizer / LanguageFrontend / LanguageBackend / MathSourceAdapter / MusicSourceAdapter / GraphicSourceAdapter / InlineTextTranslator / GraphicAssetResolver / Renderer
 │   │   ├── _xml.py           # shared XML helpers (safe_fromstring: parsing with entity expansion off; byte decoding by XML's own encoding rules; prologue scan to the root element)
@@ -216,7 +217,7 @@ brailix/
 │   │       └── adapters/         # svg / primitives / figure / image (image needs the graphics extra)
 │   ├── ir/
 │   │   ├── document.py       # DocumentIR: block level (incl. MathBlock / CodeBlock / ScoreBlock ...)
-│   │   ├── inline.py         # InlineIR: inline tokens (incl. MathInline.math: ET.Element)
+│   │   ├── inline.py         # InlineIR: inline tokens (incl. MathInline.tree: ET.Element)
 │   │   ├── braille.py        # BrailleIR: cell sequence
 │   │   └── tactile.py        # TactileRaster: tactile dot grid (tactile-backend product, the graphics counterpart of BrailleIR)
 │   ├── backend/              # semantic IR → output-domain IR (BrailleIR / TactileRaster)
@@ -269,17 +270,20 @@ Five IRs in two groups. Three describe the document, coarse to fine: block-level
 
 ```json
 {
-  "version": "1.0",
+  "version": "2.0",
   "type": "document",
   "metadata": {"language": "zh-CN", "profile": "cn_current"},
   "blocks": [
-    {"id": "b1", "type": "heading", "level": 1, "children": [...]},
-    {"id": "b2", "type": "paragraph", "children": [...]}
+    {"id": "b1", "type": "heading", "level": 1, "inlines": [...]},
+    {"id": "b2", "type": "paragraph", "inlines": [...]},
+    {"id": "b3", "type": "list", "ordered": false, "blocks": [...]}
   ]
 }
 ```
 
-Block types: `heading / paragraph / list / list_item / table / table_row / table_cell / quote / footnote / code_block / math_block / score / music_block / image_alt / graphic`. (`score` is a whole score, `ScoreBlock`; `music_block` a single passage, `MusicBlock` — both filled through the same children-carrier pattern as `MathBlock`. `graphic` is a tactile graphic, `GraphicBlock`, whose source is SVG, a primitives spec or a figure spec, carried the same way; it is the one block that does not translate to braille cells, rasterizing instead into a `TactileRaster` — see §5.3 and §8.)
+Block types: `heading / paragraph / list / list_item / table / table_row / table_cell / quote / footnote / code_block / math_block / score / music_block / image_alt / graphic`. (`score` is a whole score, `ScoreBlock`; `music_block` a single passage, `MusicBlock` — both share `EmbeddedBlock` with `MathBlock` and `GraphicBlock`, holding their normalized tree on the block's own `tree`. `graphic` is a tactile graphic, `GraphicBlock`, whose source is SVG, a primitives spec or a figure spec; it is the one block that does not translate to braille cells, rasterizing instead into a `TactileRaster` — see §5.3 and §8.)
+
+**A block has two kinds of content, one field each.** `inlines` are the typed tokens a leaf block's text became; `blocks` are nested blocks — a list's items, a table's rows, a row's cells. Those used to be `children` (inline-only, despite the name) plus a per-class structural field (`List.items`, `Table.rows`, `TableRow.cells`), which made the document two trees wearing one name: everything that walked it had to know which of four field names a given block kept its children under — the serializer, the deserializer, `structure_key`, the frontend driver, the block backend, the surface reconstruction, the front-end's leaf collector. One name for one relationship deletes all of that. *Which* class the nested blocks must be is the owning class's `child_type` (`List` → `ListItem`, `Table` → `TableRow`, `TableRow` → `TableCell`; `None` everywhere else, meaning "holds no nested blocks").
 
 ### 5.2 InlineIR (inline tokens)
 
@@ -295,11 +299,13 @@ Block types: `heading / paragraph / list / list_item / table / table_row / table
 Inline token types:
 
 ```
-word / number / hanzi_marker / date /
+word / number / date /
 punct / latin_word /
-code_inline / phonetic_inline / math_inline / music_inline / graphic_inline /
+code_inline / phonetic_inline / math_inline /
 space / connector / unknown
 ```
+
+> What a composite node holds inside is **value objects, not nodes**: a `date` is a list of `DateComponent` records (`digits` + `marker`, each with its own span, plus the marker's reading). The year / month / day markers used to be a public `hanzi_marker` node type, paying for a registry entry, a wire tag, a facade export and a recursive typed-child check on `parts` — while there is no such thing as a loose 年 and nothing dispatches on one. Only something a consumer dispatches on independently earns nodehood.
 
 > A single character is simply a one-character `word` — there is no separate node type for it (both language backends translated it through an identical call, and every consumer discriminated on it alongside `word` anyway); `unknown` keeps the pipeline running on anything else.
 
@@ -322,7 +328,7 @@ A math formula uses its **normalized MathML tree** as its IR directly, a score u
 </math>
 ```
 
-Each tree hangs off an inline carrier — `math_inline`, `music_inline`, `graphic_inline` — which is how the block types `math_block`, `score` / `music_block` and `graphic` hold their content. The full math, music and tactile-graphics subsystems are described in §7 and §8.
+A block whose content is one of these trees holds it directly, on `EmbeddedBlock.tree` — the shared base of `math_block`, `score` / `music_block` and `graphic`, which is also what lets the backend route all three through one branch keyed on the block's `domain`. Each tree used to hang off an inline *carrier* node instead (`math_inline`, `music_inline`, `graphic_inline`), sitting alone in the block's `children`; two of those three had no other producer, and the graphics one had no braille to give at all, so the block backend carried a special case telling it not to translate that child. Only `math_inline` survives, for the case that earns it: a formula inside a sentence. The full math, music and tactile-graphics subsystems are described in §7 and §8.
 
 <a id="arch-braille-ir"></a>
 ### 5.4 BrailleIR (cell sequence)
@@ -503,7 +509,7 @@ Adding any external tool means writing one adapter file: a new tokenizer goes un
 
 To be precise about where that promise holds: for a new tool behind an **existing protocol** — the cases listed above — no core code changes; the adapter file registers itself and a profile (or an explicit option) selects it. Two kinds of extension *do* grow the core, by design: a **new IR node type** must join the backend dispatch table (and its serialization and tests), and a **new domain vertical** — a fifth mediator alongside text, math, music, and graphics — touches orchestration the same way. Adding a whole new *language* sits in between: it is registration-only (no orchestrator branches), but it does mean registering several implementations plus a profile — §12 walks through exactly what it takes.
 
-Put plainly: **the adapter layer is the open extension surface (Registry + Protocol, plug-and-play), while the set of IR node and block types is a repo-internal closed world.** Adding an `InlineNode` or `Block` is a coordinated change across several points (dataclass + registry + serialization + backend dispatch + schema + tests) — a deliberate closed set, not a plugin seam. Serialization is the one of those that is declarative: a block field holding nested blocks is named in the class's own `structural_fields` (field name → the block class its entries must be), and that single declaration is what writes the field out *and* what rebuilds it on the way back, with both directions checking every entry against it — so a tree that serializes is a tree that reloads. A nested field nobody declared makes `to_dict` raise rather than skip it, which is what it used to do — saving succeeded, the JSON was valid, and the field was gone after a reload. The normal move is to fold a new domain into one of the existing mediators (text, math, music, or graphics) and carry it on the nodes already there.
+Put plainly: **the adapter layer is the open extension surface (Registry + Protocol, plug-and-play), while the set of IR node and block types is a repo-internal closed world.** Adding an `InlineNode` or `Block` is a coordinated change across several points (dataclass + registry + serialization + backend dispatch + schema + tests) — a deliberate closed set, not a plugin seam. Serialization is the one of those that is declarative: a block's nested blocks all live in `blocks`, and which class their entries must be is the class's own `child_type` — that single declaration is what writes the field out *and* what rebuilds it on the way back, with both directions checking every entry against it, so a tree that serializes is a tree that reloads. Nested blocks put anywhere else make `to_dict` raise rather than skip them, which is what it used to do — saving succeeded, the JSON was valid, and the field was gone after a reload. The normal move is to fold a new domain into one of the existing mediators (text, math, music, or graphics) and carry it on the nodes already there.
 
 ---
 

@@ -1,20 +1,19 @@
 """End-to-end music test: a COMPLETE multi-measure score driven through
 the frontend normalizer + backend translator.
 
-Every other test in this package feeds ``_emit_tree`` a synthetic
+Every other test in this package feeds ``translate_tree`` a synthetic
 single-element fragment, so none of them exercise a real ``<score-
 partwise>`` flowing through ``normalize`` (namespace strip, voice
-numbering, note-type inference) into ``translate`` (octave inference
+numbering, note-type inference) into ``translate_tree`` (octave inference
 across measures, measure separators).  This pins that integration.
 """
 
 from __future__ import annotations
 
-from brailix.backend.music import translate
+from brailix.backend.music import translate_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 from brailix.frontend.music.normalizer import normalize
-from brailix.ir.inline import MusicInline
 
 _SCORE = """<score-partwise version="3.1">
   <part-list><score-part id="P1"><part-name>Music</part-name></score-part></part-list>
@@ -42,9 +41,7 @@ _SCORE = """<score-partwise version="3.1">
 def test_complete_two_measure_score_end_to_end():
     profile = load_profile("cn_current")
     ctx = BackendContext(profile="cn_current", block_type="score")
-    tree = normalize(_SCORE)
-    node = MusicInline(surface="", source="musicxml", score=tree)
-    cells = translate(node, ctx, profile)
+    cells = translate_tree(normalize(_SCORE), ctx, profile)
 
     roles = [c.role for c in cells]
     # Real braille came out — NOT the MUSIC_NO_IR raw-surface fallback.
@@ -66,8 +63,7 @@ def test_namespaced_root_is_stripped_and_translates():
     )
     profile = load_profile("cn_current")
     ctx = BackendContext(profile="cn_current", block_type="score")
-    node = MusicInline(surface="", source="musicxml", score=normalize(ns_score))
-    cells = translate(node, ctx, profile)
+    cells = translate_tree(normalize(ns_score), ctx, profile)
     assert cells
     assert not any(w.code == "MUSIC_NO_IR" for w in ctx.warnings.warnings)
     assert [c.role for c in cells].count("music_note") == 5
@@ -92,10 +88,7 @@ def test_multi_voice_measure_emits_both_voices():
     # merged or dropped — guards the voice-grouping container path.
     profile = load_profile("cn_current")
     ctx = BackendContext(profile="cn_current", block_type="score")
-    node = MusicInline(
-        surface="", source="musicxml", score=normalize(_MULTIVOICE)
-    )
-    cells = translate(node, ctx, profile)
+    cells = translate_tree(normalize(_MULTIVOICE), ctx, profile)
     assert cells
     assert not any(w.code == "MUSIC_NO_IR" for w in ctx.warnings.warnings)
     assert [c.role for c in cells].count("music_note") == 2

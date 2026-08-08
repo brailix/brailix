@@ -1,5 +1,5 @@
-"""Translate a :class:`MusicInline` (carrying a parsed MusicXML
-:class:`ET.Element` tree) into a sequence of braille cells.
+"""Translate a parsed MusicXML :class:`ET.Element` tree into a sequence of
+braille cells.
 
 The backend dispatches per :attr:`ET.Element.tag` — MusicXML *is* the
 music IR. State threads through a
@@ -24,13 +24,16 @@ overflowing the recursive dispatch.
 The package's own interface is intentionally tiny:
 
 * :class:`MusicBrailleContext` — per-fragment mutable state
-* :func:`translate` — one :class:`MusicInline` → cells
+* :func:`translate_tree` — one MusicXML tree → cells
 
 Both are internal, like every path outside the facades and the extension
 surface (see the top-level :mod:`brailix` docstring): scoped so the
 sub-modules stay private to the package, not offered as a compatibility
-promise. ``_emit_tree`` beside them is a convenience wrapper for tests, and
-underscore-named so it doesn't read as one either.
+promise. There used to be a third name, ``_emit_tree``, a test convenience
+that did what :func:`translate_tree` now does — the difference between them
+was only that one took a node to unwrap and the other took the tree, and once
+the score IR stopped travelling inside a carrier node there was nothing left
+to unwrap.
 """
 
 from __future__ import annotations
@@ -50,7 +53,6 @@ from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
-from brailix.ir.inline import MusicInline
 
 if _TYPE_CHECKING:
     import xml.etree.ElementTree as ET
@@ -66,9 +68,9 @@ if _TYPE_CHECKING:
 # iterative, so the guard is itself depth-safe.
 #
 # The check lives here rather than in the frontend normalizer because a tree
-# can reach the backend without passing it: a ``.blx`` round-trip re-parses
-# ``MusicInline.score`` straight from its serialized string, and a caller can
-# construct a ``MusicInline`` directly. (The normalizer's own passes are all
+# can reach the backend without passing it: deserializing a document re-parses
+# ``ScoreBlock.tree`` straight from its serialized string, and a caller can
+# hand a block a tree directly. (The normalizer's own passes are all
 # iterative, so it has nothing to protect on its own behalf.) Same reasoning,
 # and the same cap, as ``backend.math``'s guard; both read the depth through
 # the shared ``core._xml`` probe rather than sharing a cross-vertical helper.
@@ -105,66 +107,53 @@ def _too_deep_fallback(
     ]
 
 
-def translate(
-    node: MusicInline, ctx: BackendContext, profile: BrailleProfile
+def translate_tree(
+    tree: ET.Element | None,
+    ctx: BackendContext,
+    profile: BrailleProfile,
+    *,
+    surface: str = "",
+    span: Span | None = None,
 ) -> list[BrailleCell]:
-    """Translate one :class:`MusicInline` node into braille cells.
+    """Translate one normalised MusicXML tree into braille cells.
 
-    If :attr:`MusicInline.score` was never populated by the music
-    frontend (missing adapter, ``source='plain'`` falling through),
-    fall back to per-char unknown cells over the raw surface so
-    something useful still lands in the output.
+    The package's one entry point. Music reaches the backend only as a block
+    (a :class:`~brailix.ir.document.ScoreBlock` or
+    :class:`~brailix.ir.document.MusicBlock`) — there is no inline music in
+    prose — so unlike math there is no node-taking wrapper beside this; the
+    block backend hands the tree over directly. ``surface`` / ``span`` are the
+    passage's source text and extent, for provenance and the fallbacks; a
+    caller emitting a subtree it cannot locate passes neither.
+
+    ``tree`` is ``None`` when the music frontend never produced one (missing
+    adapter, ``source='plain'`` falling through, a parse that failed): warn
+    ``MUSIC_NO_IR`` and fall back to per-char unknown cells over the surface,
+    so the document still compiles around the unreadable score.
     """
-    score_tree = node.score
-    if score_tree is None:
+    if tree is None:
         ctx.warnings.error(
             code="MUSIC_NO_IR",
             message=(
                 "music node lacks a parsed MusicXML tree; emitting "
                 "raw surface as unknown cells"
             ),
-            surface=node.surface,
-            span=node.span,
+            surface=surface,
+            span=span,
             source="backend.music",
         )
-        return _unknown_cell_seq(node.surface, node.span)
+        return _unknown_cell_seq(surface, span)
 
-    if tree_depth_exceeds(score_tree, _MAX_TREE_DEPTH):
-        return _too_deep_fallback(node.surface, node.span, ctx)
+    if tree_depth_exceeds(tree, _MAX_TREE_DEPTH):
+        return _too_deep_fallback(surface or None, span, ctx)
 
     mctx = MusicBrailleContext(
         profile=profile,
         backend=ctx,
-        span=node.span,
+        span=span,
         octave_rule=_resolve_octave_rule(profile),
     )
     cells: list[BrailleCell] = []
-    _emit_element(cells, mctx, score_tree)
-    return cells
-
-
-def _emit_tree(
-    elem: ET.Element, ctx: BackendContext, profile: BrailleProfile
-) -> list[BrailleCell]:
-    """Convenience for tests: emit a single MusicXML subtree directly.
-
-    Equivalent to wrapping the element in a fresh :class:`MusicInline`
-    and calling :func:`translate`. Underscore-named because that is all it is:
-    a test convenience with no caller in the compiler.
-
-    Depth-guarded like :func:`translate` — both entry points reach the same
-    recursive dispatch, so a check on only one of them leaves the contract
-    broken through the other.
-    """
-    if tree_depth_exceeds(elem, _MAX_TREE_DEPTH):
-        return _too_deep_fallback(None, None, ctx)
-    mctx = MusicBrailleContext(
-        profile=profile,
-        backend=ctx,
-        octave_rule=_resolve_octave_rule(profile),
-    )
-    cells: list[BrailleCell] = []
-    _emit_element(cells, mctx, elem)
+    _emit_element(cells, mctx, tree)
     return cells
 
 
@@ -188,5 +177,5 @@ def _resolve_octave_rule(
 
 __all__ = (
     "MusicBrailleContext",
-    "translate",
+    "translate_tree",
 )

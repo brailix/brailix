@@ -221,7 +221,7 @@ def english_run_role(node: InlineNode) -> str:
     punctuation, digits), or ``"break"`` for anything that ends it
     (Chinese prose, math, an unknown token …).
 
-    The dispatcher (:func:`brailix.backend.block._translate_children`)
+    The dispatcher (:func:`brailix.backend.block._translate_inlines`)
     threads the resulting on/off state into
     ``ctx.options['_english_run_active']`` so :func:`translate_latin` can
     drop the redundant lowercase sign. Keeping this classification here —

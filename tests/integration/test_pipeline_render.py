@@ -243,9 +243,9 @@ class TestLanguageRegisteredSegmenterAndNormalizer:
         from dataclasses import dataclass
 
         from brailix import Pipeline
+        from brailix.core.segment import Segment
         from brailix.core.span import Span
         from brailix.frontend.segmentation import segmenter_registry
-        from brailix.ir.inline import Segment
 
         @dataclass(slots=True)
         class _OneBigPunctSegmenter:
@@ -296,9 +296,9 @@ class TestUnhandledSegmentType:
 
     def test_unknown_segment_type_emits_warning(self):
         from brailix import Pipeline
+        from brailix.core.segment import Segment
         from brailix.core.span import Span
         from brailix.frontend.segmentation import segmenter_registry
-        from brailix.ir.inline import Segment
 
         class _MysterySegmenter:
             name = "mystery"
@@ -435,7 +435,7 @@ class TestStandaloneResult:
 
         profile = load_profile("cn_current")
         ctx = BackendContext(profile="cn_current")
-        doc = DocumentIR(blocks=[Paragraph(children=[Punct(surface="。")])])
+        doc = DocumentIR(blocks=[Paragraph(inlines=[Punct(surface="。")])])
         braille_doc = translate_document(doc, ctx, profile)
         result = TranslationResult(
             text="。", ir=doc, braille_ir=braille_doc

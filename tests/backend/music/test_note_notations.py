@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import _emit_tree
+from brailix.backend.music import translate_tree
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 
@@ -81,7 +81,7 @@ class TestTupletMarker:
             ),
             notations='<notations><tuplet type="start" number="1"/></notations>',
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # [tuplet, octave, note]
         assert cells[0].dots == (2, 3)
         assert cells[0].role == "music_tuplet"
@@ -100,7 +100,7 @@ class TestTupletMarker:
             ),
             notations='<notations><tuplet type="start"/></notations>',
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # triplet_three_cell = "_3'" = (4,5,6)(2,5)(3,)
         assert _dots(cells)[:3] == [(4, 5, 6), (2, 5), (3,)]
         assert all(c.role == "music_tuplet" for c in cells[:3])
@@ -113,7 +113,7 @@ class TestTupletMarker:
             ),
             notations='<notations><tuplet type="start"/></notations>',
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # group_of_two_notes = "_2'" = (4,5,6)(2,3)(3,)
         assert _dots(cells)[:3] == [(4, 5, 6), (2, 3), (3,)]
 
@@ -125,7 +125,7 @@ class TestTupletMarker:
             ),
             notations='<notations><tuplet type="start"/></notations>',
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # group_of_ten_notes = "_10'" → 4 cells
         assert cells[0].role == "music_tuplet"
 
@@ -138,7 +138,7 @@ class TestTupletMarker:
             ),
             notations='<notations><tuplet type="start"/></notations>',
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         tuplet_cells = [c for c in cells if c.role == "music_tuplet"]
         assert _dots(tuplet_cells) == [(4, 5, 6), (2, 6), (3,)]
 
@@ -151,7 +151,7 @@ class TestTupletMarker:
             ),
             notations='<notations><tuplet type="start"/></notations>',
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         tuplet_cells = [c for c in cells if c.role == "music_tuplet"]
         assert _dots(tuplet_cells) == [(4, 5, 6), (2,), (2,), (3,)]
 
@@ -160,7 +160,7 @@ class TestTupletMarker:
         note = ET.fromstring(_note_xml(
             notations='<notations><tuplet type="stop"/></notations>',
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_tuplet" not in _roles(cells)
 
     def test_tuplet_without_time_modification_skipped(self, profile, ctx):
@@ -169,7 +169,7 @@ class TestTupletMarker:
         note = ET.fromstring(_note_xml(
             notations='<notations><tuplet type="start"/></notations>',
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_tuplet" not in _roles(cells)
 
     def test_unsupported_form_warns_but_falls_back(
@@ -187,7 +187,7 @@ class TestTupletMarker:
             ),
             notations='<notations><tuplet type="start"/></notations>',
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # Falls back to single_cell
         assert cells[0].dots == (2, 3)
         codes = [w.code for w in ctx.warnings.warnings]
@@ -204,7 +204,7 @@ class TestTie:
         note = ET.fromstring(_note_xml(
             notations='<notations><tied type="start"/></notations>',
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # [octave, note, tie...]
         # tie_between_single_notes = "@c" = (4,)(1,4)
         assert _dots(cells)[-2:] == [(4,), (1, 4)]
@@ -216,7 +216,7 @@ class TestTie:
         note = ET.fromstring(_note_xml(
             notations='<notations><tied type="stop"/></notations>',
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_tie" not in _roles(cells)
 
     def test_both_tied_start_and_stop_only_emits_for_start(
@@ -232,7 +232,7 @@ class TestTie:
                 "</notations>"
             ),
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert _roles(cells).count("music_tie") == 2  # one start pair
 
 
@@ -246,7 +246,7 @@ class TestSlur:
         note = ET.fromstring(_note_xml(
             notations='<notations><slur type="start" number="1"/></notations>',
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # simple_short_slur = "c" = (1,4)
         assert cells[-1].dots == (1, 4)
         assert cells[-1].role == "music_slur"
@@ -255,14 +255,14 @@ class TestSlur:
         note = ET.fromstring(_note_xml(
             notations='<notations><slur type="stop" number="1"/></notations>',
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_slur" not in _roles(cells)
 
     def test_slur_continue_no_cells(self, profile, ctx):
         note = ET.fromstring(_note_xml(
             notations='<notations><slur type="continue" number="1"/></notations>',
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_slur" not in _roles(cells)
 
 
@@ -290,7 +290,7 @@ class TestFingering:
                 "</technical></notations>"
             ),
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert cells[-1].dots == expected_dots
         assert cells[-1].role == "music_fingering"
 
@@ -302,7 +302,7 @@ class TestFingering:
                 "</technical></notations>"
             ),
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_fingering" not in _roles(cells)
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
@@ -320,7 +320,7 @@ class TestFingering:
                 "</technical></notations>"
             ),
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_fingering" not in _roles(cells)
 
     def test_multiple_fingerings_on_one_note(self, profile, ctx):
@@ -333,7 +333,7 @@ class TestFingering:
                 "</technical></notations>"
             ),
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         finger_cells = [c for c in cells if c.role == "music_fingering"]
         assert len(finger_cells) == 2
         assert finger_cells[0].dots == (1,)        # first_finger
@@ -350,7 +350,7 @@ class TestStringTechniques:
         note = ET.fromstring(_note_xml(
             notations="<notations><technical><down-bow/></technical></notations>",
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # down_bow = "<b" = (1,2,6)(1,2)
         assert _dots(cells)[-2:] == [(1, 2, 6), (1, 2)]
         assert cells[-1].role == "music_string_technique"
@@ -359,7 +359,7 @@ class TestStringTechniques:
         note = ET.fromstring(_note_xml(
             notations="<notations><technical><up-bow/></technical></notations>",
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # up_bow = "<'" = (1,2,6)(3,)
         assert _dots(cells)[-2:] == [(1, 2, 6), (3,)]
         assert cells[-1].role == "music_string_technique"
@@ -368,7 +368,7 @@ class TestStringTechniques:
         note = ET.fromstring(_note_xml(
             notations="<notations><technical><open-string/></technical></notations>",
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert cells[-1].dots == (1, 3)  # open_string = "k"
         assert cells[-1].role == "music_string_technique"
 
@@ -376,7 +376,7 @@ class TestStringTechniques:
         note = ET.fromstring(_note_xml(
             notations="<notations><technical><harmonic/></technical></notations>",
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert cells[-1].dots == (1, 3)  # natural_harmonic = "k"
         assert cells[-1].role == "music_string_technique"
 
@@ -388,7 +388,7 @@ class TestStringTechniques:
                 "</technical></notations>"
             ),
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # artificial_harmonic = "*l" = (1,6)(1,2,3)
         assert _dots(cells)[-2:] == [(1, 6), (1, 2, 3)]
 
@@ -399,7 +399,7 @@ class TestStringTechniques:
                 "</technical></notations>"
             ),
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         # left_hand_thumb = "*k" = (1,6)(1,3)
         assert _dots(cells)[-2:] == [(1, 6), (1, 3)]
 
@@ -412,7 +412,7 @@ class TestStringTechniques:
         note = ET.fromstring(_note_xml(
             notations="<notations><technical><down-bow/></technical></notations>",
         ))
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         assert "music_string_technique" not in _roles(cells)
 
     def test_fingering_emits_before_bow(self, profile, ctx):
@@ -423,7 +423,7 @@ class TestStringTechniques:
                 "</technical></notations>"
             ),
         ))
-        roles = _roles(_emit_tree(note, ctx, profile))
+        roles = _roles(translate_tree(note, ctx, profile))
         assert "music_fingering" in roles and "music_string_technique" in roles
         assert roles.index("music_fingering") < roles.index(
             "music_string_technique"
@@ -457,7 +457,7 @@ class TestCombined:
             "</notations>"
             "</note>"
         )
-        cells = _emit_tree(note, ctx, profile)
+        cells = translate_tree(note, ctx, profile)
         roles = _roles(cells)
         # Order per BANA combined rules:
         #   tuplet, accidental, octave, note, dot, tie(2), slur, finger

@@ -30,8 +30,9 @@ from brailix.ir.inline import Connector, Number, Word
 if _TYPE_CHECKING:
     from brailix.core.config import BrailleProfile
     from brailix.core.context import FrontendContext
+    from brailix.core.segment import Segment
     from brailix.ir.document import Block
-    from brailix.ir.inline import InlineNode, Segment
+    from brailix.ir.inline import InlineNode
 
 
 @_dataclass(slots=True)

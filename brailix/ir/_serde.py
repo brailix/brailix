@@ -27,7 +27,7 @@ things:
   carry: a ``blocks`` that is not a list, a ``source`` that is not a string,
   a span that is not two integers. Almost everything here raises this one.
 * :class:`TypeError` — that nested node is the wrong *class*: a ``Paragraph``
-  in ``Table.rows``, a bare string in ``Date.parts``. Raised by
+  among a ``Table``'s rows. Raised by
   :func:`typed_child`, the one check about node identity rather than wire
   shape, and deliberately the same signal a caller assembling the tree in
   code gets for the same mistake.
@@ -52,9 +52,12 @@ import sys as _sys
 import types as _types
 import typing as _typing
 import warnings as _warnings
+import xml.etree.ElementTree as _ET
 from dataclasses import fields as _fields
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 from typing import Any as _Any
+
+from brailix.core._xml import safe_fromstring, strip_namespace
 
 if _TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -121,7 +124,7 @@ def typed_child[NodeT](
     A declared field type is not enforced by anything at runtime: the
     deserializer dispatches on the field *name* and rebuilds whatever the
     payload's own ``type`` tag says it is. So a payload can put a ``Paragraph``
-    in a ``TableRow.cells`` list, or a bare string in ``Date.parts``, and the
+    among a ``TableRow``'s cells, and the
     result type-checks at the dataclass level while breaking every consumer
     that reads the field — the backend writes the wrong cells for it, or none.
 
@@ -129,7 +132,7 @@ def typed_child[NodeT](
     assembling a tree by hand can hand over the node rather than its dict form.
 
     ``label`` names the field in the error the way its own side names things
-    (``"Table.rows"``, ``"inline field 'parts'"``) and ``kind`` is the word for
+    (``"Table.blocks"``) and ``kind`` is the word for
     what the offending payload claimed to be (``"block"`` / ``"node"``), so one
     implementation still produces each side's diagnostic.
     """
@@ -141,6 +144,69 @@ def typed_child[NodeT](
             f"{type(child).__name__} ({kind} type {tag!r})"
         )
     return child
+
+
+# ---------------------------------------------------------------------------
+# Domain trees (MathML / MusicXML / SVG)
+# ---------------------------------------------------------------------------
+
+
+def serialize_xml_tree(elem: _ET.Element) -> str:
+    """A domain tree as the string that rides the JSON.
+
+    MathML, MusicXML and SVG *are* the IR for their domains — there is no
+    dataclass model of a formula or a score — so the field holding one is an
+    :class:`ET.Element`, and the payload carries it as XML text.
+    """
+    return _ET.tostring(elem, encoding="unicode")
+
+
+def deserialize_xml_tree(
+    value: _Any, *, label: str, fmt: str
+) -> _ET.Element | None:
+    """Rebuild a domain tree field: ``None``, an XML string, or an Element.
+
+    **Either way** the stored tree is namespace-stripped — both shapes, not
+    just the string one: the backends dispatch on bare local names, so a
+    ``{http://www.w3.org/1998/Math/MathML}mi`` matches nothing and degrades to
+    a blank cell plus a misleading "unsupported element" warning. Strip one
+    shape only and the *same* namespaced XML compiles to braille through one
+    argument type and to nothing through the other.
+
+    The Element is normalised in place and returned, not copied. This branch
+    exists to skip a serialize / re-parse round trip for a caller that already
+    holds the tree, and deep-copying a full score's tree would hand most of
+    that cost back; the field aliases the caller's Element either way, so a
+    copy would not be buying isolation it does not already lack. Stripping is
+    idempotent, so an already-bare tree — what every in-tree frontend produces
+    — is walked once and left alone.
+
+    A wrong type — or a string that isn't well-formed XML (``ET.ParseError``
+    is re-raised as :class:`ValueError`) — fails loudly at the IR boundary
+    instead of silently storing junk. ``label`` names the field
+    (``"MathBlock.tree"``) and ``fmt`` the format (``"MathML"``) so each
+    domain's diagnostic reads as its own.
+
+    Shared by the block and inline sides because the *mechanics* are identical
+    across all four fields that hold one — the same reason everything else in
+    this module is here. Only the two words in the message differ.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            parsed = safe_fromstring(value)
+        except _ET.ParseError as e:
+            raise ValueError(f"{label} is not well-formed {fmt}: {e}") from e
+        strip_namespace(parsed)
+        return parsed
+    if isinstance(value, _ET.Element):
+        strip_namespace(value)
+        return value
+    raise ValueError(
+        f"{label} must be None, a {fmt} string, or an ET.Element; "
+        f"got {type(value).__name__}"
+    )
 
 
 # ---------------------------------------------------------------------------

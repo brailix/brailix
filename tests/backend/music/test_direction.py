@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from brailix.backend.music import MusicBrailleContext, _emit_tree
+from brailix.backend.music import MusicBrailleContext, translate_tree
 from brailix.backend.music.dispatch import _emit_element
 from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
@@ -72,14 +72,14 @@ class TestDynamicsSymbol:
     )
     def test_known_symbols(self, profile, ctx, tag, expected_dots):
         direction = _wrap_direction(f"<dynamics><{tag}/></dynamics>")
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         assert _dots(cells) == expected_dots
         assert all(c.role == "music_dynamic" for c in cells)
 
     def test_multiple_symbols_in_one_block(self, profile, ctx):
         # <dynamics><p/><f/></dynamics> rare but legal — both emit.
         direction = _wrap_direction("<dynamics><p/><f/></dynamics>")
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         # >p + >f
         assert _dots(cells) == [
             (3, 4, 5), (1, 2, 3, 4),
@@ -91,7 +91,7 @@ class TestDynamicsSymbol:
         # synthesized form ``>sfz`` = (3,4,5)(2,3,4)(1,2,4)(1,3,5,6)
         # gives a valid BANA word-form dynamic per Par. 22.3.
         direction = _wrap_direction("<dynamics><sfz/></dynamics>")
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         assert _dots(cells) == [(3, 4, 5), (2, 3, 4), (1, 2, 4), (1, 3, 5, 6)]
         assert all(c.role == "music_dynamic" for c in cells)
         # No warning — synthesis is a valid path, not a fallback.
@@ -102,7 +102,7 @@ class TestDynamicsSymbol:
         direction = _wrap_direction(
             "<dynamics><other-dynamics>fp</other-dynamics></dynamics>"
         )
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         # >fp = (3,4,5)(1,2,4)(1,2,3,4)
         assert _dots(cells) == [(3, 4, 5), (1, 2, 4), (1, 2, 3, 4)]
 
@@ -113,7 +113,7 @@ class TestDynamicsSymbol:
             False,
         )
         direction = _wrap_direction("<dynamics><f/></dynamics>")
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         assert cells == []
 
     def test_unsupported_form_warns_but_falls_back(
@@ -125,7 +125,7 @@ class TestDynamicsSymbol:
             "full",
         )
         direction = _wrap_direction("<dynamics><p/></dynamics>")
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         # Falls back to abbreviated form
         assert _dots(cells) == [(3, 4, 5), (1, 2, 3, 4)]
         codes = [w.code for w in ctx.warnings.warnings]
@@ -144,21 +144,21 @@ class TestWords:
     )
     def test_cresc_variants(self, profile, ctx, text):
         direction = _wrap_direction(f"<words>{text.strip()}</words>")
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         # dynamic_cresc = ">cr'" = (3,4,5)(1,4)(1,2,3,5)(3,)
         assert _dots(cells) == [(3, 4, 5), (1, 4), (1, 2, 3, 5), (3,)]
         assert all(c.role == "music_word" for c in cells)
 
     def test_decresc(self, profile, ctx):
         direction = _wrap_direction("<words>decresc.</words>")
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         # dynamic_decresc = ">decr'" = (3,4,5)(1,4,5)(1,5)(1,4)(1,2,3,5)(3,)
         assert _dots(cells)[0] == (3, 4, 5)  # word sign
         assert cells[-1].dots == (3,)         # abbreviation period
 
     def test_dimin(self, profile, ctx):
         direction = _wrap_direction("<words>dim.</words>")
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         # dynamic_dimin = ">dim'"
         assert cells[0].role == "music_word"
         assert cells[-1].dots == (3,)
@@ -168,7 +168,7 @@ class TestWords:
         # form). No leading period because the source text doesn't end
         # with one.
         direction = _wrap_direction("<words>Allegro</words>")
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         # >allegro = > + a + l + l + e + g + r + o
         assert _dots(cells)[0] == (3, 4, 5)            # >
         assert _dots(cells)[1] == (1,)                 # a
@@ -180,7 +180,7 @@ class TestWords:
 
     def test_single_word_ending_period_adds_period_cell(self, profile, ctx):
         direction = _wrap_direction("<words>poco.</words>")
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         # Last cell should be ``'`` = (3,) abbreviation period
         assert _dots(cells)[-1] == (3,)
 
@@ -188,7 +188,7 @@ class TestWords:
         # "poco a poco" — multi-word; with no inline_text_translator
         # wired (the bare test ctx), it defers with a warning.
         direction = _wrap_direction("<words>poco a poco</words>")
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         assert cells == []
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
@@ -204,7 +204,7 @@ class TestWords:
             options={"inline_text_translator": lambda _t: [marker]},
         )
         direction = _wrap_direction("<words>poco a poco</words>")
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         # Translator output is spliced into the stream; no deferred warning.
         assert cells == [marker]
         assert not ctx.warnings.warnings
@@ -238,7 +238,7 @@ class TestWords:
 
     def test_empty_words_silently_skipped(self, profile, ctx):
         direction = _wrap_direction("<words></words>")
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         assert cells == []
         # No warning for vendor's empty <words/> bookkeeping.
         assert ctx.warnings.warnings == []
@@ -250,7 +250,7 @@ class TestWords:
             False,
         )
         direction = _wrap_direction("<words>cresc.</words>")
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         assert cells == []
 
 
@@ -262,14 +262,14 @@ class TestWords:
 class TestWedge:
     def test_crescendo_opens_with_diverging_hairpin(self, profile, ctx):
         direction = _wrap_direction('<wedge type="crescendo"/>')
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         # diverging_hairpin = ">c" = (3,4,5)(1,4)
         assert _dots(cells) == [(3, 4, 5), (1, 4)]
         assert all(c.role == "music_hairpin" for c in cells)
 
     def test_diminuendo_opens_with_converging_hairpin(self, profile, ctx):
         direction = _wrap_direction('<wedge type="diminuendo"/>')
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         # converging_hairpin = ">d" = (3,4,5)(1,4,5)
         assert _dots(cells) == [(3, 4, 5), (1, 4, 5)]
 
@@ -309,7 +309,7 @@ class TestWedge:
         # No prior opening — stop is a no-op (suggests upstream XML
         # inconsistency, not the score's intent; we don't warn).
         direction = _wrap_direction('<wedge type="stop"/>')
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         assert cells == []
         assert ctx.warnings.warnings == []
 
@@ -346,7 +346,7 @@ class TestWedge:
 
     def test_unknown_type_warns(self, profile, ctx):
         direction = _wrap_direction('<wedge type="zigzag"/>')
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         assert cells == []
         codes = [w.code for w in ctx.warnings.warnings]
         assert "MUSIC_UNSUPPORTED_NOTATION" in codes
@@ -359,7 +359,7 @@ class TestWedge:
             False,
         )
         direction = _wrap_direction('<wedge type="crescendo"/>')
-        cells = _emit_tree(direction, ctx, profile)
+        cells = translate_tree(direction, ctx, profile)
         assert cells == []
 
     def test_pending_hairpin_clears_after_stop(self, profile, ctx):

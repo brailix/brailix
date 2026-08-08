@@ -46,7 +46,7 @@ def _run_frontend(
         profile="cn_current", options=pipe._frontend.frontend_options()
     )
     pipe._frontend.populate_block(block, ctx)
-    return block.children, ctx.warnings
+    return block.inlines, ctx.warnings
 
 
 # ---------------------------------------------------------------------------

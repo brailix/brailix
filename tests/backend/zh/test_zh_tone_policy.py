@@ -388,7 +388,7 @@ class TestEndToEnd:
         from brailix.backend.block import translate_document
         from brailix.ir.document import DocumentIR, Paragraph
         from brailix.ir.inline import Word
-        doc = DocumentIR(blocks=[Paragraph(children=[
+        doc = DocumentIR(blocks=[Paragraph(inlines=[
             Word(surface="慈", reading="ci2"),
             Word(surface="爱", reading="ai4"),
         ])])
@@ -408,7 +408,7 @@ class TestEndToEnd:
         from brailix.backend.block import translate_document
         from brailix.ir.document import DocumentIR, Paragraph
         from brailix.ir.inline import Space, Word
-        doc = DocumentIR(blocks=[Paragraph(children=[
+        doc = DocumentIR(blocks=[Paragraph(inlines=[
             Word(surface="慈", reading="ci2"),
             Space(),
             Word(surface="爱", reading="ai4"),
@@ -429,7 +429,7 @@ class TestEndToEnd:
         from brailix.backend.block import translate_document
         from brailix.ir.document import DocumentIR, Paragraph
         from brailix.ir.inline import Word
-        doc = DocumentIR(blocks=[Paragraph(children=[
+        doc = DocumentIR(blocks=[Paragraph(inlines=[
             Word(surface="慈", reading="ci2"),
             Word(surface="北", reading="bei3"),
         ])])

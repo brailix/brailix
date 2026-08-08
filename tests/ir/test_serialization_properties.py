@@ -1,6 +1,6 @@
 """Property-based tests for IR serialization round-trips.
 
-Documents survive as JSON (.blx payloads, caches, proofread exports), so
+Documents survive as JSON (stored projects, caches, proofread exports), so
 the one contract everything downstream leans on is: **serialization is a
 lossless, stable, JSON-native bijection** over the IR's value space —
 
@@ -60,12 +60,10 @@ from brailix.ir.inline import (
     CodeInline,
     Connector,
     Date,
-    GraphicInline,
-    HanziMarker,
+    DateComponent,
     InlineNode,
     LatinWord,
     MathInline,
-    MusicInline,
     Number,
     PhoneticInline,
     Punct,
@@ -116,9 +114,9 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
     kind = draw(
         st.sampled_from(
             [
-                "word", "word", "number", "hanzi_marker", "punct",
+                "word", "word", "number", "punct",
                 "latin_word", "latin_word", "code_inline", "phonetic_inline",
-                "space", "connector", "unknown", "math", "music", "graphic",
+                "space", "connector", "unknown", "math",
             ]
         )
     )
@@ -128,8 +126,6 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
         return Word(surface=surface, span=span, reading=draw(_opt_short))
     if kind == "number":
         return Number(surface=surface, span=span)
-    if kind == "hanzi_marker":
-        return HanziMarker(surface=surface, span=span, reading=draw(_opt_short))
     if kind == "punct":
         return Punct(surface=surface, span=span)
     if kind == "latin_word":
@@ -144,25 +140,22 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
         return Connector(surface=surface, span=span)
     if kind == "unknown":
         return Unknown(surface=surface, span=span, reason=draw(_opt_short))
-    if kind == "math":
-        return MathInline(
-            surface=surface,
-            span=span,
-            source=draw(st.sampled_from(["latex", "mathml", "plain"])),
-            math=draw(st.one_of(st.none(), _trees("math"))),
-        )
-    if kind == "music":
-        return MusicInline(
-            surface=surface,
-            span=span,
-            source=draw(st.sampled_from(["musicxml", "mxl", "midi", "abc", "plain"])),
-            score=draw(st.one_of(st.none(), _trees("score-partwise"))),
-        )
-    return GraphicInline(
+    return MathInline(
         surface=surface,
         span=span,
-        source=draw(st.sampled_from(["svg", "primitives", "figure", "image"])),
-        svg=draw(st.one_of(st.none(), _trees("svg"))),
+        source=draw(st.sampled_from(["latex", "mathml", "plain"])),
+        tree=draw(st.one_of(st.none(), _trees("math"))),
+    )
+
+
+@st.composite
+def _date_components(draw: st.DrawFn) -> DateComponent:
+    return DateComponent(
+        digits=draw(st.text(alphabet="0123456789", max_size=4)),
+        digits_span=draw(_spans()),
+        marker=draw(st.one_of(st.none(), st.sampled_from(["年", "月", "日"]))),
+        marker_span=draw(_spans()),
+        reading=draw(_opt_short),
     )
 
 
@@ -174,7 +167,7 @@ def inline_nodes(draw: st.DrawFn) -> InlineNode:
     return Date(
         surface=draw(_surfaces),
         span=draw(_spans()),
-        parts=draw(st.lists(_leaf_inline_nodes(), max_size=3)),
+        components=draw(st.lists(_date_components(), max_size=3)),
     )
 
 
@@ -197,7 +190,7 @@ def _leaf_blocks(draw: st.DrawFn) -> Block:
         "text": draw(st.one_of(st.none(), _surfaces)),
         "span": draw(_spans()),
         "align": draw(st.sampled_from([None, "center", "right"])),
-        "children": draw(st.lists(inline_nodes(), max_size=2)),
+        "inlines": draw(st.lists(inline_nodes(), max_size=2)),
     }
     if kind == "heading":
         return Heading(level=draw(st.integers(1, 6)), **common)
@@ -214,14 +207,30 @@ def _leaf_blocks(draw: st.DrawFn) -> Block:
     if kind == "code_block":
         return CodeBlock(language=draw(_opt_short), **common)
     if kind == "math_block":
-        return MathBlock(source=draw(st.sampled_from(["latex", "mathml", "plain"])), **common)
+        return MathBlock(
+            source=draw(st.sampled_from(["latex", "mathml", "plain"])),
+            tree=draw(st.one_of(st.none(), _trees("math"))),
+            **common,
+        )
     if kind == "score":
-        return ScoreBlock(source=draw(st.sampled_from(["musicxml", "jianpu", "plain"])), **common)
+        return ScoreBlock(
+            source=draw(st.sampled_from(["musicxml", "jianpu", "plain"])),
+            tree=draw(st.one_of(st.none(), _trees("score-partwise"))),
+            **common,
+        )
     if kind == "music_block":
-        return MusicBlock(source=draw(st.sampled_from(["musicxml", "plain"])), **common)
+        return MusicBlock(
+            source=draw(st.sampled_from(["musicxml", "plain"])),
+            tree=draw(st.one_of(st.none(), _trees("score-partwise"))),
+            **common,
+        )
     if kind == "image_alt":
         return ImageAlt(target=draw(st.one_of(st.none(), st.just("media/image1.png"))), **common)
-    return GraphicBlock(source=draw(st.sampled_from(["svg", "image"])), **common)
+    return GraphicBlock(
+        source=draw(st.sampled_from(["svg", "image"])),
+        tree=draw(st.one_of(st.none(), _trees("svg"))),
+        **common,
+    )
 
 
 @st.composite
@@ -232,7 +241,7 @@ def blocks(draw: st.DrawFn) -> Block:
     if kind == "list":
         return List(
             ordered=draw(st.booleans()),
-            items=draw(
+            blocks=draw(
                 st.lists(
                     _leaf_blocks().filter(lambda b: isinstance(b, ListItem)),
                     max_size=3,
@@ -240,11 +249,11 @@ def blocks(draw: st.DrawFn) -> Block:
             ),
         )
     return Table(
-        rows=draw(
+        blocks=draw(
             st.lists(
                 st.builds(
                     TableRow,
-                    cells=st.lists(
+                    blocks=st.lists(
                         _leaf_blocks().filter(lambda b: isinstance(b, TableCell)),
                         max_size=2,
                     ),

@@ -172,7 +172,7 @@ def _leaves(blocks: Iterable[Block]) -> Iterator[Block]:
     """
     for b in blocks:
         if isinstance(b, ListBlock):
-            yield from b.items
+            yield from b.blocks
         else:
             yield b
 
@@ -285,23 +285,26 @@ class TestSourceSpanAccuracy:
 
 
 class TestSpecialBlockLeafLocalSpans:
-    """A math / code / music / graphic block populates ONE carrier inline
-    node, and that node's span — like every inline span — is leaf-local.
+    """A math / code / music / graphic block's cells carry **leaf-local**
+    spans — offsets into the block's own ``text`` — like every coordinate
+    below the block boundary.
 
-    This is the coordinate confusion the class exists to pin. The four
-    populate handlers used to hand their carrier the block's *document*
-    span, which is the value they also need for other purposes, and every
-    single-block test agreed with them because a document's first block
-    starts at 0. From the second block on, a consumer following the
-    documented contract (add ``block.span.start`` to a leaf-local offset)
-    landed at twice the offset.
+    This is the coordinate confusion the class exists to pin. The populate
+    handlers used to hand the block's *document* span down, which is the value
+    they also need for other purposes, and every single-block test agreed with
+    them because a document's first block starts at 0. From the second block
+    on, a consumer following the documented contract (add ``block.span.start``
+    to a leaf-local offset) landed at twice the offset.
+
+    A code block still populates one carrier inline node — verbatim text
+    genuinely is a run of characters the punct path walks. Math, music and
+    graphics no longer have one: the parsed tree lives on the block, and the
+    leaf-local extent is what the backend hands its translator.
     """
 
     @staticmethod
-    def _carrier_and_cells(pipe: Pipeline, block: Block):
-        cb = pipe.translate_block(block)
-        assert len(block.children) == 1
-        return block.children[0], list(cb.braille_blocks[0].cells)
+    def _cells(pipe: Pipeline, block: Block):
+        return list(pipe.translate_block(block).braille_blocks[0].cells)
 
     @pytest.mark.parametrize("offset", [0, 100])
     def test_code_block_carrier_is_leaf_local(
@@ -311,11 +314,12 @@ class TestSpecialBlockLeafLocalSpans:
         blk = CodeBlock(
             language="python", text=text, span=Span(offset, offset + len(text))
         )
-        carrier, cells = self._carrier_and_cells(pipe, blk)
-        assert carrier.span == Span(0, len(text))
+        cb = pipe.translate_block(blk)
+        assert len(blk.inlines) == 1
+        assert blk.inlines[0].span == Span(0, len(text))
         # The punct path walks the carrier span one character at a time, so
         # the document offset would have shown up on every cell.
-        assert [c.source_span for c in cells] == [
+        assert [c.source_span for c in cb.braille_blocks[0].cells] == [
             Span(i, i + 1) for i in range(len(text))
         ]
 
@@ -328,8 +332,7 @@ class TestSpecialBlockLeafLocalSpans:
         blk = MathBlock(
             source="latex", text=text, span=Span(offset, offset + len(text))
         )
-        carrier, cells = self._carrier_and_cells(pipe, blk)
-        assert carrier.span == Span(0, len(text))
+        cells = self._cells(pipe, blk)
         assert cells
         for cell in cells:
             assert cell.source_span is not None
@@ -347,8 +350,9 @@ class TestSpecialBlockLeafLocalSpans:
         blk = MusicBlock(
             source="musicxml", text=text, span=Span(offset, offset + len(text))
         )
-        carrier, _cells = self._carrier_and_cells(pipe, blk)
-        assert carrier.span == Span(0, len(text))
+        for cell in self._cells(pipe, blk):
+            if cell.source_span is not None:
+                assert cell.source_span.end <= len(text)
 
     @pytest.mark.parametrize("offset", [0, 100])
     def test_graphic_block_carrier_is_leaf_local(
@@ -358,9 +362,12 @@ class TestSpecialBlockLeafLocalSpans:
         blk = GraphicBlock(
             source="svg", text=text, span=Span(offset, offset + len(text))
         )
-        pipe.translate_block(blk)
-        assert len(blk.children) == 1
-        assert blk.children[0].span == Span(0, len(text))
+        # A figure emits no cells at all — its dots ride on the raster — so
+        # what there is to pin is that the block still holds its place and
+        # leaks no document coordinate into the flow.
+        cb = pipe.translate_block(blk)
+        assert cb.braille_blocks[0].cells == []
+        assert cb.raster is not None
 
     def test_markdown_document_second_fence_is_not_double_offset(
         self, pipe: Pipeline

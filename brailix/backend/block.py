@@ -16,15 +16,16 @@ The contract: :func:`expand_block` always returns ``list[BrailleBlock]``.
 Simple blocks (paragraph / heading / quote / code_block / math_block /
 footnote / image_alt) return a one-element list. Composite blocks
 (List, Table) return multiple elements. The renderer / layout pass
-sees the expanded form and never has to look inside ``children``
+sees the expanded form and never has to look inside a block
 again.
 
 This module is **purely backend** — it never reaches back into the
-Frontend. MathBlock and CodeBlock children are pre-populated by
-:meth:`brailix.pipeline.frontend_driver.FrontendDriver.populate_block` (MathBlock children
-become :class:`MathInline` nodes with parsed MathML; CodeBlock
-children become :class:`CodeInline`). expand_block then dispatches
-them like any other inline children.
+Frontend. What a block carries by the time it arrives is
+:meth:`brailix.pipeline.frontend_driver.FrontendDriver.populate_block`'s doing:
+a code block's verbatim text as one :class:`CodeInline`, an embedded block's
+parsed domain tree on the block itself. :func:`expand_block` dispatches
+inline nodes through :func:`~brailix.backend.dispatch.translate_node` and a domain
+tree through :func:`~brailix.backend.dispatch.translate_embedded`.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from __future__ import annotations
 from dataclasses import replace as _replace
 
 from brailix.backend import number as number_backend
-from brailix.backend.dispatch import translate_node
+from brailix.backend.dispatch import translate_embedded, translate_node
 from brailix.backend.latin import english_run_role
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
@@ -46,8 +47,8 @@ from brailix.ir.braille import (
 from brailix.ir.document import (
     Block,
     DocumentIR,
+    EmbeddedBlock,
     Footnote,
-    GraphicBlock,
     ImageAlt,
     List,
     Table,
@@ -94,16 +95,18 @@ def expand_block(
         return _expand_list(block, ctx, profile)
     if isinstance(block, Table):
         return _expand_table(block, ctx, profile)
-    if isinstance(block, GraphicBlock):
-        # A tactile figure carries no braille cells — it rasterises to a
-        # TactileRaster, attached to the CompiledBlock by
-        # Pipeline.translate_block.
-        # Emit an empty "graphic" block so the figure holds its place in the
-        # flow WITHOUT translating its GraphicInline child, which has no
-        # braille cells and would otherwise warn UNHANDLED_NODE_TYPE.
+    if isinstance(block, EmbeddedBlock):
+        # Math, music and graphics: the content is the parsed tree, not
+        # inlines, so the tree goes to its domain's translator rather than
+        # through the inline dispatcher. (A figure's translator returns no
+        # cells at all — its dots ride on the raster attached to the compiled
+        # block; see ``dispatch._no_cells``.)
         return [
             BrailleBlock(
-                block_type=block.type, id=block.id, align=block.align
+                block_type=block.type,
+                id=block.id,
+                align=block.align,
+                cells=translate_embedded(block, ctx, profile),
             )
         ]
     if isinstance(block, ImageAlt):
@@ -128,13 +131,13 @@ def expand_block(
         )
     # All other block kinds (Paragraph, Heading, Quote, MathBlock,
     # CodeBlock, Footnote, ImageAlt) flow through the simple path —
-    # translate inline children and stamp the block type. Pipeline
-    # is responsible for populating children before we get here.
+    # translate the block's inline nodes and stamp the block type.
+    # Pipeline is responsible for populating them before we get here.
     # Footnote optionally gets a reference marker prepended.
     cells: list[BrailleCell] = []
     if isinstance(block, Footnote) and block.ref:
         cells.extend(_footnote_ref_cells(block.ref, profile))
-    cells.extend(_translate_children(block.children, ctx, profile))
+    cells.extend(_translate_inlines(block.inlines, ctx, profile))
     return [
         BrailleBlock(
             block_type=block.type,
@@ -151,12 +154,12 @@ def expand_block(
 # ---------------------------------------------------------------------------
 
 
-def _translate_children(
+def _translate_inlines(
     children: list[InlineNode],
     ctx: BackendContext,
     profile: BrailleProfile,
 ) -> list[BrailleCell]:
-    """Run the inline dispatcher over each child and concatenate.
+    """Run the inline dispatcher over each node and concatenate.
 
     Each dispatch sees the immediately-following sibling stashed under
     ``ctx.options['_next_inline_sibling']`` so backends can peek
@@ -351,10 +354,10 @@ def _expand_list(
 ) -> list[BrailleBlock]:
     """One :class:`BrailleBlock` per :class:`ListItem`, marker prepended."""
     blocks: list[BrailleBlock] = []
-    for i, item in enumerate(block.items, start=1):
+    for i, item in enumerate(block.blocks, start=1):
         cells: list[BrailleCell] = []
         cells.extend(_list_marker_cells(i, block.ordered, ctx, profile))
-        cells.extend(_translate_children(item.children, ctx, profile))
+        cells.extend(_translate_inlines(item.inlines, ctx, profile))
         blocks.append(
             BrailleBlock(
                 block_type="list_item",
@@ -460,9 +463,9 @@ def _expand_table(
     requires inspecting all rows; V1 accepts the ragged-right look.
     """
     blocks: list[BrailleBlock] = []
-    for row in block.rows:
+    for row in block.blocks:
         cells: list[BrailleCell] = []
-        for j, table_cell in enumerate(row.cells):
+        for j, table_cell in enumerate(row.blocks):
             if j > 0:
                 # Column separator: trace to the column's leading edge.
                 edge = (
@@ -472,7 +475,7 @@ def _expand_table(
                 )
                 cells.append(blank_cell(edge))
                 cells.append(blank_cell(edge))
-            cells.extend(_translate_children(table_cell.children, ctx, profile))
+            cells.extend(_translate_inlines(table_cell.inlines, ctx, profile))
         blocks.append(
             BrailleBlock(
                 block_type="table_row",

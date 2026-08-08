@@ -36,18 +36,18 @@ from brailix.core import inline_math
 from brailix.core.context import FrontendContext
 from brailix.core.protocols import Normalizer
 from brailix.core.registry import Registry
+from brailix.core.segment import Segment
 from brailix.core.span import Span
 from brailix.frontend._language_pick import pick_by_language
 from brailix.ir.inline import (
     Date,
-    HanziMarker,
+    DateComponent,
     InlineNode,
     LatinWord,
     MathInline,
     Number,
     PhoneticInline,
     Punct,
-    Segment,
     Space,
     Unknown,
 )
@@ -144,14 +144,21 @@ _MARKER_PINYIN: dict[str, str] = {
 }
 
 
-def _marker(char: str, span: Span | None) -> HanziMarker:
-    """Build a HanziMarker pre-annotated with its canonical reading.
+def _component(digits: Segment, marker_seg: Segment, marker: str) -> DateComponent:
+    """One ``<digits><marker>`` date unit, marker pre-annotated with its
+    canonical reading.
 
-    ``span`` is widened to ``Span | None`` to match the source segment's
-    own optional span; :class:`HanziMarker` already permits a missing
-    span at the dataclass level, so no extra handling is needed here.
+    Both spans stay ``Span | None`` to match the source segments' own optional
+    spans; :class:`DateComponent` permits a missing one at the dataclass level,
+    so no extra handling is needed here.
     """
-    return HanziMarker(surface=char, span=span, reading=_MARKER_PINYIN.get(char))
+    return DateComponent(
+        digits=digits.surface,
+        digits_span=digits.span,
+        marker=marker,
+        marker_span=marker_seg.span,
+        reading=_MARKER_PINYIN.get(marker),
+    )
 
 
 def _span_range(
@@ -182,38 +189,28 @@ def _try_date(segs: list[Segment], i: int) -> tuple[Date, int] | None:
     if not _peel_marker_if_starts_with(segs, i + 1, "年"):
         return None
 
-    parts: list[InlineNode] = [
-        Number(surface=segs[i].surface, span=segs[i].span),
-        _marker("年", segs[i + 1].span),
-    ]
+    components = [_component(segs[i], segs[i + 1], "年")]
     end_idx = i + 2
     end_span = segs[i + 1].span
 
-    # Optional month
-    if (
-        end_idx + 1 < len(segs)
-        and segs[end_idx].type == "digit_run"
-        and _peel_marker_if_starts_with(segs, end_idx + 1, "月")
-    ):
-        parts.append(Number(surface=segs[end_idx].surface, span=segs[end_idx].span))
-        parts.append(_marker("月", segs[end_idx + 1].span))
+    # Optional month, then optional day — same shape, so one loop rather than
+    # two copies of it. Each is tried on its own (``continue``, not ``break``):
+    # a month that does not match must not stop the day from being read, or
+    # ``2026年17日`` would lose its day.
+    for marker in ("月", "日"):
+        if not (
+            end_idx + 1 < len(segs)
+            and segs[end_idx].type == "digit_run"
+            and _peel_marker_if_starts_with(segs, end_idx + 1, marker)
+        ):
+            continue
+        components.append(_component(segs[end_idx], segs[end_idx + 1], marker))
         end_span = segs[end_idx + 1].span
         end_idx += 2
 
-    # Optional day
-    if (
-        end_idx + 1 < len(segs)
-        and segs[end_idx].type == "digit_run"
-        and _peel_marker_if_starts_with(segs, end_idx + 1, "日")
-    ):
-        parts.append(Number(surface=segs[end_idx].surface, span=segs[end_idx].span))
-        parts.append(_marker("日", segs[end_idx + 1].span))
-        end_span = segs[end_idx + 1].span
-        end_idx += 2
-
-    surface = "".join(p.surface for p in parts)
+    surface = "".join(c.surface for c in components)
     span = _span_range(segs[i].span, end_span)
-    return Date(surface=surface, span=span, parts=parts), end_idx
+    return Date(surface=surface, span=span, components=components), end_idx
 
 
 def _try_dash(segs: list[Segment], i: int) -> tuple[Punct, int] | None:
@@ -289,7 +286,7 @@ def _try_atomic(seg: Segment) -> InlineNode | None:
         # Single half-width math operator (`(`, `)`, `+`, `=`, ...) in
         # prose. Build the trivial MathML tree directly so the math
         # frontend's parser is never invoked — FrontendDriver.attach_math
-        # short-circuits when ``MathInline.math`` is already filled.
+        # short-circuits when ``MathInline.tree`` is already filled.
         # Bare tags only (no ``xmlns`` attribute): the backend dispatches
         # on local names, and the IR round-trip (ET.tostring -> fromstring)
         # must stay namespace-free or the reparse Clark-notates every tag
@@ -299,7 +296,7 @@ def _try_atomic(seg: Segment) -> InlineNode | None:
         mo = _ET.SubElement(math, "mo")
         mo.text = _MATH_OP_CANONICAL.get(seg.surface, seg.surface)
         return MathInline(
-            surface=seg.surface, span=seg.span, source="mathml", math=math
+            surface=seg.surface, span=seg.span, source="mathml", tree=math
         )
     if seg.type in ("latin_text", "greek_text"):
         # Greek runs flow through the Latin IR path: the backend's

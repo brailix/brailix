@@ -137,7 +137,7 @@ class TestMathInlineEdges:
     def test_math_none_emits_warning_and_unknown_surface(self, profile):
         wc = WarningCollector(mode=RunMode.NORMAL)
         ctx = BackendContext(profile="cn_current", warnings=wc)
-        node = MathInline(surface="x^2", span=Span(0, 3), math=None)
+        node = MathInline(surface="x^2", span=Span(0, 3), tree=None)
         cells = translate(node, ctx, profile)
         assert all(c.role == "unknown" for c in cells)
         assert len(cells) == 3
@@ -152,16 +152,16 @@ class TestMathInlineEdges:
         from brailix.ir.inline import from_dict as inline_from_dict
 
         tree = ET.fromstring("<math><mfrac><mn>1</mn><mn>2</mn></mfrac></math>")
-        node = MathInline(surface="1/2", source="latex", math=tree)
+        node = MathInline(surface="1/2", source="latex", tree=tree)
         payload = node.to_dict()
         # The serialised form holds MathML as a string.
-        assert isinstance(payload["math"], str)
+        assert isinstance(payload["tree"], str)
         restored = inline_from_dict(payload)
-        assert isinstance(restored.math, ET.Element)
-        assert restored.math.tag == "math"
+        assert isinstance(restored.tree, ET.Element)
+        assert restored.tree.tag == "math"
         # Both sides emit the same braille.
         original_cells, _ = emit(tree, profile)
-        restored_cells, _ = emit(restored.math, profile)
+        restored_cells, _ = emit(restored.tree, profile)
         assert [c.dots for c in original_cells] == [c.dots for c in restored_cells]
 
 

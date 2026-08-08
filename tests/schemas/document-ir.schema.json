@@ -18,33 +18,38 @@
       "properties": {
         "type": {
           "enum": [
-            "word", "number", "hanzi_marker", "date", "punct", "latin_word",
-            "code_inline", "phonetic_inline", "math_inline", "music_inline",
-            "graphic_inline", "space", "connector", "unknown"
+            "word", "number", "date", "punct", "latin_word",
+            "code_inline", "phonetic_inline", "math_inline",
+            "space", "connector", "unknown"
           ]
         },
         "surface": { "type": "string" },
         "span": { "$ref": "#/definitions/span" },
         "reading": { "type": "string" },
         "reason": { "type": "string" },
-        "parts": {
+        "components": {
           "type": "array",
-          "items": { "$ref": "#/definitions/inline_node" }
+          "items": { "$ref": "#/definitions/date_component" }
         },
-        "number": { "$ref": "#/definitions/inline_node" },
-        "unit": { "type": "string" },
         "source": { "type": "string" },
-        "math": {
+        "tree": {
           "type": "string",
-          "description": "Serialized MathML — ET trees ride the JSON as XML strings."
-        },
-        "score": {
+          "description": "Serialized MathML — ET trees ride the JSON as XML strings. Spelled the same as a block's tree field, because it is the same thing. The one inline node that carries one; music and graphics reach the backend as blocks, which carry their own."
+        }
+      }
+    },
+    "date_component": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One <digits><marker> unit of a date (2026年 / 5月). A value object the date holds, not an inline node — no type tag, no registry entry.",
+      "properties": {
+        "digits": { "type": "string" },
+        "digits_span": { "$ref": "#/definitions/span" },
+        "marker": { "type": "string" },
+        "marker_span": { "$ref": "#/definitions/span" },
+        "reading": {
           "type": "string",
-          "description": "Serialized MusicXML."
-        },
-        "svg": {
-          "type": "string",
-          "description": "Serialized SVG."
+          "description": "The marker's reading (年 → nián); the digits have none."
         }
       }
     },
@@ -64,28 +69,26 @@
         "text": { "type": "string" },
         "span": { "$ref": "#/definitions/span" },
         "align": { "type": "string" },
-        "children": {
+        "inlines": {
           "type": "array",
-          "items": { "$ref": "#/definitions/inline_node" }
+          "items": { "$ref": "#/definitions/inline_node" },
+          "description": "The typed tokens a leaf block's text became."
+        },
+        "blocks": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/block" },
+          "description": "Nested blocks — a list's items, a table's rows, a row's cells. Which block class the entries must be is the owning class's own child_type declaration, enforced in both directions by the loader rather than restated here."
         },
         "level": { "type": "integer" },
         "ordered": { "type": "boolean" },
-        "items": {
-          "type": "array",
-          "items": { "$ref": "#/definitions/block" }
-        },
-        "rows": {
-          "type": "array",
-          "items": { "$ref": "#/definitions/block" }
-        },
-        "cells": {
-          "type": "array",
-          "items": { "$ref": "#/definitions/block" }
-        },
         "ref": { "type": "string" },
         "language": { "type": "string" },
         "source": { "type": "string" },
-        "target": { "type": "string" }
+        "target": { "type": "string" },
+        "tree": {
+          "type": "string",
+          "description": "Serialized domain tree — MathML for math_block, MusicXML for score / music_block, SVG for graphic. ET trees ride the JSON as XML strings."
+        }
       }
     },
     "document": {
@@ -94,7 +97,7 @@
       "additionalProperties": false,
       "properties": {
         "version": {
-          "enum": ["1.0"],
+          "enum": ["2.0"],
           "description": "Serialization format version. Enumerates exactly what DocumentIR.from_dict loads (brailix.ir.document._SUPPORTED_IR_VERSIONS — a test compares the two sets), so a payload this schema accepts is a payload the loader accepts. A future version joins both together with its migration."
         },
         "type": { "const": "document" },

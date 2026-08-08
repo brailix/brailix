@@ -274,16 +274,16 @@ class TactilePageResult:
 # ``tests/integration/test_translate_block.py``.
 #
 # The contract reaches the CALLER, not just the backend, because the same
-# object is also reachable through the public IR: a cache hit lands it on
-# ``MathInline.math`` / ``MusicInline.score`` / ``GraphicInline.svg`` of the
-# returned :attr:`CompiledBlock.ir`, and :meth:`Pipeline.translate_block`'s
+# object is also reachable through the public IR: a cache hit lands it on the
+# ``tree`` of the returned :attr:`CompiledBlock.ir` (or on an inline formula's
+# ``MathInline.tree``), and :meth:`Pipeline.translate_block`'s
 # ``ir_transformer`` hook runs with the tree already attached. So an in-place
-# edit from a transformer (``node.score.find(...).set(...)``) writes straight
+# edit from a transformer (``block.tree.find(...).set(...)``) writes straight
 # into the pool. Mutate by **clone-then-replace** instead::
 #
-#     cloned = copy.deepcopy(node.score)   # the cached tree stays pristine
+#     cloned = copy.deepcopy(block.tree)   # the cached tree stays pristine
 #     cloned.find(...).set(...)            # edit the copy
-#     node.score = cloned                  # this block's IR now owns it
+#     block.tree = cloned                  # this block's IR now owns it
 #
 # which costs a copy only for the nodes a caller actually edits, and is what
 # a front-end applying score-level proofreading edits is expected to do.

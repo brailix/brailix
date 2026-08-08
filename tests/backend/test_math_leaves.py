@@ -386,7 +386,7 @@ class TestMtext:
             options={INLINE_TEXT_TRANSLATOR_KEY: fake_translator},
         )
         tree = ET.fromstring("<math><mtext>a\u00a0b</mtext></math>")
-        node = MathInline(surface="", source="mathml", span=None, math=tree)
+        node = MathInline(surface="", source="mathml", span=None, tree=tree)
         cells = translate(node, ctx, profile)
         assert seen == ["a b"]  # NBSP normalised; whole run sent once
         assert marker in cells

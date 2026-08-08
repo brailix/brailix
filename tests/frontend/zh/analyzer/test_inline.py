@@ -24,7 +24,6 @@ from brailix.frontend.zh.tokens import ChineseToken
 from brailix.ir.inline import (
     Connector,
     Date,
-    HanziMarker,
     LatinWord,
     MathInline,
     Number,
@@ -295,7 +294,7 @@ class TestTokensToInline:
 
 
 class TestInsertCrossKindBoundarySpaces:
-    """Cross-IR-kind segmentation spacing — Chinese (Word / HanziMarker)
+    """Cross-IR-kind segmentation spacing — Chinese (Word)
     adjacent to Latin / Greek / Math (LatinWord / MathInline) gets one
     synthetic zero-width Space in between. A Number directly followed by
     Chinese (10页 / 3个) gets a Connector instead; the reverse and
@@ -356,15 +355,6 @@ class TestInsertCrossKindBoundarySpaces:
         out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
         kinds = [type(n).__name__ for n in out]
         assert kinds == ["Word", "Space", "LatinWord"]
-
-    def test_hanzi_marker_treated_as_chinese(self) -> None:
-        nodes = [
-            HanziMarker(surface="年", span=Span(0, 1)),
-            LatinWord(surface="x", span=Span(1, 2)),
-        ]
-        out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
-        kinds = [type(n).__name__ for n in out]
-        assert kinds == ["HanziMarker", "Space", "LatinWord"]
 
     def test_all_caps_latin_word_treated_as_foreign(self) -> None:
         nodes = [

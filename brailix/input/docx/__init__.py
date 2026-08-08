@@ -580,7 +580,7 @@ def _count_equation_oles(body: _Any) -> int:
 
 def _iter_block_texts(blocks: _Iterable[Block]) -> _Iterator[str]:
     """Yield the raw ``text`` of every block, descending into container
-    blocks (``List.items``, ``Table.rows`` / ``TableRow.cells``).
+    blocks (a list's items, a table's rows, a row's cells — all in ``blocks``).
 
     Inline math nested in a list item or table cell lives in a *child*
     block's ``text``, not on a top-level block, so a flat ``result.blocks``
@@ -593,10 +593,8 @@ def _iter_block_texts(blocks: _Iterable[Block]) -> _Iterator[str]:
         text = getattr(blk, "text", None)
         if text:
             yield text
-        for attr in ("items", "cells", "rows"):
-            nested = getattr(blk, attr, None)
-            if nested:
-                yield from _iter_block_texts(nested)
+        if blk.blocks:
+            yield from _iter_block_texts(blk.blocks)
 
 
 def _mtef_recovery_needed(result: DocumentIR, equation_oles: int) -> bool:
