@@ -124,7 +124,7 @@ def is_closing_fence(line: str) -> bool:
 # Fenced graphic block: a self-contained
 # tactile figure embedded in braille source, mirroring the ```code fence and
 # the ``$$math$$`` fence — the fence body IS the figure source, so the document
-# stays portable (no external file references travelling beside the .blx).
+# stays portable (no external asset files to carry alongside it).
 #
 # The info string carries the graphics source name **structurally**:
 # ``graphic-<source>`` maps to ``<source>`` verbatim (``graphic-svg`` /

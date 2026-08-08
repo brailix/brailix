@@ -501,10 +501,10 @@ class GraphicBlock(EmbeddedBlock):
 # its parsed tree itself (``"tree"``) instead of in a one-element ``inlines``
 # list holding a carrier node. ``1.0`` is **not** in the set, and there is no
 # migration, because nothing reads a document-IR payload back: the library
-# writes one as an export (``TranslationResult.to_dict``) and a ``.blx``
-# project stores its source plus overrides and recompiles the IR on open. A
-# 1.0 payload from outside is therefore refused by name rather than
-# half-understood — which is exactly what this check is for.
+# writes one as an export (``TranslationResult.to_dict``) and never loads one,
+# and a front-end that persists a project keeps the *source* and recompiles
+# the IR on open. A 1.0 payload from outside is therefore refused by name
+# rather than half-understood — which is exactly what this check is for.
 _DEFAULT_IR_VERSION = "2.0"
 _SUPPORTED_IR_VERSIONS: frozenset[str] = frozenset({_DEFAULT_IR_VERSION})
 
@@ -520,7 +520,7 @@ def _check_ir_version(version: object, action: str) -> None:
     both checked only the *value*, and the value check alone is not safe on
     unvalidated input: ``version not in _SUPPORTED_IR_VERSIONS`` asks the
     frozenset to **hash** whatever arrived, so a payload whose ``"version"``
-    is a JSON array or object (both legal JSON, both reachable from a ``.blx``
+    is a JSON array or object (both legal JSON, both reachable from a stored
     file or an API caller) left the boundary as ``TypeError: unhashable type:
     'list'`` — an implementation detail escaping a boundary that documents
     :class:`ValueError` as its one malformed-payload failure, past every

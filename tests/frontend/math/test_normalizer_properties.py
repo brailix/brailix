@@ -5,7 +5,7 @@ The normalizer's contract to the backend has three load-bearing clauses:
 * **it never raises** — malformed input degrades to an in-band ``<merror>``
   document (the pipeline keeps running, the failure stays visible);
 * **it is idempotent** — normalizing its own output changes nothing, so a
-  tree that round-trips through serialization (caches, ``.blx`` files,
+  tree that round-trips through serialization (caches, stored documents,
   editor round-trips) can be re-normalized safely;
 * **its output upholds the shapes the backend dispatch assumes** — no
   namespace-qualified tags, no presentational wrappers, no invisible
@@ -169,7 +169,7 @@ class TestNormalizeTotality:
 class TestNormalizeIdempotence:
     @given(doc=math_documents())
     def test_normalizing_own_output_is_identity(self, doc: str) -> None:
-        # Caches and .blx round-trips re-serialize normalized trees; feeding
+        # Caches and stored documents re-serialize normalized trees; feeding
         # one back through the normalizer must be a no-op, or a document
         # would silently change on every open/save cycle.
         once = normalize(doc)

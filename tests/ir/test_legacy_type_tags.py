@@ -7,9 +7,10 @@ outlives the schema that produced it: retire a node type and every document
 already on disk still carries its tag, so the tag has to keep resolving or the
 work is in the file and the tool won't read it.
 
-The premise is not true of any file this library reads. A ``.blx`` project
-stores the source text and the overrides applied to it, and recompiles the
-inline IR every time it opens; ``proofread_json()`` is a write-only export.
+The premise is not true of any file this library reads. A front-end that
+persists a project keeps the source text and the overrides applied to it, and
+recompiles the inline IR every time it opens; ``proofread_json()`` is a
+write-only export.
 Across the whole tree, the only callers of the IR deserializers are the
 deserializers themselves and their own tests — no path reads inline IR back
 off disk, so no stored payload can name a retired tag.

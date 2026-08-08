@@ -397,7 +397,8 @@ class TestStripNamespace:
 
     def test_deeply_nested_does_not_overflow(self) -> None:
         # Iterative, not recursive: a tree far deeper than Python's recursion
-        # limit must strip without RecursionError (an untrusted MathML / .blx
+        # limit must strip without RecursionError (an untrusted MathML /
+        # deserialized
         # payload reaches here via the IR-deserialization boundary).
         depth = 5000
         root = ET.Element("{urn:x}math")

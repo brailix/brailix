@@ -406,10 +406,10 @@ class TestDocumentIRLoadBoundary:
         Its blocks put a math / music / graphic tree one level down, in a
         ``children`` list holding a carrier node, and no carrier node type
         exists any more. Nothing in the library reads a document-IR payload
-        back — it is written as an export, and a ``.blx`` project stores source
-        plus overrides and recompiles — so there is no in-tree reader for a
-        migration to serve, and reading one anyway would drop the formula and
-        say nothing."""
+        back — it is written as an export, and a front-end that persists a
+        project keeps the source plus its overrides and recompiles — so there
+        is no in-tree reader for a migration to serve, and reading one anyway
+        would drop the formula and say nothing."""
         with pytest.raises(ValueError, match="unsupported"):
             DocumentIR.from_dict(
                 {"version": "1.0", "type": "document", "metadata": {}, "blocks": []}

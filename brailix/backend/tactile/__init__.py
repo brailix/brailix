@@ -126,7 +126,7 @@ _MM_PER_INCH = 25.4
 #
 # The frontend normalizer caps depth too, and this is not redundant with it: a
 # tree reaches the backend without passing the normalizer whenever it comes off
-# a ``.blx`` round-trip (``GraphicBlock.tree`` is re-parsed straight from its
+# a deserialized document (``GraphicBlock.tree`` is re-parsed straight from its
 # serialized string) or out of a block handed a tree directly, which
 # is exactly the gap that made a 6000-level ``<g>`` chain crash here. Its own
 # constant rather than an import of the frontend's: the backend does not depend
@@ -879,10 +879,10 @@ def rasterize(
     injected so the backend never imports the text frontend) turns
     ``<text>`` labels into braille dots; without it, labels are warned and
     skipped. Diagnostics go to ``warnings`` when provided; the function
-    never raises on bad geometry — nor on tree *depth*, which a tree arriving
-    from a ``.blx`` round-trip rather than from the normalizer can carry past
-    :data:`_MAX_TREE_DEPTH`: the drawing degrades to a blank page of the right
-    physical size.
+    never raises on bad geometry — nor on tree *depth*, which a tree rebuilt
+    from a serialized payload rather than produced by the normalizer can carry
+    past :data:`_MAX_TREE_DEPTH`: the drawing degrades to a blank page of the
+    right physical size.
     """
     if svg_root.get("data-bk-error") is not None and warnings is not None:
         warnings.error(

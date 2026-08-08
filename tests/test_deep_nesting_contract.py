@@ -8,7 +8,7 @@ The "pipeline never crashes; soft-fail to a warning" invariant (the
 crashes", the normalizers' "never raises", ``rasterize``'s "never raises on bad
 geometry") held at the element-handler level but not against *depth*: an
 adversarially deep — or merely corrupt — tree from an untrusted ``.docx`` OLE
-object, a ``.mxl`` container, direct MathML / MusicXML, or a ``.blx`` round-trip
+object, an ``.mxl`` container, direct MathML / MusicXML, or a reloaded document
 would overflow Python's stack.
 
 The fix is one bounded-depth probe (``core._xml.tree_depth_exceeds``, iterative
@@ -21,7 +21,7 @@ crash.
 so a 6000-level ``<score-partwise>`` chain crashed the music backend for as long
 as the two lived side by side; graphics was guarded in its normalizer only, so
 the same chain crashed the tactile backend whenever a tree arrived from a
-``.blx`` round-trip instead of from the frontend. Neither gap was visible from
+serialized payload instead of from the frontend. Neither gap was visible from
 inside its own vertical's test package — the asymmetry only shows when the
 verticals are asserted against the same contract, which is what this module is
 for. A fourth tree IR belongs here on the day it is added.

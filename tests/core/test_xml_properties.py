@@ -1,7 +1,7 @@
 """Property-based tests for the shared core XML helpers.
 
 The :mod:`brailix.core._xml` helpers run at every untrusted-XML boundary
-(MathML / MusicXML payloads, ``.blx`` round-trips, docx converters), so
+(MathML / MusicXML payloads, reloaded documents, docx converters), so
 their contracts are pinned over generated trees and strings rather than a
 handful of shapes:
 

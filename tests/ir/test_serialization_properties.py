@@ -1,6 +1,6 @@
 """Property-based tests for IR serialization round-trips.
 
-Documents survive as JSON (.blx payloads, caches, proofread exports), so
+Documents survive as JSON (stored projects, caches, proofread exports), so
 the one contract everything downstream leans on is: **serialization is a
 lossless, stable, JSON-native bijection** over the IR's value space —
 

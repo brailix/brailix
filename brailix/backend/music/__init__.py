@@ -68,7 +68,7 @@ if _TYPE_CHECKING:
 # iterative, so the guard is itself depth-safe.
 #
 # The check lives here rather than in the frontend normalizer because a tree
-# can reach the backend without passing it: a ``.blx`` round-trip re-parses
+# can reach the backend without passing it: deserializing a document re-parses
 # ``ScoreBlock.tree`` straight from its serialized string, and a caller can
 # hand a block a tree directly. (The normalizer's own passes are all
 # iterative, so it has nothing to protect on its own behalf.) Same reasoning,

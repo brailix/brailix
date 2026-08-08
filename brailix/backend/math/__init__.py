@@ -76,9 +76,9 @@ if _TYPE_CHECKING:
 # (one MATH_ERROR warning + a single unknown cell) instead of crashing — the
 # package's "pipeline never crashes" contract. The depth probe is iterative,
 # so the guard is itself depth-safe. A tree reaching the backend may have
-# skipped the frontend normalizer's matching guard (e.g. a .blx round-trip or
-# a directly-constructed MathInline), so the backend re-checks rather than
-# trusting upstream.
+# skipped the frontend normalizer's matching guard — it can be rebuilt from a
+# serialized payload, or handed to a node directly — so the backend re-checks
+# rather than trusting upstream.
 _MAX_TREE_DEPTH = 150
 
 

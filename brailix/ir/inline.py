@@ -321,9 +321,10 @@ def inline_node_for(type_name: str) -> type[InlineNode]:
     Retired tags do **not** resolve. There was a compatibility table here
     mapping ``hanzi_char`` to :class:`Word` and ``latin_acronym`` to
     :class:`LatinWord`, justified by "a project file outlives the schema that
-    produced it" — but no file this library reads carries inline IR. A ``.blx``
-    project stores the source text and its overrides and recompiles the IR on
-    open; the proofread JSON is a write-only export. The two tags therefore
+    produced it" — but no file this library reads carries inline IR. A
+    front-end that persists a project keeps the source text and its overrides
+    and recompiles the IR on open; the proofread JSON is a write-only export.
+    The two tags therefore
     bridged nothing, which is also why retiring ``Quantity`` and ``Percent``
     added no entries: the table had stopped describing "retired" some time
     before it was removed.
