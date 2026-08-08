@@ -75,7 +75,7 @@ def compile_block(
 
     # Run the optional caller-supplied IR transformer.  We wrap
     # the block in a singleton doc so the transformer can index
-    # children with absolute ``block_path = (0, ...)`` (same
+    # into it with absolute ``block_path = (0, ...)`` (same
     # convention a front-end's override-application pass uses).
     if ir_transformer is not None:
         singleton = DocumentIR(blocks=[block])

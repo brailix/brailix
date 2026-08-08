@@ -439,7 +439,7 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
 # sibling.
 _CHINESE_NODE_TYPES: tuple[type[InlineNode], ...] = (Word,)
 _FOREIGN_NODE_TYPES: tuple[type[InlineNode], ...] = (LatinWord, MathInline)
-# Normalizer composites — a whole date, its own "word", set off from adjacent
+# Normalization composites — a whole date, its own "word", set off from adjacent
 # Chinese on BOTH sides with a boundary Space: 在2026年 是 在 ⟂ 2026年,
 # 2026年去 是 2026年 ⟂ 去. (A bare Number is not a composite — an ordinal-bound
 # number like 第3 stays tight, so the Chinese ↔ Number boundary keeps its own
@@ -447,7 +447,7 @@ _FOREIGN_NODE_TYPES: tuple[type[InlineNode], ...] = (LatinWord, MathInline)
 # below: what is declared is the membership, not the one type in it today.
 _COMPOSITE_NODE_TYPES: tuple[type[InlineNode], ...] = (Date,)
 # A foreign *letter* run (Latin and Greek both flow through this one IR type
-# per the Normalizer) can bind to a hanzi as one compound word; a MathInline
+# per the normalization pass) can bind to a hanzi as one compound word; a MathInline
 # ($...$) never does, so it's excluded from the compound check and always
 # takes the space path below. A one-member tuple rather than a bare class
 # because the membership is what is being declared: which node kinds may bind
@@ -456,7 +456,7 @@ _FOREIGN_LETTER_TYPES: tuple[type[InlineNode], ...] = (LatinWord,)
 
 
 def insert_cross_kind_boundary_spaces(
-    children: list[InlineNode],
+    nodes: list[InlineNode],
     compounds: frozenset[str] = frozenset(),
 ) -> list[InlineNode]:
     """Insert a synthetic separator at Chinese ↔ Latin/Greek/Math boundaries.
@@ -509,10 +509,10 @@ def insert_cross_kind_boundary_spaces(
     the boundary, mirroring :func:`tokens_to_inline`'s convention so
     proofread tooling treats every synthetic separator uniformly.
     """
-    if len(children) < 2:
-        return children
-    out: list[InlineNode] = [children[0]]
-    for prev, cur in zip(children, children[1:], strict=False):
+    if len(nodes) < 2:
+        return nodes
+    out: list[InlineNode] = [nodes[0]]
+    for prev, cur in zip(nodes, nodes[1:], strict=False):
         boundary = prev.span.end if prev.span else 0
         span = Span(boundary, boundary)
         if _is_cross_kind_boundary(prev, cur):
@@ -640,7 +640,7 @@ def _is_letter_hanzi_compound(
     # guard and rely on the lexicon hit alone.
     if prev.span and cur.span and prev.span.end != cur.span.start:
         return False
-    # children are in document order, so prev.surface precedes cur.surface
+    # The nodes are in document order, so prev.surface precedes cur.surface
     # in the source — the concatenation is the written compound surface.
     return (prev.surface + cur.surface) in compounds
 

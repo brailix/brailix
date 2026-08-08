@@ -7,9 +7,9 @@ composes them via a ``type -> translator`` table.
 
 Block-level translation (``translate_document`` / ``expand_block``)
 lives in :mod:`brailix.backend.block`, which
-imports ``translate_node`` from here for inline children and
-``translate_embedded`` for a block whose content is a domain tree rather than
-children — a clean one-way dependency.
+imports ``translate_node`` from here for a block's ``inlines`` and
+``translate_embedded`` for one whose content is a domain tree instead — a
+clean one-way dependency.
 
 Richer Latin translators replace the V1 fallback in ``latin``
 without touching the dispatcher.
@@ -217,8 +217,8 @@ def translate_embedded(
     The block-level counterpart of :func:`translate_node`, and here for the
     same reason: this module is the one place that knows the full
     thing-to-translator map. :mod:`brailix.backend.block` calls it for every
-    :class:`~brailix.ir.document.EmbeddedBlock` instead of walking children,
-    because those blocks have none — the tree is the content.
+    :class:`~brailix.ir.document.EmbeddedBlock` instead of walking
+    ``inlines``, because those blocks have none — the tree is the content.
 
     Spans are **leaf-local**, like every coordinate below the block boundary,
     so the tree is handed its own extent within the block's text rather than

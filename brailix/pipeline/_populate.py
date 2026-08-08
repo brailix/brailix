@@ -171,7 +171,7 @@ def populate_leaf(
     tree_in: TreeSubcache | None = None,
     tree_out: TreeSubcache | None = None,
 ) -> None:
-    """Fill one leaf block's content from its raw ``text`` — ``children`` for a
+    """Fill one leaf block's content from its raw ``text`` — ``inlines`` for a
     text block, ``tree`` for an embedded one.
 
     Dispatches on the block's exact type through :data:`BLOCK_POPULATORS`; a
@@ -309,9 +309,9 @@ def populate_math_block(
     ``MATH_NO_IR`` path then writes one unknown cell per source character, so
     layout still occupies the real estate the formula would have and every cell
     still traces to a character. (That used to be done here, by filling
-    ``children`` with one :class:`Unknown` per character — a second way for a
-    math block to carry content, and the reason a math block needed children at
-    all. The cells are the same either way.)
+    ``inlines`` with one :class:`Unknown` per character — a second way for a
+    math block to carry content, and the reason a math block needed inline
+    nodes at all. The cells are the same either way.)
 
     Parsing goes through the injected ``driver._parse_math_tree`` — the same
     parser inline math (:meth:`~brailix.pipeline.frontend_driver.FrontendDriver.attach_math`)
@@ -430,7 +430,7 @@ def populate_graphic_block(
 # Dispatch table
 # ---------------------------------------------------------------------------
 
-# Block type -> the handler that fills that block's ``children``.
+# Block type -> the handler that fills that block's content.
 #
 # Keyed on the block's EXACT type, mirroring the inline dispatcher's
 # :data:`brailix.backend.dispatch._DISPATCH`: the IR block set is a closed, flat
