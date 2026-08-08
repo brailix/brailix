@@ -40,7 +40,7 @@ def emit(
     """
     wc = WarningCollector(mode=mode or RunMode.NORMAL)
     ctx = BackendContext(profile="cn_current", warnings=wc)
-    node = MathInline(surface="", source="mathml", span=None, math=tree)
+    node = MathInline(surface="", source="mathml", span=None, tree=tree)
     cells = translate(node, ctx, profile)
     return cells, wc
 

@@ -107,15 +107,15 @@ class TestDeepMathNeverCrashes:
         # then strips namespaces — iteratively now, so no RecursionError
         # escapes from_dict (the documented soft-fail boundary).
         node = from_dict(
-            {"type": "math_inline", "surface": "x", "math": _deep_mathml()}
+            {"type": "math_inline", "surface": "x", "tree": _deep_mathml()}
         )
         assert isinstance(node, MathInline)
-        assert node.math is not None
-        assert node.math.tag == "math"
+        assert node.tree is not None
+        assert node.tree.tag == "math"
 
     def test_backend_translate_soft_fails(self, profile) -> None:
         ctx = BackendContext(profile="cn_current")
-        node = MathInline(surface="deep", source="mathml", math=_deep_math_tree())
+        node = MathInline(surface="deep", source="mathml", tree=_deep_math_tree())
         cells = math_translate(node, ctx, profile)  # must not raise
         assert cells  # at least the single unknown fallback cell
         assert any(w.code == "MATH_ERROR" for w in ctx.warnings.warnings)

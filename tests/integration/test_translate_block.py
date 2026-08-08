@@ -365,7 +365,7 @@ class TestMathSubcache:
             Paragraph(text="$x^2$ 是"), tree_subcache=cached
         )
         # Same parse result reused → tree is the exact object from the cache.
-        out_tree = second.ir.inlines[0].math
+        out_tree = second.ir.inlines[0].tree
         assert out_tree is cached[key]
         # And it's also threaded into the new compile's subcache for the
         # caller to use next round.
@@ -729,14 +729,14 @@ class TestTreeSubcacheCrossDomain:
         # Feeding the union back in lets a recompile reuse the math tree
         # without the music entry interfering.
         again = pipe.translate_block(Paragraph(text="$x^2$"), tree_subcache=pool)
-        assert again.ir.inlines[0].math is pool[("math", pipe.fingerprint, "latex", "$x^2$", "")]
+        assert again.ir.inlines[0].tree is pool[("math", pipe.fingerprint, "latex", "$x^2$", "")]
 
 
 class TestIrTransformerMeetsTheCacheContract:
     """The public ``ir_transformer`` hook versus the pool's by-identity sharing.
 
     A cache hit lands the pooled tree on the returned IR
-    (``MusicInline.score`` / ``MathInline.math`` / ``GraphicInline.svg``), and
+    (``MusicInline.score`` / ``MathInline.tree`` / ``GraphicInline.svg``), and
     the transformer runs with it already attached — so an in-place edit writes
     straight into the caller's pool, and every later compile that hits the entry
     builds braille from a tree an unrelated earlier compile altered. The

@@ -72,7 +72,7 @@ class TestCircleArea:
         assert "Word" in kinds      # 面积 should at least tokenize as a Word
         assert "MathInline" in kinds
         math = next(c for c in children if isinstance(c, MathInline))
-        assert math.math is not None
+        assert math.tree is not None
         assert math.source == "latex"
 
     def test_render_contains_math_wrappers_and_pi(self, pipe):

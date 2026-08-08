@@ -160,7 +160,7 @@ def translate(
     :func:`translate_tree`, which is where the work is.
     """
     return translate_tree(
-        node.math, ctx, profile, surface=node.surface, span=node.span
+        node.tree, ctx, profile, surface=node.surface, span=node.span
     )
 
 

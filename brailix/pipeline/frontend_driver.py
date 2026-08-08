@@ -589,7 +589,7 @@ class FrontendDriver:
         # compile's reuse pool. This is the one step display math has no
         # equivalent of, which is why it sits here rather than in the shared
         # helper.
-        if node.math is not None:
+        if node.tree is not None:
             cache_record(
                 tree_out,
                 # Same key shape (and therefore the same pool) as a display
@@ -598,7 +598,7 @@ class FrontendDriver:
                 tree_cache_key(
                     "math", node.source, node.surface, identity=self.parse_identity
                 ),
-                node.math,
+                node.tree,
             )
             return
 
@@ -632,4 +632,4 @@ class FrontendDriver:
             tree_out=tree_out,
         )
         # ``None`` on failure — the documented soft-fail for an inline formula.
-        node.math = tree
+        node.tree = tree

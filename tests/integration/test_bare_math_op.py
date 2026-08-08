@@ -67,7 +67,7 @@ class TestFillinBlank:
         # math is pre-filled, no dependency on latex2mathml
         for m in math_inlines:
             assert m.source == "mathml"
-            assert m.math is not None
+            assert m.tree is not None
 
 
 class TestSubquestionNumbering:

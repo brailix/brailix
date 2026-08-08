@@ -5,7 +5,7 @@ The math IR is the MathML tree itself (an
 
 * the segmenter peels ``$...$`` math out of mixed text;
 * the math source adapter + normalizer produce an ET.Element on
-  :attr:`MathInline.math`;
+  :attr:`MathInline.tree`;
 * missing-adapter conditions warn cleanly and leave ``math = None``;
 * downstream consumers (proofread JSON, braille renderer) see the
   tree.
@@ -72,7 +72,7 @@ class TestInlineMathAdapterCrash:
         # attach_math calls the injected math parser; make it raise (on the
         # instance, so monkeypatch restores it — pipe may be a shared fixture).
         monkeypatch.setattr(pipe._frontend, "_parse_math_tree", _boom)
-        # Inline $...$ math flows through attach_math (math=None at first).
+        # Inline $...$ math flows through attach_math (tree=None at first).
         result = pipe.translate_text("看 $x^2$ 完")
         # Must NOT raise; the surrounding prose still renders.
         assert result.render()
@@ -132,9 +132,9 @@ class TestMathmlAdapterWiring:
         result = pipe.translate_text("$x$")
         math_nodes = _find_math_nodes(result.ir)
         assert len(math_nodes) == 1
-        assert math_nodes[0].math is not None
-        assert isinstance(math_nodes[0].math, ET.Element)
-        assert math_nodes[0].math.tag == "math"
+        assert math_nodes[0].tree is not None
+        assert isinstance(math_nodes[0].tree, ET.Element)
+        assert math_nodes[0].tree.tag == "math"
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ class TestMissingAdapter:
 
         math_nodes = _find_math_nodes(result.ir)
         assert len(math_nodes) == 1
-        assert math_nodes[0].math is None
+        assert math_nodes[0].tree is None
 
         codes = {w.code for w in result.warnings}
         assert "MATH_ADAPTER_MISSING" in codes
@@ -207,7 +207,7 @@ class TestEndToEndLatex:
 
         math_nodes = _find_math_nodes(result.ir)
         assert len(math_nodes) == 1
-        tree = math_nodes[0].math
+        tree = math_nodes[0].tree
         assert isinstance(tree, ET.Element)
         # The fake converter wraps the latex surface in <mn>x^2</mn>;
         # the normalizer collapses <math><mn>x^2</mn></math> ⇒ root with
@@ -234,8 +234,8 @@ class TestEndToEndLatex:
         para_children = ir_blocks[0]["inlines"]
         math_entry = next(c for c in para_children if c["type"] == "math_inline")
         # New schema: math is a MathML string, not a nested dict.
-        assert isinstance(math_entry["math"], str)
-        assert "<mi>y</mi>" in math_entry["math"]
+        assert isinstance(math_entry["tree"], str)
+        assert "<mi>y</mi>" in math_entry["tree"]
 
 
 # ---------------------------------------------------------------------------
@@ -318,10 +318,10 @@ class TestPipelineAttachMath:
         pipe = Pipeline(profile="cn_current")
         ctx = FrontendContext(profile="cn_current")
         tree = ET.fromstring("<math><mi>x</mi></math>")
-        node = MathInline(surface="x", source="mathml", math=tree)
+        node = MathInline(surface="x", source="mathml", tree=tree)
         # Sentinel: same object identity should survive.
         pipe._frontend.attach_math(node, ctx)
-        assert node.math is tree
+        assert node.tree is tree
 
 
 class TestTokensToInlineEmpty:

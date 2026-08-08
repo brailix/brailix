@@ -144,7 +144,7 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
         surface=surface,
         span=span,
         source=draw(st.sampled_from(["latex", "mathml", "plain"])),
-        math=draw(st.one_of(st.none(), _trees("math"))),
+        tree=draw(st.one_of(st.none(), _trees("math"))),
     )
 
 

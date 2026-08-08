@@ -262,7 +262,7 @@ class TestDispatchPerNodeType:
         import xml.etree.ElementTree as ET
 
         tree = ET.fromstring("<math><mi>x</mi></math>")
-        node = MathInline(surface="x", math=tree)
+        node = MathInline(surface="x", tree=tree)
         cells = translate_node(node, ctx, profile)
         assert any(c.role == "math_identifier" for c in cells)
 

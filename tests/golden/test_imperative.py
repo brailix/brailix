@@ -75,7 +75,7 @@ def test_data_bk_span_direct_mathml_renders_same_string():
     # Build a MathInline carrying a hand-written MathML tree with a
     # data-bk-span override on the inner <mi>.
     tree = ET.fromstring('<math><mi data-bk-span="0,1">x</mi></math>')
-    node = MathInline(surface="x", span=Span(0, 1), source="mathml", math=tree)
+    node = MathInline(surface="x", span=Span(0, 1), source="mathml", tree=tree)
     doc = DocumentIR(
         metadata={"language": "zh-CN", "profile": "cn_current"},
         blocks=[Paragraph(inlines=[node], span=Span(0, 1))],
@@ -91,7 +91,7 @@ def test_data_bk_span_overrides_cell_provenance():
     warnings = WarningCollector()
     backend_ctx = BackendContext(profile="cn_current", warnings=warnings)
     tree = ET.fromstring('<math><mi data-bk-span="5,6">x</mi></math>')
-    node = MathInline(surface="x", span=Span(0, 1), source="mathml", math=tree)
+    node = MathInline(surface="x", span=Span(0, 1), source="mathml", tree=tree)
     doc = DocumentIR(
         metadata={"language": "zh-CN", "profile": "cn_current"},
         blocks=[Paragraph(inlines=[node], span=Span(0, 1))],
@@ -112,7 +112,7 @@ def test_data_bk_span_malformed_is_silently_ignored():
     warnings = WarningCollector()
     backend_ctx = BackendContext(profile="cn_current", warnings=warnings)
     tree = ET.fromstring('<math><mi data-bk-span="not,a,span">x</mi></math>')
-    node = MathInline(surface="x", span=Span(0, 1), source="mathml", math=tree)
+    node = MathInline(surface="x", span=Span(0, 1), source="mathml", tree=tree)
     doc = DocumentIR(
         metadata={"language": "zh-CN", "profile": "cn_current"},
         blocks=[Paragraph(inlines=[node], span=Span(0, 1))],

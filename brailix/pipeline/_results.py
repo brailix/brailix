@@ -276,7 +276,7 @@ class TactilePageResult:
 # The contract reaches the CALLER, not just the backend, because the same
 # object is also reachable through the public IR: a cache hit lands it on the
 # ``tree`` of the returned :attr:`CompiledBlock.ir` (or on an inline formula's
-# ``MathInline.math``), and :meth:`Pipeline.translate_block`'s
+# ``MathInline.tree``), and :meth:`Pipeline.translate_block`'s
 # ``ir_transformer`` hook runs with the tree already attached. So an in-place
 # edit from a transformer (``block.tree.find(...).set(...)``) writes straight
 # into the pool. Mutate by **clone-then-replace** instead::

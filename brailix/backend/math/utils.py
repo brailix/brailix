@@ -544,7 +544,7 @@ def _coalesce_identifier_runs(elem: _ET.Element, profile) -> _ET.Element:
     element or below, the original element is returned unchanged — so the
     common "no run" case allocates nothing and subtrees are shared.
     Otherwise a fresh element is built along the path that changed. The
-    math IR (``MathInline.math``) is consumed read-only by the backend
+    math IR (``MathInline.tree``) is consumed read-only by the backend
     and is cached in the pipeline / serialized into the proofread JSON, so
     coalescing must never edit it in place.
 

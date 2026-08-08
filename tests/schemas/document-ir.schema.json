@@ -32,9 +32,9 @@
           "items": { "$ref": "#/definitions/date_component" }
         },
         "source": { "type": "string" },
-        "math": {
+        "tree": {
           "type": "string",
-          "description": "Serialized MathML — ET trees ride the JSON as XML strings. The one inline node that carries a tree; music and graphics reach the backend as blocks, which carry their own."
+          "description": "Serialized MathML — ET trees ride the JSON as XML strings. Spelled the same as a block's tree field, because it is the same thing. The one inline node that carries one; music and graphics reach the backend as blocks, which carry their own."
         }
       }
     },

@@ -52,7 +52,7 @@ class TestAtomicConversions:
         assert isinstance(out[0], MathInline)
         assert out[0].surface == "$x^2$"
         assert out[0].source == "latex"
-        assert out[0].math is None  # filled by the MathParser
+        assert out[0].tree is None  # filled by the MathParser
 
     def test_math_op_becomes_prefilled_mathinline(self):
         # Half-width ( inside Chinese prose → single-character MathInline, with
@@ -64,9 +64,9 @@ class TestAtomicConversions:
         assert isinstance(out[0], MathInline)
         assert out[0].surface == "("
         assert out[0].source == "mathml"
-        assert out[0].math is not None
-        assert out[0].math.tag == "math"
-        kids = list(out[0].math)
+        assert out[0].tree is not None
+        assert out[0].tree.tag == "math"
+        kids = list(out[0].tree)
         assert len(kids) == 1
         assert kids[0].tag == "mo"
         assert kids[0].text == "("
@@ -78,7 +78,7 @@ class TestAtomicConversions:
         assert all(isinstance(n, MathInline) for n in out)
         assert [n.surface for n in out] == ["(", ")"]
         # Each one's <mo> text matches.
-        assert [list(n.math)[0].text for n in out] == ["(", ")"]
+        assert [list(n.tree)[0].text for n in out] == ["(", ")"]
 
     def test_math_op_hyphen_aliases_to_minus_in_mo(self):
         # ASCII `-` (U+002D) has no HTML5 entity and is not found in the symbols
@@ -89,8 +89,8 @@ class TestAtomicConversions:
         assert len(out) == 1
         assert isinstance(out[0], MathInline)
         assert out[0].surface == "-"
-        assert out[0].math is not None
-        kids = list(out[0].math)
+        assert out[0].tree is not None
+        kids = list(out[0].tree)
         assert len(kids) == 1
         assert kids[0].tag == "mo"
         assert kids[0].text == "−"

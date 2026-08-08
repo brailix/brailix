@@ -217,7 +217,7 @@ brailix/
 │   │       └── adapters/         # svg / primitives / figure / image (image needs the graphics extra)
 │   ├── ir/
 │   │   ├── document.py       # DocumentIR: block level (incl. MathBlock / CodeBlock / ScoreBlock ...)
-│   │   ├── inline.py         # InlineIR: inline tokens (incl. MathInline.math: ET.Element)
+│   │   ├── inline.py         # InlineIR: inline tokens (incl. MathInline.tree: ET.Element)
 │   │   ├── braille.py        # BrailleIR: cell sequence
 │   │   └── tactile.py        # TactileRaster: tactile dot grid (tactile-backend product, the graphics counterpart of BrailleIR)
 │   ├── backend/              # semantic IR → output-domain IR (BrailleIR / TactileRaster)

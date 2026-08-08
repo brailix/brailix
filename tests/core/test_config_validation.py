@@ -630,7 +630,7 @@ class TestProfileShape:
             tmp_path,
             tables_override={
                 "cells": "resources/cells.json",
-                "math":  "resources/math/something.json",
+                "math": "resources/math/something.json",
             },
         )
         with pytest.raises(ConfigurationError) as ei:
@@ -685,7 +685,7 @@ def _write_raw_structures(tmp_path: Path, name: str, raw_payload: Any) -> str:
             "language": "zh-CN",
             "tables": {
                 "cells": "resources/cells.json",
-                "math":  {"structures": "resources/math/structures.json"},
+                "math": {"structures": "resources/math/structures.json"},
             },
         }),
         encoding="utf-8",

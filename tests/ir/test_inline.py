@@ -162,11 +162,11 @@ class TestComponentWireShapesAreEnforced:
 
 class TestSerializationMathInline:
     def test_math_inline_with_none_serializes_without_math_key(self):
-        node = MathInline(surface="x^2", source="latex", math=None)
+        node = MathInline(surface="x^2", source="latex", tree=None)
         payload = node.to_dict()
         assert "math" not in payload
         restored = from_dict(payload)
-        assert restored.math is None
+        assert restored.tree is None
 
     def test_from_dict_rejects_dict_math_value(self):
         # Old IR format used a nested dict for math; the new schema
@@ -175,7 +175,7 @@ class TestSerializationMathInline:
             from_dict({
                 "type": "math_inline",
                 "surface": "x",
-                "math": {"kind": "identifier", "value": "x"},
+                "tree": {"kind": "identifier", "value": "x"},
             })
 
     def test_from_dict_rejects_malformed_xml_string(self):
@@ -185,20 +185,20 @@ class TestSerializationMathInline:
             from_dict({
                 "type": "math_inline",
                 "surface": "x",
-                "math": "<math><mo>+</mo>",  # unclosed <math>
+                "tree": "<math><mo>+</mo>",  # unclosed <math>
             })
 
     def test_from_dict_accepts_explicit_none_math_value(self):
-        # ``from_dict`` should accept an explicit ``"math": None`` even
+        # ``from_dict`` should accept an explicit ``"tree": None`` even
         # though ``to_dict`` strips it. This hits the
-        # ``_deserialize_value("math", None)`` branch directly.
+        # ``_deserialize_value("tree", None)`` branch directly.
         restored = from_dict({
             "type": "math_inline",
             "surface": "x",
-            "math": None,
+            "tree": None,
         })
         assert isinstance(restored, MathInline)
-        assert restored.math is None
+        assert restored.tree is None
 
     def test_from_dict_accepts_et_element_math_value(self):
         # If an upstream IR builder hands ``from_dict`` a pre-parsed
@@ -208,12 +208,12 @@ class TestSerializationMathInline:
         restored = from_dict({
             "type": "math_inline",
             "surface": "x",
-            "math": tree,
+            "tree": tree,
         })
         assert isinstance(restored, MathInline)
         # Must be the *same* element object — pass-through, not a copy.
-        assert restored.math is tree
-        assert restored.math[0].tag == "mi"  # already bare: untouched
+        assert restored.tree is tree
+        assert restored.tree[0].tag == "mi"  # already bare: untouched
 
     def test_namespaced_preparsed_math_element_is_normalized(self):
         # The two legal shapes of one payload — a serialized string and a
@@ -223,11 +223,11 @@ class TestSerializationMathInline:
         # spurious MATH_UNSUPPORTED_ELEMENT through the other.
         src = "<math xmlns='http://www.w3.org/1998/Math/MathML'><mi>x</mi></math>"
         payload = {"type": "math_inline", "surface": "x", "source": "mathml"}
-        from_string = from_dict({**payload, "math": src})
-        from_element = from_dict({**payload, "math": ET.fromstring(src)})
+        from_string = from_dict({**payload, "tree": src})
+        from_element = from_dict({**payload, "tree": ET.fromstring(src)})
 
-        assert from_string.math.tag == from_element.math.tag == "math"
-        assert from_string.math[0].tag == from_element.math[0].tag == "mi"
+        assert from_string.tree.tag == from_element.tree.tag == "math"
+        assert from_string.tree[0].tag == from_element.tree[0].tag == "mi"
 
     def test_preparsed_element_carrying_a_comment_deserializes(self):
         # A comment / processing instruction is a child node whose ``tag`` is
@@ -244,11 +244,11 @@ class TestSerializationMathInline:
         root.append(ET.Comment("vendor note"))
         ET.SubElement(root, "{urn:x}child")
 
-        node = from_dict({"type": "math_inline", "surface": "", "math": root})
+        node = from_dict({"type": "math_inline", "surface": "", "tree": root})
 
-        assert node.math.tag == "math"
-        assert node.math[0].text == "vendor note"  # comment kept, body intact
-        assert node.math[1].tag == "child"  # sibling below it still stripped
+        assert node.tree.tag == "math"
+        assert node.tree[0].text == "vendor note"  # comment kept, body intact
+        assert node.tree[1].tag == "child"  # sibling below it still stripped
 
     def test_round_trip_strips_xmlns_attribute_tree(self):
         # Regression: a producer (e.g. normalize._try_atomic's math_op
@@ -259,8 +259,8 @@ class TestSerializationMathInline:
         # warnings.  The IR boundary must normalise back to bare tags.
         m = ET.Element("math", {"xmlns": "http://www.w3.org/1998/Math/MathML"})
         ET.SubElement(m, "mo").text = "+"
-        node = MathInline(surface="+", source="mathml", math=m)
-        restored = from_dict(node.to_dict()).math
+        node = MathInline(surface="+", source="mathml", tree=m)
+        restored = from_dict(node.to_dict()).tree
         assert restored is not None
         assert restored.tag == "math"
         assert restored[0].tag == "mo"  # NOT '{http://...}mo'
@@ -293,7 +293,7 @@ class TestTheCarriersAreGone:
         with_trees = [
             cls.__name__
             for cls in _INLINE_REGISTRY.values()
-            if any(f.name == "math" for f in dataclasses.fields(cls))
+            if any(f.name == "tree" for f in dataclasses.fields(cls))
         ]
         assert with_trees == ["MathInline"]
 

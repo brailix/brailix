@@ -25,7 +25,7 @@ def mml(xml: str) -> ET.Element:
 def emit(tree, profile):
     wc = WarningCollector(mode=RunMode.NORMAL)
     ctx = BackendContext(profile="cn_current", warnings=wc)
-    node = MathInline(surface="", source="mathml", math=tree)
+    node = MathInline(surface="", source="mathml", tree=tree)
     cells = translate(node, ctx, profile)
     return cells, wc
 

@@ -712,7 +712,7 @@ class Pipeline:
         tree = _frontend_parse_math_tree(surface, math_ctx)
         if tree is None:
             return ""
-        node = MathInline(surface=surface, source=source, math=tree)
+        node = MathInline(surface=surface, source=source, tree=tree)
         backend_ctx = BackendContext(
             profile=self.profile,
             # NORMAL, not self.mode — the context's __post_init__
@@ -1105,7 +1105,7 @@ class Pipeline:
 
         Entries are shared **by identity**, and a hit also lands the cached
         tree on the returned IR (an embedded block's ``tree``, an inline
-        formula's ``MathInline.math``), so an ``ir_transformer`` that edits one
+        formula's ``MathInline.tree``), so an ``ir_transformer`` that edits one
         of those trees in place writes into the pool and corrupts every later
         compile that hits the same entry. Clone-then-replace instead: deep-copy
         the tree, edit the copy, assign it back. See

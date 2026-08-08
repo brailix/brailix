@@ -233,9 +233,11 @@ class PhoneticInline(InlineNode):
 class MathInline(InlineNode):
     """Inline math — a ``$...$`` fragment inside a run of prose.
 
-    ``math`` carries the normalised MathML tree as an :class:`ET.Element`
-    once the math frontend has run; until then it stays ``None`` and only
-    the raw surface + source format are recorded.
+    ``tree`` carries the normalised MathML as an :class:`ET.Element` once the
+    math frontend has run; until then it stays ``None`` and only the raw
+    surface + source format are recorded. Same field name as an
+    :class:`~brailix.ir.document.EmbeddedBlock`'s, because it is the same
+    thing: one rule for where a parsed domain tree lives.
 
     The MathML tree itself is the math IR — there is no separate IR
     dataclass.
@@ -252,7 +254,7 @@ class MathInline(InlineNode):
 
     type: _ClassVar[str] = "math_inline"
     source: str = "plain"  # latex / mathml / plain
-    math: _ET.Element | None = None
+    tree: _ET.Element | None = None
 
 
 @_dataclass(slots=True)
@@ -371,7 +373,7 @@ def _serialize_value(value: _Any) -> _Any:
         return [_serialize_value(v) for v in value]
     if isinstance(value, Span):
         return list(value.to_tuple())
-    # MathInline.math is an ``ET.Element`` — serialized as MathML text. JSON
+    # MathInline.tree is an ``ET.Element`` — serialized as MathML text. JSON
     # consumers see a plain string; reading code goes back through the shared
     # loader (see ``_deserialize_value``).
     if isinstance(value, _ET.Element):
@@ -426,9 +428,9 @@ def _deserialize_value(key: str, value: _Any) -> _Any:
         return None if value is None else Span.from_tuple(value)
     if key == "components" and isinstance(value, list):
         return [_date_component(v) for v in value]
-    if key == "math":
+    if key == "tree":
         return _serde.deserialize_xml_tree(
-            value, label="MathInline.math", fmt="MathML"
+            value, label="MathInline.tree", fmt="MathML"
         )
     _serde.reject_unhandled_nested_payload(key, value)
     return value

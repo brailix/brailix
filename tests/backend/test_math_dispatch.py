@@ -91,7 +91,7 @@ class TestDispatcherIntegration:
         node = MathInline(
             surface="x",
             source="mathml",
-            math=mml("<math><mi>x</mi></math>"),
+            tree=mml("<math><mi>x</mi></math>"),
         )
         cells = translate_node(node, ctx, profile)
         assert any(c.role == "math_identifier" for c in cells)
