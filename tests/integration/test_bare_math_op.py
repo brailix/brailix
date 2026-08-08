@@ -59,7 +59,7 @@ class TestFillinBlank:
 
     def test_children_have_two_mathinline_around_space(self, pipe):
         r = pipe.translate_text("选项是(   )")
-        kids = r.ir.blocks[0].children
+        kids = r.ir.blocks[0].inlines
         # `(` and `)` should each be a separate MathInline
         math_inlines = [c for c in kids if isinstance(c, MathInline)]
         assert len(math_inlines) == 2

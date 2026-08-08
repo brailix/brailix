@@ -231,7 +231,7 @@ class TestEndToEndLatex:
         result = pipe.translate_text("$y$")
         payload = result.proofread_json()
         ir_blocks = payload["ir"]["blocks"]
-        para_children = ir_blocks[0]["children"]
+        para_children = ir_blocks[0]["inlines"]
         math_entry = next(c for c in para_children if c["type"] == "math_inline")
         # New schema: math is a MathML string, not a nested dict.
         assert isinstance(math_entry["math"], str)
@@ -347,7 +347,7 @@ class TestTokensToInlineEmpty:
 def _find_math_nodes(doc) -> list[MathInline]:
     out: list[MathInline] = []
     for block in doc.blocks:
-        for child in block.children:
+        for child in block.inlines:
             if isinstance(child, MathInline):
                 out.append(child)
     return out

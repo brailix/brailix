@@ -199,7 +199,7 @@ def populate_prose_block(
     this stays the fallback.
     """
     text, _doc_span, _leaf_span = _ensure_block_span(block)
-    block.children = driver.run_frontend(
+    block.inlines = driver.run_frontend(
         text, ctx, tree_in=tree_in, tree_out=tree_out
     )
 
@@ -226,7 +226,7 @@ def populate_code_block(
     every cell with an offset the caller is documented to add for itself.
     """
     text, _doc_span, leaf_span = _ensure_block_span(block)
-    block.children = [CodeInline(surface=text, span=leaf_span)]
+    block.inlines = [CodeInline(surface=text, span=leaf_span)]
 
 
 def populate_music_block(

@@ -190,7 +190,7 @@ def _leaf_blocks(draw: st.DrawFn) -> Block:
         "text": draw(st.one_of(st.none(), _surfaces)),
         "span": draw(_spans()),
         "align": draw(st.sampled_from([None, "center", "right"])),
-        "children": draw(st.lists(inline_nodes(), max_size=2)),
+        "inlines": draw(st.lists(inline_nodes(), max_size=2)),
     }
     if kind == "heading":
         return Heading(level=draw(st.integers(1, 6)), **common)
@@ -241,7 +241,7 @@ def blocks(draw: st.DrawFn) -> Block:
     if kind == "list":
         return List(
             ordered=draw(st.booleans()),
-            items=draw(
+            blocks=draw(
                 st.lists(
                     _leaf_blocks().filter(lambda b: isinstance(b, ListItem)),
                     max_size=3,
@@ -249,11 +249,11 @@ def blocks(draw: st.DrawFn) -> Block:
             ),
         )
     return Table(
-        rows=draw(
+        blocks=draw(
             st.lists(
                 st.builds(
                     TableRow,
-                    cells=st.lists(
+                    blocks=st.lists(
                         _leaf_blocks().filter(lambda b: isinstance(b, TableCell)),
                         max_size=2,
                     ),

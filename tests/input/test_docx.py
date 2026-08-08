@@ -183,8 +183,8 @@ class TestStructuralBlocks:
         result = parse_docx(path, profile="cn_current", language="zh-CN")
         lists = [b for b in result.blocks if isinstance(b, List)]
         assert len(lists) == 1
-        assert [it.text for it in lists[0].items] == ["一项", "二项", "三项"]
-        assert all(isinstance(it, ListItem) for it in lists[0].items)
+        assert [it.text for it in lists[0].blocks] == ["一项", "二项", "三项"]
+        assert all(isinstance(it, ListItem) for it in lists[0].blocks)
 
     def test_empty_list_item_keeps_its_slot(self, tmp_path: Path) -> None:
         # An authored empty list item (a bullet / number line with no text)
@@ -199,8 +199,8 @@ class TestStructuralBlocks:
         result = parse_docx(path, profile="cn_current", language="zh-CN")
         lists = [b for b in result.blocks if isinstance(b, List)]
         assert len(lists) == 1
-        assert [it.text for it in lists[0].items] == ["一项", "", "三项"]
-        assert all(isinstance(it, ListItem) for it in lists[0].items)
+        assert [it.text for it in lists[0].blocks] == ["一项", "", "三项"]
+        assert all(isinstance(it, ListItem) for it in lists[0].blocks)
 
     def test_table_with_two_rows(self, tmp_path: Path) -> None:
         path, doc = _make_docx(tmp_path)
@@ -214,10 +214,10 @@ class TestStructuralBlocks:
         result = parse_docx(path, profile="cn_current", language="zh-CN")
         tables = [b for b in result.blocks if isinstance(b, Table)]
         assert len(tables) == 1
-        rows = tables[0].rows
+        rows = tables[0].blocks
         assert len(rows) == 2
-        assert [c.text for c in rows[0].cells] == ["甲", "乙"]
-        assert [c.text for c in rows[1].cells] == ["丙", "丁"]
+        assert [c.text for c in rows[0].blocks] == ["甲", "乙"]
+        assert [c.text for c in rows[1].blocks] == ["丙", "丁"]
 
     def test_nested_table_cell_content_preserved(self, tmp_path: Path) -> None:
         # A table nested inside a cell must not vanish — its inner cells'
@@ -235,7 +235,7 @@ class TestStructuralBlocks:
         result = parse_docx(path, profile="cn_current", language="zh-CN")
         tables = [b for b in result.blocks if isinstance(b, Table)]
         assert len(tables) == 1
-        cell_text = tables[0].rows[0].cells[0].text or ""
+        cell_text = tables[0].blocks[0].blocks[0].text or ""
         assert "外层" in cell_text
         assert "内甲" in cell_text
         assert "内乙" in cell_text
@@ -642,7 +642,7 @@ class TestRevisionAndContentControlWrappers:
         tables = [b for b in result.blocks if isinstance(b, Table)]
         assert tables
         cell_text = "\n".join(
-            c.text or "" for row in tables[0].rows for c in row.cells
+            c.text or "" for row in tables[0].blocks for c in row.blocks
         )
         assert "裸行" in cell_text
         assert "插入行" in cell_text
@@ -669,7 +669,7 @@ class TestRevisionAndContentControlWrappers:
         tables = [b for b in result.blocks if isinstance(b, Table)]
         assert tables
         cell_text = "\n".join(
-            c.text or "" for row in tables[0].rows for c in row.cells
+            c.text or "" for row in tables[0].blocks for c in row.blocks
         )
         assert "甲" in cell_text and "乙" in cell_text
 
@@ -1499,9 +1499,9 @@ class TestMathTypeFallback:
 
         ok = "$<math><mi>x</mi></math>$"
         in_table = DocumentIR(
-            blocks=[Table(rows=[TableRow(cells=[TableCell(text=f"前 {ok}")])])]
+            blocks=[Table(blocks=[TableRow(blocks=[TableCell(text=f"前 {ok}")])])]
         )
-        in_list = DocumentIR(blocks=[List(items=[ListItem(text=f"项 {ok}")])])
+        in_list = DocumentIR(blocks=[List(blocks=[ListItem(text=f"项 {ok}")])])
         # One equation OLE, one decoded span (nested) → no retry needed.
         assert _mtef_recovery_needed(in_table, 1) is False
         assert _mtef_recovery_needed(in_list, 1) is False
@@ -1533,7 +1533,7 @@ class TestMathTypeFallback:
         result = parse_docx(path, mathtype_fallback="auto", profile="cn_current", language="zh-CN")
         tables = [b for b in result.blocks if isinstance(b, Table)]
         assert tables
-        cell_text = tables[0].rows[0].cells[0].text or ""
+        cell_text = tables[0].blocks[0].blocks[0].text or ""
         assert "<msup>" in cell_text
 
     def test_auto_mode_retries_when_all_mtef_failed(

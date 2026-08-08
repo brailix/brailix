@@ -42,7 +42,7 @@ def test_default_pipeline_uses_pypinyin_when_available(monkeypatch):
     monkeypatch.setitem(sys.modules, "pypinyin", fake_module)
 
     result = Pipeline(profile="cn_current").translate_text("\u6211")
-    child = result.ir.blocks[0].children[0]
+    child = result.ir.blocks[0].inlines[0]
     codes = {w.code for w in result.warnings}
 
     assert getattr(child, "reading", None) == "wo3"
@@ -69,7 +69,7 @@ def test_default_pipeline_uses_g2pw_when_available(monkeypatch):
     monkeypatch.setitem(sys.modules, "pypinyin", None)
 
     result = Pipeline(profile="cn_current").translate_text("\u6211")
-    child = result.ir.blocks[0].children[0]
+    child = result.ir.blocks[0].inlines[0]
     codes = {w.code for w in result.warnings}
 
     assert getattr(child, "reading", None) == "wo3"
@@ -82,7 +82,7 @@ def test_default_pipeline_falls_back_without_real_backends(monkeypatch):
     monkeypatch.setitem(sys.modules, "pypinyin", None)
 
     result = Pipeline(profile="cn_current").translate_text("\u6211")
-    child = result.ir.blocks[0].children[0]
+    child = result.ir.blocks[0].inlines[0]
 
     assert getattr(child, "reading", None) is None
     assert any(w.code == "MISSING_PINYIN" for w in result.warnings)
@@ -134,7 +134,7 @@ def test_a_multi_char_resolver_reading_reaches_the_ir():
             analyzer="confidence-test",
             resolver="confidence-test",
         ).translate_text("你好")
-        child = result.ir.blocks[0].children[0]
+        child = result.ir.blocks[0].inlines[0]
 
         assert isinstance(child, Word)
         assert child.reading == "ni3 hao3"

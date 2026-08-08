@@ -104,25 +104,25 @@ class TestList:
         lst = doc.blocks[0]
         assert isinstance(lst, List)
         assert not lst.ordered
-        assert [it.text for it in lst.items] == ["一项", "二项", "三项"]
+        assert [it.text for it in lst.blocks] == ["一项", "二项", "三项"]
 
     def test_unordered_list_with_asterisk(self):
         src = "* item one\n* item two"
         doc = parse_markdown(src, profile="cn_current", language="zh-CN")
         assert isinstance(doc.blocks[0], List)
-        assert [it.text for it in doc.blocks[0].items] == ["item one", "item two"]
+        assert [it.text for it in doc.blocks[0].blocks] == ["item one", "item two"]
 
     def test_unordered_list_with_plus(self):
         doc = parse_markdown("+ a\n+ b", profile="cn_current", language="zh-CN")
         assert isinstance(doc.blocks[0], List)
-        assert len(doc.blocks[0].items) == 2
+        assert len(doc.blocks[0].blocks) == 2
 
     def test_ordered_list_with_period(self):
         doc = parse_markdown("1. 一\n2. 二\n3. 三", profile="cn_current", language="zh-CN")
         lst = doc.blocks[0]
         assert isinstance(lst, List)
         assert lst.ordered
-        assert [it.text for it in lst.items] == ["一", "二", "三"]
+        assert [it.text for it in lst.blocks] == ["一", "二", "三"]
 
     def test_ordered_list_with_paren(self):
         doc = parse_markdown("1) first\n2) second", profile="cn_current", language="zh-CN")
@@ -207,16 +207,16 @@ class TestTable:
         t = doc.blocks[0]
         assert isinstance(t, Table)
         # Separator row dropped → 2 content rows.
-        assert len(t.rows) == 2
-        assert [c.text for c in t.rows[0].cells] == ["A", "B"]
-        assert [c.text for c in t.rows[1].cells] == ["1", "2"]
+        assert len(t.blocks) == 2
+        assert [c.text for c in t.blocks[0].blocks] == ["A", "B"]
+        assert [c.text for c in t.blocks[1].blocks] == ["1", "2"]
 
     def test_table_without_separator(self):
         src = "| a | b |\n| c | d |"
         doc = parse_markdown(src, profile="cn_current", language="zh-CN")
         t = doc.blocks[0]
         assert isinstance(t, Table)
-        assert len(t.rows) == 2
+        assert len(t.blocks) == 2
 
     def test_blank_terminates_table(self):
         src = "| a | b |\n\nparagraph"
@@ -258,10 +258,10 @@ class TestTable:
         t = doc.blocks[0]
         assert isinstance(t, Table)
         # header + separator(dropped) + 2 body rows (incl. the all-dash one)
-        assert len(t.rows) == 3
-        assert [c.text for c in t.rows[0].cells] == ["A", "B"]
-        assert [c.text for c in t.rows[1].cells] == ["1", "2"]
-        assert [c.text for c in t.rows[2].cells] == ["-", "-"]
+        assert len(t.blocks) == 3
+        assert [c.text for c in t.blocks[0].blocks] == ["A", "B"]
+        assert [c.text for c in t.blocks[1].blocks] == ["1", "2"]
+        assert [c.text for c in t.blocks[2].blocks] == ["-", "-"]
 
 
 class TestTableParagraphInteraction:
@@ -355,7 +355,7 @@ class TestExactSliceSpans:
         src = "- 甲项\n- 乙项\n\n1. 首项\n2. 次项"
         blocks = self._doc(src).blocks
         for lst in blocks:
-            for item in lst.items:
+            for item in lst.blocks:
                 assert (
                     src[item.span.start : item.span.end] == item.text
                 ), f"item {item.text!r} span {item.span} misses its content"

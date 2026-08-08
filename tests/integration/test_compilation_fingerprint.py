@@ -297,17 +297,17 @@ class TestPopulatedDocConfigInvalidation:
     ) -> None:
         doc = base.parse_text(TEXT)
         out_a = base.translate_document(doc).render("unicode")
-        children_a = doc.blocks[0].children
+        children_a = doc.blocks[0].inlines
         assert children_a  # populated by A
 
         out_b = with_dict.translate_document(doc).render("unicode")
-        assert doc.blocks[0].children is not children_a  # frontend re-ran
+        assert doc.blocks[0].inlines is not children_a  # frontend re-ran
         assert out_b != out_a  # ...and B's user dictionary actually applied
 
         # B's own re-translation now reuses B's children (stamp matches).
-        children_b = doc.blocks[0].children
+        children_b = doc.blocks[0].inlines
         with_dict.translate_document(doc)
-        assert doc.blocks[0].children is children_b
+        assert doc.blocks[0].inlines is children_b
 
     def test_translate_text_ir_is_invalidated_by_different_pipeline(
         self, base: Pipeline, with_dict: Pipeline
@@ -334,18 +334,18 @@ class TestPopulatedDocConfigInvalidation:
         # "re-translation skips the frontend cost" reuse when the configuration
         # is the same one.
         result = base.translate_text(TEXT)
-        children = result.ir.blocks[0].children
+        children = result.ir.blocks[0].inlines
         Pipeline(profile="cn_current").translate_document(result.ir)
-        assert result.ir.blocks[0].children is children
+        assert result.ir.blocks[0].inlines is children
 
     def test_equal_configuration_still_reuses_children(
         self, base: Pipeline
     ) -> None:
         doc = base.parse_text(TEXT)
         base.translate_document(doc)
-        children = doc.blocks[0].children
+        children = doc.blocks[0].inlines
         Pipeline(profile="cn_current").translate_document(doc)
-        assert doc.blocks[0].children is children
+        assert doc.blocks[0].inlines is children
 
     def test_hand_built_children_are_used_as_is(
         self, base: Pipeline, with_dict: Pipeline
@@ -354,16 +354,16 @@ class TestPopulatedDocConfigInvalidation:
         # children are consumed verbatim by every pipeline.
         para = Paragraph(
             text="AB",
-            children=[LatinWord(surface="AB", span=Span(0, 2))],
+            inlines=[LatinWord(surface="AB", span=Span(0, 2))],
         )
         from brailix.ir.document import DocumentIR
 
         doc = DocumentIR(blocks=[para])
-        hand_children = para.children
+        hand_children = para.inlines
         base.translate_document(doc)
-        assert para.children is hand_children
+        assert para.inlines is hand_children
         with_dict.translate_document(doc)
-        assert para.children is hand_children
+        assert para.inlines is hand_children
 
     def test_config_invalidation_clears_the_stamp_with_the_children(
         self, base: Pipeline
@@ -420,7 +420,7 @@ class TestPopulatedDocConfigInvalidation:
         base.translate_document(doc)
         with_dict.translate_document(doc)
         table = next(b for b in doc.blocks if isinstance(b, Table))
-        c1 = table.rows[0].cells[1].children[0]
+        c1 = table.blocks[0].blocks[1].inlines[0]
         assert (c1.span.start, c1.span.end) == (4, 7)  # "CDE" row-local
 
 
@@ -812,7 +812,7 @@ class TestRegistryReRegisterInvalidation:
             )
             block = Paragraph(text="abc")
             first = pipe.translate_block(block)
-            children1 = block.children
+            children1 = block.inlines
             assert children1
 
             # Replace what the language subtag resolves to — that is the name
@@ -820,8 +820,8 @@ class TestRegistryReRegisterInvalidation:
             segmenter_registry.register("zh", _ShoutSegmenter)
 
             second = pipe.translate_block(block)
-            assert block.children is not children1  # stamp invalidated
-            surfaces = "".join(c.surface for c in block.children)
+            assert block.inlines is not children1  # stamp invalidated
+            surfaces = "".join(c.surface for c in block.inlines)
             assert surfaces == "ABC"  # the replacement actually ran
             dots = lambda cb: [  # noqa: E731 — tiny local shorthand
                 c.dots for bb in cb.braille_blocks for c in bb.cells

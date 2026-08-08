@@ -27,7 +27,7 @@ things:
   carry: a ``blocks`` that is not a list, a ``source`` that is not a string,
   a span that is not two integers. Almost everything here raises this one.
 * :class:`TypeError` — that nested node is the wrong *class*: a ``Paragraph``
-  in ``Table.rows``. Raised by
+  among a ``Table``'s rows. Raised by
   :func:`typed_child`, the one check about node identity rather than wire
   shape, and deliberately the same signal a caller assembling the tree in
   code gets for the same mistake.
@@ -124,7 +124,7 @@ def typed_child[NodeT](
     A declared field type is not enforced by anything at runtime: the
     deserializer dispatches on the field *name* and rebuilds whatever the
     payload's own ``type`` tag says it is. So a payload can put a ``Paragraph``
-    in a ``TableRow.cells`` list, and the
+    among a ``TableRow``'s cells, and the
     result type-checks at the dataclass level while breaking every consumer
     that reads the field — the backend writes the wrong cells for it, or none.
 
@@ -132,7 +132,7 @@ def typed_child[NodeT](
     assembling a tree by hand can hand over the node rather than its dict form.
 
     ``label`` names the field in the error the way its own side names things
-    (``"Table.rows"``) and ``kind`` is the word for
+    (``"Table.blocks"``) and ``kind`` is the word for
     what the offending payload claimed to be (``"block"`` / ``"node"``), so one
     implementation still produces each side's diagnostic.
     """

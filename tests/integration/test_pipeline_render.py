@@ -435,7 +435,7 @@ class TestStandaloneResult:
 
         profile = load_profile("cn_current")
         ctx = BackendContext(profile="cn_current")
-        doc = DocumentIR(blocks=[Paragraph(children=[Punct(surface="。")])])
+        doc = DocumentIR(blocks=[Paragraph(inlines=[Punct(surface="。")])])
         braille_doc = translate_document(doc, ctx, profile)
         result = TranslationResult(
             text="。", ir=doc, braille_ir=braille_doc

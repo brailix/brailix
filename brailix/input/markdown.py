@@ -557,7 +557,7 @@ def _consume_list(cur: _LineCursor) -> List:
     start = cur.i
     first_line = cur.peek() or ""
     ordered = _ORDERED_RE.match(first_line) is not None
-    items: list[ListItem] = []
+    items: list[Block] = []  # ListItems; typed as the field is (child_type pins the class)
     while cur.i < len(cur.lines):
         line = cur.peek()
         if line is None or not line.strip():
@@ -592,7 +592,7 @@ def _consume_list(cur: _LineCursor) -> List:
         )
     return List(
         ordered=ordered,
-        items=items,
+        blocks=items,
         span=cur.span_of(start, cur.i),
     )
 
@@ -617,7 +617,7 @@ def _consume_table(cur: _LineCursor) -> Table | None:
     out-of-range line index.
     """
     start = cur.i
-    rows: list[TableRow] = []
+    rows: list[Block] = []  # TableRows; typed as the field is
     consumed: list[str] = []
     end = cur.i
     while end < len(cur.lines):
@@ -642,12 +642,12 @@ def _consume_table(cur: _LineCursor) -> Table | None:
         # all-dashes body row (placeholder ``-`` cells) survives as data.
         if idx <= 1 and all(_TABLE_SEP_CHARS.match(p) for p in parts):
             continue
-        cells = [TableCell(text=p) for p in parts]
-        rows.append(TableRow(cells=cells))
+        cells: list[Block] = [TableCell(text=p) for p in parts]
+        rows.append(TableRow(blocks=cells))
     if not rows:
         return None
     cur.i = end  # commit the consumption now that it is a real table
-    return Table(rows=rows, span=cur.span_of(start, cur.i))
+    return Table(blocks=rows, span=cur.span_of(start, cur.i))
 
 
 def _starts_block(line: str, stripped: str) -> bool:

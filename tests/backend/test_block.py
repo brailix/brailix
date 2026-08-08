@@ -65,33 +65,33 @@ def pipe():
 
 class TestParagraph:
     def test_single_block_returned(self, ctx, profile):
-        para = Paragraph(children=[Word(surface="我", reading="wo3")])
+        para = Paragraph(inlines=[Word(surface="我", reading="wo3")])
         out = expand_block(para, ctx, profile)
         assert len(out) == 1
         assert out[0].block_type == "paragraph"
         assert out[0].cells, "paragraph should produce some cells"
 
     def test_empty_paragraph_returns_block_with_no_cells(self, ctx, profile):
-        out = expand_block(Paragraph(children=[]), ctx, profile)
+        out = expand_block(Paragraph(inlines=[]), ctx, profile)
         assert len(out) == 1
         assert out[0].cells == []
 
     def test_align_flows_to_braille_block(self, ctx, profile):
         para = Paragraph(
-            align="center", children=[Word(surface="我", reading="wo3")]
+            align="center", inlines=[Word(surface="我", reading="wo3")]
         )
         out = expand_block(para, ctx, profile)
         assert out[0].align == "center"
 
     def test_no_align_defaults_to_none(self, ctx, profile):
-        para = Paragraph(children=[Word(surface="我", reading="wo3")])
+        para = Paragraph(inlines=[Word(surface="我", reading="wo3")])
         out = expand_block(para, ctx, profile)
         assert out[0].align is None
 
 
 class TestHeading:
     def test_heading_level_preserved(self, ctx, profile):
-        h = Heading(level=2, children=[Word(surface="题", reading="ti2")])
+        h = Heading(level=2, inlines=[Word(surface="题", reading="ti2")])
         out = expand_block(h, ctx, profile)
         assert out[0].block_type == "heading"
         assert out[0].heading_level == 2
@@ -99,7 +99,7 @@ class TestHeading:
 
 class TestQuote:
     def test_quote_passes_inline_content(self, ctx, profile):
-        q = Quote(children=[Word(surface="他说", reading="ta1 shuo1")])
+        q = Quote(inlines=[Word(surface="他说", reading="ta1 shuo1")])
         out = expand_block(q, ctx, profile)
         assert out[0].block_type == "quote"
         assert out[0].cells
@@ -109,7 +109,7 @@ class TestCodeBlock:
     def test_code_block_returns_one_block(self, ctx, profile):
         # CodeBlock with no children but raw text — backend just emits
         # whatever children are present. Frontend would populate them.
-        cb = CodeBlock(language="python", children=[])
+        cb = CodeBlock(language="python", inlines=[])
         out = expand_block(cb, ctx, profile)
         assert len(out) == 1
         assert out[0].block_type == "code_block"
@@ -135,7 +135,7 @@ class TestCodeBlock:
         cb = CodeBlock(
             language="python",
             text="ignored",
-            children=[CodeInline(surface="a")],
+            inlines=[CodeInline(surface="a")],
         )
         out = expand_block(cb, ctx, profile)
         # One child → one cell from the child path, not from block.text.
@@ -144,7 +144,7 @@ class TestCodeBlock:
 
 class TestImageAlt:
     def test_image_alt_block_type(self, ctx, profile):
-        ia = ImageAlt(children=[Word(surface="图片", reading="tu2 pian4")])
+        ia = ImageAlt(inlines=[Word(surface="图片", reading="tu2 pian4")])
         out = expand_block(ia, ctx, profile)
         assert out[0].block_type == "image_alt"
 
@@ -156,12 +156,12 @@ class TestImageAlt:
 
 class TestFootnote:
     def test_no_ref_yields_plain_block(self, ctx, profile):
-        f = Footnote(children=[Word(surface="附注", reading="fu4 zhu4")])
+        f = Footnote(inlines=[Word(surface="附注", reading="fu4 zhu4")])
         out = expand_block(f, ctx, profile)
         assert out[0].block_type == "footnote"
 
     def test_numeric_ref_prepends_marker(self, ctx, profile):
-        f = Footnote(ref="1", children=[Word(surface="注", reading="zhu4")])
+        f = Footnote(ref="1", inlines=[Word(surface="注", reading="zhu4")])
         out = expand_block(f, ctx, profile)
         roles = [c.role for c in out[0].cells]
         # The marker run should contain a number_sign + footnote_ref cells
@@ -169,7 +169,7 @@ class TestFootnote:
         assert "footnote_ref" in roles
 
     def test_letter_ref_prepends_marker(self, ctx, profile):
-        f = Footnote(ref="a", children=[Word(surface="注", reading="zhu4")])
+        f = Footnote(ref="a", inlines=[Word(surface="注", reading="zhu4")])
         out = expand_block(f, ctx, profile)
         roles = [c.role for c in out[0].cells]
         assert "footnote_ref" in roles
@@ -183,10 +183,9 @@ class TestFootnote:
 class TestList:
     def test_unordered_list_one_block_per_item(self, ctx, profile):
         lst = List(
-            ordered=False,
-            items=[
-                ListItem(children=[Word(surface="一项", reading="yi1 xiang4")]),
-                ListItem(children=[Word(surface="二项", reading="er4 xiang4")]),
+            ordered=False, blocks=[
+                ListItem(inlines=[Word(surface="一项", reading="yi1 xiang4")]),
+                ListItem(inlines=[Word(surface="二项", reading="er4 xiang4")]),
             ],
         )
         out = expand_block(lst, ctx, profile)
@@ -195,8 +194,7 @@ class TestList:
 
     def test_unordered_list_marker_uses_middle_dot(self, ctx, profile):
         lst = List(
-            ordered=False,
-            items=[ListItem(children=[Word(surface="项", reading="xiang4")])],
+            ordered=False, blocks=[ListItem(inlines=[Word(surface="项", reading="xiang4")])],
         )
         out = expand_block(lst, ctx, profile)
         roles = [c.role for c in out[0].cells]
@@ -204,10 +202,9 @@ class TestList:
 
     def test_ordered_list_marker_uses_number(self, ctx, profile):
         lst = List(
-            ordered=True,
-            items=[
-                ListItem(children=[Word(surface="一", reading="yi1")]),
-                ListItem(children=[Word(surface="二", reading="er4")]),
+            ordered=True, blocks=[
+                ListItem(inlines=[Word(surface="一", reading="yi1")]),
+                ListItem(inlines=[Word(surface="二", reading="er4")]),
             ],
         )
         out = expand_block(lst, ctx, profile)
@@ -227,14 +224,14 @@ class TestList:
 
 class TestTable:
     def test_table_one_block_per_row(self, ctx, profile):
-        t = Table(rows=[
-            TableRow(cells=[
-                TableCell(children=[Word(surface="甲", reading="jia3")]),
-                TableCell(children=[Word(surface="乙", reading="yi3")]),
+        t = Table(blocks=[
+            TableRow(blocks=[
+                TableCell(inlines=[Word(surface="甲", reading="jia3")]),
+                TableCell(inlines=[Word(surface="乙", reading="yi3")]),
             ]),
-            TableRow(cells=[
-                TableCell(children=[Word(surface="丙", reading="bing3")]),
-                TableCell(children=[Word(surface="丁", reading="ding1")]),
+            TableRow(blocks=[
+                TableCell(inlines=[Word(surface="丙", reading="bing3")]),
+                TableCell(inlines=[Word(surface="丁", reading="ding1")]),
             ]),
         ])
         out = expand_block(t, ctx, profile)
@@ -242,10 +239,10 @@ class TestTable:
         assert all(b.block_type == "table_row" for b in out)
 
     def test_table_columns_separated_by_blanks(self, ctx, profile):
-        t = Table(rows=[
-            TableRow(cells=[
-                TableCell(children=[Word(surface="甲", reading="jia3")]),
-                TableCell(children=[Word(surface="乙", reading="yi3")]),
+        t = Table(blocks=[
+            TableRow(blocks=[
+                TableCell(inlines=[Word(surface="甲", reading="jia3")]),
+                TableCell(inlines=[Word(surface="乙", reading="yi3")]),
             ]),
         ])
         out = expand_block(t, ctx, profile)
@@ -402,7 +399,7 @@ class TestFootnoteRefEdges:
         # A period has no letter / digit mapping but the punctuation
         # table can spell it. The ref cells come out with role
         # ``footnote_ref`` regardless of which table answered.
-        f = Footnote(ref=".", children=[Word(surface="注", reading="zhu4")])
+        f = Footnote(ref=".", inlines=[Word(surface="注", reading="zhu4")])
         out = expand_block(f, ctx, profile)
         roles = [c.role for c in out[0].cells]
         assert "footnote_ref" in roles
@@ -411,7 +408,7 @@ class TestFootnoteRefEdges:
         # Snowman has no letter / punct / digit mapping in cn_current.
         # The ref helper still produces one cell so the marker position
         # is preserved — but with role ``unknown``.
-        f = Footnote(ref="☃", children=[Word(surface="注", reading="zhu4")])
+        f = Footnote(ref="☃", inlines=[Word(surface="注", reading="zhu4")])
         out = expand_block(f, ctx, profile)
         roles = [c.role for c in out[0].cells]
         assert "unknown" in roles

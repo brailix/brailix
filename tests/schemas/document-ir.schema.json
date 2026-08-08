@@ -69,24 +69,18 @@
         "text": { "type": "string" },
         "span": { "$ref": "#/definitions/span" },
         "align": { "type": "string" },
-        "children": {
+        "inlines": {
           "type": "array",
-          "items": { "$ref": "#/definitions/inline_node" }
+          "items": { "$ref": "#/definitions/inline_node" },
+          "description": "The typed tokens a leaf block's text became."
+        },
+        "blocks": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/block" },
+          "description": "Nested blocks — a list's items, a table's rows, a row's cells. Which block class the entries must be is the owning class's own child_type declaration, enforced in both directions by the loader rather than restated here."
         },
         "level": { "type": "integer" },
         "ordered": { "type": "boolean" },
-        "items": {
-          "type": "array",
-          "items": { "$ref": "#/definitions/block" }
-        },
-        "rows": {
-          "type": "array",
-          "items": { "$ref": "#/definitions/block" }
-        },
-        "cells": {
-          "type": "array",
-          "items": { "$ref": "#/definitions/block" }
-        },
         "ref": { "type": "string" },
         "language": { "type": "string" },
         "source": { "type": "string" },

@@ -48,7 +48,7 @@ def pipe() -> Pipeline:
 
 
 def _children(result):
-    return result.ir.blocks[0].children
+    return result.ir.blocks[0].inlines
 
 
 def _roles(result):

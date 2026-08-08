@@ -78,7 +78,7 @@ def test_data_bk_span_direct_mathml_renders_same_string():
     node = MathInline(surface="x", span=Span(0, 1), source="mathml", math=tree)
     doc = DocumentIR(
         metadata={"language": "zh-CN", "profile": "cn_current"},
-        blocks=[Paragraph(children=[node], span=Span(0, 1))],
+        blocks=[Paragraph(inlines=[node], span=Span(0, 1))],
     )
     braille_doc = translate_document(doc, backend_ctx, profile)
     rendered = renderer_registry.get("unicode").render(braille_doc)
@@ -94,7 +94,7 @@ def test_data_bk_span_overrides_cell_provenance():
     node = MathInline(surface="x", span=Span(0, 1), source="mathml", math=tree)
     doc = DocumentIR(
         metadata={"language": "zh-CN", "profile": "cn_current"},
-        blocks=[Paragraph(children=[node], span=Span(0, 1))],
+        blocks=[Paragraph(inlines=[node], span=Span(0, 1))],
     )
     braille_doc = translate_document(doc, backend_ctx, profile)
     cells = braille_doc.blocks[0].cells
@@ -115,7 +115,7 @@ def test_data_bk_span_malformed_is_silently_ignored():
     node = MathInline(surface="x", span=Span(0, 1), source="mathml", math=tree)
     doc = DocumentIR(
         metadata={"language": "zh-CN", "profile": "cn_current"},
-        blocks=[Paragraph(children=[node], span=Span(0, 1))],
+        blocks=[Paragraph(inlines=[node], span=Span(0, 1))],
     )
     braille_doc = translate_document(doc, backend_ctx, profile)
     rendered = renderer_registry.get("unicode").render(braille_doc)

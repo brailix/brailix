@@ -254,6 +254,6 @@ class TestALeftoverDirectoryIsNotTheEngine:
         try:
             pipe = Pipeline(profile="cn_current", resolver="null")
             result = pipe.translate_text("实数系的连续性")
-            assert result.ir.blocks[0].children, "the block never populated"
+            assert result.ir.blocks[0].inlines, "the block never populated"
         finally:
             analyzer_registry.clear_cache()

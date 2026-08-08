@@ -172,7 +172,7 @@ def _leaves(blocks: Iterable[Block]) -> Iterator[Block]:
     """
     for b in blocks:
         if isinstance(b, ListBlock):
-            yield from b.items
+            yield from b.blocks
         else:
             yield b
 
@@ -315,8 +315,8 @@ class TestSpecialBlockLeafLocalSpans:
             language="python", text=text, span=Span(offset, offset + len(text))
         )
         cb = pipe.translate_block(blk)
-        assert len(blk.children) == 1
-        assert blk.children[0].span == Span(0, len(text))
+        assert len(blk.inlines) == 1
+        assert blk.inlines[0].span == Span(0, len(text))
         # The punct path walks the carrier span one character at a time, so
         # the document offset would have shown up on every cell.
         assert [c.source_span for c in cb.braille_blocks[0].cells] == [

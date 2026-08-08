@@ -96,7 +96,7 @@ def _is_populated(block: _Any) -> bool:
     """
     if isinstance(block, EmbeddedBlock):
         return block.tree is not None or block.tree_text is not None
-    return bool(block.children)
+    return bool(block.inlines)
 
 
 def _populated_from(block: _Any) -> str | None:
@@ -124,12 +124,16 @@ def _shift_node_spans(node: _Any, delta: int) -> None:
 
     Inline nodes / blocks are mutable (``frozen=False`` slots dataclasses) and
     ``Span`` is immutable, so each shift assigns a fresh ``Span``.  Nodes
-    without provenance (``span is None``) are left untouched."""
+    without provenance (``span is None``) are left untouched.
+
+    Both of a block's content fields are walked, since either can hold spans a
+    rebase has to move; an inline node has neither and stops the recursion."""
     span = getattr(node, "span", None)
     if span is not None:
         node.span = span.shift(delta)
-    for child in getattr(node, "children", ()) or ():
-        _shift_node_spans(child, delta)
+    for attr in ("inlines", "blocks"):
+        for child in getattr(node, attr, ()) or ():
+            _shift_node_spans(child, delta)
 
 
 def _table_cell_source_len(cell: _Any) -> int:
@@ -141,7 +145,7 @@ def _table_cell_source_len(cell: _Any) -> int:
     shifts), so re-translating an already-populated table stays idempotent."""
     if cell.text:
         return len(cell.text)
-    return sum(len(getattr(child, "surface", "")) for child in cell.children)
+    return sum(len(getattr(node, "surface", "")) for node in cell.inlines)
 
 
 # ---------------------------------------------------------------------------
@@ -276,11 +280,11 @@ class FrontendDriver:
         from brailix.ir.document import Table
 
         if isinstance(block, ListBlock):
-            for item in block.items:
+            for item in block.blocks:
                 self.populate_block(item, ctx, tree_in=tree_in, tree_out=tree_out)
             return
         if isinstance(block, Table):
-            for row in block.rows:
+            for row in block.blocks:
                 self._populate_row(row, ctx, tree_in=tree_in, tree_out=tree_out)
             return
         self._heal_stale_children(block)
@@ -288,11 +292,11 @@ class FrontendDriver:
         # Leaf block.  Populate from raw ``text`` only when it's present and
         # nothing has filled the block in yet; the per-kind handlers in
         # :mod:`brailix.pipeline._populate` differ only in *how* they populate.
-        # "Filled in" is ``children`` for a text block and ``tree`` for an
+        # "Filled in" is ``inlines`` for a text block and ``tree`` for an
         # embedded one — the two places a block's content can live.
         if block.text and not _is_populated(block):
             populate_leaf(self, block, ctx, tree_in=tree_in, tree_out=tree_out)
-            # Stamp the configuration that built these children so a later
+            # Stamp the configuration that built this content so a later
             # populate under a different configuration rebuilds them (see
             # :meth:`_heal_stale_children`).  After the populate, so a
             # strict-mode abort can't leave a stamped-but-empty block.
@@ -357,13 +361,13 @@ class FrontendDriver:
         "used as-is" contract: there is no anchor to rebase against.
         """
         cell_offset = 0
-        for cell in row.cells:
-            # Heal BEFORE reading the children: a stale cell (edited text /
+        for cell in row.blocks:
+            # Heal BEFORE reading the inlines: a stale cell (edited text /
             # other configuration) is dropped here and rebuilt by the
-            # recursive call below, and the rebuilt children need the same
+            # recursive call below, and the rebuilt nodes need the same
             # rebase a fresh populate gets.
             self._heal_stale_children(cell)
-            if cell.text is not None and not cell.children:
+            if cell.text is not None and not cell.inlines:
                 # About to (re)populate from ``text``: any span still on the
                 # cell describes a previous compile's text at a previous
                 # offset.  Drop it so ``_ensure_block_span`` rebuilds a
@@ -444,7 +448,7 @@ class FrontendDriver:
         ``tree`` and the ``tree_text`` recording what that tree was parsed
         from; every other block's is its ``children``.
         """
-        block.children = []
+        block.inlines = []
         block.frontend_fingerprint = None
         if isinstance(block, EmbeddedBlock):
             block.tree = None

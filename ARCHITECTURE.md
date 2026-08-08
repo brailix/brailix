@@ -270,17 +270,20 @@ Five IRs in two groups. Three describe the document, coarse to fine: block-level
 
 ```json
 {
-  "version": "1.0",
+  "version": "2.0",
   "type": "document",
   "metadata": {"language": "zh-CN", "profile": "cn_current"},
   "blocks": [
-    {"id": "b1", "type": "heading", "level": 1, "children": [...]},
-    {"id": "b2", "type": "paragraph", "children": [...]}
+    {"id": "b1", "type": "heading", "level": 1, "inlines": [...]},
+    {"id": "b2", "type": "paragraph", "inlines": [...]},
+    {"id": "b3", "type": "list", "ordered": false, "blocks": [...]}
   ]
 }
 ```
 
-Block types: `heading / paragraph / list / list_item / table / table_row / table_cell / quote / footnote / code_block / math_block / score / music_block / image_alt / graphic`. (`score` is a whole score, `ScoreBlock`; `music_block` a single passage, `MusicBlock` — both filled through the same children-carrier pattern as `MathBlock`. `graphic` is a tactile graphic, `GraphicBlock`, whose source is SVG, a primitives spec or a figure spec, carried the same way; it is the one block that does not translate to braille cells, rasterizing instead into a `TactileRaster` — see §5.3 and §8.)
+Block types: `heading / paragraph / list / list_item / table / table_row / table_cell / quote / footnote / code_block / math_block / score / music_block / image_alt / graphic`. (`score` is a whole score, `ScoreBlock`; `music_block` a single passage, `MusicBlock` — both share `EmbeddedBlock` with `MathBlock` and `GraphicBlock`, holding their normalized tree on the block's own `tree`. `graphic` is a tactile graphic, `GraphicBlock`, whose source is SVG, a primitives spec or a figure spec; it is the one block that does not translate to braille cells, rasterizing instead into a `TactileRaster` — see §5.3 and §8.)
+
+**A block has two kinds of content, one field each.** `inlines` are the typed tokens a leaf block's text became; `blocks` are nested blocks — a list's items, a table's rows, a row's cells. Those used to be `children` (inline-only, despite the name) plus a per-class structural field (`List.items`, `Table.rows`, `TableRow.cells`), which made the document two trees wearing one name: everything that walked it had to know which of four field names a given block kept its children under — the serializer, the deserializer, `structure_key`, the frontend driver, the block backend, the surface reconstruction, the front-end's leaf collector. One name for one relationship deletes all of that. *Which* class the nested blocks must be is the owning class's `child_type` (`List` → `ListItem`, `Table` → `TableRow`, `TableRow` → `TableCell`; `None` everywhere else, meaning "holds no nested blocks").
 
 ### 5.2 InlineIR (inline tokens)
 
@@ -506,7 +509,7 @@ Adding any external tool means writing one adapter file: a new tokenizer goes un
 
 To be precise about where that promise holds: for a new tool behind an **existing protocol** — the cases listed above — no core code changes; the adapter file registers itself and a profile (or an explicit option) selects it. Two kinds of extension *do* grow the core, by design: a **new IR node type** must join the backend dispatch table (and its serialization and tests), and a **new domain vertical** — a fifth mediator alongside text, math, music, and graphics — touches orchestration the same way. Adding a whole new *language* sits in between: it is registration-only (no orchestrator branches), but it does mean registering several implementations plus a profile — §12 walks through exactly what it takes.
 
-Put plainly: **the adapter layer is the open extension surface (Registry + Protocol, plug-and-play), while the set of IR node and block types is a repo-internal closed world.** Adding an `InlineNode` or `Block` is a coordinated change across several points (dataclass + registry + serialization + backend dispatch + schema + tests) — a deliberate closed set, not a plugin seam. Serialization is the one of those that is declarative: a block field holding nested blocks is named in the class's own `structural_fields` (field name → the block class its entries must be), and that single declaration is what writes the field out *and* what rebuilds it on the way back, with both directions checking every entry against it — so a tree that serializes is a tree that reloads. A nested field nobody declared makes `to_dict` raise rather than skip it, which is what it used to do — saving succeeded, the JSON was valid, and the field was gone after a reload. The normal move is to fold a new domain into one of the existing mediators (text, math, music, or graphics) and carry it on the nodes already there.
+Put plainly: **the adapter layer is the open extension surface (Registry + Protocol, plug-and-play), while the set of IR node and block types is a repo-internal closed world.** Adding an `InlineNode` or `Block` is a coordinated change across several points (dataclass + registry + serialization + backend dispatch + schema + tests) — a deliberate closed set, not a plugin seam. Serialization is the one of those that is declarative: a block's nested blocks all live in `blocks`, and which class their entries must be is the class's own `child_type` — that single declaration is what writes the field out *and* what rebuilds it on the way back, with both directions checking every entry against it, so a tree that serializes is a tree that reloads. Nested blocks put anywhere else make `to_dict` raise rather than skip them, which is what it used to do — saving succeeded, the JSON was valid, and the field was gone after a reload. The normal move is to fold a new domain into one of the existing mediators (text, math, music, or graphics) and carry it on the nodes already there.
 
 ---
 

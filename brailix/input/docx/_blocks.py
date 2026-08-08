@@ -118,7 +118,7 @@ def _iter_body_blocks(
         ole_blobs = {}
     if image_blobs is None:
         image_blobs = {}
-    pending_list: list[ListItem] = []
+    pending_list: list[Block] = []  # ListItems; typed as the field is
     pending_list_ordered: bool | None = None
 
     def flush_list():
@@ -126,7 +126,7 @@ def _iter_body_blocks(
         if pending_list:
             yield List(
                 ordered=bool(pending_list_ordered),
-                items=pending_list,
+                blocks=pending_list,
             )
             pending_list = []
             pending_list_ordered = None
@@ -993,7 +993,7 @@ def _convert_table(
     chem_detection: bool = False,
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
 ) -> Table:
-    rows: list[TableRow] = []
+    rows: list[Block] = []  # TableRows; typed as the field is
     # Descend transparently through revision-tracking / content-control
     # wrappers, the same way the body walker does — a row or cell wrapped in
     # <w:ins> (inserted) or <w:sdt> (content control) is common in real
@@ -1002,7 +1002,7 @@ def _convert_table(
     for tr in _iter_effective_body_children(tbl):
         if _local(tr.tag) != "tr":
             continue
-        cells: list[TableCell] = []
+        cells: list[Block] = []  # TableCells; typed as the field is
         for tc in _iter_effective_body_children(tr):
             if _local(tc.tag) != "tc":
                 continue
@@ -1015,8 +1015,8 @@ def _convert_table(
                 )
             )
         if cells:
-            rows.append(TableRow(cells=cells))
-    return Table(rows=rows)
+            rows.append(TableRow(blocks=cells))
+    return Table(blocks=rows)
 
 
 def _convert_table_cell(
@@ -1071,8 +1071,8 @@ def _convert_table_cell(
                 chem_detection=chem_detection,
                 image_blobs=image_blobs,
             )
-            for row in nested.rows:
-                for inner_cell in row.cells:
+            for row in nested.blocks:
+                for inner_cell in row.blocks:
                     if inner_cell.text:
                         parts.append(inner_cell.text)
     return TableCell(text="\n".join(p for p in parts if p))

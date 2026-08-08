@@ -288,8 +288,8 @@ class TestTranslateDocument:
 
     def test_multi_block(self, ctx, profile):
         doc = DocumentIR(blocks=[
-            Heading(level=1, children=[Word(surface="一", reading="yi1")]),
-            Paragraph(children=[Word(surface="二", reading="er4")]),
+            Heading(level=1, inlines=[Word(surface="一", reading="yi1")]),
+            Paragraph(inlines=[Word(surface="二", reading="er4")]),
         ])
         bd = translate_document(doc, ctx, profile)
         assert len(bd.blocks) == 2

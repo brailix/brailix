@@ -87,7 +87,7 @@ class TestBlockHash:
     def test_block_with_children_hashes_by_concatenated_surface(self) -> None:
         """Block without raw .text but with populated children hashes
         by the concatenated surface — reflects the source."""
-        b = Paragraph(children=[Word(surface="字")])
+        b = Paragraph(inlines=[Word(surface="字")])
         h_children = block_hash(b, "cn_current")
         h_text = block_hash(Paragraph(text="字"), "cn_current")
         assert h_children == h_text
@@ -111,13 +111,13 @@ class TestBlockHash:
         different key even though the joined surface is identical."""
         ordered = block_hash(
             ListBlock(
-                ordered=True, items=[ListItem(text="甲"), ListItem(text="乙")]
+                ordered=True, blocks=[ListItem(text="甲"), ListItem(text="乙")]
             ),
             "cn_current",
         )
         unordered = block_hash(
             ListBlock(
-                ordered=False, items=[ListItem(text="甲"), ListItem(text="乙")]
+                ordered=False, blocks=[ListItem(text="甲"), ListItem(text="乙")]
             ),
             "cn_current",
         )
@@ -131,11 +131,9 @@ class TestBlockHash:
         the other."""
         from brailix.ir.document import Table, TableCell, TableRow
 
-        two_cells = Table(
-            rows=[TableRow(cells=[TableCell(text="甲"), TableCell(text="乙")])]
+        two_cells = Table(blocks=[TableRow(blocks=[TableCell(text="甲"), TableCell(text="乙")])]
         )
-        one_cell = Table(
-            rows=[TableRow(cells=[TableCell(text="甲 | 乙")])]
+        one_cell = Table(blocks=[TableRow(blocks=[TableCell(text="甲 | 乙")])]
         )
         assert block_hash(two_cells, "cn_current") != block_hash(
             one_cell, "cn_current"
@@ -212,10 +210,10 @@ class TestTranslateBlock:
         assert a.source_hash != b.source_hash
 
     def test_pre_populated_children_skips_frontend(self, pipe: Pipeline) -> None:
-        block = Paragraph(children=[Word(surface="字")])
+        block = Paragraph(inlines=[Word(surface="字")])
         out = pipe.translate_block(block)
-        assert len(out.ir.children) == 1
-        assert out.ir.children[0].surface == "字"
+        assert len(out.ir.inlines) == 1
+        assert out.ir.inlines[0].surface == "字"
 
     def test_heading_translates_to_one_braille_block(
         self, pipe: Pipeline
@@ -230,10 +228,10 @@ class TestTranslateBlock:
     ) -> None:
         """Composite block: 2 list items → 2 braille blocks expansion."""
         items = [
-            ListItem(children=[Word(surface="一")]),
-            ListItem(children=[Word(surface="二")]),
+            ListItem(inlines=[Word(surface="一")]),
+            ListItem(inlines=[Word(surface="二")]),
         ]
-        lst = ListBlock(items=items, ordered=False)
+        lst = ListBlock(blocks=items, ordered=False)
         out = pipe.translate_block(lst)
         assert len(out.braille_blocks) == 2
         for bb in out.braille_blocks:
@@ -290,11 +288,11 @@ class TestIrTransformer:
         survive into the compiled output)."""
 
         def set_pinyin(doc: DocumentIR) -> None:
-            doc.blocks[0].children[0].reading = "yi1"
+            doc.blocks[0].inlines[0].reading = "yi1"
 
-        block = Paragraph(children=[Word(surface="一")])
+        block = Paragraph(inlines=[Word(surface="一")])
         out = pipe.translate_block(block, ir_transformer=set_pinyin)
-        assert out.ir.children[0].reading == "yi1"
+        assert out.ir.inlines[0].reading == "yi1"
 
     def test_no_transformer_is_equivalent_to_none(self, pipe: Pipeline) -> None:
         a = pipe.translate_block(Paragraph(text="字"))
@@ -367,7 +365,7 @@ class TestMathSubcache:
             Paragraph(text="$x^2$ 是"), tree_subcache=cached
         )
         # Same parse result reused → tree is the exact object from the cache.
-        out_tree = second.ir.children[0].math
+        out_tree = second.ir.inlines[0].math
         assert out_tree is cached[key]
         # And it's also threaded into the new compile's subcache for the
         # caller to use next round.
@@ -731,7 +729,7 @@ class TestTreeSubcacheCrossDomain:
         # Feeding the union back in lets a recompile reuse the math tree
         # without the music entry interfering.
         again = pipe.translate_block(Paragraph(text="$x^2$"), tree_subcache=pool)
-        assert again.ir.children[0].math is pool[("math", pipe.fingerprint, "latex", "$x^2$", "")]
+        assert again.ir.inlines[0].math is pool[("math", pipe.fingerprint, "latex", "$x^2$", "")]
 
 
 class TestIrTransformerMeetsTheCacheContract:
@@ -985,7 +983,7 @@ class TestStaleBlockSelfHeal:
         block.text = "你好世界"
         second = pipe.translate_block(block)
         # Children were rebuilt from the NEW text, not the stale "我是".
-        assert "".join(c.surface for c in second.ir.children) == "你好世界"
+        assert "".join(c.surface for c in second.ir.inlines) == "你好世界"
         # ...and the hash tracks the edit. The exact P1-2 symptom was that it
         # did NOT — the reused stale children kept the surface, hence the hash,
         # unchanged, so a cache keyed on it served the old braille.
@@ -996,12 +994,12 @@ class TestStaleBlockSelfHeal:
         "skip the frontend cost" optimization for an unedited block is kept."""
         block = Paragraph(text="我是中国")
         pipe.translate_block(block)
-        first_children = block.children
-        first_child0 = block.children[0]
+        first_children = block.inlines
+        first_child0 = block.inlines[0]
         pipe.translate_block(block)  # re-translate, text unchanged
         # Same child objects — the frontend was not re-run for this block.
-        assert block.children is first_children
-        assert block.children[0] is first_child0
+        assert block.inlines is first_children
+        assert block.inlines[0] is first_child0
 
     def test_editing_score_block_text_reparses(self, pipe: Pipeline) -> None:
         """An embedded block self-heals too: the tree rebuilt from the edited
@@ -1041,7 +1039,7 @@ class TestEditToEmptySelfHeal:
         # The stale children (and their configuration stamp) are gone, the
         # output is empty, and the cache key tracks the edit — a cache keyed
         # on ``source_hash`` can't serve the old braille for the emptied block.
-        assert block.children == []
+        assert block.inlines == []
         assert block.frontend_fingerprint is None
         assert sum(len(b.cells) for b in second.braille_blocks) == 0
         assert second.source_hash != first.source_hash
@@ -1053,7 +1051,7 @@ class TestEditToEmptySelfHeal:
         assert sum(len(b.cells) for b in first.braille_blocks) > 0
         block.text = ""
         second = pipe.translate_block(block)
-        assert block.children == []
+        assert block.inlines == []
         assert sum(len(b.cells) for b in second.braille_blocks) == 0
         assert second.source_hash != first.source_hash
 
@@ -1062,17 +1060,16 @@ class TestEditToEmptySelfHeal:
         first = pipe.translate_block(block)
         block.text = ""
         second = pipe.translate_block(block)
-        assert block.children == []
+        assert block.inlines == []
         assert second.source_hash != first.source_hash
 
     def test_table_cell_emptied(self, pipe: Pipeline) -> None:
-        table = Table(
-            rows=[TableRow(cells=[TableCell(text="甲"), TableCell(text="乙")])]
+        table = Table(blocks=[TableRow(blocks=[TableCell(text="甲"), TableCell(text="乙")])]
         )
         first = pipe.translate_block(table)
-        table.rows[0].cells[0].text = ""
+        table.blocks[0].blocks[0].text = ""
         second = pipe.translate_block(table)
-        assert table.rows[0].cells[0].children == []
+        assert table.blocks[0].blocks[0].inlines == []
         assert second.source_hash != first.source_hash
         # The row still renders the surviving cell.
         assert sum(len(b.cells) for b in second.braille_blocks) > 0
@@ -1084,7 +1081,7 @@ class TestEditToEmptySelfHeal:
         pipe.translate_block(block)
         block.text = "新内容"
         third = pipe.translate_block(block)
-        assert "".join(c.surface for c in third.ir.children) == "新内容"
+        assert "".join(c.surface for c in third.ir.inlines) == "新内容"
         assert sum(len(b.cells) for b in third.braille_blocks) > 0
 
     def test_hand_built_children_with_no_text_still_used_as_is(
@@ -1092,10 +1089,10 @@ class TestEditToEmptySelfHeal:
     ) -> None:
         """The empty-string rule must not eat the hand-built contract:
         ``text=None`` has no authoritative source, children stay."""
-        block = Paragraph(children=[Word(surface="字")])
+        block = Paragraph(inlines=[Word(surface="字")])
         out = pipe.translate_block(block)
-        assert len(out.ir.children) == 1
-        assert out.ir.children[0].surface == "字"
+        assert len(out.ir.inlines) == 1
+        assert out.ir.inlines[0].surface == "字"
 
 
 # ---------------------------------------------------------------------------
@@ -1119,7 +1116,7 @@ class TestPipelineParseText:
         assert isinstance(doc.blocks[0], Paragraph)
         assert doc.blocks[0].text == "我在重庆"
         # Parse-only — frontend hasn't run yet.
-        assert doc.blocks[0].children == []
+        assert doc.blocks[0].inlines == []
 
     def test_markdown_format_parses_headings(self, pipe: Pipeline) -> None:
         doc = pipe.parse_text("# 标题\n\n段落", format="markdown")
@@ -1155,7 +1152,7 @@ class TestPipelineParseText:
         assert score.source == "musicxml"
         assert score.text == _SCORE_XML
         # Parse-only — the music frontend hasn't run yet.
-        assert score.children == []
+        assert score.inlines == []
         # Same metadata stamping as the other parse_text formats.
         assert doc.metadata.get("profile") == "cn_current"
 

@@ -50,15 +50,15 @@ class TestConstruction:
         p = Paragraph(text="我在重庆。")
         assert p.type == "paragraph"
         assert p.text == "我在重庆。"
-        assert p.children == []
+        assert p.inlines == []
 
     def test_paragraph_with_children(self):
-        p = Paragraph(children=[
+        p = Paragraph(inlines=[
             Word(surface="我", reading="wo3", span=Span(0, 1)),
             Word(surface="在", reading="zai4", span=Span(1, 2)),
             Punct(surface="。", span=Span(2, 3)),
         ])
-        assert len(p.children) == 3
+        assert len(p.inlines) == 3
 
     def test_heading_with_level(self):
         h = Heading(level=2, text="第二章")
@@ -74,12 +74,12 @@ class TestConstruction:
 
     def test_score_block_with_source(self):
         # ScoreBlock holds only source — MusicXML tree lives in
-        # children=[MusicInline(score=tree)], filled by the pipeline
+        # inlines=[MusicInline(score=tree)], filled by the pipeline
         # mirrors MathBlock → MathInline.
         s = ScoreBlock(text="1=C 4/4 | 1 2 3 - |", source="jianpu")
         assert s.type == "score"
         assert s.source == "jianpu"
-        assert s.children == []
+        assert s.inlines == []
 
     def test_music_block_with_source(self):
         m = MusicBlock(text="<music-error/>", source="musicxml")
@@ -96,11 +96,11 @@ class TestSerializationParagraph:
         d = Paragraph(text="hi", id="b1").to_dict()
         assert d == {"type": "paragraph", "id": "b1", "text": "hi"}
 
-    def test_children_only(self):
-        p = Paragraph(children=[Word(surface="我", reading="wo3")])
+    def test_inlines_only(self):
+        p = Paragraph(inlines=[Word(surface="我", reading="wo3")])
         d = p.to_dict()
         assert d["type"] == "paragraph"
-        assert d["children"] == [{"type": "word", "surface": "我", "reading": "wo3"}]
+        assert d["inlines"] == [{"type": "word", "surface": "我", "reading": "wo3"}]
 
 
 class TestSerializationAlign:
@@ -131,27 +131,26 @@ class TestStructureKey:
     def test_list_ordering_in_key(self):
         items = [ListItem(text="a"), ListItem(text="b")]
         assert (
-            List(ordered=False, items=list(items)).structure_key()
-            != List(ordered=True, items=list(items)).structure_key()
+            List(ordered=False, blocks=list(items)).structure_key()
+            != List(ordered=True, blocks=list(items)).structure_key()
         )
 
     def test_container_shape_in_key(self):
         assert (
-            List(items=[ListItem(text="a")]).structure_key()
-            != List(
-                items=[ListItem(text="a"), ListItem(text="b")]
+            List(blocks=[ListItem(text="a")]).structure_key()
+            != List(blocks=[ListItem(text="a"), ListItem(text="b")]
             ).structure_key()
         )
         assert (
-            Table(rows=[TableRow()]).structure_key()
-            != Table(rows=[TableRow(), TableRow()]).structure_key()
+            Table(blocks=[TableRow()]).structure_key()
+            != Table(blocks=[TableRow(), TableRow()]).structure_key()
         )
 
     def test_nested_container_shape_in_key(self):
         # Row count alone can't tell a 2-column row from a 1-column row; the
         # key recurses into nested blocks so column shape is captured too.
-        two_cols = Table(rows=[TableRow(cells=[TableCell(), TableCell()])])
-        one_col = Table(rows=[TableRow(cells=[TableCell()])])
+        two_cols = Table(blocks=[TableRow(blocks=[TableCell(), TableCell()])])
+        one_col = Table(blocks=[TableRow(blocks=[TableCell()])])
         assert two_cols.structure_key() != one_col.structure_key()
 
     def test_align_and_source_in_key(self):
@@ -173,16 +172,19 @@ class TestStructureKey:
 
 class TestTypedChildValidation:
     """JSON round-trips must reject obviously wrong child types instead
-    of silently swallowing them — otherwise downstream consumers
-    introspecting ``cells[i]`` or ``items[i]`` would crash mysteriously."""
+    of silently swallowing them — otherwise downstream consumers walking a
+    row's cells would crash mysteriously.
+
+    What each entry must be is the owning class's ``child_type``; the field
+    name is ``blocks`` whatever the container."""
 
     def test_list_with_non_listitem_item_raises(self):
         payload = {
             "type": "list",
             "ordered": False,
-            # A Paragraph slipped into items[] — must be rejected, not
+            # A Paragraph slipped into a list's items — must be rejected, not
             # silently kept as a ListItem-shaped impostor.
-            "items": [{"type": "paragraph", "text": "wrong"}],
+            "blocks": [{"type": "paragraph", "text": "wrong"}],
         }
         with pytest.raises(TypeError, match="ListItem"):
             block_from_dict(payload)
@@ -190,7 +192,7 @@ class TestTypedChildValidation:
     def test_table_with_non_tablerow_row_raises(self):
         payload = {
             "type": "table",
-            "rows": [{"type": "paragraph", "text": "wrong"}],
+            "blocks": [{"type": "paragraph", "text": "wrong"}],
         }
         with pytest.raises(TypeError, match="TableRow"):
             block_from_dict(payload)
@@ -198,46 +200,54 @@ class TestTypedChildValidation:
     def test_tablerow_with_non_tablecell_raises(self):
         payload = {
             "type": "table",
-            "rows": [
-                {"type": "table_row", "cells": [{"type": "paragraph", "text": "x"}]},
+            "blocks": [
+                {"type": "table_row", "blocks": [{"type": "paragraph", "text": "x"}]},
             ],
         }
         with pytest.raises(TypeError, match="TableCell"):
             block_from_dict(payload)
 
-    def test_block_children_with_block_entry_raises_on_to_dict(self):
-        # ``children`` is typed list[InlineNode]; a structural Block (e.g.
-        # ListItem) belongs in items/cells/rows. to_dict can serialise a
-        # block child (every Block has to_dict), but block_from_dict rebuilds
-        # children via the *inline* registry and would KeyError on the block
-        # tag — to_dict/from_dict would not be inverses. Reject at the source
-        # so the breakage surfaces where the bad tree is built, not on reload.
-        p = Paragraph(children=[ListItem(text="wrong")])
+    def test_a_block_that_declares_no_child_type_refuses_nested_blocks(self):
+        # A paragraph has no nested blocks, so a payload giving it some says
+        # nothing about what they are — and the loader has nothing to check
+        # them against. Refuse rather than build a paragraph holding whatever
+        # the payload's tags happened to name.
+        with pytest.raises(TypeError, match="child_type"):
+            block_from_dict(
+                {"type": "paragraph", "blocks": [{"type": "paragraph"}]}
+            )
+
+    def test_block_inlines_with_block_entry_raises_on_to_dict(self):
+        # ``inlines`` is typed list[InlineNode]; a nested Block belongs in
+        # ``blocks``. to_dict can serialise a block (every Block has to_dict),
+        # but block_from_dict rebuilds ``inlines`` via the *inline* registry
+        # and would KeyError on the block tag — to_dict/from_dict would not be
+        # inverses. Reject at the source so the breakage surfaces where the bad
+        # tree is built, not on reload.
+        p = Paragraph(inlines=[ListItem(text="wrong")])
         with pytest.raises(TypeError, match="InlineNode"):
             p.to_dict()
 
 
 class TestBaseToDictSelfConsistency:
-    """``Block.to_dict`` emits JSON-native values and *declared* nested blocks —
-    and refuses anything else nested.
+    """``Block.to_dict`` emits JSON-native values, the two content fields, and
+    refuses anything else nested.
 
-    A subclass that adds a nested-block field and declares nothing used to have
-    that field silently skipped: saving succeeded, the JSON was valid, and the
-    field was gone after a reload. The deserializer was already loud about the
-    mirror case (a nested payload with no branch raises), so the pair could only
-    fail in the direction that loses data. Now the omission surfaces where the
-    tree is built."""
+    A subclass that added a nested-block field of its own used to have it
+    silently skipped: saving succeeded, the JSON was valid, and the field was
+    gone after a reload. There is now one field for nested blocks, so there is
+    nowhere else for them to be — and putting them anywhere else says so."""
 
-    def test_undeclared_nested_field_raises_instead_of_being_dropped(self):
+    def test_a_nested_field_of_its_own_raises_instead_of_being_dropped(self):
         @dataclass(slots=True)
         class _Weird(Block):
             type: ClassVar[str] = "weird"
             kids: list = field(default_factory=list)
 
-        with pytest.raises(TypeError, match="structural_fields"):
+        with pytest.raises(TypeError, match="``blocks``"):
             _Weird(kids=[ListItem(text="x")]).to_dict()
 
-    def test_an_empty_undeclared_field_is_still_fine(self):
+    def test_an_empty_field_of_its_own_is_still_fine(self):
         # Nothing nested is present, so nothing can be lost: an empty list is
         # omitted as a default like any other, and the guard doesn't fire on a
         # field that merely *could* hold blocks.
@@ -248,66 +258,66 @@ class TestBaseToDictSelfConsistency:
 
         assert "kids" not in _Weird().to_dict()
 
-    def test_declaring_the_field_makes_it_round_trip(self):
-        # The declaration drives both directions, so a new container type needs
+    def test_declaring_child_type_makes_blocks_round_trip(self):
+        # One declaration drives both directions, so a new container type needs
         # no serializer of its own — and the entries come back typed.
         @dataclass(slots=True)
         class _Basket(Block):
+            # ``type`` shadows the builtin inside a Block body, so a
+            # ``type[Block]`` annotation written here would index the tag
+            # string — the reason the IR module aliases it at module scope.
             type: ClassVar[str] = "basket"
-            structural_fields: ClassVar[dict] = {"kids": ListItem}
-            kids: list[ListItem] = field(default_factory=list)
+            child_type: ClassVar = ListItem
 
-        d = _Basket(kids=[ListItem(text="x")]).to_dict()
-        assert [k["text"] for k in d["kids"]] == ["x"]
+        d = _Basket(blocks=[ListItem(text="x")]).to_dict()
+        assert [k["text"] for k in d["blocks"]] == ["x"]
         json.dumps(d)
         with _registered_block(_Basket):
             back = block_from_dict(d)
         assert isinstance(back, _Basket)
-        assert [type(k) for k in back.kids] == [ListItem]
-        assert back.kids[0].text == "x"
+        assert [type(k) for k in back.blocks] == [ListItem]
+        assert back.blocks[0].text == "x"
 
-    def test_a_declared_field_holding_a_foreign_block_is_refused(self):
+    def test_blocks_holding_a_foreign_block_is_refused(self):
         # The declaration is enforced on the way back (``_typed_child``), so
         # enforcing it here too is what keeps the two directions agreeing: a
         # Paragraph among the ListItems used to serialise fine and then fail
         # to load, which puts the diagnostic on whoever opens the file rather
         # than on whoever built the tree.
         with pytest.raises(TypeError, match="expects ListItem"):
-            List(items=[Paragraph(text="x")]).to_dict()
+            List(blocks=[Paragraph(text="x")]).to_dict()
 
-    def test_a_declared_field_holding_one_block_is_refused(self):
-        # The declaration promises a list the deserializer can type-check entry
-        # by entry; a bare block would serialise to something it cannot rebuild.
-        @dataclass(slots=True)
-        class _Odd(Block):
-            type: ClassVar[str] = "odd"
-            structural_fields: ClassVar[dict] = {"kid": ListItem}
-            kid: object = None
+    def test_nested_blocks_with_no_child_type_are_refused(self):
+        # Nothing says what they must be, and the loader would refuse to
+        # rebuild them — so writing them is refused too.
+        with pytest.raises(TypeError, match="child_type"):
+            Paragraph(blocks=[ListItem(text="x")]).to_dict()
 
-        with pytest.raises(TypeError, match="not a list of blocks"):
-            _Odd(kid=ListItem(text="x")).to_dict()
-
-    def test_declared_container_emits_and_is_json_native(self):
-        d = List(items=[ListItem(text="a")]).to_dict()
-        assert [it["text"] for it in d["items"]] == ["a"]
+    def test_a_container_emits_and_is_json_native(self):
+        d = List(blocks=[ListItem(text="a")]).to_dict()
+        assert [it["text"] for it in d["blocks"]] == ["a"]
         json.dumps(d)
 
-    def test_every_registered_block_type_round_trips_its_nested_fields(self):
-        """Registry-driven, so a new block type is covered by existing here.
+    def test_every_container_block_type_round_trips_its_nested_blocks(self):
+        """Registry-driven, so a new container type is covered by existing here.
 
-        Each declared nested field is filled with one child of the declared
-        class and the block is round-tripped; the field has to survive with its
-        entries' types intact.
+        Each block that declares a ``child_type`` is given one child of that
+        class and round-tripped; the nesting has to survive with its entries'
+        types intact.
         """
-        for name, cls in _BLOCK_REGISTRY.items():
-            for field_name, child_cls in cls.structural_fields.items():
-                block = cls(**{field_name: [child_cls(text="x")]})
-                back = block_from_dict(block.to_dict())
-                rebuilt = getattr(back, field_name)
-                assert [type(c) for c in rebuilt] == [child_cls], (
-                    f"{name}.{field_name} did not round-trip"
-                )
-                assert rebuilt[0].text == "x"
+        containers = [
+            (name, cls)
+            for name, cls in _BLOCK_REGISTRY.items()
+            if cls.child_type is not None
+        ]
+        assert {n for n, _ in containers} == {"list", "table", "table_row"}
+        for name, cls in containers:
+            block = cls(blocks=[cls.child_type(text="x")])
+            back = block_from_dict(block.to_dict())
+            assert [type(c) for c in back.blocks] == [cls.child_type], (
+                f"{name} did not round-trip its nested blocks"
+            )
+            assert back.blocks[0].text == "x"
 
 
 class TestDocumentIR:
@@ -527,10 +537,10 @@ class TestDeserializeBlockGuard:
 
         assert _deserialize_block_value(Heading, "level", 3) == 3
 
-    def test_registered_structural_field_still_works(self):
+    def test_the_blocks_field_still_works(self):
         from brailix.ir.document import _deserialize_block_value
 
-        rows = _deserialize_block_value(Table, "rows", [{"type": "table_row"}])
+        rows = _deserialize_block_value(Table, "blocks", [{"type": "table_row"}])
         assert isinstance(rows[0], TableRow)
 
 

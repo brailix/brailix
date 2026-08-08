@@ -1236,7 +1236,7 @@ class Pipeline:
             options=self._frontend.frontend_options(),
         )
         children = self._frontend.run_frontend(text, ctx)
-        paragraph = Paragraph(children=children, span=Span(0, len(text)))
+        paragraph = Paragraph(inlines=children, span=Span(0, len(text)))
         doc = DocumentIR(blocks=[paragraph])
         backend_ctx = BackendContext(
             profile=self.profile, mode=RunMode.NORMAL, warnings=warnings
