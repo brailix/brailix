@@ -60,8 +60,8 @@ from brailix.ir.inline import (
     CodeInline,
     Connector,
     Date,
+    DateComponent,
     GraphicInline,
-    HanziMarker,
     InlineNode,
     LatinWord,
     MathInline,
@@ -116,7 +116,7 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
     kind = draw(
         st.sampled_from(
             [
-                "word", "word", "number", "hanzi_marker", "punct",
+                "word", "word", "number", "punct",
                 "latin_word", "latin_word", "code_inline", "phonetic_inline",
                 "space", "connector", "unknown", "math", "music", "graphic",
             ]
@@ -128,8 +128,6 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
         return Word(surface=surface, span=span, reading=draw(_opt_short))
     if kind == "number":
         return Number(surface=surface, span=span)
-    if kind == "hanzi_marker":
-        return HanziMarker(surface=surface, span=span, reading=draw(_opt_short))
     if kind == "punct":
         return Punct(surface=surface, span=span)
     if kind == "latin_word":
@@ -167,6 +165,17 @@ def _leaf_inline_nodes(draw: st.DrawFn) -> InlineNode:
 
 
 @st.composite
+def _date_components(draw: st.DrawFn) -> DateComponent:
+    return DateComponent(
+        digits=draw(st.text(alphabet="0123456789", max_size=4)),
+        digits_span=draw(_spans()),
+        marker=draw(st.one_of(st.none(), st.sampled_from(["年", "月", "日"]))),
+        marker_span=draw(_spans()),
+        reading=draw(_opt_short),
+    )
+
+
+@st.composite
 def inline_nodes(draw: st.DrawFn) -> InlineNode:
     kind = draw(st.sampled_from(["leaf", "leaf", "date"]))
     if kind == "leaf":
@@ -174,7 +183,7 @@ def inline_nodes(draw: st.DrawFn) -> InlineNode:
     return Date(
         surface=draw(_surfaces),
         span=draw(_spans()),
-        parts=draw(st.lists(_leaf_inline_nodes(), max_size=3)),
+        components=draw(st.lists(_date_components(), max_size=3)),
     )
 
 

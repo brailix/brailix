@@ -37,7 +37,7 @@ from brailix.ir.inline import (
     CodeInline,
     Connector,
     Date,
-    HanziMarker,
+    DateComponent,
     InlineNode,
     LatinWord,
     MathInline,
@@ -84,12 +84,11 @@ class _ZhBackend:
 
     def translate_date_marker(
         self,
-        marker: HanziMarker,
-        follows_number: bool,
+        component: DateComponent,
         ctx: BackendContext,
         profile: BrailleProfile,
     ) -> list[BrailleCell]:
-        return zh_backend.translate_date_marker(marker, follows_number, ctx, profile)
+        return zh_backend.translate_date_marker(component, ctx, profile)
 
 
 class _JaBackend:
@@ -103,12 +102,11 @@ class _JaBackend:
 
     def translate_date_marker(
         self,
-        marker: HanziMarker,
-        follows_number: bool,
+        component: DateComponent,
         ctx: BackendContext,
         profile: BrailleProfile,
     ) -> list[BrailleCell]:
-        return ja_backend.translate_date_marker(marker, follows_number, ctx, profile)
+        return ja_backend.translate_date_marker(component, ctx, profile)
 
 
 # Per-language backend registry — the dispatcher routes prose nodes
@@ -130,7 +128,9 @@ _LANGUAGE_NODE_TYPE = Word
 
 
 def _enforce_source_spans(
-    cells: list[BrailleCell], node: InlineNode, origin: str
+    cells: list[BrailleCell],
+    node: InlineNode | DateComponent,
+    origin: str,
 ) -> list[BrailleCell]:
     """Post-condition at a translator boundary: a node that carries a
     ``span`` must come back as cells that ALL carry a ``source_span``.

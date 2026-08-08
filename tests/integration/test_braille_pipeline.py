@@ -16,8 +16,7 @@ from brailix.core.span import Span
 from brailix.ir.document import DocumentIR, Heading, Paragraph
 from brailix.ir.inline import (
     Date,
-    HanziMarker,
-    Number,
+    DateComponent,
     Punct,
     Word,
 )
@@ -166,13 +165,28 @@ class TestHandAnnotatedDocument:
             Date(
                 surface="2026年5月17日",
                 span=Span(2, 12),
-                parts=[
-                    Number(surface="2026", span=Span(2, 6)),
-                    HanziMarker(surface="年", span=Span(6, 7), reading="nian2"),
-                    Number(surface="5", span=Span(7, 8)),
-                    HanziMarker(surface="月", span=Span(8, 9), reading="yue4"),
-                    Number(surface="17", span=Span(9, 11)),
-                    HanziMarker(surface="日", span=Span(11, 12), reading="ri4"),
+                components=[
+                    DateComponent(
+                        digits="2026",
+                        digits_span=Span(2, 6),
+                        marker="年",
+                        marker_span=Span(6, 7),
+                        reading="nian2",
+                    ),
+                    DateComponent(
+                        digits="5",
+                        digits_span=Span(7, 8),
+                        marker="月",
+                        marker_span=Span(8, 9),
+                        reading="yue4",
+                    ),
+                    DateComponent(
+                        digits="17",
+                        digits_span=Span(9, 11),
+                        marker="日",
+                        marker_span=Span(11, 12),
+                        reading="ri4",
+                    ),
                 ],
             ),
             Word(surface="去", reading="qu4", span=Span(12, 13)),

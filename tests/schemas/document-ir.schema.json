@@ -18,7 +18,7 @@
       "properties": {
         "type": {
           "enum": [
-            "word", "number", "hanzi_marker", "date", "punct", "latin_word",
+            "word", "number", "date", "punct", "latin_word",
             "code_inline", "phonetic_inline", "math_inline", "music_inline",
             "graphic_inline", "space", "connector", "unknown"
           ]
@@ -27,12 +27,10 @@
         "span": { "$ref": "#/definitions/span" },
         "reading": { "type": "string" },
         "reason": { "type": "string" },
-        "parts": {
+        "components": {
           "type": "array",
-          "items": { "$ref": "#/definitions/inline_node" }
+          "items": { "$ref": "#/definitions/date_component" }
         },
-        "number": { "$ref": "#/definitions/inline_node" },
-        "unit": { "type": "string" },
         "source": { "type": "string" },
         "math": {
           "type": "string",
@@ -45,6 +43,21 @@
         "svg": {
           "type": "string",
           "description": "Serialized SVG."
+        }
+      }
+    },
+    "date_component": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One <digits><marker> unit of a date (2026年 / 5月). A value object the date holds, not an inline node — no type tag, no registry entry.",
+      "properties": {
+        "digits": { "type": "string" },
+        "digits_span": { "$ref": "#/definitions/span" },
+        "marker": { "type": "string" },
+        "marker_span": { "$ref": "#/definitions/span" },
+        "reading": {
+          "type": "string",
+          "description": "The marker's reading (年 → nián); the digits have none."
         }
       }
     },

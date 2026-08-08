@@ -15,7 +15,7 @@ from brailix.core.config import load_profile
 from brailix.core.context import BackendContext
 from brailix.core.errors import WarningCollector
 from brailix.core.span import Span
-from brailix.ir.inline import Date, HanziMarker, Number, Word
+from brailix.ir.inline import Date, DateComponent, Word
 
 
 def _profile_without_fr_backend(monkeypatch):
@@ -49,7 +49,7 @@ class TestNoLanguageBackend:
         assert [w.code for w in ctx.warnings.warnings] == ["NO_LANGUAGE_BACKEND"]
 
     def test_date_marker_falls_back_with_warning(self, monkeypatch):
-        # The Date's HanziMarker components route to the language backend's
+        # The Date's markers route to the language backend's
         # marker translator; with none registered they degrade to an unknown
         # cell + NO_LANGUAGE_BACKEND, while the Number digits still translate.
         prof = _profile_without_fr_backend(monkeypatch)
@@ -57,9 +57,13 @@ class TestNoLanguageBackend:
         node = Date(
             surface="5月",
             span=Span(0, 2),
-            parts=[
-                Number(surface="5", span=Span(0, 1)),
-                HanziMarker(surface="月", span=Span(1, 2)),
+            components=[
+                DateComponent(
+                    digits="5",
+                    digits_span=Span(0, 1),
+                    marker="月",
+                    marker_span=Span(1, 2),
+                ),
             ],
         )
         cells = translate_date(node, ctx, prof)

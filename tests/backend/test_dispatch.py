@@ -116,7 +116,7 @@ class _SpanlessDateMarkerBackend:
             BrailleCell(dots=(1,), role="zh_final", source_span=node.span)
         ]
 
-    def translate_date_marker(self, marker, follows_number, ctx, profile):
+    def translate_date_marker(self, component, ctx, profile):
         from brailix.ir.braille import BLANK_CELL
 
         return [BLANK_CELL]
@@ -131,14 +131,19 @@ class TestTraceabilityContractAtDateMarker:
         from brailix.backend.dispatch import language_backend_registry
         from brailix.backend.number import translate_date
         from brailix.core.errors import BackendContractError
-        from brailix.ir.inline import Date, HanziMarker
+        from brailix.ir.inline import Date, DateComponent
 
         date = Date(
             surface="5月",
             span=Span(0, 2),
-            parts=[
-                Number(surface="5", span=Span(0, 1)),
-                HanziMarker(surface="月", reading="yue4", span=Span(1, 2)),
+            components=[
+                DateComponent(
+                    digits="5",
+                    digits_span=Span(0, 1),
+                    marker="月",
+                    marker_span=Span(1, 2),
+                    reading="yue4",
+                ),
             ],
         )
         with language_backend_registry.overriding(
@@ -148,7 +153,7 @@ class TestTraceabilityContractAtDateMarker:
                 translate_date(date, ctx, profile)
         message = str(exc_info.value)
         assert "translate_date_marker" in message
-        assert "HanziMarker" in message
+        assert "DateComponent" in message
 
     def test_word_path_alone_would_have_passed(self, ctx, profile):
         # Pins why this needed its own enforcement: the identical plugin
@@ -170,14 +175,11 @@ class TestTraceabilityContractAtDateMarker:
         # promises nothing about the cells built from it.
         from brailix.backend.dispatch import language_backend_registry
         from brailix.backend.number import translate_date
-        from brailix.ir.inline import Date, HanziMarker
+        from brailix.ir.inline import Date, DateComponent
 
         date = Date(
             surface="5月",
-            parts=[
-                Number(surface="5"),
-                HanziMarker(surface="月", reading="yue4"),
-            ],
+            components=[DateComponent(digits="5", marker="月", reading="yue4")],
         )
         with language_backend_registry.overriding(
             "zh", _SpanlessDateMarkerBackend

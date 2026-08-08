@@ -22,8 +22,7 @@ type through a flat table:
     InlineNode (abstract)
       ├── Word              # prose word (any length), with its reading
       ├── Number            # numeric literal
-      ├── HanziMarker       # structural hanzi inside a composite (年/月/日 in a Date)
-      ├── Date              # holds an internal ``parts`` structure
+      ├── Date              # holds an internal ``components`` structure
       ├── Punct
       ├── LatinWord         # Latin / Greek letter run (all-caps included)
       ├── CodeInline
@@ -34,6 +33,11 @@ type through a flat table:
       ├── Space
       ├── Connector         # synthetic connector ⠤: letter↔hanzi compound (x轴 / T恤)
       └── Unknown           # fallback, never lets the pipeline crash
+
+A composite node's internals are **value objects, not nodes**:
+:class:`DateComponent` is a plain record :class:`Date` holds, the way
+:class:`~brailix.core.span.Span` is a record every node holds. Only something a
+consumer dispatches on independently earns a place in the list above.
 """
 
 from __future__ import annotations
@@ -46,7 +50,7 @@ from typing import Any as _Any
 from typing import ClassVar as _ClassVar
 
 from brailix.core._xml import safe_fromstring, strip_namespace
-from brailix.core.span import Span
+from brailix.core.span import Span, merge_spans
 from brailix.ir import _serde
 
 # ---------------------------------------------------------------------------
@@ -117,21 +121,84 @@ class Number(InlineNode):
     type: _ClassVar[str] = "number"
 
 
-@_dataclass(slots=True)
-class HanziMarker(InlineNode):
-    """A single hanzi that plays a structural role inside a composite
-    token, e.g. 年/月/日 (year/month/day) inside a :class:`Date`."""
+@_dataclass(frozen=True, slots=True)
+class DateComponent:
+    """One ``<digits><marker>`` unit of a :class:`Date`: ``2026年``, ``5月``.
 
-    type: _ClassVar[str] = "hanzi_marker"
+    A **value object**, not an :class:`InlineNode`, and the difference is the
+    point. The three markers used to be a public ``HanziMarker`` node type, so
+    a date was a node whose ``parts`` was a ``list[InlineNode]`` that could in
+    principle hold anything, and the marker paid the full price of nodehood —
+    an entry in the inline registry, a wire tag, a slot in the public facade, a
+    recursive typed-child deserializer for ``parts`` — for a thing that has no
+    independent existence. There is no such thing as a loose 年: it is only
+    ever the second half of a date component, and nothing dispatches on it. So
+    it is a **field** of the unit it belongs to, and a date's structure is
+    fixed by its own declaration rather than by a runtime check on a list of
+    arbitrary nodes.
+
+    ``digits`` and ``marker`` keep separate spans because they are separate
+    runs of source text, and the backend needs both: the digits go through the
+    number-sign + digit pipeline, the marker through the profile language's
+    ``translate_date_marker``. ``reading`` is the marker's — the digits have no
+    reading. ``marker`` is ``None`` for a trailing bare-number component; the
+    digits may be empty for a marker with nothing in front of it. Both halves
+    being optional is what lets the component stay the whole model of a date's
+    structure instead of one shape among several.
+    """
+
+    digits: str = ""
+    digits_span: Span | None = None
+    marker: str | None = None
+    marker_span: Span | None = None
+    # The *marker*'s reading (年 → nián), filled by the frontend that built the
+    # date; the digits' pronunciation is the digit table's business.
     reading: str | None = None
+
+    @property
+    def surface(self) -> str:
+        """The source text this component was written as (``"2026年"``)."""
+        return f"{self.digits}{self.marker or ''}"
+
+    @property
+    def span(self) -> Span | None:
+        """The component's extent, or ``None`` when neither half is located.
+
+        Named ``span`` so a component answers the same question an inline node
+        does: the backend's traceability post-condition
+        (:func:`brailix.backend.dispatch._enforce_source_spans`) is applied at
+        the ``translate_date_marker`` boundary too, and it reads this.
+        """
+        return merge_spans(
+            s for s in (self.digits_span, self.marker_span) if s is not None
+        )
+
+    def to_dict(self) -> dict[str, _Any]:
+        d: dict[str, _Any] = {"digits": self.digits}
+        if self.digits_span is not None:
+            d["digits_span"] = list(self.digits_span.to_tuple())
+        if self.marker is not None:
+            d["marker"] = self.marker
+        if self.marker_span is not None:
+            d["marker_span"] = list(self.marker_span.to_tuple())
+        if self.reading is not None:
+            d["reading"] = self.reading
+        return d
 
 
 @_dataclass(slots=True)
 class Date(InlineNode):
-    """A date expression like ``2026年5月17日``."""
+    """A date expression like ``2026年5月17日``, as a list of
+    :class:`DateComponent`\\ s (``2026年`` / ``5月`` / ``17日``).
+
+    The node stays a node — the backend does make date-specific decisions the
+    parts could not express on their own (the blank between components, the
+    number→marker connector, routing the marker through the language backend)
+    — but what it holds is records, not more nodes.
+    """
 
     type: _ClassVar[str] = "date"
-    parts: list[InlineNode] = _field(default_factory=list)
+    components: list[DateComponent] = _field(default_factory=list)
 
 
 @_dataclass(slots=True)
@@ -272,7 +339,6 @@ _INLINE_REGISTRY: dict[str, type[InlineNode]] = {
     for cls in (
         Word,
         Number,
-        HanziMarker,
         Date,
         Punct,
         LatinWord,
@@ -310,8 +376,8 @@ def inline_node_for(type_name: str) -> type[InlineNode]:
 def from_dict(payload: dict[str, _Any]) -> InlineNode:
     """Reconstruct an :class:`InlineNode` from its dict representation.
 
-    Composite types like :class:`Date` recursively deserialize their
-    ``parts`` / ``number`` children.
+    Composite types like :class:`Date` rebuild their ``components`` records
+    on the way through.
     """
     _serde.require_payload_object(payload, "inline")
     type_name = payload.get("type")
@@ -361,7 +427,7 @@ def _strip_xml_namespace(elem: _ET.Element) -> _ET.Element:
 
 
 def _serialize_value(value: _Any) -> _Any:
-    if isinstance(value, InlineNode):
+    if isinstance(value, (InlineNode, DateComponent)):
         return value.to_dict()
     if isinstance(value, list):
         return [_serialize_value(v) for v in value]
@@ -425,35 +491,53 @@ def _deserialize_xml_tree(key: str, value: _Any) -> _ET.Element | None:
     )
 
 
-def _typed_inline_child(
-    field_name: str, payload: _Any, expected: type[InlineNode]
-) -> InlineNode:
-    """Deserialize ``payload`` and verify it is an instance of ``expected``.
+_DATE_COMPONENT_FIELDS: frozenset[str] = frozenset(
+    f.name for f in _fields(DateComponent)
+)
 
-    ``Date.parts`` is declared ``list[InlineNode]``, but the deserializer
-    dispatches on the field *name* and rebuilds whatever each entry's payload
-    said it was — so ``{"type": "date", "parts": ["17日"]}`` would otherwise
-    put a bare string where every consumer walks nodes.
 
-    The check itself is :func:`brailix.ir._serde.typed_child`, shared with the
-    block side; this binds it to the inline node family and its wording.
+def _date_component(payload: _Any) -> DateComponent:
+    """Rebuild one :class:`DateComponent` from its serialized form.
+
+    A flat record, so this is a flat loader: no registry lookup, no type tag,
+    no recursion. That is the whole difference from what ``Date.parts`` needed
+    while the markers were nodes — there, each entry's own payload chose which
+    class to build, so a ``{"type": "date", "parts": ["17日"]}`` could put a
+    bare string (or a Table, or a formula) where every consumer walks date
+    parts, and a typed-child check had to say no at runtime. Here the shape is
+    the declaration's, and the only thing a payload gets to choose is the
+    values.
+
+    An already-built component passes through, so a caller assembling a date in
+    code can hand the record over rather than its dict form — the same courtesy
+    :func:`brailix.ir._serde.typed_child` extends on the node side. Each field
+    is held to its declared type (:func:`~brailix.ir._serde.check_wire_value`),
+    and unknown keys are ignored, matching the forward tolerance
+    :func:`from_dict` gives every node.
     """
-    return _serde.typed_child(
-        payload,
-        expected=expected,
-        factory=from_dict,
-        label=f"inline field {field_name!r}",
-        kind="node",
-    )
+    if isinstance(payload, DateComponent):
+        return payload
+    mapping = _serde.require_payload_object(payload, "date component")
+    kwargs: dict[str, _Any] = {}
+    for key, value in mapping.items():
+        if key not in _DATE_COMPONENT_FIELDS:
+            continue
+        converted = (
+            (None if value is None else Span.from_tuple(value))
+            if key.endswith("_span")
+            else value
+        )
+        kwargs[key] = _serde.check_wire_value(
+            DateComponent, key, converted, "date component"
+        )
+    return DateComponent(**kwargs)
 
 
 def _deserialize_value(key: str, value: _Any) -> _Any:
     if key == "span":
         return None if value is None else Span.from_tuple(value)
-    if key == "parts" and isinstance(value, list):
-        # ``Date.parts`` is declared ``list[InlineNode]``, so any node type is
-        # legal there — what the check adds is that each entry IS a node.
-        return [_typed_inline_child(key, v, InlineNode) for v in value]
+    if key == "components" and isinstance(value, list):
+        return [_date_component(v) for v in value]
     if key in ("math", "score", "svg"):
         return _deserialize_xml_tree(key, value)
     _serde.reject_unhandled_nested_payload(key, value)

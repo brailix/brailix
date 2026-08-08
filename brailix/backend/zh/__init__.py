@@ -29,7 +29,7 @@ from brailix.core.config.zh_ncb_tables import NcbCharOverrides
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
-from brailix.ir.inline import HanziMarker, Word
+from brailix.ir.inline import DateComponent, Word
 
 # The year marker 年 writes directly against its year digits with no
 # number→marker connector (NCB convention); every other date marker
@@ -55,8 +55,7 @@ def translate_word(
 
 
 def translate_date_marker(
-    marker: HanziMarker,
-    follows_number: bool,
+    component: DateComponent,
     ctx: BackendContext,
     profile: BrailleProfile,
 ) -> list[BrailleCell]:
@@ -65,16 +64,18 @@ def translate_date_marker(
     Owns the two Chinese-specific pieces the language-neutral
     :func:`brailix.backend.number.translate_date` skeleton delegates here:
     the number→marker **connector rule** (a connector ⠤ precedes a marker
-    that directly follows a Number, except the year marker 年 — NCB
+    written against digits, except the year marker 年 — NCB
     convention) and the marker's **syllable reading** (via
     :func:`translate_word`, so a missing reading still degrades to a
     MISSING_PINYIN warning + unknown cell, never a crash).
     """
+    marker = component.marker
+    if marker is None:
+        return []
+    span = component.marker_span
     out: list[BrailleCell] = []
-    if follows_number and marker.surface != _YEAR_MARKER:
-        boundary = (
-            Span(marker.span.start, marker.span.start) if marker.span else None
-        )
+    if component.digits and marker != _YEAR_MARKER:
+        boundary = Span(span.start, span.start) if span else None
         out.append(
             BrailleCell(
                 dots=profile.connector,
@@ -85,11 +86,7 @@ def translate_date_marker(
         )
     out.extend(
         translate_word(
-            Word(
-                surface=marker.surface,
-                span=marker.span,
-                reading=marker.reading,
-            ),
+            Word(surface=marker, span=span, reading=component.reading),
             ctx,
             profile,
         )

@@ -50,7 +50,6 @@ from brailix.frontend.zh.tokens import ChineseToken
 from brailix.ir.inline import (
     Connector,
     Date,
-    HanziMarker,
     InlineNode,
     LatinWord,
     MathInline,
@@ -432,7 +431,13 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
     return spaced
 
 
-_CHINESE_NODE_TYPES: tuple[type[InlineNode], ...] = (Word, HanziMarker)
+# A one-member tuple for the same reason as ``_FOREIGN_LETTER_TYPES`` below:
+# what is declared is the membership. It briefly also held ``HanziMarker``,
+# which could never appear here — a date marker is bundled inside a
+# :class:`~brailix.ir.inline.Date` (today, as a field of a
+# :class:`~brailix.ir.inline.DateComponent`) and never reaches this stream as a
+# sibling.
+_CHINESE_NODE_TYPES: tuple[type[InlineNode], ...] = (Word,)
 _FOREIGN_NODE_TYPES: tuple[type[InlineNode], ...] = (LatinWord, MathInline)
 # Normalizer composites — a whole date, its own "word", set off from adjacent
 # Chinese on BOTH sides with a boundary Space: 在2026年 是 在 ⟂ 2026年,
@@ -457,7 +462,7 @@ def insert_cross_kind_boundary_spaces(
     """Insert a synthetic separator at Chinese ↔ Latin/Greek/Math boundaries.
 
     The National Common Braille (NCB) "segment-and-join-words" rule
-    extends across IR-node kinds: a Chinese run (Word / HanziMarker)
+    extends across IR-node kinds: a Chinese run (Word)
     adjacent to a Latin / Greek / Math fragment (LatinWord /
     MathInline) needs a marker between them.
     :func:`tokens_to_inline` handles the within-Chinese case (Word↔Word

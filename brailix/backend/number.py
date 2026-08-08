@@ -30,7 +30,7 @@ from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
-from brailix.ir.inline import Date, HanziMarker, InlineNode, Number
+from brailix.ir.inline import Date, Number
 
 # Role labels for prose number digit runs (the math backend uses
 # "math_digit"); the shared emitter handles the rest.
@@ -58,10 +58,10 @@ def translate_date(node: Date, ctx: BackendContext, profile: BrailleProfile) -> 
     """Date → language-neutral numeric skeleton + delegated markers.
 
     The Date is the one number-family node with a language-specific part:
-    its :class:`HanziMarker` components (年/月/日/号/时/分/秒/…) carry a
-    reading and an orthographic connector rule. This function owns only
-    the **language-neutral skeleton** — each :class:`Number` component
-    runs through the number-sign + digit pipeline, and a word-boundary
+    each :class:`~brailix.ir.inline.DateComponent`'s marker (年/月/日/号/时/分/秒/…)
+    carries a reading and an orthographic connector rule. This function owns
+    only the **language-neutral skeleton** — each component's digits run
+    through the number-sign + digit pipeline, and a word-boundary
     blank separates components (``2026年 5月 17日``, not ``2026年5月17日``) —
     and delegates every marker to the profile language's
     ``LanguageBackend.translate_date_marker`` (resolved through the
@@ -69,12 +69,11 @@ def translate_date(node: Date, ctx: BackendContext, profile: BrailleProfile) -> 
     the connector rule. So no per-language date rule lives in this
     language-neutral module (ARCHITECTURE#arch-language-slots / #arch-boundaries).
 
-    ``follows_number=True`` is passed when the marker directly follows a
-    Number, so the language backend can decide whether a connector ⠤
-    binds the digits to the marker — e.g. 日's leading cell ⠚ matches the
-    digit 0, so ``17日`` needs the joiner to avoid reading as "170"; the
-    Chinese backend exempts 年. A missing marker reading degrades to a
-    warning + unknown cell inside that backend, never a crash.
+    Whether a connector ⠤ binds the digits to the marker is that backend's
+    call, read off the component's own digits — e.g. 日's leading cell ⠚
+    matches the digit 0, so ``17日`` needs the joiner to avoid reading as
+    "170"; the Chinese backend exempts 年. A missing marker reading degrades to
+    a warning + unknown cell inside that backend, never a crash.
     """
     # Local import to avoid the dispatch ↔ number import cycle; the marker
     # translator is resolved by the profile's language, never hard-wired
@@ -95,38 +94,37 @@ def translate_date(node: Date, ctx: BackendContext, profile: BrailleProfile) -> 
     )
 
     out: list[BrailleCell] = []
-    prev: InlineNode | None = None
-    for part in node.parts:
-        if isinstance(part, Number):
-            if isinstance(prev, HanziMarker):
-                # A space separates date components: 年 / 5月 / 17日 are
-                # distinct written units, so the number that starts the
-                # next component takes a word-boundary blank after the
-                # previous marker (年 5月 17日, not 年5月17日).
-                out.append(_component_space_cell(part.span))
-            out.extend(_digits_to_cells(part.surface, part.span, ctx, profile))
-        elif isinstance(part, HanziMarker):
-            if backend is None:
-                out.append(
-                    _unknown_cell(
-                        part.surface,
-                        part.span,
-                        ctx,
-                        code="NO_LANGUAGE_BACKEND",
-                        message=f"no backend registered for language {lang!r}",
-                    )
+    for i, component in enumerate(node.components):
+        if i:
+            # A space separates date components: 2026年 / 5月 / 17日 are
+            # distinct written units, so every component after the first
+            # opens with a word-boundary blank (年 5月 17日, not 年5月17日).
+            out.append(_component_space_cell(component.digits_span))
+        out.extend(
+            _digits_to_cells(
+                component.digits, component.digits_span, ctx, profile
+            )
+        )
+        if component.marker is None:
+            continue
+        if backend is None:
+            out.append(
+                _unknown_cell(
+                    component.marker,
+                    component.marker_span,
+                    ctx,
+                    code="NO_LANGUAGE_BACKEND",
+                    message=f"no backend registered for language {lang!r}",
                 )
-            else:
-                out.extend(
-                    _enforce_source_spans(
-                        backend.translate_date_marker(
-                            part, isinstance(prev, Number), ctx, profile
-                        ),
-                        part,
-                        f"language backend {lang!r} (translate_date_marker)",
-                    )
+            )
+        else:
+            out.extend(
+                _enforce_source_spans(
+                    backend.translate_date_marker(component, ctx, profile),
+                    component,
+                    f"language backend {lang!r} (translate_date_marker)",
                 )
-        prev = part
+            )
     return out
 
 

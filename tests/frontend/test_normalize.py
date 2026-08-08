@@ -12,7 +12,6 @@ from brailix.frontend.segmentation import DefaultSegmenter
 from brailix.ir.document import Paragraph
 from brailix.ir.inline import (
     Date,
-    HanziMarker,
     LatinWord,
     MathInline,
     Number,
@@ -153,34 +152,42 @@ class TestDate:
         assert isinstance(d, Date)
         assert d.surface == "2026年5月17日"
         assert d.span == Span(0, 10)  # 2,0,2,6,年,5,月,1,7,日 = 10 chars
-        # parts: year, 年, month, 月, day, 日
-        assert len(d.parts) == 6
-        assert isinstance(d.parts[0], Number) and d.parts[0].surface == "2026"
-        assert isinstance(d.parts[1], HanziMarker) and d.parts[1].surface == "年"
-        assert d.parts[2].surface == "5"
-        assert d.parts[4].surface == "17"
+        # components: 2026年 / 5月 / 17日
+        assert [(c.digits, c.marker) for c in d.components] == [
+            ("2026", "年"),
+            ("5", "月"),
+            ("17", "日"),
+        ]
         # ARCHITECTURE#arch-boundaries: structural-marker readings are filled by the
         # normalizer (fixed 年→nián etc.), NOT the PinyinResolver — guard
         # that observable result so a deleted/renamed _MARKER_PINYIN can't
         # pass green while the braille silently changes.
-        assert d.parts[1].reading == "nian2"
-        assert d.parts[3].reading == "yue4"
-        assert d.parts[5].reading == "ri4"
+        assert [c.reading for c in d.components] == ["nian2", "yue4", "ri4"]
 
     def test_year_only(self):
         out = _normalize_text("2026年")
         d = out[0]
         assert isinstance(d, Date)
-        assert len(d.parts) == 2
-        assert d.parts[0].surface == "2026"
-        assert d.parts[1].surface == "年"
+        assert [(c.digits, c.marker) for c in d.components] == [("2026", "年")]
 
     def test_year_and_month(self):
         out = _normalize_text("2026年5月")
         d = out[0]
         assert isinstance(d, Date)
-        assert len(d.parts) == 4
-        assert d.parts[2].surface == "5"
+        assert [(c.digits, c.marker) for c in d.components] == [
+            ("2026", "年"),
+            ("5", "月"),
+        ]
+
+    def test_a_missing_month_does_not_swallow_the_day(self):
+        """``2026年17日`` keeps its day: each optional marker is probed on
+        its own, so the month failing to match must not end the scan."""
+        d = _normalize_text("2026年17日")[0]
+        assert isinstance(d, Date)
+        assert [(c.digits, c.marker) for c in d.components] == [
+            ("2026", "年"),
+            ("17", "日"),
+        ]
 
     def test_date_followed_by_hanzi_splits_correctly(self):
         # 日 is peeled off the trailing hanzi_text "日去了重庆"

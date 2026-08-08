@@ -204,7 +204,7 @@ Supporting a new language (Japanese, Korean, and so on) is additive — the orch
 
     Reading either declaration resolves the frontend, so if your language ships behind an optional package of its own, listing it needs that package installed. Nothing breaks without it: `brailix --list-analyzers` reports your language on standard error with the extra to install, prints the rest of the listing, and still exits 0. Keep the registration itself light (register a loader, not an eager import) and the engines behind their own registry, and the weight is paid only when a document is actually translated.
 
-3. **Backend** (`LanguageBackend` protocol) — translate prose nodes into cells by the language's braille rules; register in `backend.dispatch.language_backend_registry`. Two methods, both required: `translate_word` (`Word` — a prose word of any length, single characters included) and `translate_date_marker` (`HanziMarker`). The registry runs a runtime protocol check the first time it resolves your adapter, so one missing method means rejection at `get()` rather than at registration. `translate_date_marker` owns both the marker's reading and whether a joiner cell follows a number — a language with no special date rules still writes an explicit implementation, since there is no inherited default:
+3. **Backend** (`LanguageBackend` protocol) — translate prose nodes into cells by the language's braille rules; register in `backend.dispatch.language_backend_registry`. Two methods, both required: `translate_word` (`Word` — a prose word of any length, single characters included) and `translate_date_marker` (`DateComponent` — one `<digits><marker>` unit of a date, such as `2026年`). The registry runs a runtime protocol check the first time it resolves your adapter, so one missing method means rejection at `get()` rather than at registration. `translate_date_marker` owns both the marker's reading and whether a joiner cell follows the digits — a language with no special date rules still writes an explicit implementation, since there is no inherited default:
 
     ```python
     from brailix.core import BackendContext
@@ -216,9 +216,12 @@ Supporting a new language (Japanese, Korean, and so on) is additive — the orch
         def translate_word(self, node, ctx, profile):
             return _ko_word_to_cells(node, profile)
 
-        def translate_date_marker(self, marker, follows_number, ctx, profile):
-            # No special rule: write the marker the way ordinary prose is written.
-            return _ko_word_to_cells(marker, profile)
+        def translate_date_marker(self, component, ctx, profile):
+            # No special rule: write the marker the way ordinary prose is
+            # written. ``component.digits`` is what a connector rule would
+            # look at; ``component.marker`` / ``.marker_span`` / ``.reading``
+            # are the marker itself.
+            return _ko_marker_to_cells(component, profile)
 
 
     language_backend_registry.register("ko", lambda: KoBackend())
@@ -229,7 +232,7 @@ Supporting a new language (Japanese, Korean, and so on) is additive — the orch
 5. **Resources and profile** — put the rule tables under `resources/<language>/` and write a profile whose `language` points at the new language.
 6. **Boundary pass** (optional) — for cross-kind or word-boundary separators on the assembled inline stream (Chinese spaces hanzi↔Latin; Japanese inserts a number joiner), register a handler in `frontend.boundary_registry` under the language subtag.
 
-The existing IR node set is enough: `Word`, `HanziMarker`, and the language-neutral `reading` field carry an ideographic or a phonetic language without new node types (a single character is a one-character `Word`, not a type of its own). **Japanese is a shipped worked example**: `frontend.ja` (a kana/kanji segmenter, a morphological-analysis subsystem with janome / fugashi / sudachi adapters, and 文節 word-spacing) plus `backend.ja` (kana → cells) plus `resources/ja/` and `profiles/ja_current.json`. The Architecture document's "Adding a language" section walks through each seam in detail.
+The existing IR node set is enough: `Word`, `Date` and the language-neutral `reading` field carry an ideographic or a phonetic language without new node types (a single character is a one-character `Word`, not a type of its own). **Japanese is a shipped worked example**: `frontend.ja` (a kana/kanji segmenter, a morphological-analysis subsystem with janome / fugashi / sudachi adapters, and 文節 word-spacing) plus `backend.ja` (kana → cells) plus `resources/ja/` and `profiles/ja_current.json`. The Architecture document's "Adding a language" section walks through each seam in detail.
 
 ## Packaging an adapter as a separate distribution
 

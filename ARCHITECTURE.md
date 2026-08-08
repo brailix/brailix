@@ -296,11 +296,13 @@ Block types: `heading / paragraph / list / list_item / table / table_row / table
 Inline token types:
 
 ```
-word / number / hanzi_marker / date /
+word / number / date /
 punct / latin_word /
 code_inline / phonetic_inline / math_inline / music_inline / graphic_inline /
 space / connector / unknown
 ```
+
+> What a composite node holds inside is **value objects, not nodes**: a `date` is a list of `DateComponent` records (`digits` + `marker`, each with its own span, plus the marker's reading). The year / month / day markers used to be a public `hanzi_marker` node type, paying for a registry entry, a wire tag, a facade export and a recursive typed-child check on `parts` — while there is no such thing as a loose 年 and nothing dispatches on one. Only something a consumer dispatches on independently earns nodehood.
 
 > A single character is simply a one-character `word` — there is no separate node type for it (both language backends translated it through an identical call, and every consumer discriminated on it alongside `word` anyway); `unknown` keeps the pipeline running on anything else.
 
