@@ -25,7 +25,7 @@ sign at most once, on its first word if that word is lowercase. The
 ``world``). Greek likewise keeps its own script-class sign. What counts
 as "running English" — and what breaks it — is decided by
 :func:`english_run_role`; the dispatcher (``backend.block``) walks the
-inline children and threads the flag.
+block's ``inlines`` and threads the flag.
 
 Examples (cn_current):
 

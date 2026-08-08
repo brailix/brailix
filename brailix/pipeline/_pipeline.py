@@ -353,16 +353,15 @@ class Pipeline:
     # needs to know them (the CLI's ``--help``, a front-end's preferences)
     # reads them off this dataclass rather than keeping a copy that can drift.
     #
-    # Segmenter and normalizer are deliberately NOT fields. They ship one
-    # implementation per language, and which one applies follows from
-    # ``profile.language`` with nothing left to decide — recognising a
-    # writing system is a property of the language, not a strategy with
-    # trade-offs the way picking jieba over HanLP is. A knob whose value is
-    # determined by another field is not configuration; it is a second place
-    # for the same fact to be wrong. Adding a language still registers them
-    # (ARCHITECTURE#arch-language-slots), and a caller who really wants to
-    # name one can still do it through ``ctx.options`` on the frontend
-    # entry points.
+    # Segmentation and normalization are deliberately NOT fields, and no
+    # longer adapter families at all. Recognising a writing system is a
+    # property of the language — it belongs to the LanguageFrontend
+    # ``profile.language`` selects (ARCHITECTURE#arch-language-slots) — and
+    # normalization is the fixed Segment → inline-IR lowering, the same for
+    # every document. Neither is a strategy with trade-offs the way picking
+    # jieba over HanLP is, and a knob whose value is determined by another
+    # field is not configuration; it is a second place for the same fact to
+    # be wrong.
     analyzer: str = "auto"
     resolver: str = "auto"
     # Personal pinyin dictionary (user-authored surface→reading map),
@@ -541,9 +540,10 @@ class Pipeline:
         # ``source_hash`` and stamped onto the blocks this pipeline's
         # frontend populates.
         #
-        # Segmenter / normalizer are absent because they are no longer
-        # configuration: which one runs follows from ``profile.language``,
-        # and the profile's full resolved content is already hashed in.
+        # Segmentation is absent because it is not configuration: which
+        # chunking runs follows from ``profile.language``, whose full resolved
+        # content is already hashed in — and what that subtag resolves to is
+        # covered by the language-frontend registry's generation in the fold.
         self._fingerprint_base = _compilation_fingerprint(
             self._profile,
             mode=normalize_run_mode(self.mode).value,
@@ -653,10 +653,10 @@ class Pipeline:
         The returned ``ir`` is populated through the same lifecycle
         :meth:`translate_document` uses, so it carries the same provenance:
         raw ``text``, plus the :attr:`fingerprint` stamp that says which
-        configuration built its children. Handing it to another pipeline
+        configuration built its content. Handing it to another pipeline
         re-runs the frontend when that pipeline would compile it differently.
         Assembling it here instead — a bare ``Paragraph`` holding only
-        ``children`` — would make it indistinguishable from hand-built IR, the
+        ``inlines`` — would make it indistinguishable from hand-built IR, the
         one shape the population contract reuses verbatim, so a second
         pipeline with its own resolver / user dictionary / profile content
         would emit braille built from THIS pipeline's tokenization and
@@ -818,24 +818,24 @@ class Pipeline:
     def translate_document(self, doc: DocumentIR) -> TranslationResult:
         """Translate a pre-built :class:`DocumentIR` end-to-end.
 
-        Each block is walked: if it carries raw ``text`` and no
-        ``children``, the frontend runs over its text to populate
-        ``children``; if it already has ``children`` they're used as-is
-        (so callers can hand-build IR for tests). Composite containers
-        (List, Table) recurse into their ``items`` / ``rows`` /
-        ``cells`` for the same treatment.
+        Each block is walked: if it carries raw ``text`` and no content
+        yet, the frontend runs over its text to populate it (``inlines``
+        for a text block, ``tree`` for an embedded one); if it is already
+        populated the content is used as-is (so callers can hand-build IR
+        for tests). Composite containers (List, Table, TableRow) recurse
+        into their nested ``blocks`` for the same treatment.
 
         Returns a :class:`TranslationResult` with the populated IR and
         the rendered :class:`BrailleDocument`. The original ``doc`` is
-        **mutated in place** — children are filled where they were
+        **mutated in place** — content is filled where it was
         missing — so subsequent re-translations skip the frontend
         cost. That reuse is guarded by provenance, not just text: blocks
         this (or any) pipeline populated are stamped with its
         :attr:`fingerprint`, and re-translating through a
         differently-configured pipeline (another resolver, user
-        dictionary, profile content...) drops and rebuilds their children
+        dictionary, profile content...) drops and rebuilds their content
         instead of reusing semantic IR built under the old configuration.
-        Hand-built children (never stamped) are used as-is.
+        Hand-built IR (never stamped) is used as-is.
         """
         session = _CompilationSession.begin(self)
         # Stamp the pipeline's identity onto the (possibly hand-built) doc
@@ -897,7 +897,7 @@ class Pipeline:
 
         Braille state does not leak across blocks (ARCHITECTURE#arch-boundaries), so
         compiling block-by-block is sound. The document is **mutated in place**
-        (children filled where missing), like :meth:`translate_document`.
+        (content filled where missing), like :meth:`translate_document`.
         """
         return _compose_document_pages(
             self,
@@ -1123,23 +1123,22 @@ class Pipeline:
         their own override-list salt at the caller layer.
 
         The backend always re-runs; the frontend does not, when it safely can
-        skip: a block that already has ``children`` is treated as already
+        skip: a block that is already populated is treated as already
         frontend-processed and :meth:`FrontendDriver.populate_block`
-        short-circuits over it (the parsed math / music tree can't be rebuilt
-        from flattened children, so re-running would lose it). ``block.text`` is
+        short-circuits over it. ``block.text`` is
         the authoritative raw source, though, so this skip is **guarded**, two
-        ways: if you mutate ``block.text`` on a block whose ``children`` were
+        ways: if you mutate ``block.text`` on a block whose content was
         built from the old text, populate detects the mismatch (the
-        reconstructed child surface no longer equals ``block.text``), drops the
-        stale children, and re-runs the frontend on the current text — so the
+        reconstructed surface no longer equals ``block.text``), drops the
+        stale content, and re-runs the frontend on the current text — so the
         re-compile reflects your edit and ``source_hash`` changes with it,
-        rather than silently reusing stale braille. And if the children were
+        rather than silently reusing stale braille. And if the content was
         populated by a **differently-configured** pipeline (its
         :attr:`fingerprint` differs — another resolver, user dictionary,
-        profile content...), populate likewise drops and rebuilds them, so
+        profile content...), populate likewise drops and rebuilds it, so
         handing one parsed document to two pipelines really compiles it under
-        each one's configuration. Only hand-built children (never stamped by a
-        pipeline) are used as-is, per the hand-built-IR contract. Passing a
+        each one's configuration. Only hand-built IR (never stamped by a
+        pipeline) is used as-is, per the hand-built-IR contract. Passing a
         fresh, unpopulated block each call is still the cheapest path (an
         editing front-end re-parses source into fresh blocks anyway); the
         guards only make reuse *safe*, not free.
@@ -1235,8 +1234,8 @@ class Pipeline:
             warnings=warnings,
             options=self._frontend.frontend_options(),
         )
-        children = self._frontend.run_frontend(text, ctx)
-        paragraph = Paragraph(inlines=children, span=Span(0, len(text)))
+        inlines = self._frontend.run_frontend(text, ctx)
+        paragraph = Paragraph(inlines=inlines, span=Span(0, len(text)))
         doc = DocumentIR(blocks=[paragraph])
         backend_ctx = BackendContext(
             profile=self.profile, mode=RunMode.NORMAL, warnings=warnings

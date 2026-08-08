@@ -27,7 +27,7 @@ type through a flat table:
       ├── LatinWord         # Latin / Greek letter run (all-caps included)
       ├── CodeInline
       ├── PhoneticInline    # IPA transcription; ``surface`` holds the raw phoneme run
-      ├── MathInline        # ``math`` field holds the normalised MathML ET.Element tree
+      ├── MathInline        # ``tree`` field holds the normalised MathML ET.Element
       ├── Space
       ├── Connector         # synthetic connector ⠤: letter↔hanzi compound (x轴 / T恤)
       └── Unknown           # fallback, never lets the pipeline crash
@@ -247,7 +247,7 @@ class MathInline(InlineNode):
     and the dispatcher routes it there like any other token. There were three
     such types — ``MusicInline`` and ``GraphicInline`` beside it — but neither
     of those was ever produced by a frontend at all: they existed only to
-    carry a *block*'s tree in a one-element ``children`` list. The block owns
+    carry a *block*'s tree in a one-element inline list. The block owns
     its tree now (:class:`~brailix.ir.document.EmbeddedBlock`), so there is no
     carrier left to be.
     """

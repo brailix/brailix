@@ -113,14 +113,22 @@ and it is supported too. It comprises exactly:
   two keyed on the language rather than on a source format
   (``language_frontend_registry``, ``boundary_registry``) sit on the
   :mod:`brailix.frontend` facade, and ``renderer_registry`` on
-  :mod:`brailix.renderer`.
+  :mod:`brailix.renderer`;
+* one **shared helper**, because one contract cannot be implemented from
+  scratch responsibly: a ``LanguageFrontend`` has to cut its language's prose
+  out of raw text, and the language-neutral half of that (``$...$`` math
+  islands, IPA regions, digit runs, Latin, Greek, punctuation) is not a thing
+  to re-derive per language. ``brailix.frontend.segmentation`` publishes
+  ``segment_text`` — the chunker, parameterised by a character classifier —
+  and ``char_category``, the built-in classifier a language's own composes
+  with.
 
 Those paths are deeper than the facades above — deliberately, since a registry
 belongs with its subsystem — but they carry the same promise, kept by their own
 exact manifest in the test suite, separate from the end-user one. The two are
 not the same audience and should not move together. The *Extending brailix*
 guide is the how-to; everything else under those subsystems (the concrete
-adapters, the normalizers, the dispatch tables) remains internal.
+adapters, the normalization pass, the dispatch tables) remains internal.
 """
 
 from __future__ import annotations

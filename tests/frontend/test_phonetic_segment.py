@@ -15,11 +15,11 @@ import pytest
 from brailix.core.config import load_profile
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
-from brailix.frontend.normalization import DefaultNormalizer
+from brailix.frontend.normalization import normalize
 from brailix.frontend.segmentation import (
     _IPA_DISTINCT_CHARS,
-    DefaultSegmenter,
     _qualifies_as_phonetic,
+    segment,
 )
 from brailix.ir.document import Paragraph
 from brailix.ir.inline import PhoneticInline
@@ -28,7 +28,7 @@ from brailix.pipeline import Pipeline
 
 def _segs(text: str):
     block = Paragraph(text=text, span=Span(0, len(text)) if text else None)
-    return DefaultSegmenter().segment(block, FrontendContext(profile="cn_current"))
+    return segment(block, FrontendContext(profile="cn_current"))
 
 
 def _phonetic_surfaces(text: str) -> list[str]:
@@ -36,8 +36,7 @@ def _phonetic_surfaces(text: str) -> list[str]:
 
 
 def _normalize(text: str):
-    segs = _segs(text)
-    return DefaultNormalizer().normalize(segs, FrontendContext(profile="cn_current"))
+    return normalize(_segs(text), FrontendContext(profile="cn_current"))
 
 
 # ---------------------------------------------------------------------------

@@ -1,24 +1,32 @@
-"""Text segmenter — module-level entry: :func:`segment`.
+"""Text segmentation — character-class chunking with protected regions.
 
-:func:`segment` is what the orchestrator calls; ``ctx.options["segmenter"]``
-selects which adapter runs, defaulting to :data:`AUTO_SEGMENTER` — the
-delegating adapter that picks by the profile's language, not the
-:class:`DefaultSegmenter` described below.
+The built-in, language-neutral pass, and the chunker every language shares.
+Three names are published:
 
-:data:`segmenter_registry` beside it is **not** an implementation detail: it is
-a documented extension point (``tests/test_public_api.py``'s extension manifest
-pins it, and adding a language means registering a segmenter under its subtag),
-so it carries the same compatibility promise the function does.
+* :func:`segment` — one :class:`~brailix.ir.document.Block` of raw text into
+  typed :class:`~brailix.core.segment.Segment` regions;
+* :func:`segment_text` — the same over a raw string, with the character
+  classifier as a parameter;
+* :func:`char_category` — that classifier's built-in, Han-aware default.
 
-------------------------------------------------------------------
+**Who calls which.** Segmentation is a language's own lexical policy, so the
+orchestrator asks the active language's frontend for it
+(:meth:`brailix.core.protocols.LanguageFrontend.segment`). A language whose
+writing system this module's classifier already covers delegates straight to
+:func:`segment` — Chinese does. One that adds a script calls
+:func:`segment_text` with a classifier of its own, inheriting every
+language-neutral rule below: :mod:`brailix.frontend.ja` folds kana *and* kanji
+into one ``ja_text`` run that way, in six lines. :func:`segment` also runs
+directly when the active language has no frontend at all, so a document in an
+unconfigured language still yields its numbers, Latin, punctuation and math
+islands rather than nothing.
 
-Default text segmenter: character-class chunking with protected regions.
-
-This is the *default* (built-in, dependency-free) implementation of
-the :class:`~brailix.core.protocols.Segmenter` protocol. It is good
-enough for the basic pipeline and serves as a reference for what
-production-grade segmenters (HanLP-based, rule-driven, ML-based) need
-to emit.
+There is no ``segmenter_registry`` and no ``ctx.options["segmenter"]``. A
+second language-keyed registry beside ``language_frontend_registry`` made
+adding a language two registrations that had to agree on the segment type
+names, for the sake of a freedom — a segmenter chosen independently of the
+frontend that consumes its output — naming no combination anyone can use.
+:class:`~brailix.core.protocols.LanguageFrontend` records the collapse.
 
 Strategy:
 
@@ -27,26 +35,25 @@ Strategy:
 2. For the remaining text, group consecutive characters by category
    into Segments: hanzi_text / digit_run / latin_text / punct / space.
 
-Segment types emitted (consumed downstream by Normalizer and
-ChineseAnalyzer):
+Segment types emitted (consumed downstream by
+:mod:`~brailix.frontend.normalization` and ChineseAnalyzer):
 
 * ``hanzi_text``  — CJK Unified Ideographs run.
-* ``digit_run``   — ASCII or fullwidth digit run (Normalizer turns
+* ``digit_run``   — ASCII or fullwidth digit run (normalization turns
   this into ``number`` / ``date``).
 * ``latin_text``  — ASCII letters.
 * ``greek_text``  — Greek alphabet letters (Α-Ω / α-ω + variants
   ϕ ϵ ϑ ϱ ς). Split from latin_text so each script gets its own
   letter-prefix (Greek upper/lower-case sign ⠸/⠨ vs Latin
-  upper/lower-case sign ⠠/⠰) at the head of its run; downstream the
-  Normalizer routes them
-  through the same ``LatinWord`` path because
+  upper/lower-case sign ⠠/⠰) at the head of its run; downstream both
+  route through the same ``LatinWord`` path because
   ``profile.letter()`` already picks the right prefix per character.
 * ``punct``       — any single punctuation char.
 * ``space``       — whitespace run.
 * ``math_inline`` — protected ``$...$`` region.
 * ``math_op``     — a bare math operator / delimiter: a half-width ASCII
   one (``()[]{}+-*/=<>|``) or a non-ASCII Unicode math symbol
-  (category ``Sm``: ``∈`` ``≤`` ``∑`` ``→`` ...); the Normalizer wraps
+  (category ``Sm``: ``∈`` ``≤`` ``∑`` ``→`` ...); normalization wraps
   each into a degenerate ``MathInline``.
 * ``phonetic_inline`` — protected ``/.../`` or ``[...]`` IPA transcription.
 * ``unknown``     — anything we don't classify.
@@ -54,20 +61,22 @@ ChineseAnalyzer):
 
 from __future__ import annotations
 
-from dataclasses import dataclass as _dataclass
+# ``Callable`` is bound at runtime rather than under TYPE_CHECKING: the three
+# functions below are on the public surface and their annotations have to be
+# readable back by an introspector (``tests/test_public_api.py``). Aliased
+# because a foreign name must not answer under a plain one on a brailix
+# module. The brailix imports below are runtime-bound for the same reason.
+from collections.abc import Callable as _Callable
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.chars import fold_fullwidth, is_math_symbol
 from brailix.core.context import FrontendContext
-from brailix.core.protocols import Segmenter
-from brailix.core.registry import Registry
 from brailix.core.segment import Segment
 from brailix.core.span import Span
-from brailix.frontend._language_pick import pick_by_language
 from brailix.ir.document import Block
 
 if _TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Iterator
 
 # ---------------------------------------------------------------------------
 # Protected-region patterns
@@ -164,7 +173,17 @@ def _is_greek(ch: str) -> bool:
     return 0x0370 <= ord(ch) <= 0x03FF and ch.isalpha()
 
 
-def _category(ch: str) -> str:
+def char_category(ch: str) -> str:
+    """The built-in, Han-aware segment category of one character.
+
+    Published because a language's own classifier is a *delta* on this one,
+    never a replacement: :func:`brailix.frontend.ja._chars._ja_category`
+    answers ``ja_text`` for kana and for the characters this one calls
+    ``hanzi_text``, and defers everything else — digits, Latin, Greek,
+    punctuation, whitespace, bare math operators — to here. Re-deriving those
+    per language is how a writing system ends up with math operators falling
+    through to punctuation and a formula rendered as blank cells.
+    """
     if _is_hanzi(ch):
         return "hanzi_text"
     if _is_digit(ch):
@@ -196,35 +215,43 @@ def _category(ch: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Segmenter
+# Entry points
 # ---------------------------------------------------------------------------
 
 
-@_dataclass(slots=True)
-class DefaultSegmenter:
-    """Built-in segmenter with no third-party dependencies."""
+def segment(block: Block, ctx: FrontendContext | None = None) -> list[Segment]:
+    """Cut one :class:`~brailix.ir.document.Block` into Segments, by the
+    built-in language-neutral character classes.
 
-    name: str = "default"
+    ``ctx`` is accepted and unused: this pass reads nothing but the text and
+    its offset, and the parameter is what lets a
+    :class:`~brailix.core.protocols.LanguageFrontend` hand its own context
+    straight through when it delegates here (Chinese does).
+    """
+    text = block.text
+    if not text:
+        return []
+    base = block.span.start if block.span is not None else 0
+    return segment_text(text, base_offset=base)
 
-    def segment(self, block: Block, ctx: FrontendContext | None = None) -> list[Segment]:
-        text = block.text
-        if not text:
-            return []
-        base = block.span.start if block.span is not None else 0
-        return _segment_text(text, base_offset=base)
 
-
-def _segment_text(
+def segment_text(
     text: str,
     base_offset: int = 0,
-    categorize: Callable[[str], str] = _category,
+    categorize: _Callable[[str], str] = char_category,
 ) -> list[Segment]:
-    """Public-ish helper that segments a raw string.
+    """Segment a raw string, classifying each character with ``categorize``.
 
-    ``categorize`` maps a character to its segment category; a language
-    segmenter can pass its own (e.g. the Japanese one adds ``kana_text``)
-    to reuse this chunking. Defaults to the built-in Han-aware
-    :func:`_category`.
+    The reuse seam for a new language: pass a classifier that answers your
+    language's own type for its script and defers to :func:`char_category`
+    for the rest, and this chunking — protected ``$...$`` and IPA regions,
+    digit runs that keep their decimal point, one Segment per punctuation
+    character — comes with it. :mod:`brailix.frontend.ja` is the worked
+    example.
+
+    ``base_offset`` shifts every emitted :class:`~brailix.core.span.Span`, so
+    a block that sits inside a larger document keeps source-accurate
+    provenance.
     """
     if not text:
         return []
@@ -420,15 +447,15 @@ def _segment_unprotected(
     start: int,
     end: int,
     base_offset: int,
-    categorize: Callable[[str], str] = _category,
+    categorize: _Callable[[str], str] = char_category,
 ) -> list[Segment]:
     """Chunk a run of unprotected text by character category.
 
     ``categorize`` classifies each character; pass a language-specific
-    one (the Japanese segmenter adds ``kana_text``) to reuse this
+    one (the Japanese frontend's adds ``ja_text``) to reuse this
     chunking. Special case: a decimal point or comma flanked by digits
     stays inside the digit_run so ``3.5`` and ``1,234`` survive as one
-    segment. Downstream Normalizer relies on this.
+    segment. Downstream normalization relies on this.
     """
     segments: list[Segment] = []
     i = start
@@ -494,67 +521,14 @@ def _segment_unprotected(
     return segments
 
 
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
-
-segmenter_registry: Registry[Segmenter] = Registry("segmenter", protocol=Segmenter)
-
-# What :func:`segment` falls back to when the context names no segmenter —
-# the delegating adapter that picks by the document's language.
-AUTO_SEGMENTER = "auto"
-
-# The built-in, language-neutral segmenter's registered name, kept distinct
-# from the name above: one is what THIS adapter is called, the other is what
-# a caller who names nothing gets. Conflating them makes
-# ``segmenter="default"`` unselectable — passing it reads as "no preference".
-BUILTIN_SEGMENTER = "default"
-
-segmenter_registry.register(BUILTIN_SEGMENTER, DefaultSegmenter)
-
-
-@_dataclass(slots=True)
-class AutoSegmenter:
-    """Delegating segmenter: uses the active language's, else the built-in.
-
-    Mirrors the ``auto`` analyzer / resolver adapters so every pluggable
-    frontend family is selected the same way — a caller that names nothing
-    gets ``auto`` and stops caring which implementations exist. The
-    delegation is resolved per call rather than cached: unlike the engine
-    chains, what this picks depends on the *document* (its language), not on
-    the environment, so there is nothing stable to memoise.
-    """
-
-    name: str = "auto"
-
-    def segment(
-        self, block: Block, ctx: FrontendContext | None = None
-    ) -> list[Segment]:
-        picked = pick_by_language(segmenter_registry, ctx, BUILTIN_SEGMENTER)
-        return segmenter_registry.get(picked).segment(block, ctx)
-
-
-segmenter_registry.register(AUTO_SEGMENTER, AutoSegmenter)
-
-
-def segment(block, ctx: FrontendContext | None = None) -> list[Segment]:
-    """Split one :class:`~brailix.ir.document.Block` into Segments.
-
-    The active segmenter is chosen by ``ctx.options["segmenter"]``,
-    defaulting to :data:`AUTO_SEGMENTER`.
-    Returns the segmenter's output unchanged.
-    """
-    name = AUTO_SEGMENTER
-    if ctx is not None and ctx.options:
-        name = ctx.options.get("segmenter", AUTO_SEGMENTER)
-    return segmenter_registry.get(name).segment(block, ctx)
-
-
-# This module publishes its registry — promised on the **extension surface**
-# (see :mod:`brailix`), which is where a third-party segmenter registers — and
-# the subsystem entry point the orchestrator calls, which the
-# :mod:`brailix.frontend` facade re-exports. The concrete adapters, the
-# adapter-name constants and the character-class helpers are internal; without
-# this list ``from ... import *`` offers all of them, along with ``Block``,
-# ``Segment``, ``Span`` and ``Registry``.
-__all__ = ("segmenter_registry", "segment")
+# This module publishes the pass the frontend runs (:func:`segment`, which the
+# :mod:`brailix.frontend` facade re-exports) plus the two names a language
+# reuses when it writes its own :meth:`LanguageFrontend.segment
+# <brailix.core.protocols.LanguageFrontend.segment>` — those two are on the
+# **extension surface** (see :mod:`brailix`), which is why they lost their
+# leading underscore: the guide cannot in good conscience send an adapter
+# author to a private name. The protected-region scanners, the per-script
+# predicates and the unprotected-run chunker stay internal; without this list
+# ``from ... import *`` offers all of them, along with ``Block``, ``Segment``
+# and ``Span``.
+__all__ = ("segment", "segment_text", "char_category")

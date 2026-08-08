@@ -16,7 +16,7 @@ One extension point is deliberately not registry-selected: an **input format** i
 
 The protocol is `ChineseAnalyzer`: an object with a `name` and an `analyze(text, ctx)` method returning a list of `ChineseToken`.
 
-Import the IR and core types from the shallow facades (`brailix.ir`, `brailix.core`) the way any other caller does — those are the names the [API reference](https://brailix.github.io/brailix/) pins. The protocols and the registries sit deeper, at `brailix.core.protocols` and each subsystem's own path, since a registry belongs with the pluggable family it serves. One core type sits deeper too: `BrailleProfile`, which every `LanguageBackend` method takes, is imported from `brailix.core.config`, the sub-package that owns profile loading. That extension surface carries the same compatibility promise as the facades and is pinned by its own manifest in the test suite, so neither a registry path nor that type can be renamed out from under your adapter — everything else under those subsystems (the built-in adapters, the normalizers, the dispatch tables) stays internal.
+Import the IR and core types from the shallow facades (`brailix.ir`, `brailix.core`) the way any other caller does — those are the names the [API reference](https://brailix.github.io/brailix/) pins. The protocols and the registries sit deeper, at `brailix.core.protocols` and each subsystem's own path, since a registry belongs with the pluggable family it serves. One core type sits deeper too: `BrailleProfile`, which every `LanguageBackend` method takes, is imported from `brailix.core.config`, the sub-package that owns profile loading. So do two helpers a language frontend reuses rather than reimplements — `segment_text` and `char_category`, from `brailix.frontend.segmentation` (see *Add a language*). That extension surface carries the same compatibility promise as the facades and is pinned by its own manifest in the test suite, so neither a registry path nor those names can be renamed out from under your adapter — everything else under those subsystems (the built-in adapters, the normalization pass, the dispatch tables) stays internal.
 
 Each token's `span` is what makes the result traceable: it says which characters of `text` the token was read from, and every braille cell produced from that token inherits those coordinates as the source a proofreader jumps back to. brailix therefore checks the tokens as they come back from your `analyze`, and refuses four things outright with a `FrontendContractError` naming your adapter and the offending token.
 
@@ -189,22 +189,43 @@ A different braille standard is **data, not code**: a profile JSON plus its reso
 
 Supporting a new language (Japanese, Korean, and so on) is additive — the orchestrator stays language-agnostic, and you register at a few seams plus add resources. In brief:
 
-1. **Segmenter** (`Segmenter` protocol) — recognize the writing system and cut prose into typed segments; register in `frontend.segmentation.segmenter_registry` under the language subtag.
-2. **Frontend** (`LanguageFrontend` protocol) — turn a prose run into inline IR (segment, annotate the reading, build nodes); declare the `prose_types` it consumes; register in `frontend.language_frontend_registry`. Two optional declarations make the language visible where a user picks one: `display_name` (the English name a listing shows) and `adapters`, a `{family: () -> list[str]}` mapping naming what can be chosen for this language in each family — `"analyzer"` for the segmentation or morphological engine, `"resolver"` for a reading engine where the language has one. `brailix --list-analyzers` and any engine picker read them through `frontend.list_language_adapters`, so a language that declares them appears there with no change to the front-end:
+1. **Frontend** (`LanguageFrontend` protocol) — one registration carrying both halves of the language, under the language subtag in `frontend.language_frontend_registry`:
+
+    - `segment(block, ctx)` — your language's lexical policy: cut the raw text into typed segments, tagging your own prose with your own type. Do not write a chunker from scratch. `frontend.segmentation.segment_text(text, base_offset, categorize=...)` already handles the language-neutral part — `$...$` math islands, IPA regions, digit runs (decimal point included), Latin, Greek, one segment per punctuation mark — and takes your character classifier as a parameter. A classifier is usually a few lines: claim your script, hand everything else to `frontend.segmentation.char_category`. If the built-in classification already covers your writing system, delegate straight to `frontend.segmentation.segment`.
+    - `process(surface, base, ctx)` — turn one prose run into inline IR (tokenize, annotate the reading, build nodes).
+    - `prose_types` — which segment types are this language's prose. The Pipeline routes a segment back to `process` by this declaration, so the type stays writing-system accurate while routing stays language-driven.
+
+    Two optional declarations make the language visible where a user picks one: `display_name` (the English name a listing shows) and `adapters`, a `{family: () -> list[str]}` mapping naming what can be chosen for this language in each family — `"analyzer"` for the segmentation or morphological engine, `"resolver"` for a reading engine where the language has one. `brailix --list-analyzers` and any engine picker read them through `frontend.list_language_adapters`, so a language that declares them appears there with no change to the front-end:
 
     ```python
+    from brailix.frontend import language_frontend_registry
+    from brailix.frontend.segmentation import char_category, segment_text
+
+
+    def _ko_category(ch):
+        return "hangul_text" if _is_hangul(ch) else char_category(ch)
+
+
     class KoFrontend:
         prose_types = frozenset({"hangul_text"})
         display_name = "Korean"
         # Any zero-argument callable returning the registered names.
         adapters = {"analyzer": ko_analyzer_registry.names}
 
+        def segment(self, block, ctx=None):
+            text = block.text or ""
+            base = block.span.start if block.span is not None else 0
+            return segment_text(text, base_offset=base, categorize=_ko_category)
+
         def process(self, surface, base, ctx): ...
+
+
+    language_frontend_registry.register("ko", lambda: KoFrontend())
     ```
 
-    Reading either declaration resolves the frontend, so if your language ships behind an optional package of its own, listing it needs that package installed. Nothing breaks without it: `brailix --list-analyzers` reports your language on standard error with the extra to install, prints the rest of the listing, and still exits 0. Keep the registration itself light (register a loader, not an eager import) and the engines behind their own registry, and the weight is paid only when a document is actually translated.
+    Both methods are required — the registry runs a runtime protocol check the first time it resolves your adapter, so half a language is rejected at `get()`. Reading either optional declaration also resolves the frontend, so if your language ships behind an optional package of its own, listing it needs that package installed. Nothing breaks without it: `brailix --list-analyzers` reports your language on standard error with the extra to install, prints the rest of the listing, and still exits 0. Keep the registration itself light (register a loader, not an eager import) and the engines behind their own registry, and the weight is paid only when a document is actually translated.
 
-3. **Backend** (`LanguageBackend` protocol) — translate prose nodes into cells by the language's braille rules; register in `backend.dispatch.language_backend_registry`. Two methods, both required: `translate_word` (`Word` — a prose word of any length, single characters included) and `translate_date_marker` (`DateComponent` — one `<digits><marker>` unit of a date, such as `2026年`). The registry runs a runtime protocol check the first time it resolves your adapter, so one missing method means rejection at `get()` rather than at registration. `translate_date_marker` owns both the marker's reading and whether a joiner cell follows the digits — a language with no special date rules still writes an explicit implementation, since there is no inherited default:
+2. **Backend** (`LanguageBackend` protocol) — translate prose nodes into cells by the language's braille rules; register in `backend.dispatch.language_backend_registry`. Two methods, both required: `translate_word` (`Word` — a prose word of any length, single characters included) and `translate_date_marker` (`DateComponent` — one `<digits><marker>` unit of a date, such as `2026年`). The registry runs a runtime protocol check the first time it resolves your adapter, so one missing method means rejection at `get()` rather than at registration. `translate_date_marker` owns both the marker's reading and whether a joiner cell follows the digits — a language with no special date rules still writes an explicit implementation, since there is no inherited default:
 
     ```python
     from brailix.core import BackendContext
@@ -228,11 +249,12 @@ Supporting a new language (Japanese, Korean, and so on) is additive — the orch
     ```
 
     Language-neutral nodes (numbers, punctuation, Latin, math, music) keep going through the shared dispatch.
-4. **Normalizer** (`Normalizer` protocol, as needed) — if the language has its own structural conventions; otherwise reuse the default.
-5. **Resources and profile** — put the rule tables under `resources/<language>/` and write a profile whose `language` points at the new language.
-6. **Boundary pass** (optional) — for cross-kind or word-boundary separators on the assembled inline stream (Chinese spaces hanzi↔Latin; Japanese inserts a number joiner), register a handler in `frontend.boundary_registry` under the language subtag.
+3. **Resources and profile** — put the rule tables under `resources/<language>/` and write a profile whose `language` points at the new language.
+4. **Boundary pass** (optional) — for cross-kind or word-boundary separators on the assembled inline stream (Chinese spaces hanzi↔Latin; Japanese inserts a number joiner), register a handler in `frontend.boundary_registry` under the language subtag.
 
-The existing IR node set is enough: `Word`, `Date` and the language-neutral `reading` field carry an ideographic or a phonetic language without new node types (a single character is a one-character `Word`, not a type of its own). **Japanese is a shipped worked example**: `frontend.ja` (a kana/kanji segmenter, a morphological-analysis subsystem with janome / fugashi / sudachi adapters, and 文節 word-spacing) plus `backend.ja` (kana → cells) plus `resources/ja/` and `profiles/ja_current.json`. The Architecture document's "Adding a language" section walks through each seam in detail.
+There is nothing to register for normalization: turning a digit run into a `Number`, a date pattern into a `Date` and a `$...$` island into a `MathInline` is a fixed pass, the same for every language.
+
+The existing IR node set is enough: `Word`, `Date` and the language-neutral `reading` field carry an ideographic or a phonetic language without new node types (a single character is a one-character `Word`, not a type of its own). **Japanese is a shipped worked example**: `frontend.ja` (kana/kanji segmentation, a morphological-analysis subsystem with janome / fugashi / sudachi adapters, and 文節 word-spacing) plus `backend.ja` (kana → cells) plus `resources/ja/` and `profiles/ja_current.json`. The Architecture document's "Adding a language" section walks through each seam in detail.
 
 ## Packaging an adapter as a separate distribution
 

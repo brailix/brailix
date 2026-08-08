@@ -84,13 +84,13 @@ class TestBlockHash:
         assert len(h) == 64
         int(h, 16)  # parses as hex
 
-    def test_block_with_children_hashes_by_concatenated_surface(self) -> None:
-        """Block without raw .text but with populated children hashes
+    def test_block_with_inlines_hashes_by_concatenated_surface(self) -> None:
+        """Block without raw .text but with populated inlines hashes
         by the concatenated surface — reflects the source."""
         b = Paragraph(inlines=[Word(surface="字")])
-        h_children = block_hash(b, "cn_current")
+        h_inlines = block_hash(b, "cn_current")
         h_text = block_hash(Paragraph(text="字"), "cn_current")
-        assert h_children == h_text
+        assert h_inlines == h_text
 
     def test_heading_and_paragraph_same_text_hash_apart(self) -> None:
         """Structural identity is folded into the key: a same-text Heading and
@@ -209,7 +209,7 @@ class TestTranslateBlock:
         b = pipe.translate_block(Paragraph(text="你是"))
         assert a.source_hash != b.source_hash
 
-    def test_pre_populated_children_skips_frontend(self, pipe: Pipeline) -> None:
+    def test_pre_populated_inlines_skips_frontend(self, pipe: Pipeline) -> None:
         block = Paragraph(inlines=[Word(surface="字")])
         out = pipe.translate_block(block)
         assert len(out.ir.inlines) == 1
@@ -879,7 +879,7 @@ class TestTreeSubcacheParseIdentity:
         """The headline scenario: one live ``Pipeline``, one adapter name, a
         replacement implementation registered under it mid-process.
 
-        The block's own ``children`` are dropped by the fingerprint stale-heal
+        The block's own ``inlines`` are dropped by the fingerprint stale-heal
         either way; what used to survive was the *tree pool*, which kept
         handing back the replaced adapter's output.
         """
@@ -970,8 +970,8 @@ class TestTreeSubcacheParseIdentity:
 
 class TestStaleBlockSelfHeal:
     """A block re-compiled after its ``text`` was edited must reflect the new
-    text, not silently reuse children (and a ``source_hash``) built from the
-    old one. ``populate_block`` self-heals by dropping children whose
+    text, not silently reuse content (and a ``source_hash``) built from the
+    old one. ``populate_block`` self-heals by dropping content whose
     reconstructed surface no longer matches ``block.text`` (P1-2)."""
 
     def test_editing_text_on_populated_block_repopulates(
@@ -985,20 +985,20 @@ class TestStaleBlockSelfHeal:
         # Children were rebuilt from the NEW text, not the stale "我是".
         assert "".join(c.surface for c in second.ir.inlines) == "你好世界"
         # ...and the hash tracks the edit. The exact P1-2 symptom was that it
-        # did NOT — the reused stale children kept the surface, hence the hash,
+        # did NOT — the reused stale inlines kept the surface, hence the hash,
         # unchanged, so a cache keyed on it served the old braille.
         assert second.source_hash != first.source_hash
 
-    def test_unchanged_text_reuses_children(self, pipe: Pipeline) -> None:
+    def test_unchanged_text_reuses_inlines(self, pipe: Pipeline) -> None:
         """The self-heal must NOT fire on a consistent re-translate — the
         "skip the frontend cost" optimization for an unedited block is kept."""
         block = Paragraph(text="我是中国")
         pipe.translate_block(block)
-        first_children = block.inlines
+        first_inlines = block.inlines
         first_child0 = block.inlines[0]
         pipe.translate_block(block)  # re-translate, text unchanged
         # Same child objects — the frontend was not re-run for this block.
-        assert block.inlines is first_children
+        assert block.inlines is first_inlines
         assert block.inlines[0] is first_child0
 
     def test_editing_score_block_text_reparses(self, pipe: Pipeline) -> None:
@@ -1022,10 +1022,10 @@ class TestStaleBlockSelfHeal:
 
 class TestEditToEmptySelfHeal:
     """Editing a populated block's ``text`` to the EMPTY string is an edit
-    like any other: the stale children are dropped and the block compiles
+    like any other: the stale inlines are dropped and the block compiles
     to nothing — it must not keep emitting the old content's braille.
     ``text`` is authoritative whenever it is a string (``""`` included);
-    only ``text=None`` keeps the hand-built "children used as-is" contract.
+    only ``text=None`` keeps the hand-built "content used as-is" contract.
     """
 
     def test_paragraph_emptied_emits_nothing_and_hash_changes(
@@ -1036,7 +1036,7 @@ class TestEditToEmptySelfHeal:
         assert sum(len(b.cells) for b in first.braille_blocks) > 0
         block.text = ""
         second = pipe.translate_block(block)
-        # The stale children (and their configuration stamp) are gone, the
+        # The stale inlines (and their configuration stamp) are gone, the
         # output is empty, and the cache key tracks the edit — a cache keyed
         # on ``source_hash`` can't serve the old braille for the emptied block.
         assert block.inlines == []
@@ -1084,11 +1084,11 @@ class TestEditToEmptySelfHeal:
         assert "".join(c.surface for c in third.ir.inlines) == "新内容"
         assert sum(len(b.cells) for b in third.braille_blocks) > 0
 
-    def test_hand_built_children_with_no_text_still_used_as_is(
+    def test_hand_built_inlines_with_no_text_still_used_as_is(
         self, pipe: Pipeline
     ) -> None:
         """The empty-string rule must not eat the hand-built contract:
-        ``text=None`` has no authoritative source, children stay."""
+        ``text=None`` has no authoritative source, the inlines stay."""
         block = Paragraph(inlines=[Word(surface="字")])
         out = pipe.translate_block(block)
         assert len(out.ir.inlines) == 1
@@ -1104,7 +1104,7 @@ class TestPipelineParseText:
     """Parse-only public surface: text → DocumentIR without translating.
 
     Used by a proofreading front-end that compiles block-by-block,
-    so it needs the unpopulated IR (children empty, ``block.text`` set)
+    so it needs the unpopulated IR (``inlines`` empty, ``block.text`` set)
     to drive its own per-block translate loop.
     """
 
@@ -1143,7 +1143,7 @@ class TestPipelineParseText:
         self, pipe: Pipeline
     ) -> None:
         """``format="musicxml"`` wraps raw MusicXML as one ScoreBlock,
-        parse-only (children empty) so a caller can compile it per-block
+        parse-only (``inlines`` empty) so a caller can compile it per-block
         the same way it does markdown / plain."""
         doc = pipe.parse_text(_SCORE_XML, format="musicxml")
         assert len(doc.blocks) == 1

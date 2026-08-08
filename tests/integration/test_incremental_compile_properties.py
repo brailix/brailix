@@ -1,9 +1,9 @@
 """Stateful property test: incremental recompilation ≡ fresh full compile.
 
 :meth:`Pipeline.translate_document`'s incremental contract: the document is
-mutated in place — children populated where missing, reused where safe —
-guarded two ways (text mismatch drops stale children; a differing pipeline
-fingerprint drops children built under another configuration). The promise
+mutated in place — content populated where missing, reused where safe —
+guarded two ways (text mismatch drops stale content; a differing pipeline
+fingerprint drops content built under another configuration). The promise
 behind all of that machinery is single: **reuse is an optimization, never
 observable in the output**. Whatever edit sequence a front-end performs,
 compiling the in-place document must equal compiling a from-scratch
@@ -85,8 +85,8 @@ class IncrementalCompileMachine(RuleBasedStateMachine):
     @precondition(lambda self: self.texts)
     @rule(index=st.integers(0, 9), text=_texts)
     def edit_block_text(self, index: int, text: str) -> None:
-        # Mutating ``text`` on a block whose children were built from the
-        # old text — the populate guard must drop the stale children.
+        # Mutating ``text`` on a block whose inlines were built from the
+        # old text — the populate guard must drop the stale inlines.
         i = index % len(self.texts)
         self.doc.blocks[i].text = text
         self.texts[i] = text
@@ -95,7 +95,7 @@ class IncrementalCompileMachine(RuleBasedStateMachine):
     @rule(index=st.integers(0, 9))
     def clear_block_text(self, index: int) -> None:
         # Clearing to the empty string is its own rule: falsy-text staleness
-        # was a real regression (empty new text once kept the old children).
+        # was a real regression (empty new text once kept the old inlines).
         i = index % len(self.texts)
         self.doc.blocks[i].text = ""
         self.texts[i] = ""
@@ -103,7 +103,7 @@ class IncrementalCompileMachine(RuleBasedStateMachine):
     @rule(name=st.sampled_from(_PROFILES))
     def switch_profile(self, name: str) -> None:
         # The SAME in-place document will next compile under this pipeline;
-        # children stamped by the other configuration must be rebuilt.
+        # inlines stamped by the other configuration must be rebuilt.
         self.profile = name
 
     # --- the property ----------------------------------------------------

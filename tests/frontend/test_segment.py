@@ -3,17 +3,16 @@ import pytest
 from brailix.core.context import FrontendContext
 from brailix.core.span import Span
 from brailix.frontend.segmentation import (
-    DefaultSegmenter,
-    _segment_text,
-    segmenter_registry,
+    char_category,
+    segment,
+    segment_text,
 )
 from brailix.ir.document import Paragraph
 
 
 def _segs(text: str, *, base: int = 0):
     block = Paragraph(text=text, span=Span(base, base + len(text)) if text else None)
-    seg = DefaultSegmenter()
-    return seg.segment(block, FrontendContext(profile="cn_current"))
+    return segment(block, FrontendContext(profile="cn_current"))
 
 
 def _types(segments) -> list[str]:
@@ -30,7 +29,7 @@ class TestEmpty:
 
     def test_none_text(self):
         block = Paragraph(text=None)
-        assert DefaultSegmenter().segment(block, FrontendContext(profile="cn_current")) == []
+        assert segment(block, FrontendContext(profile="cn_current")) == []
 
 
 class TestCharacterClasses:
@@ -369,17 +368,45 @@ class TestRoundTripText:
         assert "".join(_surfaces(s)) == text
 
 
-class TestRegistry:
-    def test_default_is_registered(self):
-        assert segmenter_registry.has("default")
-        inst = segmenter_registry.get("default")
-        assert inst.name == "default"
+class TestNoSegmenterFamily:
+    """The pass is a function, not an adapter picked out of a registry.
 
-    def test_registry_lookup_returns_working_segmenter(self):
-        seg = segmenter_registry.get("default")
-        block = Paragraph(text="我在2026")
-        out = seg.segment(block, FrontendContext(profile="cn_current"))
+    Pinned because the shape it replaced looked harmless: a ``Segmenter``
+    protocol, a ``segmenter_registry``, an ``auto`` adapter that read the
+    language off ``ctx.options`` and a ``ctx.options["segmenter"]`` override —
+    a whole plugin family keyed by the language subtag, beside the
+    ``language_frontend_registry`` keyed by the same subtag. What varies by
+    language now lives on that language's frontend
+    (:meth:`LanguageFrontend.segment`), and this module keeps only the
+    built-in chunking every language builds on.
+    """
+
+    def test_the_module_publishes_functions_only(self):
+        import brailix.frontend.segmentation as mod
+
+        assert not hasattr(mod, "segmenter_registry")
+        assert not hasattr(mod, "DefaultSegmenter")
+        assert set(mod.__all__) == {"segment", "segment_text", "char_category"}
+
+    def test_an_option_named_segmenter_is_not_consulted(self):
+        # There is no name to resolve, so a stray key cannot redirect the
+        # pass — and cannot silently do nothing either, which is what a
+        # leftover ``ctx.options["segmenter"]`` in a caller would do if the
+        # lookup were still there but the registry empty.
+        ctx = FrontendContext(
+            profile="cn_current", options={"segmenter": "nonexistent"}
+        )
+        out = segment(Paragraph(text="我在2026"), ctx)
         assert _types(out) == ["hanzi_text", "digit_run"]
+
+    def test_context_is_optional(self):
+        # The pass reads the block and nothing else, so a caller without a
+        # built context (a unit test, a language delegating its own) can drive
+        # it bare.
+        assert _types(segment(Paragraph(text="我在2026"))) == [
+            "hanzi_text",
+            "digit_run",
+        ]
 
 
 class TestUnknownCategory:
@@ -391,8 +418,47 @@ class TestUnknownCategory:
 
 
 class TestSegmentTextHelper:
+    """The published reuse seam: a language passes its own classifier and
+    inherits every language-neutral rule."""
+
     def test_empty_string_returns_empty_list(self):
         # Direct call path used by callers that have already stripped text.
-        assert _segment_text("") == []
+        assert segment_text("") == []
+
+    def test_a_custom_classifier_renames_only_what_it_claims(self):
+        # What a new language does: claim your script, defer the rest. The
+        # protected-region scan, the digit run and the one-Segment-per-punct
+        # rule all still apply — that is the point of reusing this rather
+        # than writing a chunker.
+        def categorize(ch: str) -> str:
+            cat = char_category(ch)
+            return "xx_text" if cat == "hanzi_text" else cat
+
+        out = segment_text("我在2026年，$x^2$", categorize=categorize)
+        assert [(s.type, s.surface) for s in out] == [
+            ("xx_text", "我在"),
+            ("digit_run", "2026"),
+            ("xx_text", "年"),
+            ("punct", "，"),
+            ("math_inline", "$x^2$"),
+        ]
+
+    def test_base_offset_shifts_every_span(self):
+        out = segment_text("我2", base_offset=10)
+        assert [(s.span.start, s.span.end) for s in out] == [(10, 11), (11, 12)]
+
+
+class TestCharCategory:
+    """The classifier a language's own composes with."""
+
+    def test_the_categories_a_language_defers_to(self):
+        assert char_category("我") == "hanzi_text"
+        assert char_category("7") == "digit_run"
+        assert char_category("a") == "latin_text"
+        assert char_category("α") == "greek_text"
+        assert char_category(" ") == "space"
+        assert char_category("，") == "punct"
+        assert char_category("+") == "math_op"
+        assert char_category("\x00") == "unknown"
 
 

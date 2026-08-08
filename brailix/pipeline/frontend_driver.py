@@ -3,7 +3,8 @@
 Segmentation, normalization, per-segment language routing, inline-math
 attachment, and the block-population *lifecycle* — structural recursion,
 the stale-heal, the fingerprint stamp — everything between a raw
-``Block.text`` and populated ``children``.
+``Block.text`` and populated content (``inlines`` for a text block, ``tree``
+for an embedded one).
 
 *How* each block kind is populated lives one module over, in
 :mod:`brailix.pipeline._populate`: this driver decides **whether** to
@@ -46,8 +47,7 @@ from brailix.core.span import Span
 from brailix.frontend import _apply_boundary, language_frontend_registry
 from brailix.frontend import normalize as _frontend_normalize
 from brailix.frontend import parse_math_tree as _frontend_parse_math_tree
-from brailix.frontend import segment as _frontend_segment
-from brailix.frontend._language_pick import LANGUAGE_OPTION
+from brailix.frontend import segment as _builtin_segment
 from brailix.frontend.graphics import (
     parse_graphic_tree as _frontend_parse_graphic_tree,
 )
@@ -66,7 +66,7 @@ from brailix.pipeline._results import TreeSubcache
 if _TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    from brailix.core.protocols import GraphicAssetResolver
+    from brailix.core.protocols import GraphicAssetResolver, LanguageFrontend
 
     TreeParser = Callable[[str, _Any], _ET.Element | None]
 
@@ -85,7 +85,7 @@ def _is_populated(block: _Any) -> bool:
     """Whether the frontend has already filled this block's content in.
 
     Two places content can live, so two things to ask: an embedded block's is
-    its parsed ``tree``, everything else's is its ``children``.
+    its parsed ``tree``, everything else's is its ``inlines``.
 
     An embedded block also counts as populated when a populate **ran and
     produced no tree** — a formula whose adapter is missing or whose source
@@ -103,7 +103,7 @@ def _populated_from(block: _Any) -> str | None:
     """The source text a populated block's content currently describes.
 
     Compared against ``block.text`` to catch an edit made after population
-    (:meth:`FrontendDriver._heal_stale_children`). A text block's children
+    (:meth:`FrontendDriver._heal_stale_content`). A text block's inlines
     carry their own surfaces, so the answer is reconstructed from them; a
     parsed tree cannot be turned back into source text, so an embedded block
     records what it parsed instead.
@@ -112,7 +112,7 @@ def _populated_from(block: _Any) -> str | None:
     hand-built, or assigned by a caller — so this answers with ``block.text``
     itself: no record is no evidence of staleness, and the "content is used
     as-is" contract hand-built IR relies on holds here the way it does for
-    hand-built children.
+    hand-built inlines.
     """
     if isinstance(block, EmbeddedBlock):
         return block.tree_text if block.tree_text is not None else block.text
@@ -140,7 +140,7 @@ def _table_cell_source_len(cell: _Any) -> int:
     """Source-text length of a table cell — what a row's display text joins.
 
     A cell's source length is its own ``text`` when present, else the total of
-    its children's surfaces, so the rebase offset matches the row's joined
+    its inlines' surfaces, so the rebase offset matches the row's joined
     source string.  Uses the raw text, never the cell's span (which this pass
     shifts), so re-translating an already-populated table stays idempotent."""
     if cell.text:
@@ -216,8 +216,8 @@ class FrontendDriver:
         # ``Pipeline.__post_init__`` right after construction (it is derived
         # from this driver's own resolved adapter names, so it can't be a
         # constructor argument).  Stamped onto every block this driver
-        # populates and compared on re-entry so children built under another
-        # configuration are rebuilt, not reused.  ``None`` (a bare driver in
+        # populates and compared on re-entry so content built under another
+        # configuration is rebuilt, not reused.  ``None`` (a bare driver in
         # a unit test) disables both the stamping and the comparison.
         self.fingerprint: str | None = None
         # Injected tree parsers (see the class docstring): defaults are the
@@ -234,7 +234,7 @@ class FrontendDriver:
 
         One place owns that normalisation. A driver with no fingerprint is a
         bare unit-test construction: it stamps nothing and invalidates nothing
-        (see :meth:`_heal_stale_children`), so its cache entries key on the
+        (see :meth:`_heal_stale_content`), so its cache entries key on the
         empty identity rather than on a configuration nobody declared.
         """
         return self.fingerprint or ""
@@ -248,20 +248,22 @@ class FrontendDriver:
         tree_out: TreeSubcache | None = None,
     ) -> None:
         """Run the frontend over any block that still has raw ``text``
-        and no ``children`` yet. Recurses into composite containers.
+        and no content yet. Recurses into composite containers.
 
-        :class:`MathBlock` deliberately bypasses the Chinese frontend
+        :class:`MathBlock` deliberately bypasses the language frontend
         (the tokenizer would mangle LaTeX) and instead drives the
-        **math frontend** here; on parse failure we emit warnings
-        plus per-char :class:`Unknown` nodes so layout stays stable.
+        **math frontend** here, landing the MathML on the block's own
+        ``tree``; a parse failure records a warning and leaves the block
+        treeless, and the backend's ``MATH_NO_IR`` path writes one unknown
+        cell per source character so layout stays stable.
 
-        :class:`CodeBlock` similarly bypasses the Chinese frontend and
+        :class:`CodeBlock` similarly bypasses the language frontend and
         wraps its raw text as a single :class:`CodeInline` — the
         backend's punct path then emits one cell per source character.
 
         Both keep the Frontend → IR → Backend layering pure: this
         method is the one place that runs frontend, and the backend
-        only ever sees populated children.
+        only ever sees a populated block.
 
         Every text-bearing block also lands a ``span``: the math / music
         populate helpers set theirs, and a shared tail synthesises one
@@ -287,7 +289,7 @@ class FrontendDriver:
             for row in block.blocks:
                 self._populate_row(row, ctx, tree_in=tree_in, tree_out=tree_out)
             return
-        self._heal_stale_children(block)
+        self._heal_stale_content(block)
 
         # Leaf block.  Populate from raw ``text`` only when it's present and
         # nothing has filled the block in yet; the per-kind handlers in
@@ -297,27 +299,28 @@ class FrontendDriver:
         if block.text and not _is_populated(block):
             populate_leaf(self, block, ctx, tree_in=tree_in, tree_out=tree_out)
             # Stamp the configuration that built this content so a later
-            # populate under a different configuration rebuilds them (see
-            # :meth:`_heal_stale_children`).  After the populate, so a
+            # populate under a different configuration rebuilds it (see
+            # :meth:`_heal_stale_content`).  After the populate, so a
             # strict-mode abort can't leave a stamped-but-empty block.
             block.frontend_fingerprint = self.fingerprint
             return
 
         # Already populated (or no text): a text-bearing block still lands
         # a span.  Single rule for every block kind — math / score / code /
-        # prose alike — so the pre-populated "text + children, no span"
+        # prose alike — so the pre-populated "text + content, no span"
         # case can't drift per kind.
         #
         # Contract note: a MathBlock/ScoreBlock/MusicBlock that arrives already
-        # filled AND whose children still match its text — the consistent
+        # filled AND whose tree still matches its text — the consistent
         # re-translate case; a STALE edit (text changed after population) is
-        # self-healed above by dropping the children so the populate path
+        # self-healed above by dropping the tree so the populate path
         # re-parses — does NOT get its parse tree re-recorded into ``tree_out``
-        # here: the ET tree isn't reconstructable from the flattened children
-        # without re-parsing, which would defeat the cache.  A caller that
-        # reuses such consistent pre-filled IR blocks and needs the tree in the
-        # next compile's reuse pool must thread it via ``tree_in`` rather than
-        # rely on this method to re-record it.
+        # here: recording lives with the parse, in :mod:`._populate`, and this
+        # path parses nothing.  (Inline math is the one place that also records
+        # an already-parsed tree, because the same formula can arrive from a
+        # block that did parse it; see :meth:`attach_math`.)  A caller that
+        # reuses consistent pre-filled IR blocks and needs their trees in the
+        # next compile's reuse pool threads them via ``tree_in``.
         if block.span is None and block.text:
             block.span = Span(0, len(block.text))
 
@@ -347,16 +350,16 @@ class FrontendDriver:
         **before** it while staleness is judged per cell:
 
         * Widening column 0 moves column 1 even though column 1's own text —
-          and therefore its children — is untouched and reused.  The applied
+          and therefore its inlines — is untouched and reused.  The applied
           offset is read back from ``cell.span.start``, so the cell is shifted
           by the *difference*, never re-shifted from scratch.
-        * A cell whose own text changed has its children dropped by the
+        * A cell whose own text changed has its inlines dropped by the
           stale-heal; the span it still carries describes the OLD text at the
           OLD offset, so it is cleared first and rebuilt cell-local from the
           current text.  (Reusing it would both keep the old length and get
           shifted a second time, landing the cell past the end of the row.)
 
-        A cell that ends up with no span at all — hand-built children with no
+        A cell that ends up with no span at all — hand-built inlines with no
         ``text`` to synthesise one from — is left alone, per the hand-built-IR
         "used as-is" contract: there is no anchor to rebase against.
         """
@@ -366,7 +369,7 @@ class FrontendDriver:
             # other configuration) is dropped here and rebuilt by the
             # recursive call below, and the rebuilt nodes need the same
             # rebase a fresh populate gets.
-            self._heal_stale_children(cell)
+            self._heal_stale_content(cell)
             if cell.text is not None and not cell.inlines:
                 # About to (re)populate from ``text``: any span still on the
                 # cell describes a previous compile's text at a previous
@@ -379,9 +382,9 @@ class FrontendDriver:
                 _shift_node_spans(cell, cell_offset - applied)
             cell_offset += _table_cell_source_len(cell) + _TABLE_CELL_GAP
 
-    def _heal_stale_children(self, block: _Any) -> None:
-        """Drop ``children`` that no longer describe ``block.text`` — the
-        stale-re-entry self-heal the populate paths rely on.
+    def _heal_stale_content(self, block: _Any) -> None:
+        """Drop populated content that no longer describes ``block.text`` —
+        the stale-re-entry self-heal the populate paths rely on.
 
         Two ways a populated block goes stale (both would otherwise be
         silently reused, emitting braille that doesn't match the input):
@@ -389,38 +392,38 @@ class FrontendDriver:
         * **Edited text**: the caller mutated
           ``block.text`` after population.  Detected with the SAME surface
           the cache key uses (:func:`_block_surface`) — when the
-          reconstructed child surface no longer equals the raw text, drop
-          the children so the populate path rebuilds them from the
+          reconstructed surface no longer equals the raw text, drop
+          the content so the populate path rebuilds it from the
           authoritative ``block.text``.  ``text`` is authoritative whenever
           it is a string — **including the empty string**: editing a
-          populated block to ``""`` clears its children (and the block
+          populated block to ``""`` clears its content (and the block
           compiles to nothing), it does not keep emitting the old
           content's braille.  Only ``text is None`` — the hand-built-IR
           shape, where there is no raw source to compare against — keeps
-          the documented "children used as-is" contract.
-        * **Changed configuration**: the children were populated by a
+          the documented "content used as-is" contract.
+        * **Changed configuration**: the content was populated by a
           pipeline whose compilation fingerprint differs from this one's —
           a different resolver / analyzer / user dictionary / profile
           content would produce different semantic IR from the very same
           text, so text equality proves nothing.  Detected via the
           ``frontend_fingerprint`` stamp populate leaves behind.  A block
-          with **no** stamp is left alone: hand-built children keep the
+          with **no** stamp is left alone: hand-built IR keeps the
           documented "used as-is" contract, and a driver with no
           fingerprint (bare unit-test construction) never invalidates.
 
-        A block whose children still reflect its text and configuration —
+        A block whose content still reflects its text and configuration —
         the normal re-translate case — is untouched, preserving the
         "re-translation skips the frontend cost" optimization
         (:meth:`Pipeline.translate_document`).
 
         Both invalidation paths clear the ``frontend_fingerprint`` stamp along
-        with the children, through :meth:`_invalidate`: the stamp's meaning is
-        "this is the configuration that built the children currently on this
-        block", so a stamp outliving them is already false. It stays false
+        with the content, through :meth:`_invalidate`: the stamp's meaning is
+        "this is the configuration that built the content currently on this
+        block", so a stamp outliving it is already false. It stays false
         whenever the rebuild doesn't complete — a strict-mode abort or an
-        adapter exception between the drop and the re-populate leaves a block
-        with no children still advertising the *old* configuration, which is
-        the state the populate path's "no stamp before children exist" rule
+        adapter exception between the drop and the re-populate leaves an
+        emptied block still advertising the *old* configuration, which is
+        the state the populate path's "no stamp before content exists" rule
         exists to keep out of the IR.
         """
         if not _is_populated(block):
@@ -444,9 +447,9 @@ class FrontendDriver:
 
         The single way a populated block is invalidated, so the pieces can't
         come apart: a stamp is only ever true of content that exists (see
-        :meth:`_heal_stale_children`). An embedded block's content is its
+        :meth:`_heal_stale_content`). An embedded block's content is its
         ``tree`` and the ``tree_text`` recording what that tree was parsed
-        from; every other block's is its ``children``.
+        from; every other block's is its ``inlines``.
         """
         block.inlines = []
         block.frontend_fingerprint = None
@@ -458,32 +461,58 @@ class FrontendDriver:
     #
     # All frontend stages live in :mod:`brailix.frontend`. Pipeline
     # only orchestrates: segment → normalize → per-segment routing →
-    # math attachment. The routing is language-agnostic — segmenter,
-    # normalizer and the prose frontend are each selected by the active
-    # profile's language (see :meth:`frontend_options` /
-    # :meth:`_process_segment`), so adding a language is registration,
-    # not a change here. See ARCHITECTURE#arch-language-slots.
+    # math attachment. Two of those four are fixed passes with nothing to
+    # select; the other two belong to the language frontend registered under
+    # the active profile's language subtag, which this driver resolves ONCE
+    # per run (:meth:`_language_frontend`) and drives both halves of. So
+    # adding a language is registration, not a change here. See
+    # ARCHITECTURE#arch-language-slots.
+
+    def _language(self) -> str:
+        """The active profile's language primary subtag (``ja-JP`` → ``ja``).
+
+        The one place the subtag is derived: it selects the language
+        frontend, keys that language's analyzer option, and names the
+        boundary handler, and three copies of the ``split`` drift the moment
+        one of them learns about a script subtag.
+        """
+        return self._profile.language.split("-")[0]
+
+    def _language_frontend(self, lang: str) -> LanguageFrontend | None:
+        """The frontend registered for ``lang``, or ``None`` when the active
+        language has none.
+
+        Resolved once per :meth:`run_frontend` and handed to both halves of
+        the pass — segmentation and prose routing are one object's two
+        methods, so looking it up twice would be two chances to disagree
+        (and, before, two registries to keep in step). ``None`` is a
+        supported state, not an error: an unconfigured language still gets
+        its numbers, Latin and math islands out of the built-in chunking,
+        and each prose run it cannot place reports NO_LANGUAGE_FRONTEND.
+        """
+        if not language_frontend_registry.has(lang):
+            return None
+        return language_frontend_registry.get(lang)
 
     def frontend_options(self) -> dict[str, _Any]:
-        lang = self._profile.language.split("-")[0]
+        lang = self._language()
         return {
-            # The active language, published for whichever adapter needs it.
-            # The ``auto`` segmenter / normalizer read it to pick a
-            # language-specific implementation; the orchestrator resolves
-            # nothing on their behalf, so "which segmenter runs" is decided
-            # in one place — the adapter — the same way the analyzer /
-            # resolver chains decide their own.
-            LANGUAGE_OPTION: lang,
             # Analyzer is selected per language: each LanguageFrontend reads
             # ``ctx.options["{lang}_analyzer"]`` (zh reads ``zh_analyzer``, ja
             # reads ``ja_analyzer``). Key off the active profile's language
-            # primary subtag — the same ``lang`` the segmenter / normalizer
-            # use above — instead of hard-coding one option key per language,
-            # so a new prose language is registration, not a change here.
-            # ``_process_segment`` routes a run to the frontend matching this
-            # same ``lang``, so only the current language's analyzer key is
-            # ever read; a missing key falls back to the frontend's default
+            # primary subtag instead of hard-coding one option key per
+            # language, so a new prose language is registration, not a change
+            # here. ``_process_segment`` routes a run to the frontend matching
+            # this same ``lang``, so only the current language's analyzer key
+            # is ever read; a missing key falls back to the frontend's default
             # (``auto``).
+            #
+            # The subtag itself is deliberately NOT published as an option.
+            # It was, under ``"language"``, for the ``auto`` segmenter /
+            # normalizer to resolve themselves by — and those are gone. The
+            # driver picks the language frontend directly now, so an option
+            # nothing reads would only be a second, staler statement of
+            # ``profile.language``.
             f"{lang}_analyzer": self.analyzer,
             "pinyin_resolver": self.resolver,
             "user_pinyin_dict": self.user_pinyin_dict,
@@ -511,36 +540,45 @@ class FrontendDriver:
         tree_out: TreeSubcache | None = None,
     ) -> list[InlineNode]:
         block = Paragraph(text=text)
-        segments = _frontend_segment(block, ctx)
+        lang = self._language()
+        frontend = self._language_frontend(lang)
+        # The language cuts its own prose out of the raw text; a language with
+        # no frontend falls back to the built-in language-neutral chunking, so
+        # the numbers / Latin / punctuation / math islands still come through
+        # (each prose run then warns for itself in ``_process_segment``).
+        segments = (
+            frontend.segment(block, ctx)
+            if frontend is not None
+            else _builtin_segment(block, ctx)
+        )
         normalized = _frontend_normalize(segments, ctx)
 
         out: list[InlineNode] = []
         for item in normalized:
             if isinstance(item, Segment):
-                out.extend(self._process_segment(item, ctx))
+                out.extend(self._process_segment(item, ctx, frontend, lang))
             elif isinstance(item, MathInline):
                 self.attach_math(item, ctx, tree_in=tree_in, tree_out=tree_out)
                 out.append(item)
             else:
                 out.append(item)
-        lang = self._profile.language.split("-")[0]
         return _apply_boundary(out, lang, self._profile)
 
     def _process_segment(
-        self, segment: Segment, ctx: FrontendContext
+        self,
+        segment: Segment,
+        ctx: FrontendContext,
+        frontend: LanguageFrontend | None,
+        lang: str,
     ) -> list[InlineNode]:
-        # Prose runs route to the language frontend selected by the active
-        # profile's language primary subtag; the frontend declares which
-        # segment types are its prose (``prose_types``), so this
-        # orchestrator never hard-codes a script. Adding a language means
-        # registering a LanguageFrontend (plus a matching segmenter for
-        # its script) — no change here. See ARCHITECTURE#arch-language-slots.
-        lang = self._profile.language.split("-")[0]
-        if language_frontend_registry.has(lang):
-            frontend = language_frontend_registry.get(lang)
-            if segment.type in frontend.prose_types:
-                base = segment.span.start if segment.span else 0
-                return frontend.process(segment.surface, base, ctx)
+        # Prose runs route back to the language frontend that cut them out;
+        # it declares which segment types are its prose (``prose_types``), so
+        # this orchestrator never hard-codes a script. Adding a language means
+        # registering one LanguageFrontend — no change here. See
+        # ARCHITECTURE#arch-language-slots.
+        if frontend is not None and segment.type in frontend.prose_types:
+            base = segment.span.start if segment.span else 0
+            return frontend.process(segment.surface, base, ctx)
         # Independent `if` (not `elif`): a prose segment can reach here either
         # because the active language has no frontend, OR because its frontend
         # doesn't claim this segment's type (some other language's prose). Both
@@ -550,7 +588,7 @@ class FrontendDriver:
             # Same code (NO_LANGUAGE_FRONTEND) for both arrival reasons, but an
             # accurate message: the language may have no frontend at all, or
             # have one that simply doesn't claim this prose segment type.
-            if language_frontend_registry.has(lang):
+            if frontend is not None:
                 message = (
                     f"language {lang!r} frontend does not handle prose "
                     f"segment type {segment.type!r}"

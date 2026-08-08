@@ -163,7 +163,7 @@ def _translate_chinese(
     # another Chinese node (no Space / Punct between them), peek at
     # its first syllable so the cross-syllable boundary rule fires across
     # IR-node boundaries too — not just within a single Word.
-    # ``_translate_children`` in :mod:`brailix.backend.block` stashes
+    # ``_translate_inlines`` in :mod:`brailix.backend.block` stashes
     # the next sibling under ``ctx.options['_next_inline_sibling']``
     # before each dispatch; ``None`` here means "no peek available".
     cross_node_next_syl = _peek_next_chinese_syllable(ctx)
@@ -206,7 +206,7 @@ def _translate_chinese(
 def _peek_next_chinese_syllable(ctx: BackendContext) -> str | None:
     """Return the first syllable of the next adjacent Chinese sibling.
 
-    Reads the hint set by ``brailix.backend.block._translate_children``
+    Reads the hint set by ``brailix.backend.block._translate_inlines``
     before each dispatch. Returns ``None`` when:
 
     * no sibling exists (last child),

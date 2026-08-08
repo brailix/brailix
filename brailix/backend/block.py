@@ -155,7 +155,7 @@ def expand_block(
 
 
 def _translate_inlines(
-    children: list[InlineNode],
+    inlines: list[InlineNode],
     ctx: BackendContext,
     profile: BrailleProfile,
 ) -> list[BrailleCell]:
@@ -180,13 +180,13 @@ def _translate_inlines(
     out: list[BrailleCell] = []
     english_active = False
     try:
-        for i, child in enumerate(children):
+        for i, node in enumerate(inlines):
             ctx.options["_next_inline_sibling"] = (
-                children[i + 1] if i + 1 < len(children) else None
+                inlines[i + 1] if i + 1 < len(inlines) else None
             )
             ctx.options["_english_run_active"] = english_active
-            out.extend(translate_node(child, ctx, profile))
-            role = english_run_role(child)
+            out.extend(translate_node(node, ctx, profile))
+            role = english_run_role(node)
             if role == "letter":
                 english_active = True
             elif role == "break":

@@ -477,12 +477,12 @@ class Registry[T]:
         block. With no arguments it only snapshots, so the body may
         ``register`` / ``unregister`` several names and all are rolled back::
 
-            with segmenter_registry.overriding("zh", ZhSegmenter):
-                ...  # "zh" is gone again out here
+            with analyzer_registry.overriding("jieba", FakeAnalyzer):
+                ...  # "jieba" resolves to the real one again out here
 
-            with segmenter_registry.overriding():
-                segmenter_registry.register("zh", ZhSegmenter)
-                segmenter_registry.register("custom", CustomSegmenter)
+            with analyzer_registry.overriding():
+                analyzer_registry.register("jieba", FakeAnalyzer)
+                analyzer_registry.register("custom", CustomAnalyzer)
                 ...  # both gone out here
 
         Concurrency: the lock is taken only to snapshot on entry and to

@@ -1,8 +1,8 @@
-"""Default normalizer: convert raw Segments into typed InlineNodes.
+"""Normalization: raw Segments into typed InlineNodes — a fixed pass.
 
-The normalizer is the bridge between the dumb character-class
-Segmenter and the rest of the frontend. It recognizes structural
-patterns and turns them into proper InlineNodes:
+The bridge between the dumb character-class segmentation and the rest of the
+frontend. It recognizes structural patterns and turns them into proper
+InlineNodes:
 
 * ``2026年5月17日`` → :class:`Date` with year/month/day parts
 * bare ``2026`` → :class:`Number`
@@ -10,9 +10,24 @@ patterns and turns them into proper InlineNodes:
 * punctuation / space / latin segments → atomic InlineNodes
 
 Anything left over (notably ``hanzi_text``) stays a Segment so the
-downstream ChineseAnalyzer can tokenize it.
+language frontend can tokenize it.
 
-The normalizer never crashes on weird input; unrecognized patterns
+**Not a plugin.** There is no ``Normalizer`` protocol, no
+``normalizer_registry``, no ``auto`` adapter and no
+``ctx.options["normalizer"]``. What this module does is not one strategy
+among several — it is the canonical lowering from Segment to semantic
+inline IR, the same fact as "``digit_run`` becomes a
+:class:`~brailix.ir.inline.Number`" written as code. That belongs to the IR's
+contract, not to a swappable implementation, and the registry proved it: over
+the family's whole life it held the built-in and an ``auto`` that delegated
+back to the built-in — an extension point paying registry, protocol,
+fingerprint and documentation cost for a variation that never arrived. Should
+a language ever need structural rules of its own (this one's date matcher is
+Chinese), the first thing to reach for is a hook on its
+:class:`~brailix.core.protocols.LanguageFrontend`, which is already selected
+by language, not a second registry keyed by the same subtag.
+
+Normalization never crashes on weird input; unrecognized patterns
 fall through to :class:`Unknown`.
 
 Deliberately **not** composites: ``3.5kg`` and ``12%``. Each had a node type of
@@ -29,16 +44,17 @@ pinned in ``tests/golden/data/numbers.json``.
 from __future__ import annotations
 
 import xml.etree.ElementTree as _ET
-from dataclasses import dataclass as _dataclass
-from typing import TYPE_CHECKING as _TYPE_CHECKING
+
+# Bound at runtime, not under TYPE_CHECKING: :func:`normalize` is on the
+# public surface and its annotations have to be readable back by an
+# introspector (``tests/test_public_api.py``). Aliased because a foreign name
+# must not answer under a plain one on a brailix module.
+from collections.abc import Iterable as _Iterable
 
 from brailix.core import inline_math
 from brailix.core.context import FrontendContext
-from brailix.core.protocols import Normalizer
-from brailix.core.registry import Registry
 from brailix.core.segment import Segment
 from brailix.core.span import Span
-from brailix.frontend._language_pick import pick_by_language
 from brailix.ir.inline import (
     Date,
     DateComponent,
@@ -51,9 +67,6 @@ from brailix.ir.inline import (
     Space,
     Unknown,
 )
-
-if _TYPE_CHECKING:
-    from collections.abc import Iterable
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -77,52 +90,54 @@ NormalizedItem = InlineNode | Segment
 
 
 # ---------------------------------------------------------------------------
-# Normalizer
+# The pass
 # ---------------------------------------------------------------------------
 
 
-@_dataclass(slots=True)
-class DefaultNormalizer:
-    """Built-in normalizer with no third-party dependencies."""
+def normalize(
+    segments: _Iterable[Segment],
+    ctx: FrontendContext | None = None,
+) -> list[NormalizedItem]:
+    """Promote what this pass recognises into typed inline nodes; pass the
+    rest through as Segments.
 
-    name: str = "default"
+    ``ctx`` is accepted and unused — the lowering reads the segments and
+    nothing else. It stays in the signature because this is a compiler pass
+    the orchestrator calls beside ones that do need a context, and because a
+    structural rule that turns out to need the profile (a language's own date
+    markers) should be able to arrive without moving every call site.
+    """
+    segs: list[Segment] = list(segments)
+    out: list[NormalizedItem] = []
+    i = 0
+    while i < len(segs):
+        seg = segs[i]
+        # Composite patterns (multi-segment) — try longest first.
+        # The variable is annotated as the broadest union so reusing
+        # it for the date / dash probes type-checks; each probe
+        # returns its own concrete InlineNode subtype.
+        consumed: tuple[InlineNode, int] | None = _try_date(segs, i)
+        if consumed is not None:
+            node, next_i = consumed
+            out.append(node)
+            i = next_i
+            continue
+        consumed = _try_dash(segs, i)
+        if consumed is not None:
+            node, next_i = consumed
+            out.append(node)
+            i = next_i
+            continue
 
-    def normalize(
-        self,
-        segments: Iterable[Segment],
-        ctx: FrontendContext | None = None,
-    ) -> list[NormalizedItem]:
-        segs: list[Segment] = list(segments)
-        out: list[NormalizedItem] = []
-        i = 0
-        while i < len(segs):
-            seg = segs[i]
-            # Composite patterns (multi-segment) — try longest first.
-            # The variable is annotated as the broadest union so reusing
-            # it for the date / dash probes type-checks; each probe
-            # returns its own concrete InlineNode subtype.
-            consumed: tuple[InlineNode, int] | None = _try_date(segs, i)
-            if consumed is not None:
-                node, next_i = consumed
-                out.append(node)
-                i = next_i
-                continue
-            consumed = _try_dash(segs, i)
-            if consumed is not None:
-                node, next_i = consumed
-                out.append(node)
-                i = next_i
-                continue
-
-            # Atomic conversions.
-            atomic = _try_atomic(seg)
-            if atomic is not None:
-                out.append(atomic)
-            else:
-                # hanzi_text and unknown pass through unchanged.
-                out.append(seg)
-            i += 1
-        return out
+        # Atomic conversions.
+        atomic = _try_atomic(seg)
+        if atomic is not None:
+            out.append(atomic)
+        else:
+            # hanzi_text and unknown pass through unchanged.
+            out.append(seg)
+        i += 1
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +184,7 @@ def _span_range(
 
     Composite InlineNodes (Date) derive their own
     span from their first and last constituent segments. Segments built
-    by the default segmenter always carry spans, but hand-built test
+    by the segmentation pass always carry spans, but hand-built test
     fixtures occasionally pass ``span=None``; this helper propagates
     that absence rather than fabricating a misleading 0-length span.
     """
@@ -253,7 +268,7 @@ def _try_atomic(seg: Segment) -> InlineNode | None:
     if seg.type == "space":
         return Space(surface=seg.surface, span=seg.span)
     if seg.type == "math_inline":
-        # The MathParser fills the ``math`` field later (FrontendDriver.attach_math).
+        # The math frontend fills ``tree`` later (FrontendDriver.attach_math).
         # A *tagged* island is deferred inline math the input layer extracted
         # but did not convert (Word OMML / EQ field); decode it back to its
         # raw payload + source dialect so the right adapter runs later. This
@@ -330,7 +345,7 @@ def _peel_marker_if_starts_with(segs: list[Segment], idx: int, marker: str) -> b
 
     This is the trick that lets ``2026年5月17日去了`` produce a clean
     ``[2026][年][5][月][17][日][去了]`` view for date detection
-    without requiring the Segmenter to know about date markers.
+    without requiring segmentation to know about date markers.
     """
     if idx >= len(segs):
         return False
@@ -338,7 +353,7 @@ def _peel_marker_if_starts_with(segs: list[Segment], idx: int, marker: str) -> b
     if seg.type != "hanzi_text" or not seg.surface.startswith(marker):
         return False
     if seg.span is None:
-        return False  # shouldn't happen with default Segmenter, but be safe
+        return False  # shouldn't happen with segments off a block, but be safe
     marker_span = Span(seg.span.start, seg.span.start + len(marker))
     segs[idx] = Segment(type="hanzi_text", surface=marker, span=marker_span)
     rest = seg.surface[len(marker) :]
@@ -352,67 +367,9 @@ def _peel_marker_if_starts_with(segs: list[Segment], idx: int, marker: str) -> b
     return True
 
 
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
-
-normalizer_registry: Registry[Normalizer] = Registry("normalizer", protocol=Normalizer)
-
-# What :func:`normalize` falls back to when the context names no normalizer —
-# the delegating adapter that picks by the document's language.
-AUTO_NORMALIZER = "auto"
-
-# The built-in, language-neutral normalizer's registered name, kept distinct
-# from the name above for the same reason as
-# :data:`~brailix.frontend.segmentation.BUILTIN_SEGMENTER`.
-BUILTIN_NORMALIZER = "default"
-
-normalizer_registry.register(BUILTIN_NORMALIZER, DefaultNormalizer)
-
-
-@_dataclass(slots=True)
-class AutoNormalizer:
-    """Delegating normalizer: uses the active language's, else the built-in.
-
-    Counterpart to :class:`~brailix.frontend.segmentation.AutoSegmenter`; see it
-    for why the choice is made per call rather than cached.
-    """
-
-    name: str = "auto"
-
-    def normalize(
-        self,
-        segments: Iterable[Segment],
-        ctx: FrontendContext | None = None,
-    ) -> list[NormalizedItem]:
-        picked = pick_by_language(normalizer_registry, ctx, BUILTIN_NORMALIZER)
-        return normalizer_registry.get(picked).normalize(segments, ctx)
-
-
-normalizer_registry.register(AUTO_NORMALIZER, AutoNormalizer)
-
-
-def normalize(
-    segments: list[Segment],
-    ctx: FrontendContext | None = None,
-):
-    """Run the active normalizer over ``segments``.
-
-    The adapter is chosen by ``ctx.options["normalizer"]``, defaulting to
-    :data:`AUTO_NORMALIZER`. Returns whatever
-    the adapter returns — a list of
-    :class:`~brailix.ir.inline.InlineNode` (and possibly
-    :class:`Segment`) entries.
-    """
-    name = AUTO_NORMALIZER
-    if ctx is not None and ctx.options:
-        name = ctx.options.get("normalizer", AUTO_NORMALIZER)
-    return normalizer_registry.get(name).normalize(segments, ctx)
-
-
-# The registry (promised on the **extension surface** — see :mod:`brailix`)
-# and the subsystem entry point the orchestrator calls, mirroring
-# :mod:`brailix.frontend.segmentation`. Everything else here — the concrete
-# normalizers, ``NormalizedItem``, the unit and marker tables, and the dozen
-# IR node types this module imports to build with — is internal.
-__all__ = ("normalizer_registry", "normalize")
+# The one pass this module is, which the orchestrator calls and the
+# :mod:`brailix.frontend` facade re-exports. Everything else here —
+# ``NormalizedItem``, the pattern matchers, the marker table, and the dozen IR
+# node types this module imports to build with — is internal. Nothing on the
+# extension surface: with the registry gone there is nothing to register.
+__all__ = ("normalize",)

@@ -112,7 +112,9 @@ def block_hash(
     profile name, or structural shape flips the hash — and, when
     ``fingerprint`` is supplied (:attr:`Pipeline.fingerprint`), so does any
     change in the compilation configuration: the resolved profile's actual
-    content, the selected segmenter / normalizer / analyzer / resolver, the
+    content, the selected analyzer / resolver, what the registries currently
+    resolve a name to (the language frontend included, and with it that
+    language's segmentation), the
     user pinyin and segmentation dictionaries, the run mode, or the brailix
     version (see
     :func:`brailix.pipeline._fingerprint.compilation_fingerprint` for the exact coverage

@@ -5,14 +5,13 @@ Markdown adapter, covering the frontend/backend boundary contracts:
 
 * The Chinese frontend runs over text-bearing blocks (paragraph,
   heading, list_item, quote, footnote, table_cell) — those land with
-  populated ``children``.
+  populated ``inlines``.
 * :class:`MathBlock` and :class:`CodeBlock` deliberately bypass the
   Chinese frontend — their ``text`` is not language text, so Chinese
-  tokens in ``children`` would pollute the IR. They are populated by
-  their own vertical instead (the math frontend's ``MathInline``
-  carrying a parsed MathML tree, a verbatim ``CodeInline``), and the
-  backend consumes those children like any other inline node rather
-  than re-reading ``block.text``.
+  tokens in ``inlines`` would pollute the IR. They are populated by
+  their own vertical instead (a MathML tree on the block's own ``tree``,
+  a verbatim ``CodeInline``), and the backend consumes what was filled
+  in rather than re-reading ``block.text``.
 * The block expander produces one :class:`BrailleBlock` per
   paragraph / heading / quote / footnote / image_alt / math_block /
   code_block, and multiple blocks per List / Table.
@@ -43,7 +42,7 @@ def pipe() -> Pipeline:
 
 
 # ---------------------------------------------------------------------------
-# Block-pollution boundary: math/code don't get Chinese children
+# Block-pollution boundary: math/code don't get Chinese inline nodes
 # ---------------------------------------------------------------------------
 
 
@@ -59,7 +58,7 @@ class TestNoFrontendPollution:
         assert math_blocks[0].text == "x + y = z"
         # Parsed by the *math* frontend into the block's own MathML tree, not
         # by the Chinese tokenizer (which would have spat out Word/Word
-        # garbage into ``children``).
+        # garbage into ``inlines``).
         assert math_blocks[0].inlines == []
         assert math_blocks[0].tree is not None
 
@@ -75,12 +74,12 @@ class TestNoFrontendPollution:
         assert code_blocks[0].language == "python"
         # Children: a single CodeInline carrying the verbatim text,
         # so the backend's punct path emits one cell per source char.
-        children = code_blocks[0].inlines
-        assert len(children) == 1
-        assert isinstance(children[0], CodeInline)
-        assert children[0].surface == "x = 1"
+        inlines = code_blocks[0].inlines
+        assert len(inlines) == 1
+        assert isinstance(inlines[0], CodeInline)
+        assert inlines[0].surface == "x = 1"
 
-    def test_paragraph_still_populates_children(self, pipe):
+    def test_paragraph_still_populates_inlines(self, pipe):
         # Paragraphs DO run through the frontend — confirm the
         # math/code skip didn't accidentally short-circuit text blocks.
         doc = parse_markdown("一段中文。", profile="cn_current", language="zh-CN")
@@ -89,7 +88,7 @@ class TestNoFrontendPollution:
 
 
 # ---------------------------------------------------------------------------
-# Backend produces cells for both math and code, from their own children
+# Backend produces cells for both math and code, from their own content
 # ---------------------------------------------------------------------------
 
 
@@ -180,7 +179,7 @@ class TestTableCellSpanRebasingOnRecompile:
     """The rebase must survive a **re-compile of an edited table**, not only
     the first compile.
 
-    Each cell decides on its own whether its children are stale (its text
+    Each cell decides on its own whether its content is stale (its text
     changed) — but a cell's row-local offset depends on the cells *before* it.
     Widening column 0 moves every later column even though their own text is
     untouched, and a cell whose text DID change must not have the previous
@@ -216,7 +215,7 @@ class TestTableCellSpanRebasingOnRecompile:
         self._assert_row_local(table.blocks[0])
 
         # Column 0 grows by two characters; column 1's own text is untouched,
-        # so its children are reused — they must still be rebased.
+        # so its inlines are reused — they must still be rebased.
         table.blocks[0].blocks[0].text = "ABCD"
         pipe.translate_document(doc)
         self._assert_row_local(table.blocks[0])
@@ -225,7 +224,7 @@ class TestTableCellSpanRebasingOnRecompile:
 
     def test_editing_a_later_column_does_not_double_shift(self, pipe):
         doc, table = self._table(pipe, "| AB | CDE |\n| --- | --- |\n")
-        # Column 1's text changes: its children are dropped and rebuilt, and
+        # Column 1's text changes: its inlines are dropped and rebuilt, and
         # the span left over from the previous compile is already row-local —
         # shifting it again would land the cell past the end of the row.
         table.blocks[0].blocks[1].text = "XY"
@@ -397,7 +396,7 @@ class TestPopulateBlockRecursion:
             ],
         )
         result = pipe.translate_document(doc)
-        # Frontend populated each cell's children.
+        # Frontend populated each cell's inlines.
         table = result.ir.blocks[0]
         assert all(cell.inlines for row in table.blocks for cell in row.blocks)
         # Result text is a "cell1 | cell2" reconstruction (see
@@ -424,7 +423,7 @@ class TestPopulateBlockRecursion:
 
     def test_paragraph_without_span_gets_synthesized_span(self, pipe):
         # Same contract for text-bearing blocks: bare text + no span +
-        # no children should land with the span populated to (0, len).
+        # no inlines should land with the span populated to (0, len).
         from brailix.ir.document import DocumentIR, Paragraph
 
         p = Paragraph(text="一段")
@@ -439,7 +438,7 @@ class TestPopulateBlockRecursion:
         assert p.span.end == len("一段")
 
     def test_prepopulated_block_with_text_gets_span_synthesized(self, pipe):
-        # A block arriving with children AND raw text but no span lands a
+        # A block arriving with inlines AND raw text but no span lands a
         # span too — the same treatment math / code / score blocks already
         # got, now uniform for prose (previously the one branch that
         # silently left span=None for a populated text-bearing block).
@@ -453,7 +452,7 @@ class TestPopulateBlockRecursion:
         assert p.span is not None
         assert p.span.start == 0
         assert p.span.end == len("字")
-        # Pre-populated children left intact (frontend didn't re-run).
+        # Pre-populated inlines left intact (frontend didn't re-run).
         assert len(p.inlines) == 1
         assert p.inlines[0].surface == "字"
 
@@ -549,7 +548,7 @@ class TestResolvedProfileIdentity:
         The documented contract, and the reason both exist: an incremental
         caller wants the structure *before* the frontend has run, to compile it
         block by block. The architecture document claimed the opposite for a
-        while — "a DocumentIR with children already populated" — which reads as
+        while — "a DocumentIR already populated" — which reads as
         "the frontend has run", and a caller who believed it would take a
         proofreading tree from here and find every block empty.
         """

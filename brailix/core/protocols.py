@@ -20,7 +20,6 @@ also write unit tests for adapter behaviour.
 from __future__ import annotations
 
 from collections.abc import Collection as _Collection
-from collections.abc import Iterable as _Iterable
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 from typing import Any as _Any
 from typing import Protocol as _Protocol
@@ -60,15 +59,25 @@ if _TYPE_CHECKING:
         Word,
     )
 
-    NormalizedItem = InlineNode | _Segment
     BrailleRenderable = BrailleDocument | BrailleSequence
 
 
 # ---------------------------------------------------------------------------
-# Frontend: text segmentation + normalization
+# Frontend: one language's prose
 #
-# The per-language analyzer / reading-resolver protocols are NOT here: they
-# live with their language (``frontend.zh.analyzer.ChineseAnalyzer``,
+# There is deliberately no ``Segmenter`` and no ``Normalizer`` protocol.
+# Segmentation is a language's own lexical policy and belongs to the
+# LanguageFrontend below; normalization (``digit_run`` → Number, a date
+# pattern → Date, a ``$...$`` island → MathInline) is a fixed lowering pass
+# from Segment to semantic inline IR — the IR's own contract, not a strategy
+# with implementations to choose between. Both were plugin families with a
+# registry, an ``auto`` adapter and a ``ctx.options`` key; between them they
+# ever held one implementation that was not the built-in, and that one was
+# Japanese — already a language, already registered, already selected by the
+# same subtag.
+#
+# The per-language analyzer / reading-resolver protocols are NOT here either:
+# they live with their language (``frontend.zh.analyzer.ChineseAnalyzer``,
 # ``frontend.ja.analyzer.JapaneseAnalyzer``), because a protocol naming one
 # language's types is that language's contract, not the core's. What stays
 # is what every language routes through.
@@ -76,64 +85,50 @@ if _TYPE_CHECKING:
 
 
 @_runtime_checkable
-class Segmenter(_Protocol):
-    """Split a block of raw text into typed inline segments (hanzi /
-    number / date / math / latin / punct / ...). The segmenter
-    decides *what* a region is, not how to translate it.
-
-    ``ctx`` may be ``None`` so callers without a fully-built
-    :class:`FrontendContext` (e.g. low-level unit tests or the
-    minimal-config code path in :func:`brailix.frontend.segmentation`)
-    can still drive a segmenter.
-    """
-
-    name: str
-
-    def segment(
-        self, block: Block, ctx: FrontendContext | None
-    ) -> list[_Segment]: ...
-
-
-@_runtime_checkable
-class Normalizer(_Protocol):
-    """Promote raw :class:`~brailix.core.segment.Segment` runs into typed inline nodes where
-    possible (numbers, dates, latin words, math_inline).
-    Segments the normalizer doesn't recognize pass through untouched
-    so the Pipeline's per-type frontend dispatch can take over."""
-
-    name: str
-
-    def normalize(
-        self,
-        segments: _Iterable[_Segment],
-        ctx: FrontendContext | None = None,
-    ) -> list[NormalizedItem]: ...
-
-
-# ---------------------------------------------------------------------------
-# Math: source-format adapters + IR builder
-# ---------------------------------------------------------------------------
-
-
-@_runtime_checkable
 class LanguageFrontend(_Protocol):
-    """Turn a run of one language's prose into inline IR nodes.
+    """Everything one language does to its own prose: which runs of raw text
+    *are* that prose, and what each run becomes in the IR.
 
     Registered per language (``frontend.language_frontend_registry``);
     the Pipeline picks the implementation whose key matches the active
-    profile's ``language`` primary subtag and routes each prose segment
-    to it. This is the seam for adding a language (Japanese, Korean,
-    ...): implement ``process`` — tokenize → reading → inline IR for that
-    language — declare which segment types carry that language's prose,
-    and register it; the orchestrator stays language-agnostic.
+    profile's ``language`` primary subtag and drives both halves through
+    it. This is the seam for adding a language (Japanese, Korean, ...):
+    implement the two methods, declare which segment types carry that
+    language's prose, and register it; the orchestrator stays
+    language-agnostic.
+
+    :meth:`segment` is the language's **lexical policy** — which characters
+    group into one region and what that region is called. Only the language
+    can answer it (does a kana run continue into the kanji beside it? yes,
+    because the analyzer resolves readings across that boundary), which is
+    why it sits here rather than in a family of its own. It used to be a
+    separate ``Segmenter`` protocol with its own registry keyed by the same
+    language subtag, so a language was two registrations that had to agree
+    about the segment type names — and the freedom that split bought
+    (choosing a segmenter independently of the frontend consuming its
+    output) names no combination anyone can use.
+
+    What is language-*neutral* about the chunking — digits, Latin, Greek,
+    punctuation, ``$...$`` math islands, IPA regions — is not re-implemented
+    per language: :func:`brailix.frontend.segmentation.segment_text` does it,
+    parameterised by a character classifier, so a language that adds a script
+    passes its own classifier and inherits the rest (see
+    :mod:`brailix.frontend.ja`). A language whose writing system the built-in
+    classifier already covers can delegate straight to
+    :func:`brailix.frontend.segmentation.segment`, as Chinese does.
+
+    ``ctx`` may be ``None`` on :meth:`segment` so a caller without a
+    fully-built :class:`FrontendContext` (a low-level unit test) can still
+    drive it; :meth:`process` needs one, because that is where the analyzer
+    and reading engines are named.
 
     ``prose_types`` are the :class:`~brailix.core.segment.Segment` type
-    names this language's prose appears as (Chinese: ``{"hanzi_text"}``;
-    a Japanese frontend might consume ``{"hanzi_text", "kana_text"}``).
-    The Pipeline routes a segment here when its type is in this set, so
-    the segment type stays script-accurate while routing stays
-    language-driven. The matching segmenter (selected by the same
-    language subtag) is what emits those types.
+    names this language's prose comes out as (Chinese: ``{"hanzi_text"}``;
+    Japanese: ``{"ja_text"}``). The Pipeline routes a segment to
+    :meth:`process` when its type is in this set, so the segment type stays
+    script-accurate while routing stays language-driven — and since the types
+    come out of this same object's :meth:`segment`, the two halves cannot
+    drift apart on the name.
 
     Two **optional** declarations let a front-end offer this language's
     pluggable parts without knowing the language exists. Both are read with a
@@ -152,6 +147,10 @@ class LanguageFrontend(_Protocol):
     """
 
     prose_types: _Collection[str]
+
+    def segment(
+        self, block: Block, ctx: FrontendContext | None
+    ) -> list[_Segment]: ...
 
     def process(
         self, surface: str, base: int, ctx: FrontendContext
@@ -209,6 +208,11 @@ class LanguageBackend(_Protocol):
         property of what is handed over rather than of how it was walked.
         """
         ...
+
+
+# ---------------------------------------------------------------------------
+# Math: source-format adapters
+# ---------------------------------------------------------------------------
 
 
 @_runtime_checkable
@@ -409,8 +413,6 @@ if _TYPE_CHECKING:
 # ``__all__`` there is no promise to check, and the check that exists to say
 # "publishes no more than it promises" had nothing to compare against.
 __all__ = (
-    "Segmenter",
-    "Normalizer",
     "LanguageFrontend",
     "LanguageBackend",
     "MathSourceAdapter",

@@ -303,7 +303,7 @@ class CompiledBlock:
     for a front-end to cache a block's compilation independently of other
     blocks:
 
-    * ``ir`` — frontend-populated :class:`Block` (children filled).
+    * ``ir`` — frontend-populated :class:`Block` (content filled).
     * ``braille_blocks`` — backend output. For simple blocks this is
       a 1-element list; composite blocks (List / Table) expand to N
       elements (one per item / row).

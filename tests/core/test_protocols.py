@@ -17,9 +17,10 @@ from brailix.core import protocols
 # --- Minimal correct implementations ----------------------------------
 
 
-class GoodSegmenter:
-    name = "good"
+class GoodLanguageFrontend:
+    prose_types = frozenset({"xx_text"})
     def segment(self, block, ctx): return []
+    def process(self, surface, base, ctx): return []
 
 
 class GoodChineseAnalyzer:
@@ -45,8 +46,9 @@ class GoodRenderer:
 # --- Bad implementations ----------------------------------------------
 
 
-class NoMethodSegmenter:
-    name = "bad"  # missing .segment
+class NoSegmentLanguageFrontend:
+    prose_types = frozenset({"xx_text"})  # missing .segment
+    def process(self, surface, base, ctx): return []
 
 
 class NoMethodMathAdapter:
@@ -56,9 +58,30 @@ class NoMethodMathAdapter:
 # --- Tests -------------------------------------------------------------
 
 
-def test_segmenter_isinstance():
-    assert isinstance(GoodSegmenter(), protocols.Segmenter)
-    assert not isinstance(NoMethodSegmenter(), protocols.Segmenter)
+def test_language_frontend_isinstance():
+    """Both halves are required, ``segment`` included.
+
+    Segmentation used to be a ``Segmenter`` protocol with a registry of its
+    own, keyed by the same language subtag as this one — so a language was
+    two registrations that had to agree. Folding it in means the runtime
+    check the registry runs at ``get()`` now rejects a frontend that declares
+    only half a language.
+    """
+    assert isinstance(GoodLanguageFrontend(), protocols.LanguageFrontend)
+    assert not isinstance(
+        NoSegmentLanguageFrontend(), protocols.LanguageFrontend
+    )
+
+
+def test_the_two_folded_frontend_protocols_are_gone():
+    """No ``Segmenter``, no ``Normalizer`` — and no alias left behind.
+
+    Segmentation moved onto :class:`LanguageFrontend` (above); normalization
+    stopped being a plugin at all — it is the canonical Segment → inline-IR
+    lowering, reached as :func:`brailix.frontend.normalization.normalize`.
+    """
+    assert not hasattr(protocols, "Segmenter")
+    assert not hasattr(protocols, "Normalizer")
 
 
 def test_chinese_analyzer_isinstance():
@@ -110,7 +133,7 @@ def test_all_protocols_are_runtime_checkable():
         "PinyinResolver": PinyinResolver,
     }
     for name in (
-        "Segmenter",
+        "LanguageFrontend",
         "ChineseAnalyzer",
         "PinyinResolver",
         "MathSourceAdapter",

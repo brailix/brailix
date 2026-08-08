@@ -18,10 +18,11 @@ imports this; this never imports input).
 ## One entry point per subsystem
 
 Each subsystem under ``frontend/`` exposes **a single high-level
-entry point** plus a registry of internal adapter implementations.
-The entry point takes a :class:`FrontendContext`; which concrete adapter runs
-is decided by ``ctx.options[...]`` (or by an ``"auto"`` default that probes
-what's installed).
+entry point**. Where the subsystem has competing implementations it also
+keeps a registry of them, and the entry point picks one from
+``ctx.options[...]`` (or from an ``"auto"`` default that probes what's
+installed). Where it does not, the entry point *is* the implementation: a
+fixed compiler pass with nothing to select.
 
 The table lists each **subsystem's own** entry point, at the module that
 defines it — not the contents of this facade.
@@ -41,8 +42,8 @@ of symmetry.
 =========================  ===========================================
 Module                     Its subsystem entry point
 -------------------------  -------------------------------------------
-``frontend.segmentation``  :func:`segment` (selected by ``segmenter``)
-``frontend.normalization`` :func:`normalize` (selected by ``normalizer``)
+``frontend.segmentation``  :func:`segment` (the language-neutral chunking)
+``frontend.normalization`` :func:`normalize` (a fixed pass, nothing to select)
 ``frontend.zh``            :func:`tokenize` (selected by ``zh_analyzer``)
 ``frontend.zh.pinyin``     :func:`annotate` (selected by ``pinyin_resolver``)
 ``frontend.ja``            :func:`analyze` (selected by ``ja_analyzer``)
@@ -51,17 +52,27 @@ Module                     Its subsystem entry point
 ``frontend.graphics``      :func:`parse_graphic_tree` (source via :class:`GraphicsContext`)
 =========================  ===========================================
 
-The first two modules are named for the *process* rather than the verb because
+The first two are the pair with no adapter family: which characters group into
+a region is the active language's own policy and reaches the compiler through
+:meth:`LanguageFrontend.segment
+<brailix.core.protocols.LanguageFrontend.segment>` (``frontend.segmentation``
+holds the built-in classification every language builds on, and runs as-is
+when the language has no frontend), while normalization is the canonical
+Segment → inline-IR lowering. Both used to be plugin families with a
+registry, an ``auto`` adapter and a ``ctx.options`` key of their own —
+language-keyed seams parallel to ``language_frontend_registry``, which is
+where the difference they expressed already lived.
+
+Those two modules are named for the *process* rather than the verb because
 the verb is taken: this facade binds :func:`segment` and :func:`normalize` as
 functions, and a package attribute and a submodule cannot both own one name.
 Naming them ``frontend.segment`` / ``frontend.normalize`` instead puts a
 submodule under a name this facade binds as a function, and the function wins:
 ``import brailix.frontend.segment as m`` hands back the function, so
-``m.segmenter_registry`` — the path the extension guide names — raises
-``AttributeError``, while ``from brailix.frontend.segment import
-segmenter_registry`` works, because that form resolves through
-``sys.modules`` rather than through the package. One documented path, two
-spellings, one of them broken.
+``m.segment_text`` — the path the extension guide names — raises
+``AttributeError``, while ``from brailix.frontend.segment import segment_text``
+works, because that form resolves through ``sys.modules`` rather than through
+the package. One documented path, two spellings, one of them broken.
 
 Published *here*, as this facade's ``__all__`` — the names that do carry a
 compatibility promise: :func:`segment`, :func:`normalize`, ``tokenize_zh``,
@@ -93,6 +104,7 @@ from brailix.core.protocols import LanguageFrontend as _LanguageFrontend
 from brailix.core.registry import Registry as _Registry
 from brailix.frontend.ja import analyze as _ja_analyze
 from brailix.frontend.ja import ja_boundary as _ja_boundary
+from brailix.frontend.ja import ja_segment as _ja_segment
 from brailix.frontend.ja import tokens_to_inline as _ja_tokens_to_inline
 from brailix.frontend.ja.analyzer import list_analyzers as _ja_list_analyzers
 from brailix.frontend.math import parse_math_tree
@@ -119,6 +131,8 @@ if _TYPE_CHECKING:
 
     from brailix.core.config import BrailleProfile
     from brailix.core.context import FrontendContext
+    from brailix.core.segment import Segment
+    from brailix.ir.document import Block
     from brailix.ir.inline import InlineNode
 
     BoundaryHandler = Callable[
@@ -128,7 +142,7 @@ if _TYPE_CHECKING:
 
 class _ZhFrontend(_LanguageFrontend):
     """Chinese :class:`~brailix.core.protocols.LanguageFrontend`:
-    tokenize → pinyin → inline IR.
+    Han-aware segmentation, then tokenize → pinyin → inline IR.
 
     Lives here (frontend orchestration level), not inside
     ``frontend.zh.analyzer``, because it chains the analyzer with the
@@ -137,8 +151,9 @@ class _ZhFrontend(_LanguageFrontend):
     """
 
     # Chinese prose reaches the frontend as ``hanzi_text`` segments (Han
-    # ideograph runs from the default segmenter). The Pipeline routes
-    # those here via this declaration rather than a hard-coded literal.
+    # ideograph runs, emitted by this language's own ``segment`` below). The
+    # Pipeline routes those to ``process`` via this declaration rather than a
+    # hard-coded literal.
     prose_types = frozenset({"hanzi_text"})
     display_name = "Chinese"
     # What a caller can choose between for this language, per family. Reading
@@ -148,6 +163,14 @@ class _ZhFrontend(_LanguageFrontend):
         "analyzer": _zh_list_analyzers,
         "resolver": _zh_list_resolvers,
     }
+
+    def segment(
+        self, block: Block, ctx: FrontendContext | None = None
+    ) -> list[Segment]:
+        # Chinese adds no script the built-in classifier lacks — Han runs are
+        # what it already recognises — so the language's lexical policy IS the
+        # built-in chunking, delegated to rather than restated.
+        return segment(block, ctx)
 
     def process(
         self, surface: str, base: int, ctx: FrontendContext
@@ -161,9 +184,11 @@ class _ZhFrontend(_LanguageFrontend):
 class _JaFrontend(_LanguageFrontend):
     """Japanese :class:`~brailix.core.protocols.LanguageFrontend`.
 
-    Chains the morphological analyzer (selected by
-    ``ctx.options["ja_analyzer"]``, default ``auto``) with
-    ``tokens_to_inline``: a ``ja_text`` run (kana + kanji) is analyzed
+    Segments kana **and** kanji into one ``ja_text`` run (:func:`ja_segment
+    <brailix.frontend.ja.ja_segment>` — they have to stay together for
+    readings and particles to resolve across the boundary), then chains the
+    morphological analyzer (selected by ``ctx.options["ja_analyzer"]``,
+    default ``auto``) with ``tokens_to_inline``: the run is analyzed
     into tokens carrying katakana pronunciation-form readings, then turned
     into :class:`~brailix.ir.inline.Word` nodes. Pure kana works with no
     analyzer installed (the ``kana`` fallback); kanji readings need
@@ -179,6 +204,11 @@ class _JaFrontend(_LanguageFrontend):
     # itself (katakana pronunciation forms on the tokens), so there is nothing
     # to choose between after it.
     adapters = {"analyzer": _ja_list_analyzers}
+
+    def segment(
+        self, block: Block, ctx: FrontendContext | None = None
+    ) -> list[Segment]:
+        return _ja_segment(block, ctx)
 
     def process(
         self, surface: str, base: int, ctx: FrontendContext
@@ -220,7 +250,7 @@ class _BoundaryRegistry(dict):
     compiles with identical ``source_hash`` and different cells — measured,
     ``Paragraph("x轴")`` compiles to ``⠰⠭⠤⠀`` and then ``⠰⠭⠀`` under one key.
     Nothing else catches it: the nodes a handler inserts carry
-    ``surface=""``, so the stale-children check (which compares reconstructed
+    ``surface=""``, so the stale-content check (which compares reconstructed
     surface against ``block.text``) sees no difference, and an
     already-populated block keeps its old spacing on recompile.
 
@@ -385,7 +415,7 @@ def list_language_adapters(language: str, family: str = "analyzer") -> list[str]
     :func:`brailix.frontend.zh.analyzer.list_analyzers` and its Japanese twin
     instead works only for the languages the caller already knows the names of:
     the CLI listed exactly two, hard-coded, and a third language could register
-    a segmenter, a frontend and a backend and still be invisible to it. Here
+    its frontend and its backend and still be invisible to it. Here
     the language declares what it offers and the caller stays language-blind
     (see ARCHITECTURE#arch-language-slots).
 

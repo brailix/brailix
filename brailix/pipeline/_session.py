@@ -141,7 +141,7 @@ class CompilationSession:
         #
         # * ``fingerprint`` — the pipeline's fingerprint moves when a
         #   registry registration (or the asset resolver) changes (see
-        #   :attr:`Pipeline.fingerprint`), and the stale-children check
+        #   :attr:`Pipeline.fingerprint`), and the stale-content check
         #   compares block stamps against the driver's copy — a run must
         #   compare against the CURRENT identity, or IR populated before a
         #   runtime re-register would be reused as-is. Read exactly once and
