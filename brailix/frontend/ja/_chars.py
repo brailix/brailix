@@ -1,5 +1,5 @@
 """Japanese character classification — a leaf module shared by the
-segmenter and the dependency-free ``kana`` analyzer.
+language's segmentation and the dependency-free ``kana`` analyzer.
 
 Kept separate from :mod:`brailix.frontend.ja` so the analyzer adapters
 can reuse :func:`_is_kana` without an import cycle (``frontend.ja``
@@ -8,7 +8,7 @@ re-exports the analyzer, which would otherwise import back into it).
 
 from __future__ import annotations
 
-from brailix.frontend.segmentation import _category
+from brailix.frontend.segmentation import char_category
 
 
 def _is_kana(ch: str) -> bool:
@@ -37,7 +37,7 @@ def _ja_category(ch: str) -> str:
     """
     if _is_kana(ch):
         return "ja_text"
-    cat = _category(ch)
+    cat = char_category(ch)
     if cat == "hanzi_text":
         return "ja_text"
     return cat

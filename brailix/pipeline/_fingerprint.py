@@ -12,7 +12,7 @@ longer runs — silent wrong braille, the worst failure mode a cache has.
 Pipeline-level input that can change the compiled output for the same
 source text. :class:`~brailix.pipeline.Pipeline` computes it once per
 instance, folds it into every :attr:`CompiledBlock.source_hash`, and stamps
-it onto the blocks whose ``children`` its frontend populates so a later
+it onto the blocks whose content its frontend populates so a later
 compile under a *different* configuration re-runs the frontend instead of
 reusing semantic IR built under the old one.
 
@@ -22,9 +22,10 @@ Covered (a change flips the fingerprint):
   same-named profile edited on ``extra_profile_paths`` fingerprints apart
   from the builtin it shadows;
 * the selected **adapter names** (analyzer / resolver as configured);
-  segmenter / normalizer are absent because they are not configuration —
-  which one runs follows from the profile's language, and the profile's
-  full content is hashed above;
+  segmentation is absent because it is not configuration — a language's
+  chunking belongs to its frontend, which follows from the profile's
+  language, and the profile's full content is hashed above (what the subtag
+  currently *resolves to* is covered by the registry fold below);
 * the **user pinyin dictionary** and the **user segmentation dictionary**
   (both order-insensitive);
 * the **run mode** — braille output is mode-independent, but recorded
@@ -244,22 +245,23 @@ def _compilation_registries() -> tuple[Any, ...]:
         )
         from brailix.frontend.math.registry import math_source_registry
         from brailix.frontend.music.registry import music_source_registry
-        from brailix.frontend.normalization import normalizer_registry
-        from brailix.frontend.segmentation import segmenter_registry
         from brailix.frontend.zh.analyzer.registry import (
             analyzer_registry as zh_analyzer_registry,
         )
         from brailix.frontend.zh.pinyin.registry import resolver_registry
 
         _COMPILATION_REGISTRIES = (
-            segmenter_registry,
-            normalizer_registry,
+            # Covers segmentation too: a language's chunking is its frontend's
+            # ``segment`` method, so replacing the frontend under a subtag
+            # moves this generation. There is no separate segmenter registry
+            # to fold, and no normalizer registry — normalization is a fixed
+            # pass with nothing registerable in it.
             language_frontend_registry,
             # The boundary pass is a documented extension point whose handler
             # inserts the Space / Connector nodes between a hanzi run and a
             # Latin word or a number — it changes the braille, so it belongs
             # here, and nothing else covers it: the nodes it inserts carry
-            # ``surface=""``, so the stale-children check sees no change
+            # ``surface=""``, so the stale-content check sees no change
             # either, and two compiles either side of a handler swap come back
             # with one ``source_hash`` and different cells.
             boundary_registry,

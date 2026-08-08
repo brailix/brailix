@@ -27,27 +27,14 @@ import dataclasses
 
 import pytest
 
-import brailix.frontend.normalization as normalize_mod
-import brailix.frontend.segmentation as segment_mod
 from brailix import Pipeline
 from brailix.core.context import FrontendContext
 from brailix.core.registry import Registry
-from brailix.frontend.normalization import (
-    AUTO_NORMALIZER,
-    normalize,
-    normalizer_registry,
-)
-from brailix.frontend.segmentation import (
-    AUTO_SEGMENTER,
-    segment,
-    segmenter_registry,
-)
 from brailix.frontend.zh import tokenize
 from brailix.frontend.zh.analyzer import registry as zh_analyzer_registry_mod
 from brailix.frontend.zh.pinyin import annotate
 from brailix.frontend.zh.pinyin import registry as pinyin_registry_mod
 from brailix.frontend.zh.tokens import ChineseToken
-from brailix.ir.document import Paragraph
 from brailix.pipeline import TranslationResult
 
 PIPELINE_DEFAULTS = {f.name: f.default for f in dataclasses.fields(Pipeline)}
@@ -63,12 +50,13 @@ class TestPipelineDeclaresTheDefaults:
             assert PIPELINE_DEFAULTS[field_name] == "auto", field_name
 
     def test_segmenter_and_normalizer_are_not_fields(self) -> None:
-        """They ship one implementation per language, so there is nothing to
-        choose: which one applies follows from ``profile.language``.
+        """Neither names an adapter family at all any more: segmentation
+        belongs to the language frontend ``profile.language`` selects, and
+        normalization is a fixed pass.
 
-        Pinned because re-adding them would look like a harmless convenience
-        while actually creating a second place for a fact the profile already
-        settles — and a knob whose only correct value is "whatever the
+        Pinned because re-adding either would look like a harmless
+        convenience while actually creating a second place for a fact settled
+        elsewhere — and a knob whose only correct value is "whatever the
         language says" is one a caller can only get wrong.
         """
         assert "segmenter" not in PIPELINE_DEFAULTS
@@ -105,20 +93,6 @@ class TestPipelineDeclaresTheDefaults:
 class TestIndependentStatementsAgree:
     """The copies that genuinely cannot import the Pipeline."""
 
-    @pytest.mark.parametrize(
-        ("auto_name", "registry"),
-        [
-            (AUTO_SEGMENTER, segmenter_registry),
-            (AUTO_NORMALIZER, normalizer_registry),
-        ],
-    )
-    def test_the_language_routed_families_register_their_auto(
-        self, auto_name: str, registry: Registry
-    ) -> None:
-        # No Pipeline field to agree with — what matters is that the name the
-        # entry point falls back to is one the registry can actually resolve.
-        assert registry.has(auto_name)
-
     def test_zh_analyzer_matches(self) -> None:
         import brailix.frontend.zh.analyzer as zh_analyzer_mod
 
@@ -151,37 +125,12 @@ class TestSubsystemsActuallyApplyTheirDefault:
     """Moving a subsystem's default moves what an option-less call selects.
 
     Not "the constants are equal" — that is exactly what hid the old bug.
+
+    Segmentation and normalization are absent by construction: they name no
+    adapter and read no option, so there is no default of theirs to apply
+    (``tests/frontend/test_segment.py`` and ``test_normalize.py`` pin that
+    directly).
     """
-
-    def test_segment(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        seen: list[str] = []
-
-        class _Probe:
-            name = "probe"
-
-            def segment(self, block, ctx=None):  # noqa: ANN001
-                seen.append("probe")
-                return []
-
-        with segmenter_registry.overriding("probe", _Probe):
-            monkeypatch.setattr(segment_mod, "AUTO_SEGMENTER", "probe")
-            segment(Paragraph(text="我"), _ctx())
-        assert seen == ["probe"]
-
-    def test_normalize(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        seen: list[str] = []
-
-        class _Probe:
-            name = "probe"
-
-            def normalize(self, segments, ctx=None):  # noqa: ANN001
-                seen.append("probe")
-                return []
-
-        with normalizer_registry.overriding("probe", _Probe):
-            monkeypatch.setattr(normalize_mod, "AUTO_NORMALIZER", "probe")
-            normalize([], _ctx())
-        assert seen == ["probe"]
 
     def test_zh_analyzer(self, monkeypatch: pytest.MonkeyPatch) -> None:
         seen: list[str] = []

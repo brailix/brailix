@@ -63,9 +63,9 @@ __all__ = (
     # span
     "Span",
     "merge_spans",
-    # the frontend's coarse-region mediator — named by the Segmenter /
-    # Normalizer protocol signatures, so an implementer can annotate it from
-    # this shallow surface
+    # the frontend's coarse-region mediator — named by the
+    # ``LanguageFrontend.segment`` protocol signature, so an implementer can
+    # annotate it from this shallow surface
     "Segment",
     # contexts — one per adapter family, so every Protocol an extender
     # implements can be annotated from this shallow surface

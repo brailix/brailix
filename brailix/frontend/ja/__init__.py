@@ -1,6 +1,7 @@
-"""Japanese frontend — segmenter + morphological-analysis prose builder.
+"""Japanese frontend — lexical segmentation + morphological-analysis prose
+builder.
 
-The segmenter groups Japanese script (kana **and** kanji) into one
+:func:`ja_segment` groups Japanese script (kana **and** kanji) into one
 ``ja_text`` run so the analyzer can resolve readings and particles across
 the kana↔kanji boundary (私は → 私 = ワタシ + は particle → ワ). The actual
 text→reading work is the analyzer subsystem (:mod:`.analyzer`): a registry
@@ -8,23 +9,23 @@ of adapters (janome / sudachi / fugashi) plus a dependency-free ``kana``
 fallback that reads pure kana and leaves kanji unread.
 
 The :class:`~brailix.core.protocols.LanguageFrontend` shell (``_JaFrontend``)
-lives in :mod:`brailix.frontend` (alongside the Chinese one) and chains
-:func:`~brailix.frontend.ja.analyzer.analyze` →
+lives in :mod:`brailix.frontend` (alongside the Chinese one) and wires the two
+halves of this package to the protocol's two methods: ``segment`` here, and
+``process`` = :func:`~brailix.frontend.ja.analyzer.analyze` →
 :func:`~brailix.frontend.ja.analyzer.tokens_to_inline`. Kana
-classification used by both the segmenter and the ``kana`` analyzer is in
+classification used by both the segmentation and the ``kana`` analyzer is in
 the leaf module :mod:`brailix.frontend.ja._chars` (avoids an import cycle).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass as _dataclass
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.span import Span
 from brailix.frontend.ja._chars import _is_kana as _is_kana  # re-export
 from brailix.frontend.ja._chars import _ja_category
 from brailix.frontend.ja.analyzer import analyze, tokens_to_inline
-from brailix.frontend.segmentation import _segment_text, segmenter_registry
+from brailix.frontend.segmentation import segment_text
 from brailix.ir.inline import Connector, Number, Word
 
 if _TYPE_CHECKING:
@@ -35,24 +36,24 @@ if _TYPE_CHECKING:
     from brailix.ir.inline import InlineNode
 
 
-@_dataclass(slots=True)
-class JapaneseSegmenter:
-    """Segmenter that groups Japanese script (kana + kanji) into one
-    ``ja_text`` run, reusing the built-in chunking for everything else."""
+def ja_segment(
+    block: Block, ctx: FrontendContext | None = None
+) -> list[Segment]:
+    """Japanese lexical segmentation: kana + kanji into one ``ja_text`` run,
+    the built-in chunking for everything else.
 
-    name: str = "ja"
-
-    def segment(
-        self, block: Block, ctx: FrontendContext | None = None
-    ) -> list[Segment]:
-        text = block.text
-        if not text:
-            return []
-        base = block.span.start if block.span is not None else 0
-        return _segment_text(text, base_offset=base, categorize=_ja_category)
-
-
-segmenter_registry.register("ja", JapaneseSegmenter)
+    Japanese's half of :meth:`LanguageFrontend.segment
+    <brailix.core.protocols.LanguageFrontend.segment>`, reached through
+    ``_JaFrontend``. The whole language-specific part is
+    :func:`~brailix.frontend.ja._chars._ja_category`; protected math and IPA
+    regions, digit runs, Latin, Greek and punctuation all come from
+    :func:`~brailix.frontend.segmentation.segment_text` unchanged.
+    """
+    text = block.text
+    if not text:
+        return []
+    base = block.span.start if block.span is not None else 0
+    return segment_text(text, base_offset=base, categorize=_ja_category)
 
 
 # ア行 / ラ行 kana share cells with the digits (あ=⠁=1, ら=⠑=5, …), so a
@@ -93,7 +94,7 @@ def ja_boundary(
 
 
 __all__ = (
-    "JapaneseSegmenter",
+    "ja_segment",
     "analyze",
     "tokens_to_inline",
     "ja_boundary",

@@ -15,8 +15,8 @@ contract every frontend implementation must honor; swapping the char/null
 fallbacks for HanLP/g2pW must not change the *structure* of the output, only
 the pinyin values and word boundaries inside hanzi runs.
 
-**Driven, not re-implemented.** This file used to chain ``DefaultSegmenter`` →
-``DefaultNormalizer`` → analyzer → resolver by hand and finish with a
+**Driven, not re-implemented.** This file used to chain segmentation →
+normalization → analyzer → resolver by hand and finish with a
 token→inline converter of its own, which meant it asserted against a copy: the
 copy emitted no word-boundary ``Space`` at all, so every assertion below held
 while describing an output the library does not produce, and the

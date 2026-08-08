@@ -6,7 +6,7 @@ Two silent-wrong-output holes closed by :mod:`brailix.pipeline._fingerprint`:
   ``(surface, profile name, structure)`` — the same text compiled under a
   different resolver / user dictionary / edited same-named profile hashed
   identically, so a cache served the other configuration's braille.
-* ``populate_block`` skipped the frontend whenever ``children`` were present
+* ``populate_block`` skipped the frontend whenever content was present
   and matched ``block.text`` — a :class:`DocumentIR` populated by pipeline A
   kept A's semantic IR when translated through a differently-configured
   pipeline B, so B's translation silently used A's tokenization / readings.
@@ -292,28 +292,28 @@ class TestSourceHashConfigCoverage:
 
 
 class TestPopulatedDocConfigInvalidation:
-    def test_second_pipeline_rebuilds_children_and_braille(
+    def test_second_pipeline_rebuilds_inlines_and_braille(
         self, base: Pipeline, with_dict: Pipeline
     ) -> None:
         doc = base.parse_text(TEXT)
         out_a = base.translate_document(doc).render("unicode")
-        children_a = doc.blocks[0].inlines
-        assert children_a  # populated by A
+        inlines_a = doc.blocks[0].inlines
+        assert inlines_a  # populated by A
 
         out_b = with_dict.translate_document(doc).render("unicode")
-        assert doc.blocks[0].inlines is not children_a  # frontend re-ran
+        assert doc.blocks[0].inlines is not inlines_a  # frontend re-ran
         assert out_b != out_a  # ...and B's user dictionary actually applied
 
-        # B's own re-translation now reuses B's children (stamp matches).
-        children_b = doc.blocks[0].inlines
+        # B's own re-translation now reuses B's inlines (stamp matches).
+        inlines_b = doc.blocks[0].inlines
         with_dict.translate_document(doc)
-        assert doc.blocks[0].inlines is children_b
+        assert doc.blocks[0].inlines is inlines_b
 
     def test_translate_text_ir_is_invalidated_by_different_pipeline(
         self, base: Pipeline, with_dict: Pipeline
     ) -> None:
         # ``translate_text`` used to assemble its own Paragraph carrying only
-        # ``children`` — no ``text``, no stamp — which is exactly the shape the
+        # ``inlines`` — no ``text``, no stamp — which is exactly the shape the
         # population contract calls hand-built and reuses verbatim. So this
         # result, handed to any other pipeline, kept A's tokenization and
         # readings and produced braille B never compiled. It stamps now, like
@@ -334,24 +334,24 @@ class TestPopulatedDocConfigInvalidation:
         # "re-translation skips the frontend cost" reuse when the configuration
         # is the same one.
         result = base.translate_text(TEXT)
-        children = result.ir.blocks[0].inlines
+        inlines = result.ir.blocks[0].inlines
         Pipeline(profile="cn_current").translate_document(result.ir)
-        assert result.ir.blocks[0].inlines is children
+        assert result.ir.blocks[0].inlines is inlines
 
-    def test_equal_configuration_still_reuses_children(
+    def test_equal_configuration_still_reuses_inlines(
         self, base: Pipeline
     ) -> None:
         doc = base.parse_text(TEXT)
         base.translate_document(doc)
-        children = doc.blocks[0].inlines
+        inlines = doc.blocks[0].inlines
         Pipeline(profile="cn_current").translate_document(doc)
-        assert doc.blocks[0].inlines is children
+        assert doc.blocks[0].inlines is inlines
 
-    def test_hand_built_children_are_used_as_is(
+    def test_hand_built_inlines_are_used_as_is(
         self, base: Pipeline, with_dict: Pipeline
     ) -> None:
         # Never stamped by a pipeline → the documented hand-built contract:
-        # children are consumed verbatim by every pipeline.
+        # hand-built inlines are consumed verbatim by every pipeline.
         para = Paragraph(
             text="AB",
             inlines=[LatinWord(surface="AB", span=Span(0, 2))],
@@ -359,13 +359,13 @@ class TestPopulatedDocConfigInvalidation:
         from brailix.ir.document import DocumentIR
 
         doc = DocumentIR(blocks=[para])
-        hand_children = para.inlines
+        hand_inlines = para.inlines
         base.translate_document(doc)
-        assert para.inlines is hand_children
+        assert para.inlines is hand_inlines
         with_dict.translate_document(doc)
-        assert para.inlines is hand_children
+        assert para.inlines is hand_inlines
 
-    def test_config_invalidation_clears_the_stamp_with_the_children(
+    def test_config_invalidation_clears_the_stamp_with_the_content(
         self, base: Pipeline
     ) -> None:
         """A stamp describes the content currently on the block, so dropping
@@ -411,7 +411,7 @@ class TestPopulatedDocConfigInvalidation:
         # The config-staleness drop happens INSIDE the table-cell loop; the
         # rebuilt second cell must get its spans rebased to row coordinates
         # exactly like a fresh populate (regression: reading the pre-heal
-        # children count skipped the rebase and pointed at column 0).
+        # inline count skipped the rebase and pointed at column 0).
         doc = parse_markdown(
             "| AB | CDE |\n| --- | --- |\n",
             profile="cn_current",
@@ -429,11 +429,12 @@ class TestPopulatedDocConfigInvalidation:
 # ---------------------------------------------------------------------------
 
 
-class _ShoutSegmenter:
-    """A replacement whose behaviour is observably different from the
-    default: the whole text comes back as ONE upper-cased latin run."""
+class _ShoutFrontend:
+    """A replacement language frontend whose behaviour is observably
+    different from the shipped one: the whole text comes back as ONE
+    upper-cased latin run, so nothing reaches ``process``."""
 
-    name = "probe"
+    prose_types = frozenset({"hanzi_text"})
 
     def segment(self, block, ctx=None):  # noqa: ANN001, ANN201 — protocol shape
         from brailix.core.segment import Segment
@@ -447,6 +448,31 @@ class _ShoutSegmenter:
             )
         ]
 
+    def process(self, surface, base, ctx):  # noqa: ANN001, ANN201
+        return []
+
+
+class _SelfRegisteringFrontend:
+    """Registers another adapter from inside its own segmentation — a
+    registration landing *during* a compile rather than between two."""
+
+    prose_types = frozenset({"hanzi_text"})
+
+    def __init__(self, inner) -> None:  # noqa: ANN001
+        self._inner = inner
+        self.fired = False
+
+    def segment(self, block, ctx=None):  # noqa: ANN001, ANN201
+        from brailix.frontend import language_frontend_registry
+
+        if not self.fired:
+            self.fired = True
+            language_frontend_registry.register("probe", _ShoutFrontend)
+        return self._inner.segment(block, ctx)
+
+    def process(self, surface, base, ctx):  # noqa: ANN001, ANN201
+        return self._inner.process(surface, base, ctx)
+
 
 class TestRegistryReRegisterInvalidation:
     """The registries allow re-registering an implementation under a live
@@ -459,14 +485,14 @@ class TestRegistryReRegisterInvalidation:
     layer can keep serving the replaced implementation's braille."""
 
     def test_re_register_advances_fingerprint_and_source_hash(self) -> None:
-        from brailix.frontend.segmentation import DefaultSegmenter, segmenter_registry
+        from brailix.frontend import language_frontend_registry
 
-        with segmenter_registry.overriding("zh", DefaultSegmenter):
+        with language_frontend_registry.overriding():
             pipe = Pipeline(profile="cn_current")
             fp1 = pipe.fingerprint
             h1 = pipe.translate_block(Paragraph(text=TEXT)).source_hash
 
-            segmenter_registry.register("probe", DefaultSegmenter)
+            language_frontend_registry.register("probe", _ShoutFrontend)
 
             assert pipe.fingerprint != fp1
             assert (
@@ -534,21 +560,12 @@ class TestRegistryReRegisterInvalidation:
         straddled two epochs: adapter names resolve on every use, so part of the
         block met the outgoing implementation and part met its replacement. No
         fingerprint describes a blend, so the run says so."""
-        from brailix.frontend.segmentation import DefaultSegmenter, segmenter_registry
+        from brailix.frontend import language_frontend_registry
 
-        class _SelfRegistering:
-            name = "probe"
-
-            def __init__(self) -> None:
-                self.fired = False
-
-            def segment(self, block, ctx=None):  # noqa: ANN001, ANN201
-                if not self.fired:
-                    self.fired = True
-                    segmenter_registry.register("probe", DefaultSegmenter)
-                return DefaultSegmenter().segment(block, ctx)
-
-        with segmenter_registry.overriding("zh", _SelfRegistering):
+        real = language_frontend_registry.get("zh")
+        with language_frontend_registry.overriding(
+            "zh", lambda: _SelfRegisteringFrontend(real)
+        ):
             pipe = Pipeline(profile="cn_current", resolver="null")
             drifted = pipe.translate_block(Paragraph(text=TEXT))
             settled = pipe.translate_block(Paragraph(text=TEXT))
@@ -572,21 +589,12 @@ class TestRegistryReRegisterInvalidation:
         key itself is retired to a one-off value, so a caller that ignores the
         flag records a dead entry instead of poisoning a live one.
         """
-        from brailix.frontend.segmentation import DefaultSegmenter, segmenter_registry
+        from brailix.frontend import language_frontend_registry
 
-        class _SelfRegistering:
-            name = "probe"
-
-            def __init__(self) -> None:
-                self.fired = False
-
-            def segment(self, block, ctx=None):  # noqa: ANN001, ANN201
-                if not self.fired:
-                    self.fired = True
-                    segmenter_registry.register("probe", DefaultSegmenter)
-                return DefaultSegmenter().segment(block, ctx)
-
-        with segmenter_registry.overriding("zh", _SelfRegistering):
+        real = language_frontend_registry.get("zh")
+        with language_frontend_registry.overriding(
+            "zh", lambda: _SelfRegisteringFrontend(real)
+        ):
             pipe = Pipeline(
                 profile="cn_current", resolver="null"
             )
@@ -635,21 +643,12 @@ class TestRegistryReRegisterInvalidation:
         same way, so a registration landing mid-run leaves those results just
         as mixed — and they said nothing at all about it.
         """
-        from brailix.frontend.segmentation import DefaultSegmenter, segmenter_registry
+        from brailix.frontend import language_frontend_registry
 
-        class _SelfRegistering:
-            name = "probe"
-
-            def __init__(self) -> None:
-                self.fired = False
-
-            def segment(self, block, ctx=None):  # noqa: ANN001, ANN201
-                if not self.fired:
-                    self.fired = True
-                    segmenter_registry.register("probe", DefaultSegmenter)
-                return DefaultSegmenter().segment(block, ctx)
-
-        with segmenter_registry.overriding("zh", _SelfRegistering):
+        real = language_frontend_registry.get("zh")
+        with language_frontend_registry.overriding(
+            "zh", lambda: _SelfRegisteringFrontend(real)
+        ):
             pipe = Pipeline(
                 profile="cn_current", resolver="null"
             )
@@ -682,7 +681,7 @@ class TestRegistryReRegisterInvalidation:
         It was left out on the strength of its type: the fold walked a list of
         ``Registry`` instances and this one is a dict. Nothing else covered the
         gap either, because the nodes a handler inserts carry ``surface=""``:
-        the stale-children check compares a reconstructed surface against
+        the stale-content check compares a reconstructed surface against
         ``block.text`` and sees no difference. Measured before the fix,
         ``Paragraph("x轴")`` compiled to ``⠰⠭⠤⠀`` and then to ``⠰⠭⠀`` under one
         ``source_hash``.
@@ -718,7 +717,7 @@ class TestRegistryReRegisterInvalidation:
         assert dots(first) != dots(second)
         assert first.source_hash != second.source_hash
 
-    def test_swapping_a_boundary_handler_rebuilds_populated_children(
+    def test_swapping_a_boundary_handler_rebuilds_populated_content(
         self,
     ) -> None:
         """The second half: an already-populated block must not keep spacing
@@ -743,7 +742,7 @@ class TestRegistryReRegisterInvalidation:
             c.dots for bb in cb.braille_blocks for c in bb.cells
         ]
         assert dots(first) != dots(second), (
-            "the populated block kept children built by the replaced handler"
+            "the populated block kept inlines built by the replaced handler"
         )
 
     def test_every_documented_extension_registry_is_fingerprinted(self) -> None:
@@ -766,12 +765,11 @@ class TestRegistryReRegisterInvalidation:
         from brailix.frontend.graphics.registry import graphic_source_registry
         from brailix.frontend.math.registry import math_source_registry
         from brailix.frontend.music.registry import music_source_registry
-        from brailix.frontend.normalization import normalizer_registry
-        from brailix.frontend.segmentation import segmenter_registry
 
         compile_time = {
-            "segmenter_registry": segmenter_registry,
-            "normalizer_registry": normalizer_registry,
+            # Segmentation rides in here: a language's chunking is a method on
+            # the frontend registered under its subtag, so this one entry
+            # covers what a separate segmenter registry used to.
             "language_frontend_registry": language_frontend_registry,
             "boundary_registry": boundary_registry,
             "math_source_registry": math_source_registry,
@@ -803,24 +801,24 @@ class TestRegistryReRegisterInvalidation:
     def test_replaced_implementation_reruns_on_populated_block(self) -> None:
         # The sharp edge: the SAME block object was populated before the
         # swap. Its stamp no longer matches, so the re-translate drops the
-        # stale children and the NEW implementation observably runs.
-        from brailix.frontend.segmentation import DefaultSegmenter, segmenter_registry
+        # stale content and the NEW implementation observably runs.
+        from brailix.frontend import language_frontend_registry
 
-        with segmenter_registry.overriding("zh", DefaultSegmenter):
+        with language_frontend_registry.overriding():
             pipe = Pipeline(
                 profile="cn_current", resolver="null"
             )
             block = Paragraph(text="abc")
             first = pipe.translate_block(block)
-            children1 = block.inlines
-            assert children1
+            inlines1 = block.inlines
+            assert inlines1
 
-            # Replace what the language subtag resolves to — that is the name
-            # the ``auto`` segmenter picks, so the swap is observable.
-            segmenter_registry.register("zh", _ShoutSegmenter)
+            # Replace what the language subtag resolves to — that is the one
+            # the driver picks for both halves, so the swap is observable.
+            language_frontend_registry.register("zh", _ShoutFrontend)
 
             second = pipe.translate_block(block)
-            assert block.inlines is not children1  # stamp invalidated
+            assert block.inlines is not inlines1  # stamp invalidated
             surfaces = "".join(c.surface for c in block.inlines)
             assert surfaces == "ABC"  # the replacement actually ran
             dots = lambda cb: [  # noqa: E731 — tiny local shorthand

@@ -65,7 +65,7 @@ def translate_date_marker(
     """Japanese date marker → cells (generic fallback).
 
     Japanese prose ships no :class:`~brailix.ir.inline.Date` carrying date
-    markers today — the default normalizer's markers are Chinese — so this
+    markers today — the normalization pass's markers are Chinese — so this
     is a generic implementation: a number→marker connector when the marker
     is written against digits, then the marker's reading. There is no 年-style
     exemption; that is a Chinese orthography rule and lives in

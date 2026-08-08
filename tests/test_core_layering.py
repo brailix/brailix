@@ -923,7 +923,7 @@ def test_the_cli_knows_no_individual_language() -> None:
     through may be written per language. It was: the CLI imported
     ``frontend.zh.analyzer``, ``frontend.ja.analyzer`` and
     ``frontend.zh.pinyin`` and printed two hard-coded headings, so a third
-    language could register its segmenter, frontend and backend and still be
+    language could register its frontend and its backend and still be
     absent from ``--list-analyzers`` and refused by ``--analyzer``.
 
     The languages come from ``language_frontend_registry`` and each language's

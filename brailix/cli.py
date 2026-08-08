@@ -19,7 +19,7 @@ mode here.
 That includes the *languages*: the engine listings walk
 ``language_frontend_registry`` and ask each language what it offers
 (:func:`brailix.frontend.list_language_adapters`), so a third language that
-registers a segmenter, a frontend and a backend is discoverable here without
+registers a frontend and a backend is discoverable here without
 an edit. This module used to import ``frontend.zh`` / ``frontend.ja``
 directly and print two hard-coded headings, which made "adding a language is
 registration" true everywhere except at the surface a user actually looks

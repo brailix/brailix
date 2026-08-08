@@ -382,9 +382,10 @@ _EXTENSION_SURFACE: dict[str, list[str]] = {
     # ``brailix.core.models`` does; this is the promise that it stays put.
     "brailix.core.config": ["BrailleProfile"],
     # The contracts. Every pluggable part of the library satisfies one.
+    # No ``Segmenter`` / ``Normalizer``: segmentation is a language's own
+    # lexical policy and rides on ``LanguageFrontend.segment``, and
+    # normalization is a fixed pass with nothing to implement.
     "brailix.core.protocols": [
-        "Segmenter",
-        "Normalizer",
         "LanguageFrontend",
         "LanguageBackend",
         "MathSourceAdapter",
@@ -413,9 +414,16 @@ _EXTENSION_SURFACE: dict[str, list[str]] = {
     "brailix.frontend.zh.pinyin": ["PinyinResolver"],
     "brailix.frontend.zh.tokens": ["ChineseToken"],
     "brailix.frontend.ja.analyzer": ["JapaneseAnalyzer", "JapaneseToken"],
+    # The shared chunker a language reuses when it writes its own
+    # ``LanguageFrontend.segment``: the character classifier its own composes
+    # with, and the chunking that classifier parameterises (protected math /
+    # IPA regions, digit runs, one Segment per punctuation mark). Not a
+    # registry — there is nothing to register — but promised for the same
+    # reason one would be: the guide cannot send an adapter author to a
+    # private name, and re-deriving this per language is how a writing system
+    # ends up losing its formulae.
+    "brailix.frontend.segmentation": ["segment_text", "char_category"],
     # The registries, at their own subsystem's path.
-    "brailix.frontend.segmentation": ["segmenter_registry"],
-    "brailix.frontend.normalization": ["normalizer_registry"],
     "brailix.frontend.zh.analyzer.registry": ["analyzer_registry"],
     "brailix.frontend.zh.pinyin.registry": ["resolver_registry"],
     "brailix.frontend.ja.analyzer.registry": ["analyzer_registry"],
@@ -489,7 +497,7 @@ def test_an_extension_module_is_reachable_as_a_module(module: str) -> None:
     exactly that state: ``brailix.frontend`` bound ``segment`` and
     ``normalize`` as functions, and a package attribute wins over a same-named
     submodule, so ``import brailix.frontend.segment as m`` handed back the
-    function and ``m.segmenter_registry`` raised ``AttributeError`` at the one
+    function and ``m.segment_text`` raised ``AttributeError`` at the one
     path the extension guide names. The from-import form worked, the dotted
     form did not, and nothing here could tell the difference.
 
@@ -547,11 +555,12 @@ _SUBSYSTEM_ENTRY_POINTS: dict[str, set[str]] = {
         "list_analyzers",
         "tokens_to_inline",
     },
-    # The two language-neutral frontend stages. Each is promised here for its
-    # registry and publishes the stage function the orchestrator calls, which
-    # the ``brailix.frontend`` facade re-exports under the same name.
+    # Promised above for the chunker a language reuses; it also publishes the
+    # stage the orchestrator calls, which the ``brailix.frontend`` facade
+    # re-exports under the same name. (``frontend.normalization`` is on
+    # neither list: it publishes ``normalize`` and promises nothing to an
+    # adapter author, having no adapters.)
     "brailix.frontend.segmentation": {"segment"},
-    "brailix.frontend.normalization": {"normalize"},
 }
 
 
@@ -626,8 +635,7 @@ def test_extension_module_publishes_no_more_than_it_promises(module: str) -> Non
 
 # The extension-surface entries that promise *types* rather than a place to
 # register: the contracts themselves, the one core type those contracts name,
-# and each language's own contracts + token type. Everything else in the
-# manifest is a registry, and is checked to still be one.
+# and each language's own contracts + token type.
 _EXTENSION_TYPE_MODULES = frozenset(
     {
         "brailix.core.protocols",
@@ -638,6 +646,16 @@ _EXTENSION_TYPE_MODULES = frozenset(
         "brailix.frontend.ja.analyzer",
     }
 )
+
+# The entries that promise a *helper to call* — neither a type to implement
+# nor a place to register. ``frontend.segmentation`` publishes the chunker and
+# the character classifier a language reuses inside its own
+# ``LanguageFrontend.segment``: a new writing system is a delta on the
+# classifier, and re-deriving the rest per language is how one ends up
+# dropping math islands. Listed rather than inferred from shape, for the same
+# reason ``_DICT_REGISTRIES`` is: "a callable counts too" would silently
+# excuse a registry that had degraded into a function.
+_EXTENSION_HELPER_MODULES = frozenset({"brailix.frontend.segmentation"})
 
 
 # The one promised registry that is a plain ``dict`` by design: a boundary
@@ -658,7 +676,7 @@ def test_every_registry_in_the_extension_surface_is_a_registry() -> None:
 
     bad: list[str] = []
     for module, names in _EXTENSION_SURFACE.items():
-        if module in _EXTENSION_TYPE_MODULES:
+        if module in _EXTENSION_TYPE_MODULES or module in _EXTENSION_HELPER_MODULES:
             continue
         mod = importlib.import_module(module)
         for name in names:
@@ -691,6 +709,26 @@ def test_the_dict_registry_exception_is_still_needed() -> None:
             f"{path} is no longer a plain dict — drop it from "
             f"_DICT_REGISTRIES"
         )
+
+
+def test_the_helper_module_exception_is_still_needed() -> None:
+    """Same rule for the module excused from "everything else is a registry":
+    what it promises must still be a helper to call.
+
+    A module listed here is skipped by the check above wholesale, so a
+    registry added to its manifest entry later would inherit the excuse. Every
+    promised name being callable is what says the entry still describes what
+    it was written for.
+    """
+    for module in _EXTENSION_HELPER_MODULES:
+        mod = importlib.import_module(module)
+        for name in _EXTENSION_SURFACE[module]:
+            obj = getattr(mod, name)
+            assert callable(obj) and not isinstance(obj, type), (
+                f"{module}.{name} is a {type(obj).__name__}, not a helper "
+                f"function — move it out of _EXTENSION_HELPER_MODULES so the "
+                f"registry check sees it"
+            )
 
 
 def test_every_brailix_type_a_protocol_names_has_a_supported_import() -> None:
@@ -1728,14 +1766,14 @@ def test_an_extension_module_still_resolves_everything_it_promises(
 
 
 def test_a_moved_extension_path_is_gone_rather_than_aliased() -> None:
-    """A registry that moves moves — it leaves no second address behind.
+    """A published path that moves moves — it leaves no second address behind.
 
     ``brailix.frontend.segment`` / ``.normalize`` were renamed to end a name
     collision with the facade's own :func:`~brailix.frontend.segment` function,
     and for a while the old addresses stayed resolvable through
     :data:`sys.modules` shims that warned on read. They are deleted: an alias
-    kept "for one release" is a second published address for a registry with
-    state, a second thing every check here has to reason about, and a promise
+    kept "for one release" is a second published address for the same thing,
+    a second thing every check here has to reason about, and a promise
     that has to be un-made later anyway. The manifest above is the whole
     extension surface, and these paths are not on it.
 

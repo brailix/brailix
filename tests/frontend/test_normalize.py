@@ -4,11 +4,10 @@ from brailix.core.context import FrontendContext
 from brailix.core.segment import Segment
 from brailix.core.span import Span
 from brailix.frontend.normalization import (
-    DefaultNormalizer,
     _peel_marker_if_starts_with,
-    normalizer_registry,
+    normalize,
 )
-from brailix.frontend.segmentation import DefaultSegmenter
+from brailix.frontend.segmentation import segment
 from brailix.ir.document import Paragraph
 from brailix.ir.inline import (
     Date,
@@ -23,8 +22,8 @@ from brailix.ir.inline import (
 
 def _normalize_text(text: str):
     block = Paragraph(text=text)
-    segs = DefaultSegmenter().segment(block, FrontendContext(profile="cn_current"))
-    return DefaultNormalizer().normalize(segs, FrontendContext(profile="cn_current"))
+    segs = segment(block, FrontendContext(profile="cn_current"))
+    return normalize(segs, FrontendContext(profile="cn_current"))
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +296,7 @@ class TestPeelMarkerHelper:
         assert _peel_marker_if_starts_with(segs, 0, "年") is False
 
     def test_returns_false_when_span_is_none(self):
-        # Defensive branch — segments produced by DefaultSegmenter
+        # Defensive branch — segments produced by the segmentation pass
         # always carry spans, but the helper must not crash if a
         # hand-built segment has span=None.
         segs = [Segment(type="hanzi_text", surface="年终", span=None)]
@@ -330,27 +329,50 @@ class TestParagraph:
         text = "见 计算 $a+b$ 后"
         out = _normalize_text(text)
         types = [type(x).__name__ for x in out]
-        # Segmenter yields: [hanzi "见"][space " "][hanzi "计算"][space " "][math]...
-        # Normalizer: hanzi → Segment, space → Space, math → MathInline
+        # Segmentation yields: [hanzi "见"][space " "][hanzi "计算"][space][math]...
+        # Normalization: hanzi → Segment, space → Space, math → MathInline
         assert "MathInline" in types
         assert "Space" in types
         assert "".join(item.surface for item in out) == text
 
 
 # ---------------------------------------------------------------------------
-# Registry
+# Not a plugin family
 # ---------------------------------------------------------------------------
 
 
-class TestRegistry:
-    def test_default_registered(self):
-        assert normalizer_registry.has("default")
-        inst = normalizer_registry.get("default")
-        assert inst.name == "default"
+class TestNoNormalizerFamily:
+    """One canonical lowering, reached as a function.
 
-    def test_registry_lookup_produces_working_normalizer(self):
-        norm = normalizer_registry.get("default")
-        block = Paragraph(text="2026年")
-        segs = DefaultSegmenter().segment(block, FrontendContext(profile="cn_current"))
-        out = norm.normalize(segs, FrontendContext(profile="cn_current"))
+    The ``Normalizer`` protocol, the ``normalizer_registry``, its ``auto``
+    adapter and ``ctx.options["normalizer"]`` are gone. Over the family's
+    whole life the registry held the built-in plus an ``auto`` that delegated
+    back to the built-in: an extension point for a variation that never
+    arrived, while "``digit_run`` becomes a Number" is the IR's own contract
+    rather than one implementation's opinion.
+    """
+
+    def test_the_module_publishes_the_pass_only(self):
+        import brailix.frontend.normalization as mod
+
+        assert not hasattr(mod, "normalizer_registry")
+        assert not hasattr(mod, "DefaultNormalizer")
+        assert set(mod.__all__) == {"normalize"}
+
+    def test_an_option_named_normalizer_is_not_consulted(self):
+        ctx = FrontendContext(
+            profile="cn_current", options={"normalizer": "nonexistent"}
+        )
+        out = normalize(segment(Paragraph(text="2026年"), ctx), ctx)
+        assert isinstance(out[0], Date)
+
+    def test_context_is_optional(self):
+        out = normalize(segment(Paragraph(text="2026年")))
+        assert isinstance(out[0], Date)
+
+    def test_any_iterable_of_segments_is_accepted(self):
+        # The pass takes what segmentation returns, but nothing about it
+        # requires a list — a generator is a legitimate caller.
+        segs = segment(Paragraph(text="2026年"))
+        out = normalize(iter(segs))
         assert isinstance(out[0], Date)

@@ -1,6 +1,6 @@
-"""Property-based tests for the segmenter's span contract.
+"""Property-based tests for the segmentation pass's span contract.
 
-The segmenter is the first provenance-bearing stage: everything downstream
+Segmentation is the first provenance-bearing stage: everything downstream
 (inline nodes, braille cells, proofreading jumps) inherits its spans. Two
 invariants must hold for *any* input text, not just curated examples:
 
@@ -29,7 +29,7 @@ from hypothesis import strategies as st
 from brailix.core.context import FrontendContext
 from brailix.core.segment import Segment
 from brailix.core.span import Span
-from brailix.frontend.segmentation import DefaultSegmenter
+from brailix.frontend.segmentation import segment
 from brailix.ir.document import Paragraph
 
 # A deliberately mixed alphabet: CJK (including a supplementary-plane hanzi,
@@ -50,7 +50,7 @@ _texts = st.text(alphabet=st.sampled_from(list(_ALPHABET)), max_size=60)
 
 def _segment(text: str, span: Span | None) -> list[Segment]:
     block = Paragraph(text=text, span=span)
-    return DefaultSegmenter().segment(block, FrontendContext(profile="cn_current"))
+    return segment(block, FrontendContext(profile="cn_current"))
 
 
 def _assert_tiles(segments: list[Segment], text: str, base: int) -> None:

@@ -1,104 +1,143 @@
-"""The multi-language seam: prose routing + language-selected adapters.
+"""The multi-language seam: one registration per language, driving both
+halves of its prose.
 
 Locks the infrastructure that lets a new language (Japanese, Korean,
 ...) plug in without re-architecting the orchestrator — see
-ARCHITECTURE#arch-language-slots. The concrete language rules are out of scope here;
-these tests exercise the *seam*, using Chinese as the one shipped
+ARCHITECTURE#arch-language-slots. The concrete language rules are out of scope
+here; these tests exercise the *seam*, using Chinese as the one shipped
 implementation plus throwaway registrations.
+
+The seam used to be wider than the languages in it: segmentation and
+normalization were plugin families of their own, each with a registry keyed
+by the same language subtag as ``language_frontend_registry``, each with an
+``auto`` adapter that read ``ctx.options["language"]`` to pick. Adding a
+language meant registering the same fact in up to four places and hoping the
+segment type names agreed. Now :class:`LanguageFrontend
+<brailix.core.protocols.LanguageFrontend>` carries both halves —
+``segment`` cuts the language's prose out of the raw text, ``process`` turns
+each run into IR — and normalization is a fixed pass nobody selects.
 """
 
 from __future__ import annotations
 
+import pytest
+
 from brailix.core.context import FrontendContext
-from brailix.core.registry import Registry
+from brailix.core.segment import Segment
+from brailix.core.span import Span
 from brailix.frontend import language_frontend_registry
-from brailix.frontend._language_pick import LANGUAGE_OPTION, pick_by_language
-from brailix.frontend.segmentation import (
-    BUILTIN_SEGMENTER,
-    segment,
-    segmenter_registry,
-)
+from brailix.frontend.segmentation import segment
 from brailix.ir.document import Paragraph
 from brailix.pipeline import Pipeline
 from brailix.pipeline._helpers import _all_prose_types
 
 
-def _ctx(language: str | None = None) -> FrontendContext:
-    options = {LANGUAGE_OPTION: language} if language else {}
-    return FrontendContext(profile="cn_current", options=options)
+def _ctx() -> FrontendContext:
+    return FrontendContext(profile="cn_current")
 
 
-class TestPickByLanguage:
-    """An adapter registered under the language subtag wins; else built-in."""
+class _RecordingFrontend:
+    """Delegates to the real Chinese frontend, recording which half ran."""
 
-    def test_language_registration_is_used(self):
-        reg: Registry = Registry("t")
-        reg.register("ja", lambda: object())
-        assert pick_by_language(reg, _ctx("ja"), "default") == "ja"
+    prose_types = frozenset({"hanzi_text"})
 
-    def test_falls_back_when_no_language_adapter(self):
-        reg: Registry = Registry("t")
-        assert pick_by_language(reg, _ctx("zh"), "default") == "default"
+    def __init__(self, inner, seen: list[str]) -> None:
+        self._inner = inner
+        self._seen = seen
 
-    def test_falls_back_when_context_names_no_language(self):
-        # A direct call in a test, or a caller that built its own context:
-        # the behaviour every such caller had before languages were pluggable.
-        reg: Registry = Registry("t")
-        reg.register("ja", lambda: object())
-        assert pick_by_language(reg, _ctx(), "default") == "default"
-        assert pick_by_language(reg, None, "default") == "default"
+    def segment(self, block, ctx=None):  # noqa: ANN001
+        self._seen.append("segment")
+        return self._inner.segment(block, ctx)
+
+    def process(self, surface, base, ctx):  # noqa: ANN001
+        self._seen.append("process")
+        return self._inner.process(surface, base, ctx)
 
 
-class TestAutoSegmenterDelegates:
-    """``auto`` is a real registered adapter, not a name the driver resolves."""
+class TestTheLanguageOwnsItsSegmentation:
+    """``profile.language`` picks one object, and that object cuts the text.
 
-    def test_auto_uses_the_language_segmenter(self):
+    Registering under the language subtag is the whole mechanism, and it is
+    checked end to end rather than by inspecting options: a new language must
+    change what actually segments without the orchestrator learning its name.
+    """
+
+    def test_both_halves_run_from_the_one_registration(self) -> None:
         seen: list[str] = []
+        real = language_frontend_registry.get("zh")
 
-        class _Probe:
-            name = "probe"
+        with language_frontend_registry.overriding(
+            "zh", lambda: _RecordingFrontend(real, seen)
+        ):
+            result = Pipeline(profile="cn_current").translate_text("我在2026年")
+
+        # Segmentation first, then prose routing back into the same object.
+        assert seen[0] == "segment"
+        assert "process" in seen
+        assert result.render()
+
+    def test_a_replacement_segmentation_reaches_a_real_compile(self) -> None:
+        class _OneBigPunct:
+            prose_types = frozenset({"hanzi_text"})
 
             def segment(self, block, ctx=None):  # noqa: ANN001
-                seen.append("probe")
+                text = block.text or ""
+                if not text:
+                    return []
+                # One punct segment for the whole text, so normalization
+                # wraps it as a single Punct node and the braille is visibly
+                # this frontend's doing.
+                return [
+                    Segment(type="punct", surface=text, span=Span(0, len(text)))
+                ]
+
+            def process(self, surface, base, ctx):  # noqa: ANN001
+                raise AssertionError("no prose segment should reach process")
+
+        with language_frontend_registry.overriding("zh", _OneBigPunct):
+            result = Pipeline(profile="cn_current").translate_text("。")
+
+        # 。 = ⠐⠆, two cells, no trailing space.
+        assert len(result.render()) == 2
+
+    def test_a_frontend_missing_a_half_is_rejected_at_resolution(self) -> None:
+        # The registry's runtime protocol check covers both members now, so
+        # half a language fails when it is resolved rather than by silently
+        # segmenting nothing.
+        class _ProcessOnly:
+            prose_types = frozenset({"hanzi_text"})
+
+            def process(self, surface, base, ctx):  # noqa: ANN001
                 return []
 
-        with segmenter_registry.overriding("ja", _Probe):
-            segmenter_registry.get("auto").segment(
-                Paragraph(text="ひらがな"), _ctx("ja")
-            )
-        assert seen == ["probe"]
+        with language_frontend_registry.overriding("zh", _ProcessOnly):
+            with pytest.raises(TypeError):
+                language_frontend_registry.get("zh")
 
-    def test_auto_falls_back_to_the_builtin(self):
-        out = segmenter_registry.get("auto").segment(
-            Paragraph(text="我"), _ctx("zh")
-        )
-        assert [s.type for s in out] == ["hanzi_text"]
 
-    def test_naming_the_builtin_through_the_context_is_taken_literally(self):
-        # ``segment`` still honours an explicit name on the context — the
-        # frontend entry points are public, and a caller building their own
-        # context can bypass the language routing. What went away is only the
-        # Pipeline-level knob, not this.
-        seen: list[str] = []
+class TestWithoutAFrontendTheBuiltinChunkingStillRuns:
+    """An unconfigured language is a gap in the prose path, not in the pass.
 
-        class _Probe:
-            name = "probe"
+    The built-in chunking is what runs when no language claims the document,
+    so its numbers, Latin and punctuation still translate and only the prose
+    runs report a gap.
+    """
 
-            def segment(self, block, ctx=None):  # noqa: ANN001
-                seen.append("probe")
-                return []
+    def test_non_prose_survives_and_prose_warns(self) -> None:
+        pipe = Pipeline(profile="cn_current")
+        pipe._profile.language = "xx-XX"
+        result = pipe.translate_text("2026 CPU 我")
+        codes = {w.code for w in result.warnings}
+        assert "NO_LANGUAGE_FRONTEND" in codes
+        assert "UNHANDLED_SEGMENT_TYPE" not in codes
+        # The number and the Latin word came through the built-in chunking.
+        assert result.render()
 
-        with segmenter_registry.overriding("zh", _Probe):
-            ctx = FrontendContext(
-                profile="cn_current",
-                options={
-                    LANGUAGE_OPTION: "zh",
-                    "segmenter": BUILTIN_SEGMENTER,
-                },
-            )
-            out = segment(Paragraph(text="我"), ctx)
-        assert seen == []  # the language adapter was NOT used
-        assert [seg.type for seg in out] == ["hanzi_text"]
+    def test_the_builtin_pass_is_the_module_function(self) -> None:
+        # What the driver falls back to is the same public entry a language
+        # delegates to, not a private copy of it.
+        out = segment(Paragraph(text="我在2026"), _ctx())
+        assert [s.type for s in out] == ["hanzi_text", "digit_run"]
 
 
 class TestProseTypes:
@@ -106,47 +145,57 @@ class TestProseTypes:
         frontend = language_frontend_registry.get("zh")
         assert "hanzi_text" in frontend.prose_types
 
+    def test_the_declared_types_are_what_its_segmentation_emits(self):
+        # The two halves cannot drift: the type a frontend routes on is the
+        # type its own segmentation produced. This was the loose joint when
+        # the segmenter was a separate registration.
+        frontend = language_frontend_registry.get("zh")
+        types = {s.type for s in frontend.segment(Paragraph(text="我"), _ctx())}
+        assert types <= set(frontend.prose_types) | {
+            "digit_run",
+            "latin_text",
+            "greek_text",
+            "punct",
+            "space",
+            "math_inline",
+            "math_op",
+            "phonetic_inline",
+            "unknown",
+        }
+        assert types & set(frontend.prose_types)
+
     def test_all_prose_types_unions_registered_frontends(self):
         assert "hanzi_text" in _all_prose_types()
 
 
-class TestLanguageSelectedAdapters:
-    """``profile.language`` selects the segmenter / normalizer, with nothing
-    left for a caller to configure — neither is a ``Pipeline`` field.
+class TestNoSecondConfigurationAxis:
+    """What the driver publishes, and what it no longer does."""
 
-    Registering under the language subtag is the whole mechanism (default
-    Chinese registers neither and gets the built-ins)."""
-
-    def test_driver_publishes_the_language(self):
-        # The driver states the language and resolves nothing on the adapters'
-        # behalf, so "which segmenter runs" is decided in exactly one place —
-        # the adapter. It doesn't pass a segmenter / normalizer name at all:
-        # there is no such configuration to pass.
+    def test_the_driver_names_the_language_analyzer_only(self) -> None:
         opts = Pipeline(profile="cn_current")._frontend.frontend_options()
-        assert opts[LANGUAGE_OPTION] == "zh"
+        assert opts["zh_analyzer"] == "auto"
+        # Neither family exists to be named...
         assert "segmenter" not in opts
         assert "normalizer" not in opts
+        # ...and neither does the option they resolved themselves by: the
+        # driver picks the language frontend itself, so publishing the subtag
+        # would be a second, staler statement of ``profile.language``.
+        assert "language" not in opts
 
-    def test_japanese_profile_publishes_its_subtag(self):
+    def test_japanese_profile_keys_its_own_analyzer(self) -> None:
         opts = Pipeline(profile="ja_current")._frontend.frontend_options()
-        assert opts[LANGUAGE_OPTION] == "ja"
+        assert "ja_analyzer" in opts
+        assert "zh_analyzer" not in opts
 
-    def test_a_language_segmenter_reaches_a_real_compile(self):
-        # End to end rather than by inspecting options: registering under the
-        # language subtag is what a new language does, and it must change what
-        # actually segments without the orchestrator learning the name.
-        seen: list[str] = []
+    def test_the_language_pick_helper_is_gone(self) -> None:
+        # It existed only to answer "is an adapter registered under this
+        # document's language?" for the two ``auto`` adapters that are gone.
+        # Deleted rather than left resolving: an unused seam reads as a
+        # supported one.
+        import importlib
 
-        class _Probe:
-            name = "probe"
-
-            def segment(self, block, ctx=None):  # noqa: ANN001
-                seen.append("probe")
-                return []
-
-        with segmenter_registry.overriding("zh", _Probe):
-            Pipeline(profile="cn_current").translate_text("我")
-        assert seen  # the zh-registered segmenter ran
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module("brailix.frontend._language_pick")
 
 
 class TestChineseStillRoutes:
@@ -166,3 +215,25 @@ class TestChineseStillRoutes:
         codes = {w.code for w in pipe.translate_text("我").warnings}
         assert "NO_LANGUAGE_FRONTEND" in codes
         assert "UNHANDLED_SEGMENT_TYPE" not in codes
+
+    def test_an_unknown_segment_type_still_reports_itself(self):
+        # A frontend that emits a type nothing claims: the orchestrator
+        # dispatches on Segment.type, and an unknown one is a structural drop
+        # rather than a crash.
+        class _Mystery:
+            prose_types = frozenset({"hanzi_text"})
+
+            def segment(self, block, ctx=None):  # noqa: ANN001
+                text = block.text or ""
+                return [
+                    Segment(
+                        type="kanji_text", surface=text, span=Span(0, len(text))
+                    )
+                ]
+
+            def process(self, surface, base, ctx):  # noqa: ANN001
+                return []
+
+        with language_frontend_registry.overriding("zh", _Mystery):
+            result = Pipeline(profile="cn_current").translate_text("X")
+        assert "UNHANDLED_SEGMENT_TYPE" in {w.code for w in result.warnings}

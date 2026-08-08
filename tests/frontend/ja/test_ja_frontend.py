@@ -1,6 +1,6 @@
-"""Japanese segmenter + the dependency-free (kana) end-to-end path.
+"""Japanese lexical segmentation + the dependency-free (kana) end-to-end path.
 
-The segmenter groups Japanese script (kana + kanji) into one ``ja_text``
+:func:`ja_segment` groups Japanese script (kana + kanji) into one ``ja_text``
 run. The end-to-end tests here pin ``analyzer="kana"`` so they exercise
 the deterministic, dependency-free fallback regardless of whether a real
 morphological analyzer is installed; the analyzer path (kanji readings,
@@ -12,12 +12,12 @@ from __future__ import annotations
 import pytest
 
 from brailix import Pipeline
-from brailix.frontend.ja import JapaneseSegmenter, _is_kana
+from brailix.frontend.ja import _is_kana, ja_segment
 from brailix.ir.document import Paragraph
 
 
 def _seg_types(text: str) -> list[tuple[str, str]]:
-    segs = JapaneseSegmenter().segment(Paragraph(text=text))
+    segs = ja_segment(Paragraph(text=text))
     return [(s.type, s.surface) for s in segs]
 
 
@@ -30,7 +30,7 @@ class TestIsKana:
             assert not _is_kana(ch)
 
 
-class TestSegmenter:
+class TestSegmentation:
     def test_kana_run_is_ja_text(self):
         assert _seg_types("コンニチハ") == [("ja_text", "コンニチハ")]
 
