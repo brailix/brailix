@@ -21,6 +21,7 @@ semantics and none of it waits on a Windows runner.
 
 from __future__ import annotations
 
+import os as _os
 from collections.abc import Callable
 from pathlib import Path, PureWindowsPath
 
@@ -134,5 +135,12 @@ def test_a_drive_relative_name_really_would_have_escaped() -> None:
 def test_the_accepted_names_are_the_ones_actually_shipped() -> None:
     """The rule has to keep the real resources loadable — a validator that
     refuses ``cn_current`` passes every test above and breaks the product."""
-    assert load_profile("cn_current").name == "cn_current"
-    assert load_tactile_profile("generic") is not None
+    # The autouse _no_stray_directories fixture chdirs to tmp_path; restoring
+    # cwd here is required because mutmut's trampoline resolves source_paths
+    # (relative to cwd) against a directory that no longer exists there.
+    _saved_cwd = _os.getcwd()
+    try:
+        assert load_profile("cn_current").name == "cn_current"
+        assert load_tactile_profile("generic") is not None
+    finally:
+        _os.chdir(_saved_cwd)
