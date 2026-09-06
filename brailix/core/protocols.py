@@ -25,7 +25,6 @@ from typing import Any as _Any
 from typing import Protocol as _Protocol
 from typing import runtime_checkable as _runtime_checkable
 
-from brailix.core.config import BrailleProfile as _BrailleProfile
 from brailix.core.segment import Segment as _Segment
 
 # The two families below are the ONLY annotations in the package that a
@@ -41,12 +40,26 @@ from brailix.core.segment import Segment as _Segment
 #   accessor annotations, so binding it back here is the same cycle one layer
 #   in.
 #
+# ``BrailleProfile`` is deferred for the same reason from the other side:
+# ``core/__init__`` deliberately does not export it, so that
+# ``import brailix.core`` (and therefore ``import brailix.ir``, which
+# promises to carry core primitives alone) does not drag the whole
+# profile/table loader machinery in behind it. A runtime import here
+# defeated that promise through the context → protocols edge.
+#
 # Everything else this module annotates against is bound above, aliased, so
 # ``typing.get_type_hints`` reads it. The exemption is registered and its
 # extent checked in ``tests/test_public_api.py`` — a *new* deferred name that
-# is not from one of those two modules fails there.
+# is not from one of those modules fails there.
 if _TYPE_CHECKING:
-    from brailix.core.context import BackendContext, FrontendContext
+    from brailix.core.config import BrailleProfile as _BrailleProfile
+    from brailix.core.context import (
+        BackendContext,
+        FrontendContext,
+        GraphicsContext,
+        MathContext,
+        MusicContext,
+    )
     from brailix.ir.braille import (
         BrailleCell,
         BrailleDocument,
@@ -266,7 +279,7 @@ class GraphicSourceAdapter(_Protocol):
     exact analogue of MathML for math and MusicXML for music.
     """
 
-    source: str  # svg / primitives / image / chart / ...
+    source: str  # svg / primitives / figure / image
 
     def to_svg(
         self, src: str | bytes, ctx: GraphicsContext | None = None
@@ -392,18 +405,6 @@ class Renderer(_Protocol):
     name: str
 
     def render(self, ir: _Any) -> _Any: ...
-
-
-# Forward declarations for context types that are defined in
-# ``core.context`` — kept here as TYPE_CHECKING-only imports to avoid
-# circular references at runtime.
-if _TYPE_CHECKING:
-    from brailix.core.context import (
-        FrontendContext,
-        GraphicsContext,
-        MathContext,
-        MusicContext,
-    )
 
 
 # This module is on the **extension surface** (see :mod:`brailix`): the

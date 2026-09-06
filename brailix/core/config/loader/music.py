@@ -99,11 +99,14 @@ def _music_body(payload: dict[str, Any], path: Path) -> dict[str, Any]:
     whichever dict-iteration order placed second, so it is a hard error.
     Zero body topics (a spec-only or empty file) is tolerated.
     """
-    META = {"schema", "name", "cell", "status", "source"}
+    # The one metadata authority is _is_metadata_key (_METADATA_KEYS +
+    # multi-char ``_`` markers); a hand-kept META set beside it was a dead
+    # condition — every META key is already in _METADATA_KEYS — and a
+    # second copy that could drift when the authority grew.
     bodies = [
         k
         for k, v in payload.items()
-        if k not in META and not _is_metadata_key(k) and isinstance(v, dict)
+        if not _is_metadata_key(k) and isinstance(v, dict)
     ]
     if len(bodies) > 1:
         raise ConfigurationError(
@@ -180,10 +183,15 @@ def _music_specs_from(path: Path) -> dict[str, Any]:
     the top level, so only genuine spec sections match here.
     """
     payload = _read_json(path)
-    meta = {"schema", "name", "cell", "status", "source"}
     out: dict[str, Any] = {}
     for k, v in payload.items():
-        if k in meta or not k.startswith("_") or not isinstance(v, dict):
+        # Spec sections are exactly the multi-char ``_``-prefixed dicts.
+        # (NOT _is_metadata_key: that predicate reads such keys as
+        # metadata, which is right for entry iteration and wrong here —
+        # the prefix IS the spec marker. The hand-kept 5-key metadata set
+        # this used to test beside it was dead: none of those keys start
+        # with ``_``, so the prefix test already excluded them.)
+        if not k.startswith("_") or len(k) == 1 or not isinstance(v, dict):
             continue
         out[k.lstrip("_")] = v
     return out

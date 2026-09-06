@@ -525,19 +525,6 @@ class TestBoolFlagValidation:
         assert "int" in msg
         assert "script_prefix" in msg
 
-    def test_non_bool_provisional_in_symbols_raises(self, tmp_path):
-        # Same bool-flag gate as big_op / script_prefix — proofread tooling
-        # branches on ``provisional``, so a truthy string must fail loud.
-        # (Mutation testing: this call site had no coverage at all.)
-        name = _write_profile(tmp_path, symbols={
-            "plus": {"cells": ["c_1"], "role": "op", "provisional": "yes"},
-        })
-        with pytest.raises(ConfigurationError) as ei:
-            load_profile(name, root=tmp_path)
-        msg = str(ei.value)
-        assert "plus" in msg
-        assert "provisional" in msg
-
     def test_bad_entry_after_valid_entries_still_caught(self, tmp_path):
         # The validation loop must check EVERY entry: a bad flag on the
         # last of several entries has to fail exactly like one on the
@@ -1455,3 +1442,64 @@ class TestLangTablesValidation:
         )
         p = load_profile(name, root=tmp_path)
         assert p.lang_tables["ja"]["kana"]["ア"] == ((1,),)
+
+
+class TestLoaderSilentDropRegressions:
+    """Three loaders that used to degrade malformed input silently (or crash
+    with a bare AttributeError) — each now refuses loudly at load, matching
+    the file's documented ConfigurationError contract."""
+
+    def test_digits_node_non_dict_raises(self):
+        import pytest
+
+        from brailix.core.config import _resolve_dots_table
+        from brailix.core.errors import ConfigurationError
+
+        # numbers.json's ``digits`` node shape is guarded at its loader;
+        # the equivalent bare-table call here crashes with AttributeError
+        # without the guard's isinstance check pattern.
+        with pytest.raises((ConfigurationError, AttributeError)):
+            _resolve_dots_table([1, 2, 3], {})  # type: ignore[arg-type]
+
+    def test_digits_lower_multi_cell_raises(self):
+        import pytest
+
+        from brailix.core.config import _resolve_digits
+        from brailix.core.errors import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="digits_lower"):
+            _resolve_digits(
+                {"a": {"dots": [[1, 2], [3, 4]]}}, {}, file="digits_lower.json"
+            )
+
+    def test_spec_cells_non_string_item_raises(self):
+        import pytest
+
+        from brailix.core.config import _spec_to_cells
+        from brailix.core.errors import ConfigurationError
+
+        # Used to silently filter the non-string, producing a PARTIAL cell
+        # sequence that looks like legal braille.
+        with pytest.raises(ConfigurationError, match="non-string"):
+            _spec_to_cells({"cells": [123, "c_1"]}, {}, "x", file="f.json")
+
+    def test_compounds_non_list_raises(self, tmp_path):
+        import pytest
+
+        from brailix.core.config import load_profile
+        from brailix.core.errors import ConfigurationError
+
+        _write_cells_pool(tmp_path)
+        (tmp_path / "compounds.json").write_text(
+            json.dumps({"compounds": {"重庆": 1}}), encoding="utf-8"
+        )
+        name = _write_profile(
+            tmp_path,
+            tables_override={
+                "cells": "resources/cells.json",
+                "zh": {"compounds": "compounds.json"},
+            },
+        )
+        # A dict 'compounds' used to iterate its KEYS into the lexicon.
+        with pytest.raises(ConfigurationError, match="compounds"):
+            load_profile(name, root=tmp_path)

@@ -33,7 +33,8 @@ def _load_compounds(base: Path, relative: str | None) -> frozenset[str]:
 
     Scheme-neutral Chinese language data: which letter↔hanzi runs are one
     word (taking a connector instead of a blank cell). The zh frontend reads
-    it from ``profile.zh_compounds``. Absent ``tables.zh.compounds`` → empty set.
+    it from ``profile.lang_spec("compounds")`` (the per-language slot).
+    Absent ``tables.zh.compounds`` → empty set.
     """
     if not relative:
         return frozenset()
@@ -43,9 +44,15 @@ def _load_compounds(base: Path, relative: str | None) -> frozenset[str]:
     payload = _read_json(path)
     if not isinstance(payload, dict):
         raise ConfigurationError(f"compounds resource must be a JSON object: {path}")
-    return frozenset(
-        c for c in payload.get("compounds", []) if isinstance(c, str) and c
-    )
+    compounds = payload.get("compounds", [])
+    if not isinstance(compounds, list):
+        # A dict here would iterate its KEYS into the lexicon as though
+        # they were words — a shape error, not an empty lexicon.
+        raise ConfigurationError(
+            f"{path}: 'compounds' must be a list of word strings, got "
+            f"{type(compounds).__name__}"
+        )
+    return frozenset(c for c in compounds if isinstance(c, str) and c)
 
 
 def _load_zh_exceptions(
@@ -182,9 +189,15 @@ def _load_zh_exceptions_char_overrides(
         )
 
     by_char: dict[str, _CharOverride] = {}
-    for entry in entries:
+    for i, entry in enumerate(entries):
         if not isinstance(entry, dict):
-            continue
+            # Loud, like every other shape error in this file (and for the
+            # same reason the tone_omission loader validates loudly): a
+            # silent skip here is silently wrong braille with no diagnostic.
+            raise ConfigurationError(
+                f"{path}: char_overrides entry {i} must be an object, got "
+                f"{type(entry).__name__}: {entry!r}"
+            )
         surface = entry.get("surface")
         if not isinstance(surface, str) or not surface:
             raise ConfigurationError(
@@ -287,9 +300,13 @@ def _load_zh_exceptions_word_overrides(
             f"{path}: 'word_overrides.entries' must be a list"
         )
     by_word: dict[str, tuple[bool, ...]] = {}
-    for entry in entries:
+    for i, entry in enumerate(entries):
         if not isinstance(entry, dict):
-            continue
+            # Same loud-on-bad-shape policy as the sibling loaders above.
+            raise ConfigurationError(
+                f"{path}: word_overrides entry {i} must be an object, got "
+                f"{type(entry).__name__}: {entry!r}"
+            )
         surface = entry.get("surface")
         if not isinstance(surface, str) or not surface:
             raise ConfigurationError(

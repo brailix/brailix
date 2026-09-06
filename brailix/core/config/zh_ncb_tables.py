@@ -11,8 +11,10 @@ resource* so the backend stays small and generic.
 
 This module is in the config layer because the data shapes are
 **profile data**, not backend behavior.  The lookup methods on these
-classes are pure dict access — small enough to live on the dataclass.
-The actual tone-emission decision algorithm lives in
+classes stay small enough to live on the dataclass — dict access, plus
+the one data-declared branch :meth:`NcbCharOverrides.shorthand_cells_for`
+makes between a shorthand's regular and boundary spelling.  The actual
+tone-emission decision algorithm lives in
 :mod:`brailix.backend.zh.tone.ncb_omission` because it's behavior.
 
 Layering rule: this module imports nothing from :mod:`brailix.backend`.

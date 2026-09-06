@@ -237,7 +237,10 @@ class TestMalformedPayloadShapesAreRejectedCleanly:
         self, block: Block, value: object, seed: int
     ) -> None:
         payload = block.to_dict()
-        keys = [k for k in payload if k != "type"]
+        # "type" included: the registry lookup refuses a hostile tag (and a
+        # non-str one, which used to escape as KeyError/TypeError) with the
+        # boundary's documented ValueError.
+        keys = list(payload)
         if not keys:
             return
         payload[keys[seed % len(keys)]] = value
@@ -254,7 +257,7 @@ class TestMalformedPayloadShapesAreRejectedCleanly:
         self, node: InlineNode, value: object, seed: int
     ) -> None:
         payload = node.to_dict()
-        keys = [k for k in payload if k != "type"]
+        keys = list(payload)  # "type" included, same as the block test above
         if not keys:
             return
         payload[keys[seed % len(keys)]] = value

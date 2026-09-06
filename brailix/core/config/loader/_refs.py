@@ -49,8 +49,9 @@ def _section(tables: dict[str, Any], key: str) -> dict[str, Any]:
     """Return a sub-section of the tables block.
 
     For the math block we only accept the dict form per design §3.7 —
-    a string ``tables.math`` is rejected (returns ``{}``), and the
-    loader proceeds with an empty math table.
+    a non-dict ``tables.math`` returns ``{}`` here, and
+    ``validate_profile`` then rejects the shape (there is no
+    "proceed with an empty math table" path).
     """
     sub = tables.get(key)
     if isinstance(sub, dict):
@@ -276,7 +277,16 @@ def _spec_to_cells(
                     f'["c_235"]. (A bare string was silently dropped before, '
                     f"leaving a symbol with a role but no braille.)"
                 )
-            refs = [r for r in spec["cells"] if isinstance(r, str)]
+            refs = list(spec["cells"])
+            if not all(isinstance(r, str) for r in refs):
+                location = f"{file}: " if file else ""
+                raise ConfigurationError(
+                    f"{location}entry {name!r} has a non-string item in "
+                    f"'cells' {spec['cells']!r}; every item must be a "
+                    f"cells-pool ref string. (Non-strings were silently "
+                    f"filtered before, producing a PARTIAL cell sequence — "
+                    f"braille that looks legal and is not.)"
+                )
         elif "dots" in spec:
             return _coerce_dots_field(spec["dots"])
     if refs is None:
@@ -349,8 +359,9 @@ def _resolve_dots_table(
 
     Returns ``{name: dot_tuple}`` — each entry's resolved cell sequence
     is unwrapped to a single tuple. Empty sequences (e.g. the neutral
-    tone) are preserved as ``()``. Multi-cell entries are dropped (this
-    helper is for tables where every entry is one cell)."""
+    tone) are preserved as ``()``. A multi-cell entry raises
+    ``ConfigurationError`` (this helper is for tables where every entry
+    is one cell)."""
     resolved = _resolve_table(payload, cells_pool)
     out: dict[str, tuple[int, ...]] = {}
     for k, v in resolved.items():
@@ -374,7 +385,8 @@ def _resolve_single(
     Accepts the same spec shapes as :func:`_spec_to_cells` but expects
     the result to be a single cell. Useful for top-level entries like
     ``number_sign`` / ``decimal_point`` that aren't part of a dict
-    table. Returns ``()`` for missing or multi-cell specs.
+    table. Returns ``()`` for a missing spec; a multi-cell spec raises
+    ``ConfigurationError``.
     """
     if spec is None:
         return ()
@@ -399,11 +411,24 @@ def _resolve_digits(
     """digits_lower entries are always single-cell. Resolve cell refs
     (or literal dots) and unwrap the 1-element cell sequence so the
     backend receives a flat ``dict[str, tuple[int, ...]]`` — matching
-    the field shape :attr:`BrailleProfile.math_digits_lower` exposes."""
+    the field shape :attr:`BrailleProfile.math_digits_lower` exposes.
+
+    A multi-cell entry raises, like every other single-cell unwrapper
+    here — it used to be silently dropped, leaving e.g. an Antoine
+    lower digit missing with no diagnostic (the same fix the two
+    siblings above already received)."""
     resolved = _resolve_table(payload, cells_pool, file=file)
     out: dict[str, tuple[int, ...]] = {}
     for name, seq in resolved.items():
-        if seq and len(seq) == 1:
+        if len(seq) > 1:
+            location = f"{file}: " if file else ""
+            raise ConfigurationError(
+                f"{location}digits_lower entry {name!r} resolved to "
+                f"{len(seq)} cells; each lower digit must be exactly one "
+                f"cell. (A multi-cell entry was silently dropped before, "
+                f"leaving the digit missing from the braille.)"
+            )
+        if seq:
             out[name] = seq[0]
     return out
 

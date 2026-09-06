@@ -329,10 +329,18 @@ def inline_node_for(type_name: str) -> type[InlineNode]:
     added no entries: the table had stopped describing "retired" some time
     before it was removed.
     """
+    # ValueError for every refusal, including a non-str ``type_name``
+    # (unhashable inputs would otherwise escape as TypeError — an
+    # implementation detail outside the boundary's documented
+    # exactly-two rejection kinds; see ``_serde``).
+    if not isinstance(type_name, str):
+        raise ValueError(
+            f"inline node 'type' must be a string, got {type(type_name).__name__}"
+        )
     try:
         return _INLINE_REGISTRY[type_name]
     except KeyError as e:
-        raise KeyError(f"unknown inline node type: {type_name!r}") from e
+        raise ValueError(f"unknown inline node type: {type_name!r}") from e
 
 
 def from_dict(payload: dict[str, _Any]) -> InlineNode:

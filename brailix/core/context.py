@@ -167,7 +167,7 @@ class GraphicsContext:
     """Context for the tactile-graphics subsystem (source → SVG adapter).
 
     Source-format adapters convert any graphics source (raw SVG, geometry
-    primitives, a raster image, a chart spec, ...) into a normalised SVG
+    primitives, a raster image, a figure spec, ...) into a normalised SVG
     string — that SVG tree itself is the graphics IR (see
     :mod:`brailix.frontend.graphics`), exactly as MathML / MusicXML are the
     IR for their verticals. The tactile rendering profile
@@ -177,7 +177,7 @@ class GraphicsContext:
     stay device-independent.
     """
 
-    source: str = "svg"  # svg / primitives / image / chart / ...
+    source: str = "svg"  # svg / primitives / figure / image
     warnings: WarningCollector = _field(default_factory=WarningCollector)
     options: dict[str, _Any] = _field(default_factory=dict)
 

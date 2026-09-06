@@ -279,12 +279,12 @@ class TestTheCarriersAreGone:
 
     @pytest.mark.parametrize("tag", ["music_inline", "graphic_inline"])
     def test_the_retired_tags_do_not_resolve(self, tag):
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError):
             inline_node_for(tag)
 
     @pytest.mark.parametrize("tag", ["music_inline", "graphic_inline"])
     def test_a_payload_carrying_a_retired_tag_is_refused(self, tag):
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError):
             from_dict({"type": tag, "surface": ""})
 
     def test_math_is_the_only_inline_node_with_a_tree(self):
@@ -305,7 +305,7 @@ class TestRegistry:
         assert inline_node_for("math_inline") is MathInline
 
     def test_lookup_unknown_raises(self):
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError):
             inline_node_for("nonsense")
 
     def test_from_dict_rejects_missing_type(self):
@@ -322,9 +322,10 @@ class TestChineseToken:
     def test_minimal(self):
         t = ChineseToken(surface="我")
         assert t.pinyin is None
-        assert t.to_dict() == {"surface": "我"}
 
     def test_full(self):
+        # The token is the analyzer/resolver mediator, never serialised
+        # (its to_dict was removed with the last consumer).
         t = ChineseToken(
             surface="重庆",
             pos="ns",
@@ -332,13 +333,10 @@ class TestChineseToken:
             pinyin="chong2 qing4",
             confidence=0.99,
         )
-        assert t.to_dict() == {
-            "surface": "重庆",
-            "pos": "ns",
-            "span": [0, 2],
-            "pinyin": "chong2 qing4",
-            "confidence": 0.99,
-        }
+        assert (t.surface, t.pos, t.span, t.pinyin, t.confidence) == (
+            "重庆", "ns", Span(0, 2), "chong2 qing4", 0.99,
+        )
+        assert not hasattr(t, "to_dict")
 
 
 class TestBaseClass:
