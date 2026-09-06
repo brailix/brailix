@@ -1,9 +1,10 @@
 """Chinese frontend subsystem.
 
-Five entry points (internal, like every path outside the facades — see
+Six entry points (internal, like every path outside the facades — see
 :mod:`brailix.frontend`).  Four feed the orchestrator
-(:class:`brailix.Pipeline`); :func:`list_analyzers` instead serves the
-CLI and any caller that enumerates the analyzer registry:
+(:class:`brailix.Pipeline`); :func:`list_analyzers` and
+:func:`available_analyzers` instead serve the CLI / editor pickers and any
+caller that enumerates the analyzer registry:
 
 * :func:`tokenize` — text → ``list[ChineseToken]`` via the analyzer
   adapter selected by ``ctx.options["zh_analyzer"]``.  The pluggable
@@ -378,7 +379,9 @@ def tokens_to_inline(tokens: list[ChineseToken]) -> list[InlineNode]:
     Two responsibilities:
 
     1. **Node construction** — every token becomes one :class:`Word`,
-       whatever its length, with pinyin / POS / confidence carried across.
+       whatever its length, with the pinyin reading carried across
+       (``Word`` carries no POS or confidence; both stop at the token
+       layer).
        (A single character is a one-character ``Word``, not a node of its
        own — see :class:`~brailix.ir.inline.Word`.)
     2. **Word-boundary spacing** — Chinese braille writes characters
@@ -471,7 +474,7 @@ def insert_cross_kind_boundary_spaces(
     per-segment outputs.
 
     Two outcomes at a letter↔hanzi boundary, decided by the compound
-    lexicon (``profile.zh_compounds``, passed in by the caller):
+    lexicon (``profile.lang_spec("compounds")``, passed in by the caller):
 
     * **Compound word** (``x轴`` / ``T恤`` / ``维生素C``) — the letter and
       the hanzi are *one word*, joined with a :class:`Connector`

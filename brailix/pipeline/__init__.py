@@ -74,6 +74,10 @@ The pieces live in sibling modules:
   test simulates an adapter failure by replacing
   ``pipeline._frontend._parse_math_tree`` (etc.) on the instance rather
   than monkeypatching a ``brailix.pipeline.*`` name.
+* :mod:`brailix.pipeline._populate` — the leaf-block population pass
+  (:func:`~brailix.pipeline._populate.populate_leaf` and the cached-tree
+  parse it builds on), split out of :mod:`frontend_driver`; the driver
+  routes blocks into it.
 
 Note: brailix is the pure compiler — it knows nothing about front-end
 concepts like Override / WarningCase / Identity. Callers that want to mutate

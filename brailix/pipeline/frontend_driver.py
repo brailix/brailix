@@ -352,7 +352,11 @@ class FrontendDriver:
         * Widening column 0 moves column 1 even though column 1's own text —
           and therefore its inlines — is untouched and reused.  The applied
           offset is read back from ``cell.span.start``, so the cell is shifted
-          by the *difference*, never re-shifted from scratch.
+          by the *difference*, never re-shifted from scratch.  (Embedded-tree
+          cells — math / music / graphic, whose content rides ``tree`` with
+          ``inlines`` empty — are the exception that does rebuild from zero
+          each pass: they re-translate wholesale, so clearing and re-anchoring
+          their spans is the same amount of work and stays idempotent.)
         * A cell whose own text changed has its inlines dropped by the
           stale-heal; the span it still carries describes the OLD text at the
           OLD offset, so it is cleared first and rebuilt cell-local from the

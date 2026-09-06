@@ -86,7 +86,8 @@ def apply_user_seg_dict(
 
     ``pos`` is dropped on rewritten tokens: it described the analyzer's
     division, which is precisely what the user overrode. Nothing in the
-    Chinese path reads it (it rides along to the IR and stops there), so
+    Chinese path reads it (it stops at the token layer — ``Word``
+    carries no POS), so
     dropping it is honest rather than lossy — unlike Japanese, where POS
     drives word spacing.
 
