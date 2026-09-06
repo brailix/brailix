@@ -99,26 +99,6 @@ class FillStyle:
     level: int
 
 
-def fill_rect(
-    raster: TactileRaster,
-    x0: int,
-    y0: int,
-    x1: int,
-    y1: int,
-    style: FillStyle,
-) -> None:
-    """Texture-fill the axis-aligned rectangle ``[x0, x1] × [y0, y1]``."""
-    lo_x, hi_x = sorted((x0, x1))
-    lo_y, hi_y = sorted((y0, y1))
-    lo_x, lo_y = max(0, lo_x), max(0, lo_y)
-    hi_x = min(raster.width - 1, hi_x)
-    hi_y = min(raster.height - 1, hi_y)
-    for y in range(lo_y, hi_y + 1):
-        for x in range(lo_x, hi_x + 1):
-            if _hit(style.texture, x, y, style.spacing, style.thickness):
-                raster.set_raise(x, y, style.level)
-
-
 def fill_ellipse(
     raster: TactileRaster,
     cx: int,

@@ -466,7 +466,7 @@ class TestMnExtras:
 
     def test_mn_with_features_number_sign_off(self, profile, monkeypatch):
         # math.number_sign gates the math backend's number sign behaviour
-        # independently of zh.number_sign — turning off the math feature
+        # independently of number.sign — turning off the math feature
         # alone should suppress the leading sign in math.
         monkeypatch.setitem(
             profile.features.setdefault("math", {}), "number_sign", False
@@ -475,7 +475,7 @@ class TestMnExtras:
         assert all(c.role != "number_sign" for c in cells)
 
     def test_mn_math_number_sign_is_independent_of_zh(self, profile, monkeypatch):
-        # Setting zh.number_sign=False must NOT affect math —
+        # Setting number.sign=False must NOT affect math —
         # math has its own math.number_sign feature.
         monkeypatch.setitem(
             profile.features.setdefault("zh", {}), "number_sign", False

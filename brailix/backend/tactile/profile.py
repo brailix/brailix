@@ -48,9 +48,8 @@ class TactileProfile:
 
     ``dpi`` is the only device-dependent value (user matches it to their
     embosser software); everything else is in millimetres so it is device
-    independent. ``min_feature_spacing_mm`` is carried now but only
-    consumed once the touch-spacing rules land (a later phase) — declaring
-    it here keeps the profile schema stable.
+    independent. ``min_feature_spacing_mm`` feeds the texture spacing and
+    the BANA touch-spacing check (``_separation``).
     """
 
     name: str
@@ -181,8 +180,8 @@ def load_tactile_profile(name: str = DEFAULT_PROFILE) -> TactileProfile:
         min_line_width_mm=_require_positive(
             payload.get("min_line_width_mm"), "min_line_width_mm", path
         ),
-        # Spacing is reserved for a later phase; default to the line width
-        # if a profile omits it so the schema stays forgiving.
+        # Spacing defaults to the line width if a profile omits it, so the
+        # schema stays forgiving.
         min_feature_spacing_mm=_require_positive(
             payload.get(
                 "min_feature_spacing_mm", payload.get("min_line_width_mm")

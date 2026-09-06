@@ -692,6 +692,27 @@ class TestStructuralBondMarkers:
         # A lone double-bonded molecule keeps its bond marker.
         assert self._bonds(convert_ce("CH2=CH2")) == ["double"]
 
+    def test_spaced_double_bond_in_molecule(self):
+        # mhchem treats whitespace around a bond as insignificant: the
+        # spaced form is the same double bond (an atom continues on the
+        # right). It used to flip to the yields connector because the
+        # space cleared the atom flag. The equation-with-spaces form is
+        # protected by _equals_is_yields (the '+'), not by tightness.
+        assert self._bonds(convert_ce("CH2 = CH2")) == ["double"]
+        assert self._bonds(convert_ce("O = C = O")) == ["double", "double"]
+
+    def test_spaced_equals_before_another_equals_stays_connector(self):
+        # "H2 = = O2": the first '=' has no atom to its right, so it keeps
+        # the connector path and the repeated-operator tagging fires.
+        out = convert_ce("H2 = = O2")
+        assert self._bonds(out) == []
+        warned = [
+            e
+            for e in ET.fromstring(out).iter(f"{_NS}mo")
+            if e.get("data-bk-warn") == "repeated-operator"
+        ]
+        assert len(warned) == 1
+
     def test_double_bond_in_arrow_reaction_reactant(self):
         # Organic addition CH2=CH2 + H2 -> CH3CH3: the '->' is the yields, so
         # the '=' inside the ethylene reactant is a double bond — not the

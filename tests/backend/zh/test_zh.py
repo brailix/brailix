@@ -386,3 +386,25 @@ class TestNeutralToneEmitsNoCell:
         assert all(c.dots for c in cells), [
             (c.role, c.dots) for c in cells
         ]
+
+
+class TestNcbOverrideRespectsToneMasterSwitch:
+    """The NCB keep-tone override refines how a standard keeps tones; it is
+    not a second way to turn them on once ``zh.tone`` has turned them off
+    (it used to flip ``should_emit`` straight back to True)."""
+
+    def test_override_does_not_revive_tone_when_disabled(self):
+        ncb = load_profile("cn_ncb")
+        assert ncb.lang_spec("ncb_exceptions") is not None  # overrides armed
+        ctx = BackendContext(profile="cn_ncb")
+        ncb.features.setdefault("zh", {})["tone"] = False
+        try:
+            # 再 is one of the resource's keep-tone chars; with the master
+            # switch off it must still emit no tone cell.
+            cells = translate_word(
+                Word(surface="再", reading="zai4", span=Span(0, 1)),
+                ctx, ncb,
+            )
+            assert "zh_tone" not in _roles(cells)
+        finally:
+            ncb.features["zh"]["tone"] = True

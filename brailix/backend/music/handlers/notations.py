@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.music.context import MusicBrailleContext
+from brailix.backend.music.handlers._common import warn_feature_unimplemented
 from brailix.backend.music.utils import (
     emit_cells_for_entity,
     emit_synthesized_tuplet_marker,
@@ -63,13 +64,16 @@ _STRING_TECHNIQUE_ENTITY: dict[str, str] = {
 # (the standard symbol); ``inverted-mordent`` is the lower one. Both
 # the MusicXML name and the BANA term agree on visual direction —
 # the naming flip lives only in the table key.
+#
+# ``glissando`` is NOT here: in MusicXML it is a direct child of
+# ``<notations>``, never of ``<ornaments>`` — it is emitted from the
+# notations level in :func:`_emit_notations_post_note`.
 _ORNAMENT_ENTITY: dict[str, str] = {
     "trill-mark":       "trill",
     "turn":             "turn_between_notes",
     "inverted-turn":    "inverted_turn_between_notes",
     "mordent":          "upper_mordent",
     "inverted-mordent": "lower_mordent",
-    "glissando":        "glissando_line_between_notes",
 }
 
 # MusicXML ``<tremolo>`` stroke count → BANA Table 14 entity.
@@ -174,14 +178,11 @@ def _emit_tuplet_marker(
         elif form == "three_cell":
             entity = "triplet_three_cell"
         else:
-            mctx.warn(
-                code="MUSIC_UNSUPPORTED_NOTATION",
-                message=(
-                    f"music.tuplet_form={form!r} not implemented "
-                    f"(M3.5 covers 'single_cell' / 'three_cell'); "
-                    f"falling back to single_cell"
-                ),
-                source="backend.music",
+            warn_feature_unimplemented(
+                mctx,
+                "music.tuplet_form",
+                form,
+                "M3.5 covers 'single_cell' / 'three_cell'",
             )
             entity = "triplet_single_cell"
     elif n in _TUPLET_NUMBER_ENTITY:
@@ -250,6 +251,21 @@ def _emit_notations_post_note(
                 role="music_slur",
                 source_text="slur",
             )
+            break
+
+    # Glissando — a DIRECT ``<notations>`` child in MusicXML (never inside
+    # ``<ornaments>``), so it is dispatched here, sharing the ornaments
+    # gate and entity topic. Only ``type="start"`` prints a cell; the stop
+    # side is implicit in the next note, like a slur.
+    for gliss in notations.findall("glissando"):
+        if gliss.attrib.get("type", "").strip().lower() == "start":
+            if mctx.profile.feature("music.show_ornaments", True):
+                emit_cells_for_entity(
+                    cells, mctx,
+                    topic="ornaments", entity="glissando_line_between_notes",
+                    role="music_ornament",
+                    source_text="glissando",
+                )
             break
 
     # M6: ornaments + tremolo (Tables 14 / 16) — single dispatcher per
@@ -359,7 +375,7 @@ def _emit_ornaments(
                 code="MUSIC_UNSUPPORTED_NOTATION",
                 message=(
                     f"<ornaments><{tag}/></ornaments> not in M6 ornament "
-                    f"set (trill/turn/mordent/glissando + inverted forms)"
+                    f"set (trill/turn/mordent + inverted forms)"
                 ),
                 source="backend.music",
             )

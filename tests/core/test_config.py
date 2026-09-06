@@ -60,7 +60,7 @@ class TestCnDefaultProfile:
         p = load_profile("cn_current")
         # By the path the profile writes them at, and only that path.
         assert p.feature("zh.tone") is True
-        assert p.feature("zh.number_sign") is True
+        assert p.feature("number.sign") is True
         assert p.feature("tone", "unset") == "unset"
         assert p.feature("number_sign", "unset") == "unset"
         assert p.feature("nonexistent", "fallback") == "fallback"
@@ -123,17 +123,6 @@ class TestCnDefaultProfile:
         p = load_profile("cn_current")
         for table in (p.lang_table("initials"), p.lang_table("finals"), p.lang_table("tones"), p.punctuation, p.digits):
             assert all(not (len(k) > 1 and k.startswith("_")) for k in table)
-
-    def test_math_symbol_provisional_default_false(self):
-        # Symbols without an explicit ``provisional: true`` flag must
-        # report False so proofread tooling doesn't surface bogus
-        # "double-check" hints on rule-backed cells.
-        p = load_profile("cn_current")
-        # ``+`` is a foundational op — never provisional in shipped profiles.
-        assert p.math_symbol_provisional("+") is False
-        # Unmapped char also returns False (no provisional flag at all).
-        assert p.math_symbol_provisional("☃") is False
-
 
 class TestMissingProfile:
     def test_unknown_profile(self):
@@ -941,11 +930,10 @@ class TestMathSymbolSupplement:
             assert p.math_symbol_script_prefix(ch) is True
 
     def test_previously_provisional_now_confirmed(self):
-        # ≤ ≥ ± ∓ ↔ ∮ were marked provisional; the reference doc confirms
-        # their exact cells, so the flag is dropped.
+        # ≤ ≥ ± ∓ ↔ ∮ were once carried as provisional guesses; the
+        # reference doc later confirmed these exact cells (and the empty
+        # provisional channel was removed with its last data).
         p = load_profile("cn_current")
-        for ch in "≤≥±∓↔∮":
-            assert p.math_symbol_provisional(ch) is False
         # Cells unchanged by the de-provisionalisation.
         assert p.math_symbol("≤") == ((2, 4, 6), (2, 3, 5, 6))
         assert p.math_symbol("≥") == ((1, 3, 5), (2, 3, 5, 6))
@@ -1206,7 +1194,7 @@ class TestFeatureLookup:
         p = load_profile("cn_current")
         assert p.feature("zh.tone") is True
         assert p.feature("zh.tone_omit_neutral") is True
-        assert p.feature("zh.number_sign") is True
+        assert p.feature("number.sign") is True
         assert p.feature("math.simplify_fraction") is True
 
     def test_unknown_feature_returns_default(self):

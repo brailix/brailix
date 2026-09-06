@@ -134,7 +134,8 @@ def normalize(
         if atomic is not None:
             out.append(atomic)
         else:
-            # hanzi_text and unknown pass through unchanged.
+            # hanzi_text passes through unchanged (unknown became an
+            # Unknown node in _try_atomic above).
             out.append(seg)
         i += 1
     return out
@@ -280,13 +281,16 @@ def _try_atomic(seg: Segment) -> InlineNode | None:
         # Otherwise it's a plain user-typed fragment. Most inline math arrives
         # as LaTeX (``$x^2$``); a bare leading ``<math`` (after the opening
         # ``$``) marks MathML — a sufficient discriminator since the LaTeX
-        # grammar can't begin with an XML element. (MTEF / script-cluster
-        # paths still emit this eager ``$<math>...$`` form.)
+        # grammar can't begin with an XML element. (The eagerly-decoded
+        # MTEF path still emits this ``$<math>...$`` form.)
         inner = seg.surface
         if inner.startswith("$") and inner.endswith("$"):
             inner = inner[1:-1]
-        source = "mathml" if inner.lstrip().startswith("<math") else "latex"
-        return MathInline(surface=seg.surface, span=seg.span, source=source)
+        return MathInline(
+            surface=seg.surface,
+            span=seg.span,
+            source=inline_math.sniff_untagged_source(inner),
+        )
     if seg.type == "phonetic_inline":
         # A protected ``/.../`` / ``[...]`` IPA region from the segmenter.
         # Strip the one-char delimiters so the node carries the bare

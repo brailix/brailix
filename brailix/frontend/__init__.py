@@ -372,7 +372,12 @@ boundary_registry: _BoundaryRegistry = _BoundaryRegistry()
 def _zh_boundary(
     nodes: list[InlineNode], profile: BrailleProfile
 ) -> list[InlineNode]:
-    return _zh_boundary_spaces(nodes, profile.zh_compounds)
+    # The compound lexicon arrives through the generic per-language slot
+    # (``lang_specs["zh"]["compounds"]``); default frozenset() when the
+    # profile declares none.
+    compounds = profile.lang_spec("compounds", frozenset())
+    assert isinstance(compounds, frozenset)
+    return _zh_boundary_spaces(nodes, compounds)
 
 
 boundary_registry["zh"] = _zh_boundary

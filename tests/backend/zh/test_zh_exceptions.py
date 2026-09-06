@@ -112,7 +112,9 @@ class TestLoader:
         assert isinstance(
             cn_ncb.lang_specs["zh"]["ncb_exceptions"], NcbExceptions
         )
-        assert cn_current.lang_specs.get("zh", {}) == {}
+        # cn_current declares no exceptions resource; its only zh spec is
+        # the compound lexicon that shares the slot.
+        assert set(cn_current.lang_specs.get("zh", {})) == {"compounds"}
 
     def test_the_accessor_refuses_a_record_of_the_wrong_type(self, cn_ncb):
         # The slot is typed ``Any`` so the core need not know this type,

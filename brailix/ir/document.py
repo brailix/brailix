@@ -652,10 +652,19 @@ _BLOCK_REGISTRY: dict[str, type[Block]] = {
 
 
 def block_for(type_name: str) -> type[Block]:
+    # ValueError for every refusal here, including a non-str ``type_name``:
+    # a list in that slot is unhashable, and the TypeError the dict lookup
+    # would raise is an implementation detail escaping the documented
+    # exactly-two rejection kinds of the deserialisation boundary
+    # (see ``_serde``).
+    if not isinstance(type_name, str):
+        raise ValueError(
+            f"block 'type' must be a string, got {type(type_name).__name__}"
+        )
     try:
         return _BLOCK_REGISTRY[type_name]
     except KeyError as e:
-        raise KeyError(f"unknown block type: {type_name!r}") from e
+        raise ValueError(f"unknown block type: {type_name!r}") from e
 
 
 def block_from_dict(payload: dict[str, _Any]) -> Block:

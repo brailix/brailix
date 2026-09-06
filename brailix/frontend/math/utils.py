@@ -14,7 +14,7 @@ import xml.etree.ElementTree as _ET
 from xml.sax.saxutils import escape as _escape
 from xml.sax.saxutils import quoteattr as _quoteattr
 
-from brailix.core._xml import strip_xml_invalid_chars
+from brailix.core._xml import XmlDecodeError, decode_xml_bytes, strip_xml_invalid_chars
 
 # The MathML 3 namespace. Some emitters (latex2mathml) include it, others
 # don't; both forms are accepted by the normalizer.
@@ -50,6 +50,24 @@ def merror_wrap(surface: str, *, reason: str) -> str:
         f"<merror data-reason={escaped_reason}><mtext>{escaped}</mtext></merror>"
         f"</math>"
     )
+
+
+def decode_source_bytes(formula: str | bytes, *, xml: bool = False) -> str | None:
+    """Decode a math source's ``bytes`` input, passing a ``str`` through.
+
+    Returns ``None`` when the bytes don't decode, so the caller
+    soft-fails into ``merror_wrap``. Text dialects (LaTeX / chem /
+    EQ-field) are UTF-8; ``xml=True`` is for an adapter whose input is
+    XML (OMML) and goes through the XML self-describing encoding rules
+    instead — a legal UTF-16 serialisation used to be refused by the
+    copy of this block in omml while the mathml adapter accepted it.
+    """
+    if not isinstance(formula, bytes):
+        return formula
+    try:
+        return decode_xml_bytes(formula) if xml else formula.decode("utf-8")
+    except (UnicodeDecodeError, XmlDecodeError):
+        return None
 
 
 def mtext(text: str) -> _ET.Element:

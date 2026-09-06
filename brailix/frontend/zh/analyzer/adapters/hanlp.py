@@ -134,8 +134,8 @@ class HanLPChineseAnalyzer:
 
 
 def _extract_words(doc: Any) -> list[str]:
-    """HanLP's MTL pipeline returns either ``doc['tok/fine']`` or
-    ``doc['tok']``; older versions may expose ``.tokens``. Be tolerant."""
+    """HanLP's MTL pipeline returns ``doc['tok/fine']``, or falls
+    back to ``tok/coarse`` / ``doc['tok']``. Be tolerant."""
     for key in ("tok/fine", "tok/coarse", "tok"):
         try:
             value = doc[key]

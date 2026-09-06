@@ -186,14 +186,22 @@ def _render_mtd(mctx: MathBrailleContext, tcell: ET.Element) -> list[BrailleCell
 
 
 def _measure_aligned_cells(
-    mctx: MathBrailleContext, rows: list[ET.Element]
+    mctx: MathBrailleContext,
+    rows: list[ET.Element],
+    *,
+    mark_ops: bool,
 ) -> tuple[list[list[list[BrailleCell]]], list[int]]:
     """Render every ``<mtd>`` of an omitted-zero table into its own cell
-    buffer (isolated as a column entry; ``in_matrix_cell`` so a polynomial
-    cell keeps the ⠐ operator mark) and return ``(row_buffers, col_widths)``
-    where each column's width is that of its widest element."""
+    buffer and return ``(row_buffers, col_widths)`` where each column's
+    width is that of its widest element.
+
+    ``mark_ops`` is whether the cells are measured — and then placed —
+    as **matrix** cells (``in_matrix_cell`` set, so a polynomial cell
+    keeps the ⠐ operator mark) or as equation-system rows (flag clear:
+    each equation owns its own braille line, so its operator spaces are
+    unambiguous — MathBrailleContext.in_matrix_cell's contract)."""
     saved_in_cell = mctx.in_matrix_cell
-    mctx.in_matrix_cell = True
+    mctx.in_matrix_cell = mark_ops
     row_bufs: list[list[list[BrailleCell]]] = [
         [_render_mtd(mctx, td) for td in row if td.tag == "mtd"] for row in rows
     ]
@@ -280,7 +288,7 @@ def _emit_mtable_aligned(
     (阶梯型方程组) reuses the same two helpers from the cases path, without
     the trailing pad: it has no closing fence to line up."""
     rows = [row for row in mtable if row.tag == "mtr"]
-    row_bufs, col_w = _measure_aligned_cells(mctx, rows)
+    row_bufs, col_w = _measure_aligned_cells(mctx, rows, mark_ops=True)
     cells.append(hang_open_cell(mctx.span))
     first_row = True
     for bufs in row_bufs:
@@ -450,7 +458,9 @@ def _emit_mtable_cases(
     # row and, being the same width on all rows, don't disturb the columns.
     aligned = _mtable_has_omitted_cell(mtable)
     row_bufs, col_w = (
-        _measure_aligned_cells(mctx, rows) if aligned else ([], [])
+        _measure_aligned_cells(mctx, rows, mark_ops=False)
+        if aligned
+        else ([], [])
     )
     cells.append(cases_open_cell(mctx.span))
     _emit_cases_palette(cells, mctx)

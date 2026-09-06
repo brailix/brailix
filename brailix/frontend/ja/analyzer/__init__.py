@@ -135,6 +135,12 @@ def _check_analyzer_output(
     (``TOKEN_SPAN_MISMATCH``), not an error — an analyzer that normalises its
     input produces one legitimately.
 
+    Unlike the zh check, span-less tokens are NOT laid out from a cursor
+    before the order/range test: zh's downstream fills the gaps with real
+    coordinates (so a spanless token followed by an explicit backwards span
+    becomes an overlap zh must refuse), while ja's keeps ``span=None`` as a
+    span-less node that carries no coordinates to overlap with.
+
     Written out here rather than shared with the Chinese check: zh and ja are
     independently replaceable language components
     (ARCHITECTURE#arch-layers), they validate different token types, and the
@@ -318,7 +324,7 @@ def tokens_to_inline(
         # An all-kana token the analyzer didn't read — an unknown katakana
         # word comes back with phonetic "*" — is already its own
         # pronunciation form: use the kana itself rather than a placeholder.
-        if not reading and t.surface and all(_is_kana(c) for c in t.surface):
+        if not reading and _is_all_kana(t.surface):
             reading = t.surface
         if reading:
             span = (

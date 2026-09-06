@@ -163,12 +163,18 @@ def load_profile(
 
     # The non-cell counterpart of the slot above: a standard's declarative
     # rules go in under its own language subtag rather than onto a field of
-    # the shared profile type. Keyed by the profile's declared language, so
-    # loading an NCB resource under a non-zh profile is not a shape this can
-    # produce.
+    # the shared profile type. Keyed by the literal "zh" whenever
+    # ``tables.zh.exceptions`` loads — a non-zh profile declaring that key
+    # would load the resource into an unreachable slot (a mis-declared
+    # profile, tolerated rather than policed here).
     lang_specs: dict[str, dict[str, Any]] = {}
     if zh_exceptions is not None:
         lang_specs.setdefault("zh", {})["ncb_exceptions"] = zh_exceptions
+    # The compound lexicon rides the same slot: scheme-neutral zh *word
+    # list*, not a cell table, so lang_tables is wrong; and not a shared
+    # field, or the next language grows the profile dataclass again.
+    if zh_compounds:
+        lang_specs.setdefault("zh", {})["compounds"] = zh_compounds
 
     features = dict(payload.get("features", {}))
 
@@ -184,7 +190,6 @@ def load_profile(
         decimal_point=numbers["decimal_point"],
         thousands_sep=numbers["thousands_sep"],
         connector=connector,
-        zh_compounds=zh_compounds,
         math_symbols=math["symbols"],
         math_functions=math["functions"],
         math_structures=math["structures"],
@@ -193,7 +198,6 @@ def load_profile(
         math_symbol_roles=math["symbol_roles"],
         math_symbol_accent_marks=math["symbol_accent_mark"],
         math_symbol_script_prefix_flags=math["symbol_script_prefix"],
-        math_symbol_provisional_flags=math["symbol_provisional"],
         math_symbol_indicator_flags=math["symbol_indicator"],
         math_function_big_op_flags=math["function_big_op"],
         math_function_script_prefix_flags=math["function_script_prefix"],

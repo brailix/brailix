@@ -36,7 +36,7 @@ from brailix.input.docx import (  # noqa: E402
     parse_doc,
     parse_docx,
 )
-from brailix.input.limits import DEFAULT_INPUT_LIMITS  # noqa: E402
+from brailix.input.limits import DEFAULT_INPUT_LIMITS, InputTooLargeError  # noqa: E402
 from brailix.ir.document import (  # noqa: E402
     Heading,
     List,
@@ -2167,7 +2167,7 @@ class TestArchiveResourceCaps:
         p = tmp_path / "big.docx"
         self._write_zip(p, {"word/document.xml": b"<xml/>"})
         monkeypatch.setattr(docx_adapter, "_MAX_DOCX_FILE_BYTES", 1)
-        with pytest.raises(ParseError, match="over the"):
+        with pytest.raises(InputTooLargeError, match="over the"):
             _read_docx_bytes(p, DEFAULT_INPUT_LIMITS)
 
     def test_file_size_cap_binds_the_bytes_read_not_the_stat(
@@ -2195,7 +2195,7 @@ class TestArchiveResourceCaps:
             return result
 
         monkeypatch.setattr(pathlib.Path, "stat", growing_stat)
-        with pytest.raises(ParseError, match="over the"):
+        with pytest.raises(InputTooLargeError, match="over the"):
             _read_docx_bytes(p, DEFAULT_INPUT_LIMITS)
 
     def test_member_inflate_cap_counts_decompressed_bytes(
@@ -2497,5 +2497,5 @@ class TestUnreadableArchiveMembers:
         doc.add_paragraph("hello world")
         doc.save(str(p))
         monkeypatch.setattr(docx_adapter, "_MAX_DOCX_FILE_BYTES", 1)
-        with pytest.raises(ParseError, match="over the"):
+        with pytest.raises(InputTooLargeError, match="over the"):
             parse_docx(p, profile="cn_current", language="zh-CN")

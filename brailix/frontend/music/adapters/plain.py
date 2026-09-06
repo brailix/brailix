@@ -33,10 +33,9 @@ class PlainMusicSourceAdapter:
         self, src: str | bytes, ctx: MusicContext | None = None
     ) -> str:
         if isinstance(src, bytes):
-            try:
-                src = src.decode("utf-8", errors="replace")
-            except Exception:  # noqa: BLE001 — defensive
-                src = ""
+            # errors="replace" never raises, so no guard: every byte
+            # sequence decodes (worst case into replacement characters).
+            src = src.decode("utf-8", errors="replace")
         return music_error_wrap(
             src,
             reason="plain music source unsupported -- declare a real source",

@@ -32,6 +32,7 @@ from brailix.core.context import MathContext
 from brailix.frontend.math.adapters._atoms import tokenize_math_text
 from brailix.frontend.math.utils import (
     _MATHML_NS,
+    decode_source_bytes,
     merror_wrap,
     mrow_wrap,
     mtext,
@@ -60,12 +61,14 @@ class OmmlMathSourceAdapter:
     source: str = "omml"
 
     def to_mathml(self, formula: str | bytes, ctx: MathContext | None = None) -> str:
-        if isinstance(formula, bytes):
-            try:
-                formula = formula.decode("utf-8")
-            except UnicodeDecodeError:
-                return merror_wrap(repr(formula), reason="non-utf8 bytes")
-        text = formula.strip()
+        # OMML is XML, so bytes decode by the XML self-describing rules —
+        # the same helper the mathml adapter uses — not a bare UTF-8 pass:
+        # a legal UTF-16 serialisation used to be refused here while the
+        # mathml adapter accepted it.
+        decoded = decode_source_bytes(formula, xml=True)
+        if decoded is None:
+            return merror_wrap(repr(formula), reason="undecodable bytes")
+        text = decoded.strip()
         if not text:
             return merror_wrap("", reason="empty input")
         try:

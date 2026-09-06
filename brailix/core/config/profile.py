@@ -54,10 +54,12 @@ class BrailleProfile:
     # then degrades to a blank cell). Both shipped zh profiles set ⠤
     # (dots 3-6) via ``tables.connector``.
     connector: tuple[int, ...] = ()
-    # Letter+hanzi compound lexicon (scheme-neutral zh language data via
-    # ``tables.zh.compounds``): surfaces like ``x轴`` that take a connector
-    # instead of a blank cell at a letter↔hanzi boundary. Empty when undeclared.
-    zh_compounds: frozenset[str] = frozenset()
+    # The letter+hanzi compound lexicon used to be a ``zh_compounds`` field
+    # right here — scheme-neutral zh data welded onto the shared profile
+    # type, where the next language's equivalent would have needed a
+    # ``ja_compounds`` beside it. It now rides the generic per-language
+    # slot: ``lang_specs["zh"]["compounds"]`` (read via
+    # :meth:`lang_spec`), exactly where ``ncb_exceptions`` lives.
     math_symbols: dict[str, tuple[tuple[int, ...], ...]] = _field(default_factory=dict)
     math_functions: dict[str, tuple[tuple[int, ...], ...]] = _field(default_factory=dict)
     # Math structures keyed by dotted names (``fraction.bar`` etc.).
@@ -81,10 +83,6 @@ class BrailleProfile:
     # Symbols that take the 46-dot script prefix when subscripted/superscripted
     # (e.g. ∫ and ∮ per cn_current).
     math_symbol_script_prefix_flags: dict[str, bool] = _field(default_factory=dict)
-    # Symbols whose cell sequence is provisional (a guess by maintainers,
-    # not validated against an authoritative rule reference). Proofread
-    # tools should highlight these. Backend treats them as ordinary symbols.
-    math_symbol_provisional_flags: dict[str, bool] = _field(default_factory=dict)
     # Symbols that take a category marker (``structures.indicator.<name>``)
     # in front of their cells: maps the symbol char → the marker name
     # ("symbol" ⠫ / "operation" ⠰ / "negation" ⠈). The backend emits the
@@ -279,12 +277,6 @@ class BrailleProfile:
         sub/superscript indicator. True for ∫ ∮ in cn_current."""
         return self.math_symbol_script_prefix_flags.get(ch, False)
 
-    def math_symbol_provisional(self, ch: str) -> bool:
-        """Whether this symbol's cell sequence is provisional (guess /
-        placeholder, not authoritatively rule-backed). Lets proofread
-        tools surface "double-check this" hints. Default False."""
-        return self.math_symbol_provisional_flags.get(ch, False)
-
     def math_symbol_indicator(self, ch: str) -> str | None:
         """The category-marker name this symbol takes in front of its
         cells, or ``None``. The backend prefixes ``structures.indicator.
@@ -366,7 +358,9 @@ class BrailleProfile:
 
         This is the key the letter-sign rule
         partitions on: consecutive letters of the same class share one
-        ``letter_prefix.{class}`` sign; a class change starts a new sign.
+        ``letter_prefix.{class}`` sign. (Within a MATH identifier run a
+        class change starts a new sign; the Latin word path instead signs
+        once per word — see ``backend/latin.py`` for that trade-off.)
         """
         for key, letters in self._letter_buckets():
             if ch in letters:

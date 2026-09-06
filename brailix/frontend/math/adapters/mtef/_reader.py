@@ -27,10 +27,9 @@ _REC_RULER = 0x07
 _REC_FONT_OR_STYLE_DEF = 0x08  # v3: FONT; v5: FONT_STYLE_DEF
 _REC_SIZE = 0x09
 _REC_FULL = 0x0A
-_REC_SUB = 0x0B
-_REC_SUB2 = 0x0C
-_REC_SYM = 0x0D
-_REC_SUBSYM = 0x0E
+_REC_SUBSYM = 0x0E  # 0x0B..0x0D (SUB, SUB2, SYM) are matched by
+# the ``_REC_FULL <= rec <= _REC_SUBSYM`` range in the readers, never by
+# a named constant of their own.
 # v5-only records:
 _REC_COLOR = 0x0F
 _REC_COLOR_DEF = 0x10

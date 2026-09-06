@@ -71,6 +71,15 @@ class TestApplyUserDict:
         assert tokens[0].pinyin == "chong2 qing4"  # list entry updated
         assert original.pinyin is None  # caller's object untouched
 
+    def test_non_string_reading_is_skipped(self) -> None:
+        # The option bag is reachable from a hand-edited file, and this
+        # pass runs after _check_resolver_output — without the check a
+        # non-str value bypassed the pinyin type contract and crashed the
+        # backend with AttributeError (pinyin.split on an int).
+        tokens = [ChineseToken(surface="重庆", pinyin="zhong4 qing4")]
+        _apply_user_dict(tokens, {"重庆": 123})
+        assert tokens[0].pinyin == "zhong4 qing4"
+
 
 class TestAnnotateIntegration:
     """End-to-end through :func:`annotate` with the null resolver."""
@@ -175,4 +184,19 @@ class TestLowConfidenceSuppression:
         self._patch_lowconf_resolver(monkeypatch)
         ctx = FrontendContext(profile="cn_current", options={"pinyin_resolver": "lowconf"})
         annotate([ChineseToken(surface="重庆")], ctx)
+        assert ctx.warnings.by_code("LOW_CONFIDENCE_PINYIN")
+
+    def test_single_char_key_does_not_suppress(self, monkeypatch) -> None:
+        # A single-char key can never be *applied* (the override skips
+        # single characters), so it must not withdraw the warning either —
+        # otherwise the polyphone is neither covered nor reported.
+        self._patch_lowconf_resolver(monkeypatch)
+        ctx = FrontendContext(
+            profile="cn_current",
+            options={
+                "pinyin_resolver": "lowconf",
+                "user_pinyin_dict": {"行": "xing2"},
+            }
+        )
+        annotate([ChineseToken(surface="行")], ctx)
         assert ctx.warnings.by_code("LOW_CONFIDENCE_PINYIN")

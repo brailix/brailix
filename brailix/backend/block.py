@@ -34,7 +34,7 @@ from dataclasses import replace as _replace
 
 from brailix.backend import number as number_backend
 from brailix.backend.dispatch import translate_embedded, translate_node
-from brailix.backend.latin import english_run_role
+from brailix.backend.latin import english_run_is_digit_run, english_run_role
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
@@ -172,32 +172,47 @@ def _translate_inlines(
     node hasn't broken, letting :func:`brailix.backend.latin.translate_latin`
     drop the redundant lowercase sign on a following lowercase word. The
     on/off transitions come from :func:`english_run_role` so the type
-    knowledge stays in the Latin backend, not here. Both keys are cleared
+    knowledge stays in the Latin backend, not here. Beside it runs
+    ``ctx.options['_english_run_after_digit']`` — on when a digit run sat
+    inside the open stretch since its last Latin word — because a bare
+    a–j cell IS a digit cell and the suppressed-sign form after digits
+    would read as more digits (``42 ab``); the predicate that recognises
+    a digit run is :func:`english_run_is_digit_run`, same home as the
+    role. All keys are cleared
     after the loop so they don't leak to unrelated callers that share the
-    context. The flag starts fresh per call, so an English run never
+    context. The flags start fresh per call, so an English run never
     spans block / list-item / table-cell boundaries.
     """
     out: list[BrailleCell] = []
     english_active = False
+    digits_since_letter = False
     try:
         for i, node in enumerate(inlines):
             ctx.options["_next_inline_sibling"] = (
                 inlines[i + 1] if i + 1 < len(inlines) else None
             )
             ctx.options["_english_run_active"] = english_active
+            ctx.options["_english_run_after_digit"] = digits_since_letter
             out.extend(translate_node(node, ctx, profile))
             role = english_run_role(node)
             if role == "letter":
                 english_active = True
+                digits_since_letter = False
             elif role == "break":
                 english_active = False
-            # "carry" (space / punct / digits) leaves the flag unchanged.
+                digits_since_letter = False
+            elif english_run_is_digit_run(node):
+                # "carry" via a digit run: the stretch stays open, but the
+                # next Latin word re-arms its lowercase sign.
+                digits_since_letter = True
+            # A space / punct carry leaves both flags unchanged.
     finally:
         # Clear in a ``finally`` so a mid-loop dispatch failure can't leave
         # these traversal keys behind on a shared ``ctx.options`` for an
         # unrelated caller to trip over.
         ctx.options.pop("_next_inline_sibling", None)
         ctx.options.pop("_english_run_active", None)
+        ctx.options.pop("_english_run_after_digit", None)
     return _drop_separator_before_attached_punct(
         _collapse_adjacent_blanks(out), profile
     )
@@ -403,15 +418,11 @@ def _list_marker_cells(
             number_backend.translate_number(digits_node, sub_ctx, profile)
         )
         cells.extend(
-            _marker_punct_cells(
-                profile.list_marker_ordered_char(), None, profile
-            )
+            _marker_punct_cells(profile.list_marker_ordered_char(), profile)
         )
     else:
         cells.extend(
-            _marker_punct_cells(
-                profile.list_marker_unordered_char(), None, profile
-            )
+            _marker_punct_cells(profile.list_marker_unordered_char(), profile)
         )
         # No profile bullet → silently fall through; the layout still
         # produces a usable line with just the content.
@@ -420,7 +431,7 @@ def _list_marker_cells(
 
 
 def _marker_punct_cells(
-    ch: str, span: Span | None, profile: BrailleProfile
+    ch: str, profile: BrailleProfile
 ) -> list[BrailleCell]:
     """Render ``ch`` as a list marker with the punct table's own
     cells + spacing flags (role=``list_marker`` instead of ``punct``).
@@ -428,24 +439,22 @@ def _marker_punct_cells(
     Mirrors :func:`brailix.backend.punct.translate_punct` but stamps the
     cells with the marker role so proofread tools can tell a structural
     marker apart from a literal punctuation char in the source.
-    Returns ``[]`` when ``ch`` is not in the table.
+    Returns ``[]`` when ``ch`` is not in the table. Cells leave here
+    span-less: the caller (``_list_marker_cells``) re-anchors every
+    marker cell to the leaf-local leading edge.
     """
     punct_cells = profile.punctuation.get(ch)
     if not punct_cells:
         return []
-    # The bullet / number is print structure, not a literal char inside the
-    # item text; the caller (``_list_marker_cells``) re-anchors every marker
-    # cell to the leaf-local leading edge, so the span here is a placeholder.
-    edge = Span(span.start, span.start) if span else None
     out: list[BrailleCell] = [
-        BrailleCell(dots=dots, role="list_marker", source_span=edge, source_text=ch)
+        BrailleCell(dots=dots, role="list_marker", source_span=None, source_text=ch)
         for dots in punct_cells
     ]
     space_before, space_after = profile.punctuation_spaces(ch)
     if space_before:
-        out.insert(0, blank_cell(edge))
+        out.insert(0, blank_cell(None))
     if space_after:
-        out.append(blank_cell(edge))
+        out.append(blank_cell(None))
     return out
 
 
@@ -552,8 +561,14 @@ def _footnote_ref_cells(ref: str, profile: BrailleProfile) -> list[BrailleCell]:
         if digit is not None:
             # Number-sign prefix at the start of each digit run — a digit
             # resuming after a letter / punct switches back into "number"
-            # mode and needs the sign again.
-            if profile.number_sign and not prev_was_digit:
+            # mode and needs the sign again. Gated by the same
+            # ``number.sign`` feature as the prose digit run (block.py's
+            # own two digit emitters once disagreed: this one kept the
+            # sign with the feature off).
+            want_sign = profile.number_sign and profile.feature(
+                "number.sign", True
+            )
+            if want_sign and not prev_was_digit:
                 cells.append(
                     BrailleCell(
                         dots=profile.number_sign,

@@ -13,12 +13,12 @@ from brailix.core.span import Span
 class TestSegment:
     def test_basic(self):
         s = Segment(type="hanzi_text", surface="我在", span=Span(0, 2))
-        assert s.type == "hanzi_text"
-        assert s.to_dict() == {"type": "hanzi_text", "surface": "我在", "span": [0, 2]}
+        assert (s.type, s.surface, s.span) == ("hanzi_text", "我在", Span(0, 2))
 
     def test_no_span(self):
         s = Segment(type="math_inline", surface="x^2")
-        assert s.to_dict() == {"type": "math_inline", "surface": "x^2"}
+        assert s.span is None
+        assert not hasattr(s, "to_dict")  # never serialised (mediator)
 
 
 class TestNotIR:

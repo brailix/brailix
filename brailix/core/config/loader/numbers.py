@@ -15,6 +15,7 @@ from brailix.core.config.loader._refs import (
     _resolve_dots_table,
     _resolve_single,
 )
+from brailix.core.errors import ConfigurationError
 
 if _TYPE_CHECKING:
     from pathlib import Path
@@ -45,9 +46,23 @@ def _load_numbers_table(
             "decimal_point": (), "thousands_sep": (),
         }
     payload = _read_json(base / relative)
-    digits = _resolve_dots_table(payload.get("digits", {}), cells_pool)
+    # Same shape guard as ``punctuation`` below: a non-dict ``digits``
+    # node used to reach ``_resolve_table``'s ``.items()`` and crash with
+    # a bare AttributeError, which is neither the ConfigurationError
+    # every other bad shape here raises nor a message that names the file.
+    digits_node = payload.get("digits", {})
+    if not isinstance(digits_node, dict):
+        raise ConfigurationError(
+            f"'digits' must be an object mapping each digit to a cell, got "
+            f"{type(digits_node).__name__} (in {relative})"
+        )
+    digits = _resolve_dots_table(digits_node, cells_pool)
 
-    punct_group = payload.get("punctuation", {}) if isinstance(payload.get("punctuation"), dict) else {}
+    punct_group = (
+        payload.get("punctuation", {})
+        if isinstance(payload.get("punctuation"), dict)
+        else {}
+    )
     decimal = _resolve_single(
         punct_group.get("decimal_point")
         if "decimal_point" in punct_group

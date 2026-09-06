@@ -1,7 +1,9 @@
 """Translate Punct / Space / Unknown / CodeInline IR nodes into braille cells.
 
 Punctuation is looked up in the profile's punctuation table.
-Spaces become :data:`BLANK_CELL`. Unrecognized characters become an
+Spaces become blank cells (``dots=()``, ``role="space"``) carrying the
+space's own span — not the span-less :data:`BLANK_CELL` sentinel, whose
+use a traceable cell would violate. Unrecognized characters become an
 unknown-role cell and emit a warning so a human proofreader can
 catch them.
 

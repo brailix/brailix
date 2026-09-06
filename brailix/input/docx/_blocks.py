@@ -233,16 +233,17 @@ def _convert_paragraph(
             text_parts.append(run_text)
     flush_text()
 
-    # Empty paragraph: keep an empty Paragraph so the layout reflects
-    # the blank line — users sometimes use these as visual spacing.
-    if not blocks_out and not style and list_info is None:
-        return [Paragraph(text="")]
-
-    # Empty list item: keep the slot so the list's visible numbering doesn't
-    # shift. An authored empty bullet / numbered line is a real placeholder;
-    # dropping it renumbers every following ordered item, so the braille list
-    # no longer matches what the user sees in Word.
-    if not blocks_out and list_info is not None:
+    # Empty paragraph: keep an empty block so the layout reflects the blank
+    # line — users sometimes use these as visual spacing. That includes
+    # paragraphs that merely carry a pStyle / alignment (LibreOffice
+    # conversions are full of styled empty paragraphs): an empty Heading
+    # or Caption is still an (empty) block of that kind. For a list item
+    # the empty slot also keeps the visible numbering from shifting — an
+    # authored empty bullet dropped from the braille renumbers every
+    # following ordered item. One branch for all three shapes:
+    # ``_wrap_text_block`` picks Heading / ListItem / Quote / Paragraph
+    # from the same style info the non-empty path uses.
+    if not blocks_out:
         return [
             _wrap_text_block("", style=style, list_info=list_info, align=align)
         ]
@@ -438,7 +439,14 @@ def _emit_child_tokens(
             if math is not None:
                 yield ("block", math)
             elif piece:
-                yield ("math", piece)
+                # Classify like the plain-run path does: only a formed
+                # inline-math island is math; Fallback runs also carry plain
+                # text (a caption beside the object), which must reach the
+                # coalescer as text, not as a formula.
+                if _is_inline_math(piece):
+                    yield ("math", piece)
+                else:
+                    yield ("text", piece, None)
     elif tag in _TRANSPARENT_RUN_WRAPPERS:
         # Revision tracking / smart tag / custom XML: recurse into the inline
         # content the wrapper carries.

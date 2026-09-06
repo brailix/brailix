@@ -51,7 +51,8 @@ def test_language_neutral_tables_stay_out_of_the_slot():
     profile = load_profile("cn_current")
     assert set(profile.lang_tables["zh"]) == {"initials", "finals", "tones"}
     assert profile.punctuation  # still on its own field
-    assert profile.zh_compounds  # word list, not a cell table
+    # The word list is not a cell table either — it rides the non-cell slot.
+    assert profile.lang_spec("compounds")  # word list, not a cell table
 
 
 def test_lang_table_missing_name_returns_empty():
@@ -112,16 +113,17 @@ def test_the_shared_profile_names_no_concrete_standard():
 
     from brailix.core.config.profile import BrailleProfile
 
-    # Fields whose NAME claims a language subtag: ``zh_compounds`` is the one
-    # legitimate case (a scheme-neutral zh word list, not a standard's rules),
-    # so this asserts the set rather than emptiness — a new entry has to be
-    # argued for here.
+    # Fields whose NAME claims a language subtag: none. ``zh_compounds``
+    # was the one exemption (a scheme-neutral zh word list) and it moved
+    # into ``lang_specs["zh"]["compounds"]`` — the slot this test's own
+    # failure message points at — so the set is now empty and any new
+    # entry has to be argued for here all over again.
     named = {
         f.name
         for f in fields(BrailleProfile)
         if re.match(r"^[a-z]{2}_", f.name)
     }
-    assert named == {"zh_compounds"}, (
+    assert not named, (
         f"BrailleProfile grew a per-language field: {sorted(named)}. "
         f"Per-language cell tables go in lang_tables, everything else in "
         f"lang_specs — see this module's docstring."

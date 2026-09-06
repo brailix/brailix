@@ -70,8 +70,3 @@ def page_number_brf(page_num: int) -> bytes:
     for ch in str(page_num):
         parts.append(dots_to_brf(digits[ch]).encode("ascii"))
     return b"".join(parts)
-
-
-def page_number_width(page_num: int) -> int:
-    """Cells consumed by ``⠼`` + each digit."""
-    return len(page_number_chars(page_num))

@@ -28,8 +28,9 @@ class MusicBrailleContext:
 
     * ``profile`` / ``backend`` — passed through to handlers so they
       can look up cells and emit warnings.
-    * ``span`` — the source span of the current score root or a
-      narrower span pushed down by data-bk-span (M3+).
+    * ``span`` — the source span of the current score root (the music
+      backend does not narrow spans per element; the math backend's
+      ``data-bk-span`` override mechanism has no music counterpart).
     * ``prev_pitch`` — the previous note's ``(step, octave)`` tuple,
       used by BANA Par. 3.2.2 octave inference. ``None`` means "first
       note of line" — the next octave prefix is always emitted.

@@ -18,6 +18,7 @@ picture is scaled.
 from __future__ import annotations
 
 from collections.abc import Callable as _Callable
+from collections.abc import Iterator as _Iterator
 from dataclasses import dataclass as _dataclass
 
 from brailix.backend.tactile._draw import stamp_disk
@@ -56,22 +57,6 @@ class LabelStamper:
     cell_dx: float
     level: int = 255
 
-    def stamp(
-        self, raster: TactileRaster, x_px: int, y_px: int, text: str
-    ) -> int:
-        """Translate ``text`` and stamp its cells starting at ``(x_px,
-        y_px)`` (the top-left of the first cell). Returns the number of
-        cells placed."""
-        return self.stamp_cells(raster, self.translate(text), x_px, y_px)
-
-    def dot_centers(
-        self, x_px: int, y_px: int, text: str
-    ) -> list[tuple[int, int]]:
-        """Device-pixel centres of every dot this label *would* stamp, without
-        painting — so the backend can check whether a label collides with the
-        figure (or another label) before placing it (the separability pass)."""
-        return self.dot_centers_from_cells(self.translate(text), x_px, y_px)
-
     def stamp_cells(
         self,
         raster: TactileRaster,
@@ -79,21 +64,21 @@ class LabelStamper:
         x_px: int,
         y_px: int,
     ) -> int:
-        """Stamp already-translated ``cells`` — lets the separability pass
-        translate once, then probe (:meth:`dot_centers_from_cells`) and paint
-        from the same cells instead of translating twice."""
-        col = 0
-        for cx, cy, col_count in self._dot_positions(cells, x_px, y_px):
+        """Stamp already-translated ``cells`` — the caller translates once
+        (:attr:`translate`), then probes (:meth:`dot_centers_from_cells`)
+        and paints from the same cells instead of translating twice.
+        Returns the number of cells that advanced the cursor, blank cells
+        included."""
+        for cx, cy in self._dot_positions(cells, x_px, y_px):
             stamp_disk(raster, cx, cy, self.dot_radius, self.level)
-            col = col_count
-        return col
+        return sum(1 for c in cells if c.role not in _SKIP_ROLES)
 
     def dot_centers_from_cells(
         self, cells: list[BrailleCell], x_px: int, y_px: int
     ) -> list[tuple[int, int]]:
         """Dot centres for already-translated ``cells`` (see
         :meth:`stamp_cells`)."""
-        return [(cx, cy) for cx, cy, _col in self._dot_positions(cells, x_px, y_px)]
+        return list(self._dot_positions(cells, x_px, y_px))
 
     def figure_under_dots(
         self, raster: TactileRaster, centers: list[tuple[int, int]]
@@ -118,9 +103,9 @@ class LabelStamper:
 
     def _dot_positions(
         self, cells: list[BrailleCell], x_px: int, y_px: int
-    ):
-        """Yield ``(cx, cy, cells_so_far)`` for each raised dot of ``cells`` —
-        the shared layout behind paint + probe (no translation here)."""
+    ) -> _Iterator[tuple[int, int]]:
+        """Yield ``(cx, cy)`` for each raised dot of ``cells`` — the shared
+        layout behind paint + probe (no translation here)."""
         col = 0
         for cell in cells:
             if cell.role in _SKIP_ROLES:
@@ -133,4 +118,4 @@ class LabelStamper:
                     continue
                 cx = round(ox + pos[0] * self.dot_dx)
                 cy = round(y_px + pos[1] * self.dot_dy)
-                yield cx, cy, col
+                yield cx, cy

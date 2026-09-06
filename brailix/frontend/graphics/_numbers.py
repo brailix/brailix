@@ -66,6 +66,25 @@ def as_finite(value: Any, default: float | None = 0.0) -> float | None:
     return num if _math.isfinite(num) else default
 
 
+def fmt_number(value: float) -> str:
+    """Compact rendering of a (finite) coordinate or label number.
+
+    Integers drop the decimal point; everything else is printed at full
+    ``repr`` precision after rounding away 12 places of accumulated
+    floating-point noise (``0.1 + 0.2`` formats as ``0.3``, not
+    ``0.30000000000000004``). Not ``:g``: that silently switches to
+    scientific notation at six significant digits, which is wrong for a
+    tick label (``1e+06`` read aloud) and needless for an SVG attribute.
+
+    Shared by the figure generator and both SVG-writing adapters, which
+    each used to carry a private ``_fmt`` — the three had already drifted
+    (only one carried the finiteness guard, one used ``:g``), and the
+    drift was how ``width="infmm"`` got out.
+    """
+    rounded = round(value, 12)
+    return str(int(rounded)) if rounded.is_integer() else repr(rounded)
+
+
 def non_finite_paths(spec: Any, *, limit: int = 5) -> list[str]:
     """Where a decoded spec carries ``inf`` / ``NaN``, as ``field=value``.
 

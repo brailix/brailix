@@ -27,6 +27,18 @@ as "running English" — and what breaks it — is decided by
 :func:`english_run_role`; the dispatcher (``backend.block``) walks the
 block's ``inlines`` and threads the flag.
 
+**A digit run re-arms the lowercase sign.** Bare a–j cells ARE the digit
+cells, so a word whose sign was suppressed right after digits reads as
+more digits — ``FAT32file`` kept the number latch and read the ``f`` as
+another ``6`` (the same latch the footnote-ref path documents for
+``1a``). So the dispatcher also threads
+``ctx.options['_english_run_after_digit']`` — set from the last digit
+run inside the open English stretch — and a word that starts with a
+lowercase letter re-announces ⠰ when it is set (``42 ab`` re-signs the
+``a``; ``42 ok`` re-signs too — letters past ``j`` don't collide with a
+digit cell, but the sign costs one cell and the ambiguity is real for
+the letters that do).
+
 Examples (cn_current):
 
 * ``hello``        → ``⠰⠓⠑⠇⠇⠕``           (lowercase sign + 5 bare letters)
@@ -77,10 +89,15 @@ def translate_latin(
         return out
     base = node.span.start if node.span else 0
     # Inside a running stretch of embedded English, a lowercase word
-    # drops its lowercase sign (see module docstring). Capitals are
+    # drops its lowercase sign (see module docstring) — UNLESS a digit run
+    # came since the run's last word: a bare a–j cell is a digit cell and
+    # would extend the number (``42 ab`` read as ``421b``). Capitals are
     # unaffected — an all-caps word still doubles its capital sign — so
     # this flag only gates the lowercase-first-letter branch below.
     run_active = bool(ctx.options.get("_english_run_active"))
+    sign_suppressed = run_active and not ctx.options.get(
+        "_english_run_after_digit"
+    )
     if (
         len(surface) >= 2
         and surface.isascii()
@@ -98,7 +115,7 @@ def translate_latin(
             # established by an earlier word, so ⠰ would just be noise; the
             # capital and Greek signs (handled by ``profile.letter`` below)
             # still carry case / script and are never skipped.
-            if run_active and profile.letter_class(ch) == "latin_lower":
+            if sign_suppressed and profile.letter_class(ch) == "latin_lower":
                 bare = profile.bare_letter(ch)
                 if bare is not None:  # always true for a latin_lower char
                     out.append(
@@ -235,4 +252,13 @@ def english_run_role(node: InlineNode) -> str:
     return "break"
 
 
-__all__ = ("english_run_role", "translate_latin")
+def english_run_is_digit_run(node: InlineNode) -> bool:
+    """Whether ``node`` is a digit run — the one carry that *re-arms* the
+    lowercase sign for the next Latin word (see the module docstring: a
+    bare a–j cell is a digit cell). The dispatcher consults this next to
+    :func:`english_run_role` for the same reason — the type knowledge
+    stays with the rule."""
+    return isinstance(node, Number)
+
+
+__all__ = ("english_run_is_digit_run", "english_run_role", "translate_latin")

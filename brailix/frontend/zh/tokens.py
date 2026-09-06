@@ -23,7 +23,6 @@ types live under that language, not on a shared layer.
 from __future__ import annotations
 
 from dataclasses import dataclass as _dataclass
-from typing import Any as _Any
 
 from brailix.core.span import Span
 
@@ -45,18 +44,6 @@ class ChineseToken:
     span: Span | None = None
     pinyin: str | None = None
     confidence: float | None = None
-
-    def to_dict(self) -> dict[str, _Any]:
-        d: dict[str, _Any] = {"surface": self.surface}
-        if self.pos is not None:
-            d["pos"] = self.pos
-        if self.span is not None:
-            d["span"] = list(self.span.to_tuple())
-        if self.pinyin is not None:
-            d["pinyin"] = self.pinyin
-        if self.confidence is not None:
-            d["confidence"] = self.confidence
-        return d
 
 
 __all__ = ("ChineseToken",)

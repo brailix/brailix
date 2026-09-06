@@ -279,7 +279,8 @@ def _compilation_registries() -> tuple[Any, ...]:
 def registries_generation() -> tuple[int, ...]:
     """Current generation of every compilation-relevant registry.
 
-    A cheap (ten atomic int reads), position-stable snapshot:
+    A cheap (one atomic int read per registry — nine today), position-stable
+    snapshot:
     :attr:`Pipeline.fingerprint` compares it against the one its cached
     digest was folded with and re-folds only when they differ, so a
     runtime ``register`` / ``unregister`` advances every live Pipeline's

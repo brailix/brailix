@@ -499,10 +499,19 @@ class TestInputForms:
         )
         assert "<mi>x</mi>" in out
 
-    def test_non_utf8_bytes_wrap_in_merror(self):
+    def test_utf16_bytes_input_is_decoded(self):
+        # OMML is XML: bytes carry their own encoding (BOM / declaration),
+        # so a legal UTF-16 serialisation decodes exactly as the mathml
+        # adapter accepts it — it used to be refused as "non-utf8".
+        out = OmmlMathSourceAdapter().to_mathml(
+            _omml("<m:r><m:t>x</m:t></m:r>").encode("utf-16")
+        )
+        assert "<mi>x</mi>" in out
+
+    def test_undecodable_bytes_wrap_in_merror(self):
         out = OmmlMathSourceAdapter().to_mathml(b"\xff\xfe\xfd")
         assert "<merror" in out
-        assert 'data-reason="non-utf8 bytes"' in out
+        assert 'data-reason="undecodable bytes"' in out
 
     def test_omath_para_wrapper_is_flattened(self):
         # Word wraps display equations in <m:oMathPara> with paragraph

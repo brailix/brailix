@@ -47,7 +47,7 @@ from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import GraphicsContext
 from brailix.core.errors import WarningCollector
-from brailix.frontend.graphics._numbers import as_finite, non_finite_paths
+from brailix.frontend.graphics._numbers import as_finite, fmt_number, non_finite_paths
 from brailix.frontend.graphics.adapters.svg import svg_error_wrap
 
 if _TYPE_CHECKING:
@@ -66,7 +66,7 @@ def _fmt(value: Any) -> str:
     XML that is not a coordinate, handed to the backend as though it were one.
     """
     f = as_finite(value, None)
-    return "0" if f is None else (str(int(f)) if f.is_integer() else repr(f))
+    return "0" if f is None else fmt_number(f)
 
 
 def _points_attr(points: Any) -> str:

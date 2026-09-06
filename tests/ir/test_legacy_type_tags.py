@@ -35,14 +35,14 @@ from brailix.ir.inline import LatinWord, Word, from_dict, inline_node_for
 class TestRetiredTagsAreGone:
     @pytest.mark.parametrize("tag", ["hanzi_char", "latin_acronym"])
     def test_a_retired_tag_no_longer_resolves(self, tag: str) -> None:
-        with pytest.raises(KeyError, match=tag):
+        with pytest.raises(ValueError, match=tag):
             inline_node_for(tag)
 
     @pytest.mark.parametrize("tag", ["hanzi_char", "latin_acronym"])
     def test_a_payload_carrying_one_is_refused_by_name(self, tag: str) -> None:
         """Named in the error, so a caller holding IR JSON from an older build
         is told which tag stopped existing rather than shown a bare KeyError."""
-        with pytest.raises(KeyError, match=tag):
+        with pytest.raises(ValueError, match=tag):
             from_dict({"type": tag, "surface": "我"})
 
     def test_no_alias_table_is_left_behind(self) -> None:
@@ -77,5 +77,5 @@ def test_a_genuinely_unknown_tag_raises_the_same_way() -> None:
     """The removal must not have turned lookup into "accept anything", and a
     tag no build ever wrote must read the same as one that was retired — the
     message names what was actually in the payload."""
-    with pytest.raises(KeyError, match="not_a_real_node"):
+    with pytest.raises(ValueError, match="not_a_real_node"):
         inline_node_for("not_a_real_node")

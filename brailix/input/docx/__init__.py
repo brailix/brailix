@@ -39,13 +39,15 @@ Math handling
       eager ``$<math>...</math>$`` island. See :mod:`._ole`.
     * Sub/superscript runs (``<w:vertAlign>`` — the Ctrl+= / Ctrl+Shift+=
       shortcuts, or the Font dialog) are not a foreign source dialect at
-      all: a maximal cluster of script-bearing runs is *synthesised* into
-      an ``<msup>`` / ``<msub>`` MathML tree built here and embedded as a
-      ``$<math>...</math>$`` island, so a formula typed as formatted text
-      (``x²``, ``H₂O``) is no longer flattened to ``x2`` / ``H2O``. With
-      ``chem_detection`` on, a cluster that conservatively reads as a
-      chemical formula is tagged ``data-bk-chem`` so the backend applies
-      chemistry rules instead of generic math.
+      all, but Word-native formatting: a maximal cluster of
+      script-bearing runs is *linearised* here into the mini-language
+      the ``script_cluster`` adapter owns (``base ^{sup} _{sub}``) and
+      wrapped as a deferred source-tagged island
+      (``source="script_cluster"`` / ``"script_cluster_chem"`` under
+      ``chem_detection``); the tree is built by the frontend adapter at
+      Pipeline time, so a formula typed as formatted text (``x²``,
+      ``H₂O``) is no longer flattened to ``x2`` / ``H2O`` and a
+      chemical-reading cluster reaches the chemistry rules.
 
 The split lets inline math stay inline (no spurious paragraph break)
 while making every OMML path — display and inline — defer through the
@@ -105,7 +107,11 @@ from brailix.input.docx._blocks import _iter_body_blocks
 from brailix.input.docx._media import _build_image_blob_map
 from brailix.input.docx._ole import _build_ole_blob_map, _is_equation_ole
 from brailix.input.docx._xml import _INLINE_MATH_CLOSE, _INLINE_MATH_OPEN
-from brailix.input.limits import DEFAULT_INPUT_LIMITS, InputLimits
+from brailix.input.limits import (
+    DEFAULT_INPUT_LIMITS,
+    InputLimits,
+    InputTooLargeError,
+)
 from brailix.ir.document import Block, DocumentIR
 
 __all__ = (
@@ -170,15 +176,22 @@ def _read_docx_bytes(p: _Path, limits: InputLimits) -> bytes:
       after the stat.
     """
     if p.stat().st_size > _MAX_DOCX_FILE_BYTES:
-        raise ParseError(
-            f"not a valid .docx file: {p} (archive is over the "
-            f"{_MAX_DOCX_FILE_BYTES}-byte limit)"
+        # Too large, not invalid: the archive may be perfectly legal —
+        # reporting it as "not a valid .docx file" sent size problems to
+        # the corrupt-file branch of every caller's error handling.
+        raise InputTooLargeError(
+            "file_bytes",
+            p.stat().st_size,
+            _MAX_DOCX_FILE_BYTES,
+            detail=f"{p}: .docx archive over the {_MAX_DOCX_FILE_BYTES}-byte cap",
         )
     data = limits.read_bounded(p)
     if len(data) > _MAX_DOCX_FILE_BYTES:
-        raise ParseError(
-            f"not a valid .docx file: {p} (archive is over the "
-            f"{_MAX_DOCX_FILE_BYTES}-byte limit)"
+        raise InputTooLargeError(
+            "file_bytes",
+            len(data),
+            _MAX_DOCX_FILE_BYTES,
+            detail=f"{p}: .docx archive over the {_MAX_DOCX_FILE_BYTES}-byte cap",
         )
     return data
 

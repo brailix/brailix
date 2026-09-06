@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
+from brailix.input.docx._rels import iter_rel_parts
 from brailix.input.docx._xml import (
     _R_PREFIX,
     Element,
@@ -51,27 +52,16 @@ def _build_ole_blob_map(document: Any) -> dict[str, bytes]:
 
     Pre-indexing the map once is cheaper than walking the rels for
     every ``<w:object>`` we encounter, and keeps the per-paragraph
-    walker free of any python-docx-specific imports.
+    walker free of any python-docx-specific imports. The rels walk
+    itself is shared with the media map (:mod:`._rels`).
     """
     try:
         from docx.opc.constants import RELATIONSHIP_TYPE as RT
     except ImportError:  # pragma: no cover — defensive
         return {}
     out: dict[str, bytes] = {}
-    for rid, rel in document.part.rels.items():
-        if rel.reltype != RT.OLE_OBJECT:
-            continue
-        # A linked (non-embedded) OLE object is an *external* relationship
-        # with no local part. python-docx raises ``ValueError`` — not
-        # ``AttributeError`` — from ``target_part`` for those, so skip them
-        # up front; letting that escape would crash the whole parse on an
-        # otherwise-readable document.
-        if rel.is_external:
-            continue
-        try:
-            blob = rel.target_part.blob
-        except AttributeError:
-            continue
+    for rid, part in iter_rel_parts(document, RT.OLE_OBJECT):
+        blob = part.blob
         if blob:
             out[rid] = blob
     return out

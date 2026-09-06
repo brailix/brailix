@@ -122,12 +122,17 @@ def classify_math_token(text: str) -> str:
 
     ``mn`` for an all-digit/separator run, ``mi`` for an all-identifier
     run, ``mo`` for a lone other character, else ``mtext``. Used where a
-    token is already split out (MTEF's matrix / pile walker), as opposed
-    to :func:`tokenize_math_text` which splits a mixed run.
+    token is already split out (the MTEF walker's per-cell surfaces),
+    as opposed to :func:`tokenize_math_text` which splits a mixed run.
+    The two agree on the rules they share: a number may open with a
+    digit or a decimal-point leader (``.5``) but never a grouping
+    separator — a leading ``,`` would open an ``<mn>`` that isn't a
+    valid number string and trips the backend's digit-run emitter (see
+    :func:`tokenize_math_text`).
     """
     if not text:
         return "mtext"
-    if text[0].isdigit() or (text[0] in ".," and len(text) > 1 and text[1].isdigit()):
+    if text[0].isdigit() or (text[0] == "." and len(text) > 1 and text[1].isdigit()):
         return "mn" if all(ch.isdigit() or ch in ".," for ch in text) else "mtext"
     if all(is_identifier_char(ch) for ch in text):
         return "mi"

@@ -34,7 +34,7 @@ from brailix.ir.inline import (
 
 # The full shipped lexicon — the boundary helper used to auto-load it;
 # now the caller passes it (Pipeline reads ``profile.zh_compounds``).
-_COMPOUNDS = load_profile("cn_current").zh_compounds
+_COMPOUNDS = load_profile("cn_current").lang_spec("compounds", frozenset())
 
 # ---------------------------------------------------------------------------
 # shift_token_spans

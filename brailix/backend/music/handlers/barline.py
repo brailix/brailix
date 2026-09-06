@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.music.context import MusicBrailleContext
+from brailix.backend.music.handlers._common import warn_feature_unimplemented
 from brailix.backend.music.utils import emit_cells_for_entity, first_child_text
 from brailix.ir.braille import BrailleCell
 
@@ -140,13 +141,8 @@ def _emit_repeat_sign(
     expansion at the part / score layer.
     """
     if mctx.profile.feature("music.expand_repeats", False):
-        mctx.warn(
-            code="MUSIC_UNSUPPORTED_NOTATION",
-            message=(
-                "music.expand_repeats=true not implemented (M3.3 covers "
-                "marker form only); falling back to braille repeat sign"
-            ),
-            source="backend.music",
+        warn_feature_unimplemented(
+            mctx, "music.expand_repeats", True, "M3.3 covers marker form only"
         )
     direction = repeat_elem.attrib.get("direction", "backward").strip().lower()
     if direction == "forward":
@@ -194,13 +190,8 @@ def _emit_volta(
 
     style = mctx.profile.feature("music.volta_style", "numeric")
     if style != "numeric":
-        mctx.warn(
-            code="MUSIC_UNSUPPORTED_NOTATION",
-            message=(
-                f"music.volta_style={style!r} not implemented "
-                f"(M3.3 covers 'numeric' only); falling back"
-            ),
-            source="backend.music",
+        warn_feature_unimplemented(
+            mctx, "music.volta_style", style, "M3.3 covers 'numeric' only"
         )
 
     number = ending_elem.attrib.get("number", "1").strip()

@@ -23,7 +23,8 @@ coefficients (``2H2O``), the ``+`` operator, the reaction connectors ``->``
 / ``=`` (yields, rendered ``=``) and ``<=>`` (reversible ⇌), and over/under
 reaction conditions (``->[above][below]`` — formula conditions like ``MnO2``
 and the heat mark ``\Delta``; a Chinese condition like 点燃 is carried as
-``<mtext>`` for now, pending the zh-backed condition path), ionic charges —
+``<mtext>``, which the backend routes through the injected inline-text
+translator — the zh condition path), ionic charges —
 monatomic (``Na+``, ``Mg^2+``, ``O^2-``) and polyatomic (``SO4^2-`` — an
 ``<msup>`` the backend renders with the charge sign ⠨), and parenthesised groups
 with a multiplier (``Ca(OH)2``, ``(NH4)2SO4`` — a ``<mrow>`` group whose
@@ -46,6 +47,7 @@ from brailix.core.context import MathContext
 from brailix.frontend.math.utils import (
     _MATHML_NS,
     _strip_math_delimiters,
+    decode_source_bytes,
     merror_wrap,
 )
 
@@ -89,12 +91,10 @@ class ChemMathSourceAdapter:
     source: str = "chem"
 
     def to_mathml(self, formula: str | bytes, ctx: MathContext | None = None) -> str:
-        if isinstance(formula, bytes):
-            try:
-                formula = formula.decode("utf-8")
-            except UnicodeDecodeError:
-                return merror_wrap(repr(formula), reason="non-utf8 bytes")
-        text = _strip_math_delimiters(formula.strip())
+        decoded = decode_source_bytes(formula)
+        if decoded is None:
+            return merror_wrap(repr(formula), reason="non-utf8 bytes")
+        text = _strip_math_delimiters(decoded.strip())
         if not text:
             return merror_wrap("", reason="empty input")
         # Accept both the wrapped ``\ce{...}`` form and bare formula text
@@ -324,8 +324,9 @@ def _condition_mathml(text: str) -> str:
     """Render one reaction condition to MathML. ``\\Delta`` / Δ / △ become the
     heat marker (``<mi>Δ</mi>``, rendered inline by the backend). Otherwise
     the condition is parsed as a chemical formula (``MnO2`` …); content that
-    isn't a formula (e.g. Chinese 点燃) falls back to ``<mtext>`` — a
-    placeholder until the zh-backed condition path (increment B) lands."""
+    isn't a formula (e.g. Chinese 点燃) falls back to ``<mtext>``, which the
+    backend consumes through the pipeline-injected inline-text translator
+    (the zh condition path)."""
     text = text.strip()
     if text.startswith("{") and text.endswith("}"):
         text = text[1:-1].strip()
@@ -338,11 +339,11 @@ def _condition_mathml(text: str) -> str:
     if "data-bk-soft" in body:
         # The condition held non-formula characters (e.g. Chinese 点燃, which
         # now localises to soft <merror>s instead of raising). Render the whole
-        # condition as text — a placeholder for the zh-backed path — rather than
-        # a string of flagged blanks. Sniffing the emitted string is safe (not
-        # fragile): ``data-bk-soft`` is a private attribute only _emit_formula
-        # writes, and user content reaches the output only through escape(), so
-        # it can never inject that literal substring.
+        # condition as text — the backend's injected translator path — rather
+        # than a string of flagged blanks. Sniffing the emitted string is safe
+        # (not fragile): ``data-bk-soft`` is a private attribute only
+        # _emit_formula writes, and user content reaches the output only
+        # through escape(), so it can never inject that literal substring.
         return f"<mtext>{_escape(text)}</mtext>"
     return f"<mrow>{body}</mrow>"
 
@@ -421,13 +422,18 @@ def _emit_formula(inner: str, _depth: int = 0) -> str:
     prev_boundary = True  # start of string acts like a token boundary
     species_atoms = 0  # element symbols since the last species boundary
     prev_was_connector = False  # last non-space token was a reaction connector
-    prev_was_atom = False  # last token was an element / group, tight (no space)
+    # Last non-space token was an element / group. Whitespace does NOT
+    # clear this (mhchem treats it as insignificant around a bond:
+    # ``CH2 = CH2`` is the same double bond as ``CH2=CH2``); only an
+    # operator / connector / bond does. Its one reader is the ``=``
+    # double-bond branch below — the equation-with-spaces form stays on
+    # the yields side via :func:`_equals_is_yields`, not via tightness.
+    prev_was_atom = False
     equals_is_yields = _equals_is_yields(inner)  # bare ``=`` is the yields, not a bond
     while i < n:
         ch = inner[i]
         if ch.isspace():
             prev_boundary = True
-            prev_was_atom = False
             species_atoms = 0
             i += 1
             continue  # whitespace preserves prev_was_connector ("= =" still flags)
@@ -449,14 +455,22 @@ def _emit_formula(inner: str, _depth: int = 0) -> str:
             # terminal atom alone.
             species_atoms = 0
             continue
-        if ch == "=" and prev_was_atom and not equals_is_yields:
-            # A ``=`` tight against the preceding atom, where ``=`` isn't the
-            # reaction yields (see :func:`_equals_is_yields`), is a structural
-            # double bond: rendered ⠶ with no surrounding space, kept inside the
-            # molecule run. Covers a lone molecule (``O=C=O`` / ``CH2=CH2``) and
-            # a double bond inside a reactant of an arrow reaction
-            # (``CH2=CH2 + H2 -> CH3CH3``). The spaceless equation
-            # ``2H2+O2=2H2O`` keeps ``=`` as the spaced yields connector.
+        if (
+            ch == "=" and prev_was_atom and not equals_is_yields
+            and (not inner[i - 1].isspace() or _species_follows(inner, i + 1))
+        ):
+            # A ``=`` after an atom, where ``=`` isn't the reaction yields
+            # (see :func:`_equals_is_yields`), is a structural double
+            # bond: rendered ⠶ with no surrounding space, kept inside the
+            # molecule run. Covers a lone molecule (``O=C=O`` /
+            # ``CH2=CH2`` / ``CH2 = CH2``) and a double bond inside a
+            # reactant of an arrow reaction (``CH2=CH2 + H2 -> CH3CH3``).
+            # A SPACE before the ``=`` only bonds when an atom continues
+            # on the right (``CH2 = CH2``): the typo'd ``H2 = = O2`` keeps
+            # its first ``=`` on the connector path so the repeated-
+            # operator tagging still fires, and the equation form
+            # ``2H2+O2=2H2O`` is already handled by
+            # :func:`_equals_is_yields`.
             parts.append('<mo data-bk-chem-bond="double">=</mo>')
             i += 1
             prev_boundary = False

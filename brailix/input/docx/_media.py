@@ -31,6 +31,7 @@ DAG position: depends only on :mod:`._xml`, like :mod:`._ole`.
 
 from __future__ import annotations
 
+from brailix.input.docx._rels import iter_rel_parts
 from brailix.input.docx._xml import _R_PREFIX, Element, _local, _ns_attr
 from brailix.ir.document import ImageAlt
 
@@ -49,23 +50,16 @@ def _build_image_blob_map(document: object) -> dict[str, tuple[str, bytes]]:
     :attr:`DocumentIR.assets` is keyed by, so the reference written into
     the editable source and the stored bytes can never disagree on
     naming. Linked (external) images have no local part and are skipped;
-    they surface as a target-less placeholder instead.
+    they surface as a target-less placeholder instead. The rels walk is
+    shared with the OLE map (:mod:`._rels`).
     """
     try:
         from docx.opc.constants import RELATIONSHIP_TYPE as RT
     except ImportError:  # pragma: no cover — defensive
         return {}
     out: dict[str, tuple[str, bytes]] = {}
-    for rid, rel in document.part.rels.items():  # type: ignore[attr-defined]
-        if rel.reltype != RT.IMAGE:
-            continue
-        if rel.is_external:
-            continue
-        try:
-            part = rel.target_part
-            blob = part.blob
-        except (AttributeError, ValueError):
-            continue
+    for rid, part in iter_rel_parts(document, RT.IMAGE):
+        blob = part.blob
         if not blob:
             continue
         name = str(part.partname).lstrip("/")

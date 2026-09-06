@@ -17,7 +17,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.music.context import MusicBrailleContext
-from brailix.backend.music.handlers._common import serialise_short, warn_and_fallback
+from brailix.backend.music.handlers._common import (
+    serialise_short,
+    warn_and_fallback,
+    warn_feature_unimplemented,
+)
 from brailix.backend.music.handlers.lyrics import _emit_lyrics
 from brailix.backend.music.handlers.notations import (
     _emit_appoggiatura,
@@ -33,7 +37,9 @@ from brailix.backend.music.utils import (
     needs_octave_mark,
     note_entity_name,
     octave_entity_name,
+    rest_entity_name,
     unknown_cell,
+    value_category,
 )
 from brailix.ir.braille import BrailleCell
 
@@ -44,18 +50,8 @@ if _TYPE_CHECKING:
 # (8th-and-larger) and the "small" value 1/16 of it (16th-and-smaller).
 # A 256th is a third tier with its own sign. A change between these
 # categories needs a value sign so the reader isn't left guessing.
-_VALUE_CATEGORY: dict[str, str] = {
-    "breve": "large",
-    "whole": "large",
-    "half": "large",
-    "quarter": "large",
-    "eighth": "large",
-    "16th": "small",
-    "32nd": "small",
-    "64th": "small",
-    "128th": "small",
-    "256th": "v256",
-}
+# The per-type category lives in ``utils._TYPE_INFO`` (the one table
+# every ``<type>`` fact reads from).
 _VALUE_SIGN_ENTITY: dict[str, str] = {
     "large": "value_sign_8ths_and_larger",
     "small": "value_sign_16ths_and_smaller",
@@ -85,7 +81,7 @@ def _emit_value_sign(
     # the next transition correct even if music.value_signs is toggled
     # mid-score, and mirrors the unknown-type branch below which likewise
     # advances the baseline before returning.
-    category = _VALUE_CATEGORY.get(type_name)
+    category = value_category(type_name)
     if category is None:
         # Unknown <type> — the note body warns + renders the quarter
         # fallback (a "large" value).  Set the baseline to "large" too,
@@ -192,7 +188,11 @@ def _emit_note(
         # reorder routinely turns the source note that carries the
         # <tied> / <lyric> into an interval member.
         _emit_note_accidental(cells, mctx, elem, curr_pitch)
-        _emit_chord_interval(cells, mctx, mctx.chord_root, curr_pitch, type_name)
+        _emit_chord_interval(cells, mctx, mctx.chord_root, curr_pitch)
+        # Duration modifiers (dots) are deliberately NOT emitted here:
+        # BANA Par. 9.1 has the root's dot cover the whole chord, and in
+        # valid MusicXML every member carries the same dot count anyway —
+        # pinned by test_chord_notes_dot_suppressed.
         # Don't reset prev_pitch (chord notes inherit root's octave
         # context for melodic inference). chord_root stays so any
         # following chord notes still measure from the same root.
@@ -420,15 +420,15 @@ def _has_tie_start(elem: ET.Element) -> bool:
 
 
 _INTERVAL_ENTITY: dict[int, str] = {
-    # Diatonic distance → BANA Table 9 entity. 0 (unison) isn't a
-    # named entity — emitted as second by convention with a warning.
+    # Diatonic remainder (1..6) → BANA Table 9 entity. 0 (unison) isn't a
+    # named entity — emitted as second by convention with a warning; an
+    # exact octave(s) distance is all "octave" cells and never looks here.
     1: "second",
     2: "third",
     3: "fourth",
     4: "fifth",
     5: "sixth",
     6: "seventh",
-    7: "octave",
 }
 
 
@@ -437,7 +437,6 @@ def _emit_chord_interval(
     mctx: MusicBrailleContext,
     root: tuple[str, int] | None,
     curr: tuple[str, int],
-    type_name: str,
 ) -> None:
     """BANA Par. 9.1: emit interval cell(s) representing the chord
     note's distance from the chord root.
@@ -590,13 +589,8 @@ def _emit_dots(
         return
     form = mctx.profile.feature("music.dot_form", "separate")
     if form != "separate":
-        mctx.warn(
-            code="MUSIC_UNSUPPORTED_NOTATION",
-            message=(
-                f"music.dot_form={form!r} not implemented (M3.2 covers "
-                f"'separate' only); falling back"
-            ),
-            source="backend.music",
+        warn_feature_unimplemented(
+            mctx, "music.dot_form", form, "M3.2 covers 'separate' only"
         )
     for _ in dots:
         emit_cells_for_entity(
@@ -632,7 +626,7 @@ def _emit_rest(
     # BANA Par. 2.4: a rest carries a value sign on a category change too
     # (rests share the note value shapes), before the rest cell.
     _emit_value_sign(cells, mctx, type_name)
-    rest_entity = _rest_entity_name(type_name)
+    rest_entity = rest_entity_name(type_name)
     if not emit_cells_for_entity(
         cells, mctx,
         topic="rests",
@@ -648,28 +642,6 @@ def _emit_rest(
         cells.append(unknown_cell(mctx, role="music_unknown", source_text="rest"))
         return
     _emit_dots(cells, mctx, elem)
-
-
-_REST_FAMILY: dict[str, str] = {
-    "whole":   "whole_or_16th_rest",
-    "half":    "half_or_32nd_rest",
-    "quarter": "quarter_or_64th_rest",
-    "eighth":  "eighth_or_128th_rest",
-    "16th":    "whole_or_16th_rest",
-    "32nd":    "half_or_32nd_rest",
-    "64th":    "quarter_or_64th_rest",
-    "128th":   "eighth_or_128th_rest",
-    "256th":   "rest_256th",
-    # breve (double-whole) rest — BANA Table 5 form A (whole-rest cell +
-    # breve suffix), parallel to the breve entry in _TYPE_TO_FAMILY. Without
-    # it a breve rest fell through to the quarter-rest default and was
-    # silently mistranslated.
-    "breve":   "breve_rest_a",
-}
-
-
-def _rest_entity_name(type_name: str) -> str:
-    return _REST_FAMILY.get(type_name, "quarter_or_64th_rest")
 
 
 _DISPATCH_PARTIAL = {

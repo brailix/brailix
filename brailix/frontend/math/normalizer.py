@@ -187,6 +187,12 @@ def _collapse_singleton_mrows(elem: _ET.Element) -> None:
             # child's own value wins on conflict.
             for _k, _v in child.attrib.items():
                 grand.attrib.setdefault(_k, _v)
+            # And carry its tail: text following the collapsed wrapper
+            # belongs to the same flow and must survive the collapse
+            # ("both have to land somewhere or this pass is where they
+            # stop existing", as _rewrite_degree_circle puts it).
+            if child.tail:
+                grand.tail = (grand.tail or "") + child.tail
             new_children.append(grand)
         else:
             new_children.append(child)

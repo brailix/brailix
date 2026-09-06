@@ -221,7 +221,7 @@ class TestTypedChildValidation:
         # ``inlines`` is typed list[InlineNode]; a nested Block belongs in
         # ``blocks``. to_dict can serialise a block (every Block has to_dict),
         # but block_from_dict rebuilds ``inlines`` via the *inline* registry
-        # and would KeyError on the block tag — to_dict/from_dict would not be
+        # and would refuse the block tag — to_dict/from_dict would not be
         # inverses. Reject at the source so the breakage surfaces where the bad
         # tree is built, not on reload.
         p = Paragraph(inlines=[ListItem(text="wrong")])
@@ -496,7 +496,7 @@ class TestRegistry:
         assert block_for("music_block") is MusicBlock
 
     def test_lookup_unknown_raises(self):
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError):
             block_for("nope")
 
     def test_block_from_dict_rejects_missing_type(self):

@@ -139,9 +139,6 @@ def tone_policy_for(profile: BrailleProfile) -> TonePolicy:
     return builder(profile)
 
 
-# Alias kept for older call sites — identical semantics.
-build_tone_policy = tone_policy_for
-
 
 # ---------------------------------------------------------------------------
 # Builtin discovery
@@ -177,7 +174,6 @@ def _ensure_builtins_registered() -> None:
 
 __all__ = (
     "TonePolicy",
-    "build_tone_policy",
     "register",
     "registered_names",
     "tone_policy_for",

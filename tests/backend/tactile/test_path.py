@@ -119,3 +119,14 @@ def test_arc_zero_radius_degrades_to_line():
 def test_truncated_command_soft_fails():
     sp = P("M0,0 L10,0 L10")  # final L is missing its y coordinate
     assert sp[0].points == [(0, 0), (10, 0)]
+
+
+def test_tokens_after_closecommand_stop_parsing():
+    # "Z 5" and unknown command letters left pos stuck on a token no argc
+    # can consume — the loop spun forever, freezing the whole compile. The
+    # contract is the same as a truncated command: stop, keep what was read.
+    sp = P("M0,0 L10,0 Z 5")
+    assert len(sp) == 1
+    assert sp[0].closed is True
+    assert sp[0].points == [(0, 0), (10, 0)]
+    assert P("M0,0 X5 5") is not None

@@ -212,6 +212,12 @@ def parse_path_data(d: str, scale: float = 1.0) -> list[Subpath]:
         up = cmd.upper()
         rel = cmd.islower()
         argc = _ARGC.get(up, 0)
+        if argc == 0:
+            # Only Z has no arguments and it was consumed at the command
+            # token; getting here means a number (or an unknown letter)
+            # sits where a command's arguments should start. Nothing can
+            # advance past it — stop, per the contract above.
+            break
         if pos + argc > ntok:
             break
         args: list[float] = []

@@ -112,3 +112,19 @@ def unwrap(island: str) -> tuple[str, str]:
     if len(parts) != 3 or parts[0] != "":
         raise ValueError(f"malformed tagged inline-math island: {island!r}")
     return parts[1], parts[2].replace(_DOLLAR, "$")
+
+
+def sniff_untagged_source(body: str) -> str:
+    """Dialect name for an *untagged* ``$...$`` fragment's body:
+    ``"mathml"`` when it opens with ``<math`` (Word-import synthesised
+    MathML — the LaTeX grammar cannot begin with an XML element, so one
+    prefix check discriminates), else ``"latex"``.
+
+    The discriminator is shared by the markdown input (a ``$$...$$``
+    block body) and the frontend normalizer (a user-typed inline
+    fragment); it lives here, beside the island codec both layers
+    already share, so the two cannot drift on what counts as MathML —
+    they were verbatim copies, and extending one would have silently
+    mislabeled the other's fragments.
+    """
+    return "mathml" if body.lstrip().startswith("<math") else "latex"

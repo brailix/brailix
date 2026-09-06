@@ -42,6 +42,7 @@ from pathlib import Path as _Path
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import GraphicsContext
+from brailix.frontend.graphics._numbers import as_finite, fmt_number
 from brailix.frontend.graphics.adapters.svg import svg_error_wrap
 
 if _TYPE_CHECKING:
@@ -61,29 +62,23 @@ _SVG_OPEN_TAG = _re.compile(r"<svg\b[^>]*>", _re.IGNORECASE | _re.DOTALL)
 _DEFAULT_LONGEST_MM = 160.0
 
 
-def _fmt(value: float) -> str:
-    """Compact numeric formatting: drop the decimal point for integers."""
-    return str(int(value)) if float(value).is_integer() else repr(float(value))
-
-
 def _as_pos_float(value: Any) -> float | None:
-    """``value`` as a positive float, or ``None`` for missing / non-positive
-    / unparseable — so a malformed size field falls back to the default."""
-    try:
-        f = float(value)
-    except (TypeError, ValueError):
-        return None
-    return f if f > 0 else None
+    """``value`` as a positive finite float, or ``None`` for missing /
+    non-positive / non-finite / unparseable — so a malformed size field
+    falls back to the default. ``as_finite`` is the gate: a JSON
+    ``Infinity`` converts cleanly through ``float()`` but is not a size,
+    and used to reach the SVG as the literal ``width="infmm"``."""
+    f = as_finite(value, None)
+    return f if f is not None and f > 0 else None
 
 
 def _clamp_threshold(value: Any) -> int:
     """``value`` as an int clamped to ``0..255`` (the bilevel-mode cut),
-    defaulting to 128 for a missing / unparseable field."""
-    try:
-        t = round(float(value))
-    except (TypeError, ValueError):
-        return 128
-    return max(0, min(255, t))
+    defaulting to 128 for a missing / unparseable / non-finite field —
+    ``round(float("inf"))`` raises ``OverflowError``, which escaped this
+    adapter's own soft-failure contract."""
+    f = as_finite(value, None)
+    return 128 if f is None else max(0, min(255, round(f)))
 
 
 def _length_px(value: str | None) -> int:
@@ -326,8 +321,8 @@ def image_to_svg(
     # viewBox in source pixels (1 user unit = 1 source pixel); physical size
     # in mm so the backend rasterizes at the right touch scale.
     svg.set("viewBox", f"0 0 {px_w} {px_h}")
-    svg.set("width", f"{_fmt(pw_mm)}mm")
-    svg.set("height", f"{_fmt(ph_mm)}mm")
+    svg.set("width", f"{fmt_number(pw_mm)}mm")
+    svg.set("height", f"{fmt_number(ph_mm)}mm")
     # ``<title>`` first (a direct child of the root svg) so the figure's caption
     # reader — which takes the first direct <title> — finds it, and the tactile
     # backend treats it as non-drawing metadata (not a shape to rasterize).

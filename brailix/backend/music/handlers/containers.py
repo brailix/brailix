@@ -12,6 +12,7 @@ import xml.etree.ElementTree as _ET
 
 from brailix.backend.music.context import MusicBrailleContext
 from brailix.backend.music.dispatch import _emit_element
+from brailix.backend.music.handlers._common import warn_feature_unimplemented
 from brailix.backend.music.handlers.notes import _emit_chord_run
 from brailix.backend.music.utils import emit_cells_for_entity, first_child_text
 from brailix.ir.braille import BrailleCell
@@ -376,13 +377,8 @@ def _emit_multi_voice(
     """
     form = mctx.profile.feature("music.in_accord_form", "full_measure")
     if form != "full_measure":
-        mctx.warn(
-            code="MUSIC_UNSUPPORTED_NOTATION",
-            message=(
-                f"music.in_accord_form={form!r} not implemented "
-                f"(M4 covers 'full_measure' only); falling back"
-            ),
-            source="backend.music",
+        warn_feature_unimplemented(
+            mctx, "music.in_accord_form", form, "M4 covers 'full_measure' only"
         )
 
     children = list(measure)
