@@ -162,8 +162,6 @@ class TestOrnaments:
             # lower_mordent = '"6l' = (5,)(2,3,5)(1,2,3)
             ("inverted-mordent", "lower_mordent",
              [(5,), (2, 3, 5), (1, 2, 3)]),
-            # glissando_line_between_notes = "@a" = (4,)(1,)
-            ("glissando", "glissando_line_between_notes", [(4,), (1,)]),
         ],
     )
     def test_single_ornament(
@@ -175,6 +173,34 @@ class TestOrnaments:
         assert _dots(ornament_cells) == expected_dots
         # source_text records the MusicXML tag.
         assert ornament_cells[0].source_text == tag
+
+    def test_glissando_is_a_notations_child(self, profile, ctx):
+        # MusicXML puts <glissando> DIRECTLY under <notations> (it is
+        # never inside <ornaments>), so it is dispatched from the
+        # notations level. glissando_line_between_notes = "@a" = (4,)(1,).
+        note = ET.fromstring(
+            "<note>"
+            "<pitch><step>C</step><octave>4</octave></pitch>"
+            "<duration>1</duration><type>quarter</type>"
+            '<notations><glissando type="start" /></notations>'
+            "</note>"
+        )
+        cells = translate_tree(note, ctx, profile)
+        ornament_cells = [c for c in cells if c.role == "music_ornament"]
+        assert _dots(ornament_cells) == [(4,), (1,)]
+        assert ornament_cells[0].source_text == "glissando"
+
+    def test_glissando_stop_emits_nothing(self, profile, ctx):
+        # Like a slur, only the start side prints a cell.
+        note = ET.fromstring(
+            "<note>"
+            "<pitch><step>C</step><octave>4</octave></pitch>"
+            "<duration>1</duration><type>quarter</type>"
+            '<notations><glissando type="stop" /></notations>'
+            "</note>"
+        )
+        cells = translate_tree(note, ctx, profile)
+        assert "music_ornament" not in _roles(cells)
 
     def test_multiple_ornaments_on_one_note(self, profile, ctx):
         # Trill + turn — both emit, in document order.

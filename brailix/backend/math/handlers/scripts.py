@@ -177,12 +177,7 @@ def _emit_regular_script(
         saved_run = None
     if sub is not None:
         _emit_structure(cells, mctx, "script.sub", role="math_subscript")
-        mctx.letter_run_class = saved_run
-        if not _try_emit_atomic_lower_digit(cells, mctx, sub):
-            mctx.need_number_sign = True
-            _emit_element(cells, mctx, sub)
-            if not (simplify and _is_atomic(sub)):
-                _emit_structure(cells, mctx, "script.close", role="math_script_close")
+        _emit_script_body(cells, mctx, sub, saved_run, simplify)
     if sup is not None:
         if _is_accent_leaf(mctx, sup):
             # Postfix mark (prime ′) — NOT an exponent: skip the indicator
@@ -192,18 +187,35 @@ def _emit_regular_script(
             _emit_accent_char(cells, mctx, (sup.text or "").strip())
         else:
             _emit_structure(cells, mctx, "script.sup", role="math_superscript")
-            mctx.letter_run_class = saved_run
-            if not _try_emit_atomic_lower_digit(cells, mctx, sup):
-                mctx.need_number_sign = True
-                _emit_element(cells, mctx, sup)
-                if not (simplify and _is_atomic(sup)):
-                    _emit_structure(cells, mctx, "script.close", role="math_script_close")
+            _emit_script_body(cells, mctx, sup, saved_run, simplify)
     # Restore the base's letter run across the (now-finished) script body, so
     # a following baseline letter shares the base's sign: ``a^2b`` is one
     # lowercase run, matching ``ab^2``. The sub/sup markers above already
     # cleared the run while the body was being emitted.
     mctx.letter_run_class = saved_run
     mctx.need_number_sign = True
+
+
+def _emit_script_body(
+    cells: list[BrailleCell],
+    mctx: MathBrailleContext,
+    content: ET.Element,
+    saved_run: str | None,
+    simplify: bool,
+) -> None:
+    """One side of a regular script, after its indicator has landed: restore
+    the base's letter run (the indicator must not break it — see
+    :func:`_emit_regular_script`), then Antoine lower digits if they apply,
+    else content + conditional ``script.close``. The sub and sup sides are
+    the same emission; only the indicator (and the sup-only accent-leaf
+    shortcut upstream) differ."""
+    mctx.letter_run_class = saved_run
+    if _try_emit_atomic_lower_digit(cells, mctx, content):
+        return
+    mctx.need_number_sign = True
+    _emit_element(cells, mctx, content)
+    if not (simplify and _is_atomic(content)):
+        _emit_structure(cells, mctx, "script.close", role="math_script_close")
 
 
 def _emit_big_op_script(
@@ -220,18 +232,7 @@ def _emit_big_op_script(
     # The base itself emits the symbol's cells via the regular mo path,
     # honouring its per-entry spacing.
     _emit_element(cells, mctx, base)
-    if sub is not None:
-        _emit_big_op_side(
-            cells, mctx, sub, "script.sub", "math_subscript", use_prefix
-        )
-    if sup is not None:
-        _emit_big_op_side(
-            cells, mctx, sup, "script.sup", "math_superscript", use_prefix
-        )
-    # A big-op (∑ / ∫ / lim …) is a baseline atom: its limits never extend a
-    # letter run onto a following baseline letter, so close the run here.
-    mctx.break_letter_run()
-    mctx.need_number_sign = True
+    _emit_big_op_limits(cells, mctx, sub, sup, use_prefix)
 
 
 def _emit_big_op_function_script(
@@ -249,6 +250,20 @@ def _emit_big_op_function_script(
     # Emit the function via the standard function path so the
     # function_prefix + name cells land in the stream.
     _emit_function_name(cells, mctx, name)
+    _emit_big_op_limits(cells, mctx, sub, sup, use_prefix)
+
+
+def _emit_big_op_limits(
+    cells: list[BrailleCell],
+    mctx: MathBrailleContext,
+    sub: ET.Element | None,
+    sup: ET.Element | None,
+    use_prefix: bool,
+) -> None:
+    """The shared tail of both big-op emitters: the sub/sup limit sides,
+    then run / number-sign state. A big-op (∑ / ∫ / lim …) is a baseline
+    atom: its limits never extend a letter run onto a following baseline
+    letter, so the run closes here."""
     if sub is not None:
         _emit_big_op_side(
             cells, mctx, sub, "script.sub", "math_subscript", use_prefix
@@ -257,8 +272,6 @@ def _emit_big_op_function_script(
         _emit_big_op_side(
             cells, mctx, sup, "script.sup", "math_superscript", use_prefix
         )
-    # A big-op (∑ / ∫ / lim …) is a baseline atom: its limits never extend a
-    # letter run onto a following baseline letter, so close the run here.
     mctx.break_letter_run()
     mctx.need_number_sign = True
 
@@ -335,7 +348,6 @@ def _try_emit_atomic_lower_digit(
                 source_text=digit,
             )
         )
-    mctx.need_number_sign = False
     return True
 
 

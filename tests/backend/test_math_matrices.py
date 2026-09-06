@@ -283,6 +283,24 @@ class TestMatrixOperatorMark:
         assert cells[plus_idx - 1].is_blank
         assert self._MARK not in dots
 
+    def test_cases_with_omitted_cells_keeps_ordinary_spacing(self, profile):
+        # The staircase (omitted-<mtd/>) equation system goes through the
+        # ALIGNED measuring path; it must still not get the ⠐ matrix
+        # operator mark — the in_matrix_cell contract exempts cases rows,
+        # and measuring is where the mark would have crept in.
+        body = (
+            "<math><mo>{</mo><mtable>"
+            "<mtr><mtd><mi>x</mi><mo>+</mo><mi>y</mi></mtd>"
+            "<mtd><mi>z</mi></mtd></mtr>"
+            "<mtr><mtd/><mtd><mi>w</mi></mtd></mtr>"
+            "</mtable></math>"
+        )
+        cells, _ = emit(mml(body), profile)
+        dots = [tuple(c.dots) for c in cells]
+        plus_idx = dots.index(self._PLUS)
+        assert cells[plus_idx - 1].is_blank
+        assert self._MARK not in dots
+
     def test_plain_operator_outside_matrix_unaffected(self, profile):
         cells, _ = emit(
             mml("<math><mi>a</mi><mo>+</mo><mi>b</mi></math>"), profile

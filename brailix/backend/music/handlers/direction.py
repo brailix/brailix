@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING as _TYPE_CHECKING
 from brailix.backend._inline import rebase_translated_cells
 from brailix.backend.music.context import MusicBrailleContext
 from brailix.backend.music.dispatch import _emit_element
+from brailix.backend.music.handlers._common import warn_feature_unimplemented
 from brailix.backend.music.utils import (
     emit_cells_for_entity,
     emit_synthesized_word,
@@ -26,10 +27,15 @@ def _emit_direction(
     cells: list[BrailleCell], mctx: MusicBrailleContext, elem: ET.Element
 ) -> None:
     """``<direction>`` is a pure container — descend into
-    ``<direction-type>`` children. Other siblings like ``<offset>``
-    and ``<staff>`` carry positioning hints irrelevant to braille."""
+    ``<direction-type>`` children. ``<sound>`` (a legal sibling: D.C. /
+    D.S. / coda repeats, MuseScore exports it inside ``<direction>``)
+    re-enters the main dispatch table so its own handler applies.
+    Other siblings like ``<offset>`` and ``<staff>`` carry positioning
+    hints irrelevant to braille."""
     for child in elem:
         if child.tag == "direction-type":
+            _emit_element(cells, mctx, child)
+        elif child.tag == "sound":
             _emit_element(cells, mctx, child)
 
 
@@ -76,13 +82,8 @@ def _emit_dynamics(
         return
     form = mctx.profile.feature("music.dynamics_form", "abbreviated")
     if form != "abbreviated":
-        mctx.warn(
-            code="MUSIC_UNSUPPORTED_NOTATION",
-            message=(
-                f"music.dynamics_form={form!r} not implemented "
-                f"(M3.4 covers 'abbreviated' only); falling back"
-            ),
-            source="backend.music",
+        warn_feature_unimplemented(
+            mctx, "music.dynamics_form", form, "M3.4 covers 'abbreviated' only"
         )
     for child in elem:
         if child.tag == "other-dynamics":

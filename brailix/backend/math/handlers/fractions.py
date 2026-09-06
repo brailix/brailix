@@ -161,7 +161,6 @@ def _try_emit_antoine_fraction(
             source_text=den_text,
         )
     )
-    mctx.need_number_sign = False
     return True
 
 

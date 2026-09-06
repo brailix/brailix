@@ -32,6 +32,25 @@ def warn_and_fallback(
     cells.append(unknown_cell(mctx, role="music_unknown", source_text=source_text))
 
 
+def warn_feature_unimplemented(
+    mctx: MusicBrailleContext,
+    feature: str,
+    value: object,
+    covered: str,
+) -> None:
+    """A profile feature value the current milestone doesn't implement:
+    warn (``MUSIC_UNSUPPORTED_NOTATION``) and let the caller fall back
+    to the covered form. ``covered`` names what IS implemented, e.g.
+    ``"M3.2 covers 'separate' only"``."""
+    mctx.warn(
+        code="MUSIC_UNSUPPORTED_NOTATION",
+        message=(
+            f"{feature}={value!r} not implemented ({covered}); falling back"
+        ),
+        source="backend.music",
+    )
+
+
 def serialise_short(elem: _ET.Element) -> str:
     """A short XML serialisation for warning messages."""
     s = _ET.tostring(elem, encoding="unicode")

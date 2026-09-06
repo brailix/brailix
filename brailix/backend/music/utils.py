@@ -27,21 +27,29 @@ if _TYPE_CHECKING:
 # half == 32nd, ...); 256th takes a leading value-sign prefix (``;<1``, see
 # Par. 2.4.1) and breve its own suffix cell (see the dict below).
 
-_TYPE_TO_FAMILY: dict[str, str] = {
-    "whole":   "whole_or_16th",
-    "half":    "half_or_32nd",
-    "quarter": "quarter_or_64th",
-    "eighth":  "eighth_or_128th",
-    "16th":    "whole_or_16th",
-    "32nd":    "half_or_32nd",
-    "64th":    "quarter_or_64th",
-    "128th":   "eighth_or_128th",
-    "256th":   "note_256th",
-    # breve (double whole note) — BANA Table 2 spells it as the
-    # whole-note shape followed by the breve suffix cell (family
-    # ``breve_a`` in notes.json). Without this entry the type fell
-    # through to the quarter default and was silently mistranslated.
-    "breve":   "breve_a",
+# One authoritative row per MusicXML ``<type>`` value:
+# (note family base, rest family base, BANA Par. 2.4 value category).
+# The note entry is ``<base>_<STEP>`` and the rest entry ``<base>_rest``
+# for the common shapes; breve and 256th differ enough to spell both
+# bases out. Every fact keyed by ``<type>`` — note family, rest family,
+# value category — reads this one table, so a new type (the breve entry
+# was added twice before, once per table, after being silently
+# mistranslated in the other) lands in all three lookups at once.
+_TYPE_INFO: dict[str, tuple[str, str, str]] = {
+    "whole":   ("whole_or_16th",   "whole_or_16th_rest",   "large"),
+    "half":    ("half_or_32nd",    "half_or_32nd_rest",    "large"),
+    "quarter": ("quarter_or_64th", "quarter_or_64th_rest", "large"),
+    "eighth":  ("eighth_or_128th", "eighth_or_128th_rest", "large"),
+    "16th":    ("whole_or_16th",   "whole_or_16th_rest",   "small"),
+    "32nd":    ("half_or_32nd",    "half_or_32nd_rest",    "small"),
+    "64th":    ("quarter_or_64th", "quarter_or_64th_rest", "small"),
+    "128th":   ("eighth_or_128th", "eighth_or_128th_rest", "small"),
+    "256th":   ("note_256th",      "rest_256th",           "v256"),
+    # breve (double whole note) — BANA Table 2/5 spell it as the
+    # whole-note shape followed by the breve suffix cell. Without this
+    # row the type fell through to the quarter default and was
+    # silently mistranslated.
+    "breve":   ("breve_a",         "breve_rest_a",         "large"),
 }
 
 # Diatonic position (within one octave) for each pitch step. Used by
@@ -73,7 +81,7 @@ def is_known_note_type(type_name: str) -> bool:
     maps to a real BANA notes family. Callers use this to warn
     ``MUSIC_DURATION_AMBIGUOUS`` before falling back, so unknown types
     don't degrade silently to a quarter note."""
-    return type_name in _TYPE_TO_FAMILY
+    return type_name in _TYPE_INFO
 
 
 def note_entity_name(step: str, type_name: str) -> str:
@@ -84,8 +92,26 @@ def note_entity_name(step: str, type_name: str) -> str:
     ``MUSIC_DURATION_AMBIGUOUS`` warning at the same time (use
     :func:`is_known_note_type` to detect the fallback case).
     """
-    family = _TYPE_TO_FAMILY.get(type_name, "quarter_or_64th")
-    return f"{family}_{step.upper()}"
+    note_row = _TYPE_INFO.get(type_name)
+    note_base = note_row[0] if note_row is not None else "quarter_or_64th"
+    return f"{note_base}_{step.upper()}"
+
+
+def rest_entity_name(type_name: str) -> str:
+    """MusicXML ``<type>`` → BANA rests-table entry name, quarter
+    fallback for unknown values (same contract as
+    :func:`note_entity_name`)."""
+    row = _TYPE_INFO.get(type_name)
+    return row[1] if row is not None else "quarter_or_64th_rest"
+
+
+def value_category(type_name: str) -> str | None:
+    """MusicXML ``<type>`` → BANA Par. 2.4 value category (``large`` /
+    ``small`` / ``v256``), ``None`` for an unknown type so the caller
+    treats it like the quarter fallback (a "large" value) — see
+    ``notes._emit_value_sign``."""
+    row = _TYPE_INFO.get(type_name)
+    return row[2] if row is not None else None
 
 
 # MusicXML ``<accidental>`` element values map directly to BANA Table 6 /
@@ -279,8 +305,11 @@ def emit_if_enabled(
     source_text: str | None = None,
     default: bool = True,
 ) -> bool:
-    """The §6.4 handler template helper — every M3+ handler funnels
-    through here.
+    """The §6.4 handler template helper — feature gate + resource emit
+    in one call, for leaf handlers gated by a single
+    ``features.music.<feature>`` switch (see ``attributes._emit_clef``
+    for the pattern, including how to distinguish "gated off" from
+    "entity absent" when that matters).
 
     Two-step composition:
 
@@ -292,7 +321,7 @@ def emit_if_enabled(
     Returns True if cells were appended; False when the feature is
     gated off **or** the entity is absent. Callers that need to
     distinguish those two cases should re-check the feature flag
-    themselves (see ``_emit_clef`` for the pattern) — handlers that
+    themselves — handlers that
     don't care just treat False as "skip, no warning needed".
 
     ``feature`` is the bare key name *without* the ``music.`` prefix;
