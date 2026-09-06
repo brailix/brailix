@@ -28,7 +28,6 @@ reach is this one.
 from __future__ import annotations
 
 from dataclasses import dataclass as _dataclass
-from typing import Any as _Any
 
 from brailix.core.span import Span
 
@@ -40,17 +39,14 @@ class Segment:
     Segmentation only classifies regions by type (hanzi_text, digit_run,
     math_inline, latin_text, punct, ...). Deeper analysis
     (tokenization, pinyin, math parsing) happens later in the pipeline.
+
+    No ``to_dict``: this mediator is never serialised (same minimal face
+    as ``ChineseToken``), so a dict form would be dead from birth.
     """
 
     type: str
     surface: str
     span: Span | None = None
-
-    def to_dict(self) -> dict[str, _Any]:
-        d: dict[str, _Any] = {"type": self.type, "surface": self.surface}
-        if self.span is not None:
-            d["span"] = list(self.span.to_tuple())
-        return d
 
 
 __all__ = ("Segment",)
