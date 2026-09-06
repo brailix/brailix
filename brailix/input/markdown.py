@@ -15,8 +15,9 @@ pattern):
 * ``- item`` / ``* item`` / ``+ item`` → unordered :class:`List` with
   :class:`ListItem`\ s. Items run until the next blank line or a
   non-item line.
-* ``1. item`` / ``2) item`` → ordered :class:`List`. The numeric
-  value is preserved but rendering uses sequence position (per CommonMark).
+* ``1. item`` / ``2) item`` → ordered :class:`List`. Only the item's
+  content is kept; the literal number is not (``ListItem`` carries no
+  value field and rendering uses sequence position, per CommonMark).
 * ``> quote`` (one ``>`` per quoted line) → :class:`Quote`.
 * Fenced code: ``\`\`\`lang`` ... ``\`\`\``` → :class:`CodeBlock` (the
   ``lang`` token, if present, is stored on the block).
@@ -67,6 +68,7 @@ import re as _re
 from dataclasses import dataclass as _dataclass
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
+from brailix.core import inline_math
 from brailix.core.span import Span
 from brailix.ir.document import (
     Block,
@@ -107,19 +109,27 @@ _UNORDERED_RE = _re.compile(r"^([-*+])\s+(.*)$")
 _ORDERED_RE = _re.compile(r"^(\d+)[.)]\s+(.*)$")
 _QUOTE_RE = _re.compile(r"^>\s?(.*)$")
 _FENCE_RE = _re.compile(r"^```\s*(\S*)\s*$")
+# A CLOSING fence is bare: three or more backticks and nothing else on the
+# line (CommonMark). The opener's info string (`` ```graphic-figure ``) does
+# not close anything — and a body line that happens to start with ``` plus a
+# word (SVG metadata, a spec tag) must stay body, not swallow the rest of
+# the fence as a premature close.
+_CLOSING_FENCE_RE = _re.compile(r"^```+\s*$")
 _DOLLAR_FENCE = "$$"
 
 
 def is_closing_fence(line: str) -> bool:
-    """Whether ``line`` is a ``` ``` ``` fence delimiter (open or close).
+    """Whether ``line`` is a closing ``` ``` ``` fence delimiter — bare,
+    three or more backticks, nothing else on the line.
 
-    The single public authority on what counts as a fence line, so a tool that
+    The single public authority on what closes a fence, so a tool that
     rewrites a fence's body can judge its closing line exactly as
     :func:`_consume_fenced_code` does — an unclosed fence (tolerated by the
     parser, span runs to EOF, last line is body not ``` ``` ```) is then not
-    mistaken for a closed one.
+    mistaken for a closed one, and an info-bearing line (which OPENS a
+    fence but never closes one) is not either.
     """
-    return bool(_FENCE_RE.match(line.strip()))
+    return bool(_CLOSING_FENCE_RE.match(line.strip()))
 
 # Fenced graphic block: a self-contained
 # tactile figure embedded in braille source, mirroring the ```code fence and
@@ -439,7 +449,10 @@ def _consume_fenced_code(
         if is_closing_fence(line):
             cur.consume()  # closing fence
             break
-        body.append(line)
+        # Strip a trailing \r so a CRLF source's fence body matches the
+        # block text everywhere else in this parser (paragraphs / headings
+        # strip()); a \r would ride into the SVG source / code text.
+        body.append(line.rstrip("\r"))
         cur.consume()
     span = cur.span_of(start, cur.i)
     text = "\n".join(body)
@@ -489,7 +502,7 @@ def _consume_dollar_math(cur: _LineCursor) -> MathBlock | None:
             saw_close = True
             end_line += 1
             break
-        body_lines.append(line)
+        body_lines.append(line.rstrip("\r"))
         end_line += 1
     if not saw_close:
         return None
@@ -504,15 +517,13 @@ def _consume_dollar_math(cur: _LineCursor) -> MathBlock | None:
 
 
 def _infer_math_source(body: str) -> str:
-    """Pick the math source dialect for a ``$$...$$`` body.
-
-    Mirrors the inline detector in :mod:`brailix.frontend.normalization`:
-    a body that starts with ``<math`` is MathML (typically synthesised
-    by the Word import path); anything else is LaTeX. The discriminator
-    is structural — LaTeX grammar can't begin with an XML element, so
-    a single-prefix check is robust enough without parsing.
+    """Pick the math source dialect for a ``$$...$$`` body — the shared
+    untagged-fragment discriminator
+    (:func:`brailix.core.inline_math.sniff_untagged_source`), same one
+    the frontend normalizer applies to user-typed inline fragments, so
+    the two layers agree on what counts as MathML.
     """
-    return "mathml" if body.lstrip().startswith("<math") else "latex"
+    return inline_math.sniff_untagged_source(body)
 
 
 def _extract_align(text: str) -> tuple[str, str | None]:
@@ -626,8 +637,8 @@ def _consume_table(cur: _LineCursor) -> Table | None:
             break
         consumed.append(line)
         end += 1
-    if len(consumed) < 1:
-        return None
+    # (No empty-run check: the caller only enters after _TABLE_RE matched
+    # the current line, so the loop always collects at least one.)
     for idx, line in enumerate(consumed):
         # Inside vertical bars: split on |, strip each. Trailing /
         # leading empties from the wrapping pipes are dropped.

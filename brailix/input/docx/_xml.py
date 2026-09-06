@@ -9,14 +9,15 @@ all: inline OMML is *deferred*, not converted here (see
 
 Provides:
 
-* OOXML namespace constants (``_W_NS`` / ``_M_NS`` / ``_R_NS`` / ``_O_NS``
-  / ``_MC_NS``) and their Clark-notation prefixes (``_W_PREFIX`` /
-  ``_M_PREFIX`` / ``_R_PREFIX``).
+* OOXML namespace constants (``_W_NS`` / ``_R_NS``) and their
+  Clark-notation prefixes (``_W_PREFIX`` / ``_R_PREFIX``) — every other
+  tag comparison goes through :func:`_local`, namespace-blind, so no
+  further constants are held.
 * Tag helpers (:func:`_local`, :func:`_first`, :func:`_first_local`).
 * Serialisation helpers (:func:`_serialize`, :func:`_flatten_xml`).
 * Inline-math wrapping (:func:`_wrap_inline_math` — the one place the
   ``$<math>...</math>$`` markers are produced, with inner-``$`` escaping;
-  still used by the eagerly-decoded MTEF / script-cluster paths).
+  still used by the eagerly-decoded MTEF path).
 * Inline OMML deferral (:func:`_inline_math_as_text` — emits a
   source-tagged island for the frontend to convert).
 """
@@ -43,12 +44,8 @@ Element = _Any
 # ---------------------------------------------------------------------------
 
 _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-_M_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 _R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-_O_NS = "urn:schemas-microsoft-com:office:office"
-_MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 _W_PREFIX = "{" + _W_NS + "}"
-_M_PREFIX = "{" + _M_NS + "}"
 _R_PREFIX = "{" + _R_NS + "}"
 
 

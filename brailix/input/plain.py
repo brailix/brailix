@@ -69,9 +69,11 @@ def parse_plain(
     """Wrap ``text`` as a :class:`DocumentIR`, one :class:`Paragraph` per
     source line.
 
-    Empty or whitespace-only input falls back to a single (empty) block
-    so downstream tooling always has a block to anchor to; the span is
-    ``None`` for genuinely empty input (nothing to point at).
+    Whitespace-only input (only blank lines) falls back to one block
+    holding the input verbatim — whitespace text, span intact, NOT an
+    empty block — so downstream tooling always has a block to anchor to;
+    the span is ``None`` only for genuinely empty input (nothing to
+    point at).
 
     ``language`` and ``profile`` are stuffed into ``metadata`` so
     downstream renderers / proofread tools can see what the document was
