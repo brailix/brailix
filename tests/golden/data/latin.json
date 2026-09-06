@@ -39,13 +39,14 @@
       ]
     },
     "running_english": {
-      "description": "A running stretch of English: the lowercase sign ⠰ appears at most once (on the first word, and only if it's lowercase), then following lowercase words run bare. Spaces, punctuation and digits don't break the run; Chinese does. Capitals keep their per-word sign throughout.",
+      "description": "A running stretch of English: the lowercase sign ⠰ appears at most once (on the first word, and only if it's lowercase), then following lowercase words run bare. Spaces, punctuation and digits don't break the run; Chinese does. Capitals keep their per-word sign throughout. A digit run re-arms the sign: bare a–j cells ARE digit cells, so a word right after digits re-announces ⠰ (42 abc would otherwise read its a as another digit).",
       "cases": [
         {"src": "hello world", "expected": "⠰⠓⠑⠇⠇⠕⠀⠺⠕⠗⠇⠙", "note": "sign once on hello; world runs bare"},
         {"src": "Hello world", "expected": "⠠⠓⠑⠇⠇⠕⠀⠺⠕⠗⠇⠙", "note": "capital opens the run; world bare"},
         {"src": "Hello there world", "expected": "⠠⠓⠑⠇⠇⠕⠀⠞⠓⠑⠗⠑⠀⠺⠕⠗⠇⠙", "note": "whole sentence: one capital sign up front, no signs after"},
         {"src": "the CPU is fast", "expected": "⠰⠞⠓⠑⠀⠠⠠⠉⠏⠥⠀⠊⠎⠀⠋⠁⠎⠞", "note": "the takes ⠰; CPU keeps its doubled capital sign; is / fast run bare"},
-        {"src": "abc 123 def", "expected": "⠰⠁⠃⠉⠀⠼⠁⠃⠉⠀⠙⠑⠋", "note": "the digit run (⠼…) carries the English context across; def runs bare"}
+        {"src": "abc 123 def", "expected": "⠰⠁⠃⠉⠀⠼⠁⠃⠉⠀⠰⠙⠑⠋", "note": "the digit run (⠼…) carries the English context across, but re-arms the lowercase sign: bare d IS the digit-4 cell, so def re-announces ⠰"},
+        {"src": "FAT32file", "expected": "⠠⠠⠋⠁⠞⠼⠉⠃⠰⠋⠊⠇⠑", "note": "a word glued right after digits re-signs too — bare f IS the digit-6 cell (used to read 326…)"}
       ]
     },
     "dotted_abbrev": {

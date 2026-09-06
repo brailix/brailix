@@ -17,8 +17,10 @@
     },
     "zh": {
       "tone": true,
-      "tone_omit_neutral": true,
-      "number_sign": true
+      "tone_omit_neutral": true
+    },
+    "number": {
+      "sign": true
     },
     "music": {
       "octave_rule": "interval16",

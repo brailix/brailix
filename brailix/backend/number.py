@@ -150,7 +150,10 @@ def _digits_to_cells(
         profile=profile,
         warnings=ctx.warnings,
         policy=_NUMBER_DIGIT_POLICY,
-        want_number_sign=profile.feature("zh.number_sign", True),
+        # Language-neutral key (this module is): the old ``zh.number_sign``
+        # name forced e.g. a Japanese or English profile to set a
+        # Chinese-named feature for a shared-skeleton switch.
+        want_number_sign=profile.feature("number.sign", True),
         span_at=span_at,
         # The number sign has no surface char; anchor it to the run's leading
         # edge (a zero-width span) so it traces back to source without landing

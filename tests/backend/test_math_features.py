@@ -273,19 +273,20 @@ class TestAtomicScriptLowerDigitFeature:
 
 
 # ---------------------------------------------------------------------------
-# zh.number_sign
+# number.sign (prose) — vs math.number_sign
 # ---------------------------------------------------------------------------
 
 
 class TestMathNumberSignFeature:
-    """``math.number_sign`` and ``zh.number_sign`` are independent —
-    math has its own opinion on whether to emit ⠼ before a digit run."""
+    """``math.number_sign`` and ``number.sign`` (the prose skeleton's key)
+    are independent — math has its own opinion on whether to emit ⠼
+    before a digit run."""
 
     def test_math_on_by_default(self, profile):
         assert profile.feature("math.number_sign", False) is True
 
-    def test_zh_on_by_default(self, profile):
-        assert profile.feature("zh.number_sign", False) is True
+    def test_prose_on_by_default(self, profile):
+        assert profile.feature("number.sign", False) is True
 
     def test_math_off_drops_sign_in_math(self, profile, monkeypatch):
         monkeypatch.setitem(
@@ -294,10 +295,10 @@ class TestMathNumberSignFeature:
         cells, _ = emit(mml("<math><mn>5</mn></math>"), profile)
         assert all(c.role != "number_sign" for c in cells)
 
-    def test_zh_off_does_not_affect_math(self, profile, monkeypatch):
-        # Turning off zh.number_sign should leave math number sign alone.
+    def test_prose_off_does_not_affect_math(self, profile, monkeypatch):
+        # Turning off number.sign should leave math number sign alone.
         monkeypatch.setitem(
-            profile.features.setdefault("zh", {}), "number_sign", False
+            profile.features.setdefault("number", {}), "sign", False
         )
         cells, _ = emit(mml("<math><mn>5</mn></math>"), profile)
         assert any(c.role == "number_sign" for c in cells)

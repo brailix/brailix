@@ -405,8 +405,11 @@ def _emit_parsed(
     # overrides inside its ``tables.zh.exceptions`` resource.
     # When such an override fires for this character, we short-circuit
     # past the policy's tone-omission decision — but only if the policy
-    # wasn't already going to emit.  The policy's neutral-tone
-    # suppression still wins (a neutral tone never gets a cell).
+    # wasn't already going to emit.  Two things still outrank the
+    # overrides: the policy's neutral-tone suppression (a neutral tone
+    # never gets a cell) and the ``zh.tone`` master switch — an override
+    # refines *how* a standard keeps tones, it is not a second way to
+    # turn them on once the profile has turned them off.
     policy = tone_policy_for(profile)
     should_emit = policy.should_emit_tone(
         syllable=syllable,
@@ -414,7 +417,12 @@ def _emit_parsed(
         next_syllable=next_syllable,
         next_parsed=next_parsed,
     )
-    if not should_emit and parsed.tone and parsed.tone != "5":
+    if (
+        not should_emit
+        and parsed.tone
+        and parsed.tone != "5"
+        and profile.feature("zh.tone", True)
+    ):
         exc = _ncb_exceptions(profile)
         if exc is not None:
             if exc.char_overrides is not None and exc.char_overrides.should_force_keep_tone(ch):

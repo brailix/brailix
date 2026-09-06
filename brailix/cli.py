@@ -81,13 +81,14 @@ _PIPELINE_DEFAULTS: dict[str, Any] = {
     f.name: f.default for f in _dataclasses.fields(Pipeline)
 }
 
-# Formats the ``--in-format`` flag (text / stdin) accepts. These mirror
-# :meth:`brailix.Pipeline.parse_text`'s contract; the input layer keeps no
-# registry for them because the choice is static (a file's suffix, or this
-# flag) — see ``brailix/input/__init__.py``. Files passed with ``--file``
-# are dispatched by suffix instead, so combining the two is refused rather
+# Formats the ``--in-format`` flag (text / stdin) accepts — derived from
+# the library's own contract so the two cannot drift (a hand-kept copy
+# here had already lost ``abc``). The input layer keeps no registry for
+# these because the choice is static (a file's suffix, or this flag) —
+# see ``brailix/input/__init__.py``. Files passed with ``--file`` are
+# dispatched by suffix instead, so combining the two is refused rather
 # than silently ignored (see :func:`_validate`).
-IN_FORMATS = ("plain", "markdown", "musicxml")
+IN_FORMATS = tuple(sorted(Pipeline.PARSE_TEXT_FORMATS))
 
 # What TEXT / stdin is read as when ``--in-format`` is omitted. The flag's
 # argparse default is ``None`` instead, so "not given" stays distinguishable
@@ -416,10 +417,15 @@ def _validate_language_adapters(
     carried into the run and read by nobody — a legal-looking flag with no
     effect on the output.
 
-    Only reached when the user actually set one of the two, so a plain run
-    neither loads the profile twice nor resolves a language frontend it has no
-    use for.
+    Only reached when the user actually set one of the two (the early
+    return below), so a plain run neither loads the profile twice nor
+    resolves a language frontend it has no use for.
     """
+    if (
+        args.analyzer == _PIPELINE_DEFAULTS["analyzer"]
+        and args.resolver == _PIPELINE_DEFAULTS["resolver"]
+    ):
+        return
     lang = _profile_language(args.profile)
     if lang is None:
         return
@@ -487,15 +493,18 @@ def _validate(args: _argparse.Namespace, parser: _argparse.ArgumentParser) -> No
             "--in-format applies to TEXT / stdin; --file is dispatched by "
             "the file's suffix (pipe the file in to force a format)"
         )
-    if (
-        args.analyzer != _PIPELINE_DEFAULTS["analyzer"]
-        or args.resolver != _PIPELINE_DEFAULTS["resolver"]
-    ):
-        _validate_language_adapters(args, parser)
-    if args.to == "cells" and (args.width or args.page_height or args.page_numbers):
+    _validate_language_adapters(args, parser)
+    layout_requested = bool(args.width or args.page_height or args.page_numbers)
+    if layout_requested and args.to not in ("unicode", "brf", "layout"):
+        # The layout pass wraps the two built-in encodings only; "cells" is
+        # structural, and a third-party renderer has its own encoding the
+        # wrapper cannot speak. Dropping the name silently (which is what
+        # the old code did) reports success while rendering something else.
         parser.error(
-            "--to cells emits structural cell data and cannot be combined "
-            "with layout options (--width / --page-height / --page-numbers)"
+            f"--to {args.to!r} cannot be combined with layout options "
+            "(--width / --page-height / --page-numbers): the layout pass "
+            "wraps the built-in unicode / brf encodings only — drop the "
+            "layout options to use this renderer directly"
         )
 
 
@@ -509,24 +518,29 @@ def _produce_output(
 ) -> str | bytes:
     """Render ``result`` to the payload the user asked for.
 
-    Two orthogonal axes: ``--to`` picks the encoding (``unicode`` / ``brf``
-    / ``cells``), and the layout knobs (``--width`` / ``--page-height`` /
-    ``--page-numbers``, or ``--to layout``) decide whether the encoding is
-    wrapped + paginated. ``cells`` is structural JSON and never laid out.
+    Two orthogonal axes: ``--to`` picks the encoding (a renderer name —
+    the built-ins are ``unicode`` / ``brf`` / ``cells``, plus ``layout``
+    for a laid-out run), and the layout knobs (``--width`` /
+    ``--page-height`` / ``--page-numbers``) decide whether a ``unicode`` /
+    ``brf`` encoding is wrapped + paginated. A named renderer that is
+    neither of those two is dispatched straight from the registry —
+    previously any other name was silently normalised to ``unicode``,
+    so a registered third-party renderer could be *named* on the command
+    line but never actually run. ``cells`` is structural JSON and never
+    laid out (refused earlier in :func:`_validate` rather than wrapped).
     """
     if args.to == "cells":
         return _json.dumps(
             result.render("cells"), indent=2, ensure_ascii=False
         ) + "\n"
 
-    encoding: Literal["unicode", "brf"] = "brf" if args.to == "brf" else "unicode"
     layout_on = (
-        args.to == "layout"
-        or bool(args.width)
-        or bool(args.page_height)
-        or args.page_numbers
-    )
-    if layout_on:
+        args.width or args.page_height or args.page_numbers
+    ) and args.to in ("unicode", "brf")
+    if args.to == "layout" or layout_on:
+        encoding: Literal["unicode", "brf"] = (
+            "brf" if args.to == "brf" else "unicode"
+        )
         options = LayoutOptions(
             line_width=args.width or DEFAULT_LAYOUT_WIDTH,
             page_height=args.page_height,
@@ -535,7 +549,7 @@ def _produce_output(
         return LayoutRenderer(options=options, format=encoding).render(
             result.braille_ir
         )
-    return renderer_registry.get(encoding).render(result.braille_ir)
+    return renderer_registry.get(args.to).render(result.braille_ir)
 
 
 def _write_output(payload: str | bytes, output_path: str | None) -> None:

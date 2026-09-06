@@ -593,3 +593,52 @@ def test_internal_keyerror_is_not_masked(monkeypatch):
     monkeypatch.setattr(cli_mod, "_translate", _boom)
     with pytest.raises(KeyError, match="internal-bug-key"):
         main(["123", "-p", "cn_current"])
+
+
+class TestNamedRendererDispatch:
+    """``--to`` accepts any registered braille renderer name; a name that
+    is neither unicode / brf / cells / layout used to be silently
+    normalised to unicode — a third-party renderer could be named but
+    never actually run."""
+
+    def test_in_formats_mirror_parse_text_contract(self):
+        # Derived, not hand-kept: the hand copy had already lost "abc".
+        from brailix.cli import IN_FORMATS
+
+        assert set(IN_FORMATS) == set(Pipeline.PARSE_TEXT_FORMATS)
+        assert "abc" in IN_FORMATS
+
+    def test_named_renderer_is_actually_used(self, monkeypatch, capsys):
+        calls: list[str] = []
+
+        class _Spy:
+            name = "spyout"
+            consumes = "braille"
+
+            def render(self, ir):
+                calls.append("spy")
+                return "SPY"
+
+        from brailix.renderer import renderer_registry as reg
+
+        with reg.overriding("spyout", lambda: _Spy()):
+            monkeypatch.setattr(
+                "sys.argv",
+                ["brailix", "-p", "cn_current", "--to", "spyout", "1"],
+            )
+            code = main()
+        assert code == 0
+        assert calls == ["spy"]
+        assert "SPY" in capsys.readouterr().out
+
+    def test_named_renderer_plus_layout_option_is_usage_error(
+        self, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(
+            "sys.argv",
+            ["brailix", "-p", "cn_current", "--to", "cells", "-w", "32", "1"],
+        )
+        with pytest.raises(SystemExit) as e:
+            main()
+        assert e.value.code == 2
+        assert "layout options" in capsys.readouterr().err

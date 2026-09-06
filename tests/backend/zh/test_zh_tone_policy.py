@@ -23,7 +23,6 @@ import pytest
 from brailix.backend.zh import translate_word
 from brailix.backend.zh.pinyin_parser import ParsedPinyin, parse_pinyin
 from brailix.backend.zh.tone import (
-    build_tone_policy,
     register,
     registered_names,
     tone_policy_for,
@@ -120,7 +119,7 @@ class TestNcbOmissionPolicy:
 
     @pytest.fixture(scope="class")
     def policy(self, cn_ncb):
-        return build_tone_policy(cn_ncb)
+        return tone_policy_for(cn_ncb)
 
     def test_factory_returns_ncb_policy(self, policy):
         assert isinstance(policy, NcbOmissionPolicy)

@@ -56,9 +56,11 @@ class TestTranslateNumber:
         assert [c.source_span for c in digit_cells] == [Span(5, 6), Span(6, 7)]
 
     def test_number_sign_disabled_via_profile(self, ctx, profile, monkeypatch):
-        # The flag by the name the profile writes it under — ``zh.number_sign``,
-        # the Chinese prose one, not ``math.number_sign``.
-        monkeypatch.setitem(profile.features["zh"], "number_sign", False)
+        # The flag by the name the profile writes it under — ``number.sign``,
+        # the language-neutral prose one, not ``math.number_sign``.
+        monkeypatch.setitem(
+            profile.features.setdefault("number", {}), "sign", False
+        )
         cells = translate_number(Number(surface="9"), ctx, profile)
         assert len(cells) == 1
         assert cells[0].role == "digit"

@@ -26,11 +26,13 @@ runs the multi-step tone-omission decision tree:
    * elif ``parsed.tone == default_omit_tone`` → don't emit
    * else → emit
 
-The builder raises :class:`ConfigurationError` at registration-time
-lookup if a profile selects ``ncb_omission`` without providing a
-``tone_omission`` section in ``tables.zh.exceptions`` — surfaces the
-misconfig at startup, not at the first translated syllable (where
-it'd be a much noisier silent-fall-through bug).
+The builder raises :class:`ConfigurationError` when the policy is
+first built if a profile selects ``ncb_omission`` without providing a
+``tone_omission`` section in ``tables.zh.exceptions``. The build
+happens on the first translated syllable (``tone_policy_for`` is called
+from the zh backend, per syllable) — so that is where a misconfigured
+strategy name or missing section surfaces, loudly, rather than
+silently falling through.
 """
 
 from __future__ import annotations
