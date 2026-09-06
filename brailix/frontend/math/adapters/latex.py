@@ -26,7 +26,7 @@ from brailix.frontend.math.adapters import chem
 from brailix.frontend.math.utils import (
     _strip_math_delimiters as _shared_strip,
 )
-from brailix.frontend.math.utils import merror_wrap
+from brailix.frontend.math.utils import decode_source_bytes, merror_wrap
 
 if _TYPE_CHECKING:
     from collections.abc import Callable
@@ -45,12 +45,10 @@ class LatexMathSourceAdapter:
     converter: Callable[[str], str] = _field(default=None)  # type: ignore[assignment]
 
     def to_mathml(self, formula: str | bytes, ctx: MathContext | None = None) -> str:
-        if isinstance(formula, bytes):
-            try:
-                formula = formula.decode("utf-8")
-            except UnicodeDecodeError:
-                return merror_wrap(repr(formula), reason="non-utf8 bytes")
-        text = formula.strip()
+        decoded = decode_source_bytes(formula)
+        if decoded is None:
+            return merror_wrap(repr(formula), reason="non-utf8 bytes")
+        text = decoded.strip()
         if not text:
             return merror_wrap("", reason="empty input")
         # ``$...$`` / ``\(...\)`` wrappers leak into segment surfaces;

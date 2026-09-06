@@ -13,8 +13,8 @@ from dataclasses import dataclass as _dataclass
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import FrontendContext
-from brailix.core.span import Span
 from brailix.frontend.ja.analyzer import JapaneseToken
+from brailix.frontend.ja.analyzer.adapters._spans import recover_span
 
 if _TYPE_CHECKING:
     from typing import Any
@@ -41,19 +41,15 @@ class FugashiJapaneseAnalyzer:
         cursor = 0
         for word in self.tagger(text):
             surface = word.surface
-            # MeCab drops inter-token whitespace, so a running length sum
-            # drifts from the real source offsets. Re-locate each surface
-            # from the cursor (find skips the dropped gap).
-            start = text.find(surface, cursor)
-            if start < 0:
-                start = cursor
-            cursor = start + len(surface)
+            # MeCab drops whitespace between tokens, so spans come from
+            # the shared cursor recovery (see adapters._spans).
+            span, cursor = recover_span(text, surface, cursor)
             out.append(
                 JapaneseToken(
                     surface=surface,
                     reading=_feature(word, "pron", "kana", "reading"),
                     pos=_feature(word, "pos1"),
-                    span=Span(start, cursor),
+                    span=span,
                 )
             )
         return out

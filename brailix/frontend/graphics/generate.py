@@ -28,7 +28,7 @@ import math as _math
 from collections.abc import Callable as _Callable
 from typing import Any as _Any
 
-from brailix.frontend.graphics._numbers import as_finite
+from brailix.frontend.graphics._numbers import as_finite, fmt_number
 
 # A generator turns a figure spec into a primitives spec.
 FigureGenerator = _Callable[[dict[str, _Any]], dict[str, _Any]]
@@ -92,7 +92,10 @@ def _num(value: _Any, default: float = 0.0) -> float:
 
 
 def _fmt(value: float) -> str:
-    return str(int(value)) if float(value).is_integer() else f"{value:g}"
+    # One shared formatter for the whole graphics frontend (see
+    # fmt_number) — a private ``:g`` here formatted a near-zero origin
+    # tick as ``5.55112e-17``.
+    return fmt_number(value)
 
 
 def _canvas(spec: dict[str, _Any]) -> tuple[float, float, float]:
@@ -332,13 +335,19 @@ def _gen_axes(spec: dict[str, _Any]) -> dict[str, _Any]:
     axis_x = x_of(0.0) if xmin <= 0 <= xmax else m
     shapes.append(_line(m, axis_y, w - m, axis_y))  # x axis
     shapes.append(_line(axis_x, m, axis_x, h - m))  # y axis
+    # Skip the origin tick by TOLERANCE, not exact equality: the tick
+    # values are lo + i*step, so a decimal step over a range that should
+    # pass through 0 lands on 5.55e-17 instead — an exact == 0 painted a
+    # scientific-notation label and a tick sitting on the axis itself.
+    origin_eps = _TICK_EPS * max(abs(xmin), abs(xmax), abs(xstep),
+                                 abs(ymin), abs(ymax), abs(ystep))
     for xv in _ticks(xmin, xmax, xstep):
-        if xv == 0:
+        if abs(xv) <= origin_eps:
             continue
         shapes.append(_line(x_of(xv), axis_y - 2, x_of(xv), axis_y + 2))
         shapes.append(_label(x_of(xv), axis_y + 5, _fmt(xv)))
     for yv in _ticks(ymin, ymax, ystep):
-        if yv == 0:
+        if abs(yv) <= origin_eps:
             continue
         shapes.append(_line(axis_x - 2, y_of(yv), axis_x + 2, y_of(yv)))
         shapes.append(_label(axis_x + 3, y_of(yv), _fmt(yv)))

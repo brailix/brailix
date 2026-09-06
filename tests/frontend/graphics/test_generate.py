@@ -237,6 +237,21 @@ class TestAxes:
         assert t.count("line") == 12
         assert t.count("label") == 10
 
+    def test_origin_tick_skipped_by_tolerance(self):
+        # -0.3 + 3*0.1 lands on 5.55e-17, not 0: an exact ``== 0`` skip
+        # painted a scientific-notation label and a tick on the axis
+        # itself. The skip is by tolerance, so both origin ticks vanish
+        # and no label carries an exponent.
+        prim = _gen(
+            "axes",
+            {"kind": "axes", "xmin": -0.3, "xmax": 0.3,
+             "ymin": -0.3, "ymax": 0.3, "xstep": 0.1, "ystep": 0.1},
+        )
+        labels = [s["text"] for s in prim["shapes"] if s["type"] == "label"]
+        assert "0" not in labels
+        assert all("e" not in t for t in labels)
+        assert len(labels) == 12  # 7 values per axis minus the origin each
+
     def test_grid_adds_lines(self):
         plain = _gen("axes", {"kind": "axes", "xmin": -3, "xmax": 3, "ymin": -2, "ymax": 2})
         grid = _gen(

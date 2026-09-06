@@ -1,5 +1,6 @@
-"""Pinyin frontend subsystem — two subsystem entry points: :func:`annotate`
-and :func:`list_resolvers` (registry enumeration for CLI / editor pickers).
+"""Pinyin frontend subsystem — three subsystem entry points: :func:`annotate`,
+:func:`list_resolvers` and :func:`available_resolvers` (registry
+enumeration for CLI / editor pickers).
 
 Internally backed by a registry of pluggable resolvers
 (``null`` / ``pypinyin`` / ``g2pm`` / ``g2pw`` / ``auto``). Callers go
@@ -242,7 +243,15 @@ def _suppress_low_confidence(
     mismatch, unknown character) are about different problems and stay.
     """
     ctx.warnings.discard(
-        lambda w: w.code == "LOW_CONFIDENCE_PINYIN" and w.surface in user_dict
+        lambda w: (
+            w.code == "LOW_CONFIDENCE_PINYIN"
+            # Multi-character surfaces only — a single-character key would
+            # withdraw the warning without the reading ever being applied
+            # (the override below skips single characters), leaving the
+            # polyphone neither covered nor reported.
+            and len(w.surface or "") > 1
+            and w.surface in user_dict
+        )
     )
 
 
@@ -273,7 +282,13 @@ def _apply_user_dict(
         if len(tok.surface) <= 1:
             continue
         reading = user_dict.get(tok.surface)
-        if reading and reading != tok.pinyin:
+        # A str check, not just truthiness: the option bag is reachable
+        # from a hand-edited file, and this pass runs AFTER
+        # _check_resolver_output — a non-str value would bypass its
+        # ``pinyin`` type check and surface as an AttributeError several
+        # layers later, in the backend. Skip the bad entry, like
+        # _normalize_seg_dict does for the analyzer's dictionary.
+        if isinstance(reading, str) and reading != tok.pinyin:
             # The校对员 pinned this reading in their personal dict, so it's
             # certain — clear the resolver's stale confidence so a low value
             # doesn't serialize onto a now-definite reading (matches the

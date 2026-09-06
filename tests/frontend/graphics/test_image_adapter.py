@@ -86,6 +86,23 @@ class TestImageToSvg:
         img = _parse(image_to_svg(json.dumps({"path": str(p), "threshold": 999})))[0]
         assert img.get("data-bk-threshold") == "255"
 
+    def test_infinite_width_mm_falls_back_to_default(self, tmp_path):
+        # json.loads accepts ``Infinity``; it converts cleanly through
+        # float() but is not a size — it used to reach the SVG as the
+        # literal width="infmm". as_finite is the gate now.
+        p = _make_png(tmp_path, 40, 20)
+        root = _parse(image_to_svg(json.dumps({"path": str(p), "width_mm": float("inf")})))
+        assert root.get("width") == "160mm"  # default longest side
+        assert root.get("height") == "80mm"
+
+    def test_infinite_threshold_falls_back_to_default(self, tmp_path):
+        # round(float("inf")) raises OverflowError, which used to escape
+        # this adapter's soft-failure contract.
+        p = _make_png(tmp_path, 4, 4)
+        out = image_to_svg(json.dumps({"path": str(p), "threshold": float("inf")}))
+        img = _parse(out)[0]
+        assert img.get("data-bk-threshold") == "128"
+
     def test_empty_source_soft_fails(self):
         root = _parse(image_to_svg("   "))
         assert root.get("data-bk-error") is not None

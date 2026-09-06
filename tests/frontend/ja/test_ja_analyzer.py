@@ -218,3 +218,34 @@ class TestAutoPick:
         monkeypatch.setattr(Registry, "get", fake)
         with pytest.raises(RuntimeError):
             _pick()
+
+
+class TestSpanRecoveryClamp:
+    """The shared cursor recovery clamps a synthetic start so an engine
+    that invents a surface degrades to TOKEN_SPAN_MISMATCH instead of a
+    FrontendContractError that sinks the whole segment."""
+
+    def _fake(self, surfaces: list[str]):
+        class _Tok:
+            def __init__(self, surface):
+                self.surface = surface
+                self.phonetic = surface
+                self.part_of_speech = "名詞"
+
+        class _Tokenizer:
+            def tokenize(self, _text):
+                return [_Tok(s) for s in surfaces]
+
+        from brailix.frontend.ja.analyzer.adapters.janome import (
+            JanomeJapaneseAnalyzer,
+        )
+
+        return JanomeJapaneseAnalyzer(tokenizer=_Tokenizer())
+
+    def test_invented_surface_stays_inside_text(self):
+        toks = self._fake(["本を", "XYZQ"]).analyze("本を読む")
+        assert toks[0].span == Span(0, 2)
+        # "XYZQ" is nowhere in the 4-char text: synthetic start at the
+        # cursor, end clamped to the text's end — past-the-end spans used
+        # to raise FrontendContractError in the contract check.
+        assert toks[1].span == Span(2, 4)

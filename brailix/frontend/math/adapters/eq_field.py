@@ -28,6 +28,7 @@ from brailix.core.context import MathContext
 from brailix.frontend.math.adapters._atoms import tokenize_math_text
 from brailix.frontend.math.utils import (
     _MATHML_NS,
+    decode_source_bytes,
     merror_wrap,
     mrow_wrap,
     mtext,
@@ -159,12 +160,10 @@ class EqFieldMathSourceAdapter:
     source: str = "eq_field"
 
     def to_mathml(self, formula: str | bytes, ctx: MathContext | None = None) -> str:
-        if isinstance(formula, bytes):
-            try:
-                formula = formula.decode("utf-8")
-            except UnicodeDecodeError:
-                return merror_wrap(repr(formula), reason="non-utf8 bytes")
-        text = formula.strip()
+        decoded = decode_source_bytes(formula)
+        if decoded is None:
+            return merror_wrap(repr(formula), reason="non-utf8 bytes")
+        text = decoded.strip()
         if not text:
             return merror_wrap("", reason="empty input")
         # Strip the ``eq`` prefix (case-insensitive, may be absent).
