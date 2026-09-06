@@ -12,7 +12,7 @@ from __future__ import annotations
 from brailix.core.errors import WarningCollector
 
 # Safety cap so a pathological DPI × page size can't allocate an enormous
-# buffer. ~30 MP comfortably covers A4 at ~590 DPI; past it the raster is
+# buffer. ~30 MP comfortably covers A4 at ~556 DPI; past it the raster is
 # scaled down to fit and a warning is emitted (no silent truncation).
 _MAX_RASTER_PIXELS = 30_000_000
 

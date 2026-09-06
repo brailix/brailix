@@ -216,6 +216,16 @@ HANG_CLOSE_CELL = BrailleCell(dots=(), role="hang_close")
 CASES_OPEN_CELL = BrailleCell(dots=(), role="cases_open")
 CASES_CLOSE_CELL = BrailleCell(dots=(), role="cases_close")
 
+# The roles whose cells carry no glyph of their own in the linear flow:
+# the region sentinels above plus ``cases_palette``. The plain renderers
+# (unicode / brf) skip them and the layout renderer consumes them for
+# structure — one definition here so the three agree by construction
+# instead of by three hand-kept copies (a role added to this set with a
+# renderer missed used to be the way a structural cell became ink).
+SENTINEL_ROLES = frozenset(
+    {"hang_open", "hang_close", "cases_open", "cases_close", "cases_palette"}
+)
+
 
 # --- Span-carrying factories for the control / spacing cells ----------------
 #

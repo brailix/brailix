@@ -14,7 +14,6 @@ from brailix.core.config import load_builtin_numbers_table
 from brailix.renderer._page_digits import (
     page_number_brf,
     page_number_chars,
-    page_number_width,
 )
 from brailix.renderer.unicode_braille import dots_to_char
 
@@ -34,11 +33,6 @@ class TestGoldenValues:
 
     def test_brf_single_page(self):
         assert page_number_brf(1) == b"#A"
-
-    def test_width(self):
-        assert page_number_width(7) == 2
-        assert page_number_width(42) == 3
-        assert page_number_width(100) == 4
 
 
 class TestSingleAuthority:

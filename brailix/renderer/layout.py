@@ -83,6 +83,7 @@ from typing import Literal as _Literal
 from brailix.core.span import Span
 from brailix.ir.braille import (
     BLANK_CELL,
+    SENTINEL_ROLES,
     BrailleBlock,
     BrailleCell,
     BrailleDocument,
@@ -117,14 +118,12 @@ from brailix.renderer._page_digits import (
     page_number_chars as _page_number_chars,
 )
 
-# Zero-width region sentinels + the cases palette carry no glyph of their
-# own in the linear flow — the layout consumes them for structure and the
-# verbatim (table-cell) copy-through drops them. ``cases_palette`` DOES
-# carry dots (the brace segments) but is layout metadata, stamped onto
-# physical lines rather than placed inline.
-_REGION_SENTINEL_ROLES = frozenset(
-    {"hang_open", "hang_close", "cases_open", "cases_close", "cases_palette"}
-)
+# The zero-width region sentinels + the cases palette, consumed here for
+# structure and dropped by the verbatim (table-cell) copy-through:
+# ``SENTINEL_ROLES`` (defined once in ``ir.braille``, shared with the plain
+# renderers). ``cases_palette`` DOES carry dots (the brace segments) but is
+# layout metadata, stamped onto physical lines rather than placed inline.
+_REGION_SENTINEL_ROLES = SENTINEL_ROLES
 
 
 @_dataclass(slots=True)
@@ -1058,8 +1057,8 @@ def _page_number_line[LineT: (str, bytes)](
     Right-aligned: blanks then the number, so it ends at the right edge.
     Left-aligned: the number at column 0 (no trailing blanks — a braille
     line carries no meaning past its last cell).  The number is never
-    dropped: on a line too narrow to hold it (pathological ``line_width <
-    page_number_width``) it simply overflows.
+    dropped: on a line too narrow to hold it (pathological ``line_width``
+    below the number's own width) it simply overflows.
 
     Generic over ``str`` (Unicode braille) and ``bytes`` (BRF); ``blank``
     is the one-cell blank in the matching type.

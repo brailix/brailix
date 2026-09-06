@@ -33,7 +33,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass as _dataclass
 
-from brailix.ir.braille import BrailleCell, BrailleDocument, BrailleSequence
+from brailix.ir.braille import (
+    SENTINEL_ROLES,
+    BrailleCell,
+    BrailleDocument,
+    BrailleSequence,
+)
 
 # NABCC lookup: index = 6-bit mask of dots 1..6, value = ASCII char.
 # Hand-verified against the official table; do not "optimise" — the
@@ -121,17 +126,9 @@ class BrfRenderer:
         for c in cells:
             if c.role == "line_break":
                 out += self.line_terminator
-            elif c.role not in _SKIP_ROLES:
+            elif c.role not in SENTINEL_ROLES:
                 out += cell_to_brf(c).encode("ascii")
         return bytes(out)
-
-
-# Region sentinels + cases palette carry no linear-flow glyph — the plain
-# renderers drop them (LayoutRenderer consumes them). Mirrors
-# unicode_braille._SKIP_ROLES.
-_SKIP_ROLES = frozenset(
-    {"hang_open", "hang_close", "cases_open", "cases_close", "cases_palette"}
-)
 
 
 def _load() -> BrfRenderer:

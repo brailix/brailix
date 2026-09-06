@@ -28,14 +28,16 @@ def _stamper(cells: list[BrailleCell]) -> LabelStamper:
 class TestDotPlacement:
     def test_single_dot_one_at_origin(self):
         r = _raster()
-        n = _stamper([BrailleCell(dots=(1,))]).stamp(r, 0, 0, "x")
+        cells = [BrailleCell(dots=(1,))]
+        n = _stamper(cells).stamp_cells(r, cells, 0, 0)
         assert n == 1
         assert r.raised_count() == 1
         assert r.get(0, 0)
 
     def test_full_cell_all_eight_dots(self):
         r = _raster()
-        _stamper([BrailleCell(dots=(1, 2, 3, 4, 5, 6, 7, 8))]).stamp(r, 0, 0, "x")
+        cells = [BrailleCell(dots=(1, 2, 3, 4, 5, 6, 7, 8))]
+        _stamper(cells).stamp_cells(r, cells, 0, 0)
         assert r.raised_count() == 8
         # Column 0 (dots 1,2,3,7) and column 1 (dots 4,5,6,8).
         assert r.get(0, 0) and r.get(0, 10) and r.get(0, 20) and r.get(0, 30)
@@ -44,13 +46,14 @@ class TestDotPlacement:
     def test_cell_advance(self):
         r = _raster()
         cells = [BrailleCell(dots=(1,)), BrailleCell(dots=(1,))]
-        _stamper(cells).stamp(r, 0, 0, "xy")
+        _stamper(cells).stamp_cells(r, cells, 0, 0)
         assert r.get(0, 0) and r.get(30, 0)
         assert r.raised_count() == 2
 
     def test_anchor_offset(self):
         r = _raster()
-        _stamper([BrailleCell(dots=(1,))]).stamp(r, 5, 7, "x")
+        cells = [BrailleCell(dots=(1,))]
+        _stamper(cells).stamp_cells(r, cells, 5, 7)
         assert r.get(5, 7)
 
 
@@ -58,7 +61,7 @@ class TestSpacingAndSkips:
     def test_blank_cell_advances_cursor(self):
         r = _raster()
         cells = [BrailleCell(dots=(1,)), BLANK_CELL, BrailleCell(dots=(1,))]
-        _stamper(cells).stamp(r, 0, 0, "x x")
+        _stamper(cells).stamp_cells(r, cells, 0, 0)
         assert r.get(0, 0)  # cell 0
         assert not r.get(30, 0)  # blank — no ink
         assert r.get(60, 0)  # cell 2 advanced past the blank
@@ -67,7 +70,7 @@ class TestSpacingAndSkips:
     def test_structural_sentinel_skipped_without_advance(self):
         r = _raster()
         cells = [LINE_BREAK_CELL, BrailleCell(dots=(1,))]
-        n = _stamper(cells).stamp(r, 0, 0, "x")
+        n = _stamper(cells).stamp_cells(r, cells, 0, 0)
         # The line-break sentinel is skipped and does NOT advance the cursor,
         # so the real cell still lands at the origin.
         assert n == 1
@@ -75,26 +78,16 @@ class TestSpacingAndSkips:
 
     def test_empty_translation(self):
         r = _raster()
-        n = _stamper([]).stamp(r, 0, 0, "")
+        n = _stamper([]).stamp_cells(r, [], 0, 0)
         assert n == 0
         assert r.raised_count() == 0
 
-    def test_translate_receives_text(self):
-        seen: list[str] = []
-
-        def translate(text: str) -> list[BrailleCell]:
-            seen.append(text)
-            return []
-
-        stamper = LabelStamper(
-            translate=translate,
-            dot_radius=0,
-            dot_dx=10.0,
-            dot_dy=10.0,
-            cell_dx=30.0,
-        )
-        stamper.stamp(_raster(), 0, 0, "hello")
-        assert seen == ["hello"]
+    def test_return_counts_trailing_inkless_cells(self):
+        # The return value is the cursor advance a caller uses to place the
+        # next run of cells; it must count blank cells even when nothing was
+        # painted after the last raised dot.
+        cells = [BrailleCell(dots=(1,)), BLANK_CELL, BLANK_CELL]
+        assert _stamper(cells).stamp_cells(_raster(), cells, 0, 0) == 3
 
 
 class TestFigureUnderDots:

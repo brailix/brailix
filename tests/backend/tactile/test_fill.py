@@ -10,7 +10,6 @@ from brailix.backend.tactile._fill import (
     _point_in_polygon,
     fill_ellipse,
     fill_polygon,
-    fill_rect,
     normalize_texture,
 )
 from brailix.ir.tactile import TactileRaster
@@ -70,22 +69,6 @@ class TestPointInPolygon:
     def test_outside(self):
         assert not _point_in_polygon(15, 5, self.SQUARE)
         assert not _point_in_polygon(-1, 5, self.SQUARE)
-
-
-class TestFillRect:
-    def test_horizontal_hatch(self):
-        r = _raster(10, 10)
-        fill_rect(r, 0, 0, 9, 9, FillStyle("hatch_horizontal", 4, 1, 255))
-        # rows 0, 4, 8 fully raised → 30 pixels.
-        assert r.raised_count() == 30
-        assert r.get(5, 0) and r.get(5, 4) and r.get(5, 8)
-        assert not r.get(5, 1)
-
-    def test_clipped_to_bounds(self):
-        r = _raster(10, 10)
-        fill_rect(r, -5, -5, 100, 100, FillStyle("hatch_horizontal", 4, 1, 255))
-        # No crash; rows 0/4/8 across the whole 10-wide raster.
-        assert r.raised_count() == 30
 
 
 class TestFillEllipse:

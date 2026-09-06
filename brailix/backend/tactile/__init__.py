@@ -315,12 +315,6 @@ class _State:
     )
     ctm: Affine = IDENTITY
 
-    def tx(self, x: float) -> int:
-        return _round_finite((x - self.minx) * self.sx)
-
-    def ty(self, y: float) -> int:
-        return _round_finite((y - self.miny) * self.sy)
-
     def dev(self, x: float, y: float) -> tuple[int, int]:
         """Map a user-space point through the current transform, then the
         viewBox->device mapping (paired so a rotating / skewing transform
