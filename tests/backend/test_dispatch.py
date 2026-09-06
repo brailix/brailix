@@ -377,12 +377,12 @@ class TestLatinWordIsNotAWordThatHappensToBeLatin:
         as_latin = insert_cross_kind_boundary_spaces(
             [LatinWord(surface="x", span=Span(0, 1)),
              Word(surface="轴", span=Span(1, 2))],
-            profile.zh_compounds,
+            profile.lang_spec("compounds", frozenset()),
         )
         as_word = insert_cross_kind_boundary_spaces(
             [Word(surface="x", span=Span(0, 1)),
              Word(surface="轴", span=Span(1, 2))],
-            profile.zh_compounds,
+            profile.lang_spec("compounds", frozenset()),
         )
         assert [type(n).__name__ for n in as_latin] == [
             "LatinWord", "Connector", "Word"

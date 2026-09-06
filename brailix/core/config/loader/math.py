@@ -33,7 +33,6 @@ _EMPTY_MATH: dict[str, Any] = {
     "symbol_roles": {},
     "symbol_accent_mark": {},
     "symbol_script_prefix": {},
-    "symbol_provisional": {},
     "symbol_indicator": {},
     "function_big_op": {},
     "function_script_prefix": {},
@@ -86,7 +85,6 @@ def _load_math_table(
     # (accent.mark.<kind>.{single,double}); this map only says which kind.
     symbol_accent_mark = _flag_dict_str(sym_dict, "accent_mark")
     symbol_script_prefix = _flag_dict_bool(sym_dict, "script_prefix")
-    symbol_provisional = _flag_dict_bool(sym_dict, "provisional")
     symbol_indicator = _flag_dict_str(sym_dict, "indicator")
 
     # --- Functions: NO entity normalisation (function names are
@@ -110,7 +108,6 @@ def _load_math_table(
         "symbol_roles": symbol_roles,
         "symbol_accent_mark": symbol_accent_mark,
         "symbol_script_prefix": symbol_script_prefix,
-        "symbol_provisional": symbol_provisional,
         "symbol_indicator": symbol_indicator,
         "function_big_op": function_big_op,
         "function_script_prefix": function_script_prefix,
