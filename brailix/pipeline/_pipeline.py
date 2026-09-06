@@ -707,7 +707,16 @@ class Pipeline:
         # unknown symbol.
         silent = WarningCollector(mode=RunMode.NORMAL)
         math_ctx = MathContext(
-            source=source, mode="inline", profile=self.profile, warnings=silent
+            source=source,
+            mode="inline",
+            profile=self.profile,
+            warnings=silent,
+            # The same options the document path hands its inline parses
+            # (frontend_driver builds its MathContext from the caller's
+            # ctx.options) — a preview and a compile must present the
+            # adapter the same view; only the warnings collector differs
+            # (preview diagnostics are discarded by contract).
+            options=self._frontend.frontend_options(),
         )
         tree = _frontend_parse_math_tree(surface, math_ctx)
         if tree is None:
@@ -946,7 +955,9 @@ class Pipeline:
         """Parse ``text`` into a :class:`DocumentIR` without translating.
 
         ``format`` selects the adapter and must be one of
-        :data:`PARSE_TEXT_FORMATS`: ``"plain"`` (one paragraph),
+        :data:`PARSE_TEXT_FORMATS`: ``"plain"`` (one Paragraph per source
+        line — note :meth:`translate_text` instead wraps the whole input
+        as ONE Paragraph, so the two differ on multi-line text),
         ``"markdown"`` (the Markdown subset described under
         :func:`brailix.input.parse_markdown` — headings, lists,
         quotes, code blocks, ``$$...$$`` math, tables), or a score
@@ -970,20 +981,13 @@ class Pipeline:
                 language=self._profile.language,
                 profile=self._profile.name,
             )
-            # Same identity stamp translate_* uses — adds
-            # ``profile_requested`` when this pipeline was built from an
-            # alias, so a parsed-then-persisted doc matches a translated one.
-            doc.metadata.update(self._ir_metadata())
-            return doc
-        if format == "plain":
+        elif format == "plain":
             doc = _parse_plain(
                 text,
                 language=self._profile.language,
                 profile=self._profile.name,
             )
-            doc.metadata.update(self._ir_metadata())
-            return doc
-        if format in _SCORE_TEXT_FORMATS:
+        elif format in _SCORE_TEXT_FORMATS:
             # Wrap raw score text as a single ScoreBlock so any caller using
             # parse_text can route a score through the same block-level
             # compile path it uses for markdown / plain.
@@ -999,10 +1003,16 @@ class Pipeline:
                 metadata=self._ir_metadata(),
                 blocks=[ScoreBlock(text=text, source=format)],
             )
-        raise ValueError(
-            f"unknown parse format: {format!r} "
-            f"(expected one of {sorted(self.PARSE_TEXT_FORMATS)})"
-        )
+        else:
+            raise ValueError(
+                f"unknown parse format: {format!r} "
+                f"(expected one of {sorted(self.PARSE_TEXT_FORMATS)})"
+            )
+        # Same identity stamp translate_* uses — adds
+        # ``profile_requested`` when this pipeline was built from an
+        # alias, so a parsed-then-persisted doc matches a translated one.
+        doc.metadata.update(self._ir_metadata())
+        return doc
 
     def parse_file(
         self,
