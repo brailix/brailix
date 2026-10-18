@@ -20,6 +20,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from brailix import Pipeline
+from brailix.core import inline_math
 from brailix.core.context import MathContext
 from brailix.frontend.math import parse_math_tree
 from brailix.frontend.math.registry import math_source_registry
@@ -135,6 +136,32 @@ class TestMathmlAdapterWiring:
         assert math_nodes[0].tree is not None
         assert isinstance(math_nodes[0].tree, ET.Element)
         assert math_nodes[0].tree.tag == "math"
+
+    def test_tagged_island_next_to_literal_dollar(self):
+        """The docx shape end-to-end: prose with a literal ``$`` mixed with
+        a tagged inline-math island (:func:`brailix.core.inline_math.wrap`).
+
+        The island must arrive as ONE MathInline whose payload decodes to
+        the original (source + payload, ``$`` unescaped), get a converted
+        tree, and leave no control marker anywhere in the braille — the
+        greedy pair used to mate the prose ``$`` with the island's opening
+        ``$`` and shred the payload into the output as ``\\x1d`` "space"
+        cells. The literal ``$`` itself stays prose punctuation (warned,
+        unmapped) instead of stealing the island's opener."""
+        island = inline_math.wrap("mathml", "<math><mn>5</mn></math>")
+        pipe = Pipeline(profile="cn_current")
+        result = pipe.translate_text("费用$100，" + island + "元")
+
+        math_nodes = _find_math_nodes(result.ir)
+        assert len(math_nodes) == 1
+        assert math_nodes[0].surface == "<math><mn>5</mn></math>"
+        assert math_nodes[0].source == "mathml"
+        assert isinstance(math_nodes[0].tree, ET.Element)
+        assert math_nodes[0].tree.tag == "math"
+
+        braille = result.render()
+        assert "\x1d" not in braille and "\x1e" not in braille
+        assert "MATH_" not in "".join(w.code for w in result.warnings)
 
 
 # ---------------------------------------------------------------------------
