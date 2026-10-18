@@ -1,6 +1,7 @@
 import pytest
 
 from brailix.core.context import FrontendContext
+from brailix.core.inline_math import wrap
 from brailix.core.span import Span
 from brailix.frontend.segmentation import (
     char_category,
@@ -162,11 +163,57 @@ class TestDecimalNumbers:
         # "12." → digit_run "12" + punct "."
         s = _segs("12.")
         assert _types(s) == ["digit_run", "punct"]
+        assert _surfaces(s) == ["12", "."]
 
     def test_decimal_then_unit(self):
         s = _segs("3.5kg")
         assert _types(s) == ["digit_run", "latin_text"]
         assert s[0].surface == "3.5"
+
+
+class TestFullwidthDecimalNumbers:
+    """Full-width ．/， between digits fold into the digit_run as their
+    ASCII separators, so 「３．５」 and 「３，５００」 segment (and translate)
+    exactly like their half-width spellings. Full-width *digits* keep
+    riding the run verbatim — the prose backend folds those at render
+    time (backend/_digits.py fold_nonascii) — so only the separators are
+    folded, here, into the surface."""
+
+    def test_fullwidth_decimal_point_folds(self):
+        s = _segs("３．５米")
+        assert _types(s) == ["digit_run", "hanzi_text"]
+        assert _surfaces(s) == ["３.５", "米"]
+
+    def test_fullwidth_comma_folds(self):
+        s = _segs("３，５００米")
+        assert _types(s) == ["digit_run", "hanzi_text"]
+        assert _surfaces(s) == ["３,５００", "米"]
+
+    def test_mixed_multi_separator_run(self):
+        s = _segs("１，２３４．５６")
+        assert _types(s) == ["digit_run"]
+        assert s[0].surface == "１,２３４.５６"
+
+    def test_folded_run_keeps_one_char_per_span_position(self):
+        # Each folded separator is one char for one char, so span lengths
+        # still tile the source even where the surface differs from it.
+        s = _segs("３．５")
+        assert s[0].span == Span(0, 3)
+        assert s[0].span.length == len(s[0].surface)
+
+    def test_fullwidth_separator_needs_digits_on_both_sides(self):
+        # Flanked by non-digits it stays prose punctuation, like its
+        # ASCII twin ("12." / "1,," shapes).
+        assert _types(_segs("３．")) == ["digit_run", "punct"]
+        assert _surfaces(_segs("３．")) == ["３", "．"]
+        assert _types(_segs("．５")) == ["punct", "digit_run"]
+
+    def test_ideographic_full_stop_is_not_a_decimal(self):
+        # 。(U+3002) is the Chinese sentence end, never a decimal point —
+        # unlike ． (U+FF0E), its fold_fullwidth target is not ".".
+        s = _segs("３。５")
+        assert _types(s) == ["digit_run", "punct", "digit_run"]
+        assert _surfaces(s) == ["３", "。", "５"]
 
 
 class TestPunctuation:
@@ -352,6 +399,237 @@ class TestProtectedRegions:
         s = _segs("看 $x^2$$y^2$ 这里")
         math = [seg.surface for seg in s if seg.type == "math_inline"]
         assert math == ["$x^2$", "$y^2$"]
+
+
+class TestTaggedMathIslands:
+    """The docx-import shape: prose that mixes literal ``$`` characters
+    with machine-written tagged islands (:func:`brailix.core.inline_math.wrap`).
+    The island is one atom; a prose ``$`` never pairs with it, across it
+    or into it — the greedy pair used to shred the island and leak its
+    ``\\x1d`` markers into the braille as "space" cells."""
+
+    def test_tagged_island_is_one_atomic_math_inline(self):
+        island = wrap("omml", "<m:oMath>x+1</m:oMath>")
+        s = _segs("公式" + island + "结束")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("hanzi_text", "公式"),
+            ("math_inline", island),
+            ("hanzi_text", "结束"),
+        ]
+
+    def test_island_payload_with_literal_dollar_survives_whole(self):
+        # wrap escapes an inner ``$`` as RS (\\x1e), so the island's own
+        # close is the only ``$`` the scan can find — the island cannot be
+        # split by its payload.
+        island = wrap("omml", "a<$>b")
+        s = _segs("前" + island + "后")
+        assert [seg.surface for seg in s if seg.type == "math_inline"] == [island]
+
+    def test_bare_dollar_does_not_pair_with_island_open(self):
+        # 费用$100，公式<ISLAND> — the prose ``$`` must not take the
+        # island's opening ``$`` as its close.
+        island = wrap("omml", "x+1")
+        s = _segs("费用$100，公式" + island + "结束")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("hanzi_text", "费用"),
+            ("punct", "$"),
+            ("digit_run", "100"),
+            ("punct", "，"),
+            ("hanzi_text", "公式"),
+            ("math_inline", island),
+            ("hanzi_text", "结束"),
+        ]
+
+    def test_bare_dollar_does_not_pair_across_an_island(self):
+        # A ``$`` before the island and one after it: the span between
+        # them would swallow the machine island whole.
+        island = wrap("omml", "x+1")
+        s = _segs("总价$" + island + "中的$5元")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("hanzi_text", "总价"),
+            ("punct", "$"),
+            ("math_inline", island),
+            ("hanzi_text", "中的"),
+            ("punct", "$"),
+            ("digit_run", "5"),
+            ("hanzi_text", "元"),
+        ]
+
+    def test_island_after_bare_dollar_still_protects_itself(self):
+        island = wrap("omml", "x+1")
+        s = _segs(island + "总价$5元")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("math_inline", island),
+            ("hanzi_text", "总价"),
+            ("punct", "$"),
+            ("digit_run", "5"),
+            ("hanzi_text", "元"),
+        ]
+
+    def test_doubled_dollars_glued_to_an_island_prefer_the_island(self):
+        # The pair's second ``$`` opens the island; skipping the ``$$``
+        # would shred it, so the island reading wins and the stray ``$``
+        # stays punct.
+        island = wrap("omml", "x+1")
+        s = _segs("a$" + island + "b")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("latin_text", "a"),
+            ("punct", "$"),
+            ("math_inline", island),
+            ("latin_text", "b"),
+        ]
+
+    def test_no_control_marker_leaks_outside_the_island(self):
+        island = wrap("omml", "x+1")
+        for seg in _segs("费用$100，公式" + island + "结束"):
+            if seg.type != "math_inline":
+                assert "\x1d" not in seg.surface
+                assert "\x1e" not in seg.surface
+
+
+class TestUntaggedMathIslands:
+    """The Word-importer export shape: ``$<math ...>...</math>$`` islands
+    with NO wire tag. Same atom rule as tagged islands — a prose ``$``
+    never pairs with, across or into one. The payload is raw MathML whose
+    ``$`` is entity-escaped by the exporter, and the close is located
+    past the ``</math>`` terminator so even an un-escaped payload ``$``
+    can't split the island."""
+
+    ISLAND = "$<math><msup><mi>x</mi><mn>2</mn></msup></math>$"
+
+    def test_untagged_island_is_one_atomic_math_inline(self):
+        s = _segs("公式" + self.ISLAND + "结束")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("hanzi_text", "公式"),
+            ("math_inline", self.ISLAND),
+            ("hanzi_text", "结束"),
+        ]
+
+    def test_prose_dollar_before_untagged_island_does_not_pair(self):
+        # 这本书$5，求 <ISLAND> 的值 — the price ``$`` must not take the
+        # island's opening ``$`` as its close (this exact shape used to
+        # swallow 「5，求 」 as a bogus formula and shred the MathML).
+        s = _segs("这本书$5，求 " + self.ISLAND + " 的值")
+        types = [(seg.type, seg.surface) for seg in s]
+        assert ("math_inline", self.ISLAND) in types
+        # Exactly one math inline, and the prose between the amounts
+        # survives as prose (not inside any math span).
+        assert [t for t, _ in types].count("math_inline") == 1
+        assert ("punct", "$") in types
+        assert ("hanzi_text", "求") in types or any(
+            t == "hanzi_text" and "求" in surf for t, surf in types
+        )
+
+    def test_payload_dollar_does_not_close_the_island_early(self):
+        # Raw MathML carrying an un-escaped ``$`` in an <mi>: the close is
+        # the ``$`` after ``</math>``, so the island stays whole.
+        island = "$<math><mi>$</mi></math>$"
+        s = _segs("a" + island + "b")
+        assert [seg.surface for seg in s if seg.type == "math_inline"] == [island]
+
+    def test_bare_dollar_does_not_pair_across_an_untagged_island(self):
+        s = _segs("总价$" + self.ISLAND + "中的$5元")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("hanzi_text", "总价"),
+            ("punct", "$"),
+            ("math_inline", self.ISLAND),
+            ("hanzi_text", "中的"),
+            ("punct", "$"),
+            ("digit_run", "5"),
+            ("hanzi_text", "元"),
+        ]
+
+    def test_unterminated_math_prefix_is_prose(self):
+        # ``$<math`` with no ``</math>`` and no closing ``$`` — not an
+        # island the scanner can close, falls through to pairing rules.
+        s = _segs("a$<math b")
+        assert [seg.surface for seg in s if seg.type == "math_inline"] == []
+
+
+class TestCurrencyDollar:
+    """A ``$`` glued to a digit is a currency amount, not half of a
+    formula: the greedy pair used to swallow the prose between two
+    amounts (「苹果$5,梨$6。」 turned 梨 into blank math cells). The
+    disambiguation looks only at the character *after* the candidate
+    close — never at the island's content, which is what keeps golden
+    hanzi-bearing formulas like ``$\\text{速度}$`` legal."""
+
+    def test_two_amounts_and_prose_between_survive(self):
+        s = _segs("苹果$5,梨$6。")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("hanzi_text", "苹果"),
+            ("punct", "$"),
+            ("digit_run", "5"),
+            ("punct", ","),
+            ("hanzi_text", "梨"),
+            ("punct", "$"),
+            ("digit_run", "6"),
+            ("punct", "。"),
+        ]
+
+    def test_spaced_amounts_stay_prose(self):
+        s = _segs("价格 $5 和 $6 元")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("hanzi_text", "价格"),
+            ("space", " "),
+            ("punct", "$"),
+            ("digit_run", "5"),
+            ("space", " "),
+            ("hanzi_text", "和"),
+            ("space", " "),
+            ("punct", "$"),
+            ("digit_run", "6"),
+            ("space", " "),
+            ("hanzi_text", "元"),
+        ]
+
+    def test_three_amounts_all_stay_prose(self):
+        # The chain must not re-pair the 2nd with the 3rd ``$`` once the
+        # 1st is refused: every amount stands alone.
+        s = _segs("苹果$5,梨$6,桃$7。")
+        assert [seg.surface for seg in s if seg.type == "punct" and seg.surface == "$"] == 3 * ["$"]
+        assert [seg.surface for seg in s if seg.type == "digit_run"] == ["5", "6", "7"]
+        assert [seg.surface for seg in s if seg.type == "hanzi_text"] == ["苹果", "梨", "桃"]
+
+    def test_digit_led_formula_after_an_amount_survives(self):
+        # 价格 $5 和 $1+1=2$ — the candidate close is followed by a digit
+        # but its own next ``$`` is a clean close, so it was a formula
+        # opener, not a price tag: the amount stays prose AND the formula
+        # still pairs.
+        s = _segs("价格 $5 和 $1+1=2$ 知道")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("hanzi_text", "价格"),
+            ("space", " "),
+            ("punct", "$"),
+            ("digit_run", "5"),
+            ("space", " "),
+            ("hanzi_text", "和"),
+            ("space", " "),
+            ("math_inline", "$1+1=2$"),
+            ("space", " "),
+            ("hanzi_text", "知道"),
+        ]
+
+    def test_digit_starting_math_still_pairs_when_not_after_a_currency(self):
+        # The golden shape 我 $1+1=2$ 知道: its closer is followed by a
+        # space, so the currency lookahead never fires.
+        s = _segs("我 $1+1=2$ 知道")
+        assert [seg.surface for seg in s if seg.type == "math_inline"] == ["$1+1=2$"]
+
+    def test_lone_number_island_still_pairs(self):
+        # "$5$" — the closer is followed by end-of-text, not a digit.
+        assert _surfaces(_segs("$5$")) == ["$5$"]
+
+    def test_hanzi_bearing_formula_still_pairs(self):
+        # Pins that the disambiguation is positional, not content-based:
+        # 汉字 inside $...$ stays legal math (golden $\text{速度}$ family).
+        assert _surfaces(_segs("$\\text{速度}$")) == ["$\\text{速度}$"]
+        assert _surfaces(_segs("$v_{\\text{初速度}}$")) == ["$v_{\\text{初速度}}$"]
+
+    def test_close_glued_to_fullwidth_digit_is_currency_too(self):
+        s = _segs("苹果$5，梨$６。")
+        assert [seg.surface for seg in s if seg.type == "math_inline"] == []
+        assert [seg.surface for seg in s if seg.type == "punct"] == ["$", "，", "$", "。"]
 
 class TestRoundTripText:
     @pytest.mark.parametrize(

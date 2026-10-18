@@ -485,6 +485,87 @@ class TestInsertCrossKindBoundarySpaces:
         assert out[1].surface == ""
         assert out[1].span == Span(5, 5)
 
+    def test_date_then_number_inserts_space(self) -> None:
+        """…31日23时 — the date's trailing tone cell must not run straight
+        into the next number's sign; a date is a whole word on both
+        flanks, and the neighbour being a number rather than a hanzi
+        changes nothing about that (aligns with the composite rule's
+        both-sides spacing)."""
+        nodes = [
+            Date(surface="2026年12月31日", span=Span(0, 11)),
+            Number(surface="23", span=Span(11, 13)),
+        ]
+        out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
+        kinds = [type(n).__name__ for n in out]
+        assert kinds == ["Date", "Space", "Number"]
+        assert out[1].surface == ""
+        assert out[1].span == Span(11, 11)
+
+    def test_number_then_date_inserts_space(self) -> None:
+        # The unreachable-from-the-segmenter direction (two digit runs
+        # never touch), kept symmetric for hand-built IR: same whole-word
+        # rule, same Space.
+        nodes = [
+            Number(surface="3", span=Span(0, 1)),
+            Date(surface="2026年", span=Span(1, 6)),
+        ]
+        out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
+        assert [type(n).__name__ for n in out] == ["Number", "Space", "Date"]
+
+    def test_date_number_non_adjacent_not_spaced(self) -> None:
+        # A gap (punctuation, a user space) between them means a separator
+        # node already sits there — same guard as every other predicate.
+        nodes = [
+            Date(surface="12月31日", span=Span(0, 6)),
+            Number(surface="23", span=Span(7, 9)),
+        ]
+        out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
+        assert out == nodes
+
+    def test_ordinal_prefix_di_then_date_stays_tight(self) -> None:
+        """第2026年: the ordinal exemption extends past bare numbers to a
+        digit-led Date — 第 binds to a following *number*, and every Date
+        is digit-led (normalization only builds one from a leading
+        digit_run), so 第2026年 reads tight exactly like 第3. Before the
+        extension the pair took the composite Space and split 第 from its
+        own year."""
+        nodes = [
+            Word(surface="第", span=Span(0, 1)),
+            Date(surface="2026年", span=Span(1, 6)),
+        ]
+        out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
+        assert out == nodes
+
+    def test_ordinal_word_ending_in_di_then_date_stays_tight(self) -> None:
+        # The exemption is surface-suffix based like the bare-Number one:
+        # any Chinese word ENDING in 第 (门第2026年-style shapes) binds.
+        nodes = [
+            Word(surface="及第", span=Span(0, 2)),
+            Date(surface="2026年", span=Span(2, 7)),
+        ]
+        out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
+        assert out == nodes
+
+    def test_other_hanzi_then_date_still_spaced(self) -> None:
+        # 在2026年 — every hanzi that is not the ordinal prefix keeps the
+        # boundary Space before a date.
+        nodes = [
+            Word(surface="在", span=Span(0, 1)),
+            Date(surface="2026年", span=Span(1, 6)),
+        ]
+        out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
+        assert [type(n).__name__ for n in out] == ["Word", "Space", "Date"]
+
+    def test_date_then_di_not_exempt_in_reverse_direction(self) -> None:
+        # 2026年第 — the exemption binds 第 to what FOLLOWS it; a date
+        # followed by a word starting with 第 keeps its Space.
+        nodes = [
+            Date(surface="2026年", span=Span(0, 5)),
+            Word(surface="第二年", span=Span(5, 8)),
+        ]
+        out = insert_cross_kind_boundary_spaces(nodes, _COMPOUNDS)
+        assert [type(n).__name__ for n in out] == ["Date", "Space", "Word"]
+
 
     def test_a_percentage_gets_no_separator_here(self) -> None:
         # 50%的人 does take a blank between ⠨ and 的 — but it comes from ``%``
