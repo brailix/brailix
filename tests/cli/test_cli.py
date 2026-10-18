@@ -557,6 +557,70 @@ def test_invalid_utf8_stdin_exits_1(monkeypatch, capsys):
     assert "brailix:" in capsys.readouterr().err
 
 
+# --------------------------------------------------------------------------
+# Malformed .docx files: exit code, no traceback
+# --------------------------------------------------------------------------
+# These need the docx extra to reach the parse at all (a bare install
+# reports MissingExtraError instead, also a clean exit 1 — different
+# message), so they importorskip like the adapter's own suite.
+
+_W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def _minimal_ooxml(path, document_xml: bytes) -> None:
+    """A valid ZIP + package whose main part ``document_xml`` the caller
+    supplies — one helper for the two malformed shapes under test."""
+    import zipfile
+
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType='
+        '"application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/word/document.xml" ContentType='
+        '"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        "</Types>"
+    )
+    rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type='
+        '"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"'
+        ' Target="word/document.xml"/>'
+        "</Relationships>"
+    )
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", rels)
+        zf.writestr("word/document.xml", document_xml)
+
+
+@pytest.mark.parametrize(
+    ("name", "document_xml"),
+    [
+        ("garbage.docx", b"\x00\x01<<<not xml\xff\xfe"),
+        (
+            "nobody.docx",
+            f'<w:document xmlns:w="{_W_NS}"><w:sectPr/></w:document>'.encode(),
+        ),
+    ],
+    ids=["garbage-document-xml", "no-w-body"],
+)
+def test_malformed_docx_exits_1_without_traceback(tmp_path, capsys, name, document_xml):
+    # The CLI's contract: a malformed Word file is a translation error —
+    # exit 1, one-line message, no traceback. Both shapes used to escape
+    # parse_docx as raw lxml / TypeError exceptions, bypassing it.
+    pytest.importorskip("docx")
+    src = tmp_path / name
+    _minimal_ooxml(src, document_xml)
+    rc = main(["-f", str(src), "-p", "cn_current"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "not a valid .docx" in err
+    assert "Traceback" not in err
+
+
 def test_page_numbers_without_height_warns(capsys):
     rc = main(["123", "--page-numbers", "-p", "cn_current"])
     assert rc == 0
