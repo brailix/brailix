@@ -40,6 +40,7 @@ from brailix.input.docx._xml import (
 )
 from brailix.ir.document import (
     Block,
+    Footnote,
     Heading,
     ImageAlt,
     List,
@@ -94,6 +95,7 @@ def _iter_body_blocks(
     ole_blobs: dict[str, bytes] | None = None,
     chem_detection: bool = False,
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
+    footnotes: dict[str, Element] | None = None,
 ):
     """Yield IR blocks from ``w:body`` in document order.
 
@@ -113,11 +115,20 @@ def _iter_body_blocks(
     used to stamp :attr:`ImageAlt.target` when a ``<w:drawing>`` /
     ``<w:pict>`` is met. ``None`` still *detects* pictures (the
     placeholder and its alt text survive) but leaves ``target`` unset.
+
+    ``footnotes`` maps footnote ids to their ``<w:footnote>`` element
+    (:func:`._footnotes._build_footnote_map`); a
+    ``<w:footnoteReference>`` in a paragraph resolves through it and
+    surfaces a :class:`Footnote` block at the reference position. An
+    empty / absent map means no footnotes part, and a reference then
+    yields nothing — the pre-footnote behaviour for such a document.
     """
     if ole_blobs is None:
         ole_blobs = {}
     if image_blobs is None:
         image_blobs = {}
+    if footnotes is None:
+        footnotes = {}
     pending_list: list[Block] = []  # ListItems; typed as the field is
     pending_list_ordered: bool | None = None
 
@@ -139,6 +150,7 @@ def _iter_body_blocks(
                 ole_blobs=ole_blobs,
                 chem_detection=chem_detection,
                 image_blobs=image_blobs,
+                footnotes=footnotes,
             )
             for blk in blocks:
                 if isinstance(blk, ListItem):
@@ -161,6 +173,7 @@ def _iter_body_blocks(
                 ole_blobs=ole_blobs,
                 chem_detection=chem_detection,
                 image_blobs=image_blobs,
+                footnotes=footnotes,
             )
         elif tag == "oMathPara":
             yield from flush_list()
@@ -183,6 +196,7 @@ def _convert_paragraph(
     ole_blobs: dict[str, bytes] | None = None,
     chem_detection: bool = False,
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
+    footnotes: dict[str, Element] | None = None,
 ) -> list[Block]:
     """Convert a single ``<w:p>`` into one or more IR blocks.
 
@@ -194,7 +208,10 @@ def _convert_paragraph(
     the math still renders as display, not inline. An embedded picture
     (``<w:drawing>`` / ``<w:pict>``) splits the paragraph the same way:
     braille has no inline images, so the :class:`ImageAlt` placeholder
-    surfaces at block level in document order.
+    surfaces at block level in document order. A footnote reference
+    (``<w:footnoteReference>``) splits it too — the note's content
+    surfaces as a :class:`Footnote` block at the reference position
+    (braille is linear; an inline marker can't stay inline).
     """
     if ole_blobs is None:
         ole_blobs = {}
@@ -225,6 +242,7 @@ def _convert_paragraph(
         ole_blobs=ole_blobs,
         chem_detection=chem_detection,
         image_blobs=image_blobs,
+        footnotes=footnotes,
     ):
         if block_out is not None:
             flush_text()
@@ -293,15 +311,18 @@ def _walk_paragraph_content(
     ole_blobs: dict[str, bytes] | None = None,
     chem_detection: bool = False,
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
+    footnotes: dict[str, Element] | None = None,
 ):
     """Yield ``(text_piece, block | None)`` for each content unit.
 
     ``text_piece`` is the contribution to surrounding paragraph text
     (empty string when the unit is a standalone block). ``block`` is
-    non-None for display equations (``m:oMathPara`` children) and for
+    non-None for display equations (``m:oMathPara`` children), for
     embedded pictures (``<w:drawing>`` / ``<w:pict>`` → :class:`ImageAlt`
     — braille has no inline images, so a picture surfaces as its own
-    block); inline ``m:oMath`` produces a text piece carrying a deferred
+    block) and for footnote references (``<w:footnoteReference>`` →
+    :class:`Footnote`, resolved through the ``footnotes`` map); inline
+    ``m:oMath`` produces a text piece carrying a deferred
     source-tagged inline-math island (:mod:`brailix.core.inline_math`)
     the frontend converts later.
 
@@ -326,7 +347,13 @@ def _walk_paragraph_content(
     """
     if ole_blobs is None:
         ole_blobs = {}
-    tokens = _iter_paragraph_tokens(p, ole_blobs, image_blobs=image_blobs)
+    tokens = _iter_paragraph_tokens(
+        p,
+        ole_blobs,
+        image_blobs=image_blobs,
+        footnotes=footnotes,
+        chem_detection=chem_detection,
+    )
     yield from _coalesce_script_clusters(tokens, chem_detection=chem_detection)
 
 
@@ -335,6 +362,8 @@ def _iter_paragraph_tokens(
     ole_blobs: dict[str, bytes],
     *,
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
+    footnotes: dict[str, Element] | None = None,
+    chem_detection: bool = False,
 ):
     """Lower a ``<w:p>`` into a flat token stream for the coalescer.
 
@@ -345,8 +374,9 @@ def _iter_paragraph_tokens(
     * ``("math", str)`` — an already-formed inline-math island, opaque to
       script coalescing: a deferred source-tagged island (inline OMML / EQ
       field) or an eager ``$<math>...$`` one (OLE MTEF);
-    * ``("block", MathBlock | ImageAlt)`` — a standalone display equation,
-      or an embedded picture's placeholder (both split the paragraph).
+    * ``("block", MathBlock | ImageAlt | Footnote)`` — a standalone display
+      equation, an embedded picture's placeholder, or a footnote's content
+      (all split the paragraph).
 
     A token stream rather than flat text, so a run's vertical alignment
     survives down to the coalescer instead of being flattened away before
@@ -360,7 +390,12 @@ def _iter_paragraph_tokens(
     # so their inline math / scripts survive instead of being scraped to text.
     for child in p:
         yield from _emit_child_tokens(
-            child, ole_blobs, field_state, image_blobs=image_blobs
+            child,
+            ole_blobs,
+            field_state,
+            image_blobs=image_blobs,
+            footnotes=footnotes,
+            chem_detection=chem_detection,
         )
     # A field still open at paragraph end never reached its `end`: its
     # instruction was never assembled and its visible-fallback text was held
@@ -382,7 +417,13 @@ _TRANSPARENT_RUN_WRAPPERS = frozenset(
 
 
 def _emit_child_tokens(
-    child: Element, ole_blobs, field_state, *, image_blobs=None
+    child: Element,
+    ole_blobs,
+    field_state,
+    *,
+    image_blobs=None,
+    footnotes=None,
+    chem_detection: bool = False,
 ):
     """Yield paragraph tokens for one direct child of a ``<w:p>`` (or of a
     transparent run-container wrapper).
@@ -391,10 +432,11 @@ def _emit_child_tokens(
     (``<w:ins>`` / ``<w:del>`` / ``<w:moveFrom>`` / ``<w:moveTo>``),
     content-control (``<w:sdt>``), smart-tag and custom-XML wrappers can
     recurse through the *same* dispatch. Word emits ordinary runs — including
-    inline ``<m:oMath>`` islands, ``<w:object>`` OLE math and run
-    ``<w:vertAlign>`` scripts — inside these wrappers, so scraping a wrapper
-    for its text alone destroys all of it: a tracked-changes insertion of a
-    formula comes out as bare literal text, an OLE equation vanishes.
+    inline ``<m:oMath>`` islands, ``<w:object>`` OLE math, footnote
+    references and run ``<w:vertAlign>`` scripts — inside these wrappers, so
+    scraping a wrapper for its text alone destroys all of it: a
+    tracked-changes insertion of a formula comes out as bare literal text, an
+    OLE equation vanishes.
     """
     tag = _local(child.tag)
     if tag == "oMathPara":
@@ -404,11 +446,20 @@ def _emit_child_tokens(
     elif tag == "r":
         vert = _run_vert_align(child)
         for piece in _walk_run(
-            child, ole_blobs, field_state, image_blobs=image_blobs
+            child,
+            ole_blobs,
+            field_state,
+            image_blobs=image_blobs,
+            footnotes=footnotes,
+            chem_detection=chem_detection,
         ):
             if isinstance(piece, ImageAlt):
                 # An embedded picture: surface as a block token so the
                 # paragraph splits around it (braille has no inline images).
+                yield ("block", piece)
+            elif isinstance(piece, Footnote):
+                # A footnote reference: same block-level treatment — the
+                # note's content is prose of its own, not inline text.
                 yield ("block", piece)
             elif _is_inline_math(piece):
                 yield ("math", piece)
@@ -418,7 +469,11 @@ def _emit_child_tokens(
         # A hyperlink wraps ordinary runs / math — transparent to content.
         for hyper_child in child:
             yield from _emit_child_tokens(
-                hyper_child, ole_blobs, field_state, image_blobs=image_blobs
+                hyper_child,
+                ole_blobs,
+                field_state,
+                image_blobs=image_blobs,
+                footnotes=footnotes,
             )
     elif tag == "object":
         text = _ole_object_to_inline_math(child, ole_blobs)
@@ -452,7 +507,11 @@ def _emit_child_tokens(
         # content the wrapper carries.
         for sub in child:
             yield from _emit_child_tokens(
-                sub, ole_blobs, field_state, image_blobs=image_blobs
+                sub,
+                ole_blobs,
+                field_state,
+                image_blobs=image_blobs,
+                footnotes=footnotes,
             )
     elif tag == "sdt":
         # Structured-document tag (content control): inline content lives under
@@ -461,7 +520,11 @@ def _emit_child_tokens(
         if content is not None:
             for sub in content:
                 yield from _emit_child_tokens(
-                    sub, ole_blobs, field_state, image_blobs=image_blobs
+                    sub,
+                    ole_blobs,
+                    field_state,
+                    image_blobs=image_blobs,
+                    footnotes=footnotes,
                 )
     elif tag == "pPr":
         # Paragraph properties — already consumed by style / list detection.
@@ -469,14 +532,19 @@ def _emit_child_tokens(
     else:
         # Genuinely unknown wrapping element: descend transparently through the
         # SAME dispatch as the named run wrappers, so inline math / OLE / EQ
-        # fields / vertAlign scripts under an unrecognised wrapper survive
-        # instead of being flattened to bare <w:t> text (which also dropped the
-        # vertical-alignment context). In well-formed OOXML <w:t> always lives
-        # inside a <w:r>, which the 'r' branch above walks; property sub-trees
-        # (rPr/pPr/...) recurse to nothing, so this stays safe.
+        # fields / footnote references / vertAlign scripts under an
+        # unrecognised wrapper survive instead of being flattened to bare
+        # <w:t> text (which also dropped the vertical-alignment context). In
+        # well-formed OOXML <w:t> always lives inside a <w:r>, which the 'r'
+        # branch above walks; property sub-trees (rPr/pPr/...) recurse to
+        # nothing, so this stays safe.
         for sub in child:
             yield from _emit_child_tokens(
-                sub, ole_blobs, field_state, image_blobs=image_blobs
+                sub,
+                ole_blobs,
+                field_state,
+                image_blobs=image_blobs,
+                footnotes=footnotes,
             )
 
 
@@ -799,16 +867,20 @@ def _walk_run(
     field_state: _FieldState | None = None,
     *,
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
+    footnotes: dict[str, Element] | None = None,
+    chem_detection: bool = False,
 ):
-    """Yield the pieces inside a ``<w:r>``: text strings, plus an
-    :class:`ImageAlt` for each embedded picture.
+    """Yield the pieces inside a ``<w:r>``: text strings, an
+    :class:`ImageAlt` for each embedded picture, a :class:`Footnote` for
+    each footnote reference.
 
     Word commonly nests ``<w:object>`` inside a run when the equation
     is inline with text; every math piece stays a string appended to
     the surrounding paragraph text. A ``<w:drawing>`` / ``<w:pict>``
-    picture yields an :class:`ImageAlt` object instead — callers that
-    can only carry text (:func:`_walk_alt_subtree`) filter it out, the
-    paragraph token walker lifts it to a block token.
+    picture yields an :class:`ImageAlt` object instead, and a
+    ``<w:footnoteReference>`` a :class:`Footnote` — callers that can
+    only carry text (:func:`_walk_alt_subtree`) filter both out, the
+    paragraph token walker lifts each to a block token.
 
     ``field_state`` (when provided) tracks ``w:fldChar`` boundaries
     across runs so EQ fields whose instruction spans multiple runs
@@ -817,8 +889,13 @@ def _walk_run(
     Word's visible-text fallback doesn't end up duplicated alongside
     the converted math (a cached-result picture — e.g. INCLUDEPICTURE —
     is deliberately suppressed with it).
+
+    ``chem_detection`` only reaches the footnote branch (a note's own
+    paragraphs are converted with it, so a chemical cluster inside a
+    footnote reads like the same cluster in the body); the run's own
+    script clusters are linearised later, by the paragraph coalescer.
     """
-    parts: list[str | ImageAlt] = []
+    parts: list[str | ImageAlt | Footnote] = []
     for child in r:
         tag = _local(child.tag)
         if tag == "fldChar":
@@ -860,6 +937,21 @@ def _walk_run(
             parts.append("\n")
         elif tag == "tab":
             parts.append(" ")
+        elif tag == "footnoteReference":
+            # A footnote marker in the body: resolve it through the
+            # footnotes map and surface the note's content as its own
+            # block (braille is linear — the note is prose, not a glyph
+            # in the sentence). ``None`` means no footnotes part / no
+            # such id: nothing to surface, no marker text either.
+            footnote = _footnote_block(
+                child,
+                footnotes or {},
+                ole_blobs=ole_blobs,
+                chem_detection=chem_detection,
+                image_blobs=image_blobs,
+            )
+            if footnote is not None:
+                parts.append(footnote)
         elif tag == "drawing":
             image = _convert_drawing(child, image_blobs or {})
             if image is not None:
@@ -884,6 +976,55 @@ def _walk_run(
                 elif piece:
                     parts.append(piece)
     yield from parts
+
+
+def _footnote_block(
+    ref: Element,
+    footnotes: dict[str, Element],
+    *,
+    ole_blobs: dict[str, bytes],
+    chem_detection: bool,
+    image_blobs: dict[str, tuple[str, bytes]] | None,
+) -> Footnote | None:
+    """Resolve a ``<w:footnoteReference>`` to a :class:`Footnote` block.
+
+    ``ref`` is the body's reference element; ``footnotes`` the document's
+    id→element map (:func:`._footnotes._build_footnote_map`). ``None`` when
+    the reference carries no id or the map has no such footnote — a document
+    without a footnotes part, or a dangling reference, must degrade to the
+    no-footnote behaviour rather than crash (or invent an empty note).
+
+    The note's own paragraphs go through :func:`_convert_paragraph`, so a
+    formula / script cluster inside a footnote travels exactly as it would
+    in the body (deferred island, same chem setting). The auto-number mark
+    (``<w:footnoteRef/>`` — the first run of a typical note) is *not* text:
+    it stays out of ``text`` because :attr:`Footnote.ref` carries the
+    marker, which the backend renders as the leading ref cells
+    (:func:`brailix.backend.block._footnote_ref_cells`). An empty ``footnotes``
+    map is passed to the nested conversion on purpose: OOXML footnotes
+    cannot nest, so a (malformed) ``footnoteReference`` inside a footnote
+    would otherwise recurse into itself forever.
+    """
+    fid = _ns_attr(ref, _W_PREFIX, "id")
+    if not fid:
+        return None
+    fn = footnotes.get(fid)
+    if fn is None:
+        return None
+    texts: list[str] = []
+    for p in _iter_effective_body_children(fn):
+        if _local(p.tag) != "p":
+            continue
+        for blk in _convert_paragraph(
+            p,
+            ole_blobs=ole_blobs,
+            chem_detection=chem_detection,
+            image_blobs=image_blobs,
+            footnotes={},
+        ):
+            if blk.text:
+                texts.append(blk.text)
+    return Footnote(text="\n".join(texts), ref=fid)
 
 
 def _walk_alternate_content(
@@ -953,9 +1094,10 @@ def _walk_alt_subtree(
             yield "", _math_block_from_omath_para(child)
         elif tag == "r":
             for piece in _walk_run(child, ole_blobs, field_state):
-                # The (piece, math) contract carries text only; a picture
-                # inside an AlternateContent branch (shape / canvas fill)
-                # is out of scope here — drop its placeholder, keep text.
+                # The (piece, math) contract carries text only; a picture or
+                # a footnote reference inside an AlternateContent branch
+                # (shape / canvas fill, legacy fallback) is out of scope
+                # here — drop its placeholder, keep text.
                 if isinstance(piece, str):
                     yield piece, None
         elif tag == "fldSimple":
@@ -1000,6 +1142,7 @@ def _convert_table(
     ole_blobs: dict[str, bytes] | None = None,
     chem_detection: bool = False,
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
+    footnotes: dict[str, Element] | None = None,
 ) -> Table:
     rows: list[Block] = []  # TableRows; typed as the field is
     # Descend transparently through revision-tracking / content-control
@@ -1020,6 +1163,7 @@ def _convert_table(
                     ole_blobs=ole_blobs,
                     chem_detection=chem_detection,
                     image_blobs=image_blobs,
+                    footnotes=footnotes,
                 )
             )
         if cells:
@@ -1033,6 +1177,7 @@ def _convert_table_cell(
     ole_blobs: dict[str, bytes] | None = None,
     chem_detection: bool = False,
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
+    footnotes: dict[str, Element] | None = None,
 ) -> TableCell:
     """Flatten a cell's paragraphs into one TableCell text.
 
@@ -1040,7 +1185,10 @@ def _convert_table_cell(
     paragraphs); we join paragraph contents with a newline so a
     multi-paragraph cell still preserves the visual break. A nested
     table inside the cell is flattened the same way — its inner cells'
-    text is folded in rather than dropped.
+    text is folded in rather than dropped. A footnote referenced inside
+    a cell folds in the same way (its text, without the ref marker —
+    the flat-text constraint can't carry a nested block, exactly the
+    trade display math makes here).
     """
     parts: list[str] = []
     # Same transparent descent as _convert_table: a paragraph or nested table
@@ -1053,6 +1201,7 @@ def _convert_table_cell(
                 ole_blobs=ole_blobs,
                 chem_detection=chem_detection,
                 image_blobs=image_blobs,
+                footnotes=footnotes,
             )
             for blk in paragraph_blocks:
                 if isinstance(blk, MathBlock):
@@ -1067,7 +1216,8 @@ def _convert_table_cell(
                     # ImageAlt.text — the same flat-text constraint that
                     # folds display math; the placeholder (and with it the
                     # per-image convert affordance) exists at block level
-                    # only.
+                    # only. A Footnote block folds in as its text the same
+                    # way.
                     parts.append(blk.text or "")
         elif tag == "tbl":
             # Nested table: the braille cell renderer wants flat text, so
@@ -1078,6 +1228,7 @@ def _convert_table_cell(
                 ole_blobs=ole_blobs,
                 chem_detection=chem_detection,
                 image_blobs=image_blobs,
+                footnotes=footnotes,
             )
             for row in nested.blocks:
                 for inner_cell in row.blocks:

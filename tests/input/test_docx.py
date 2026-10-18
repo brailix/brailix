@@ -38,6 +38,7 @@ from brailix.input.docx import (  # noqa: E402
 )
 from brailix.input.limits import DEFAULT_INPUT_LIMITS, InputTooLargeError  # noqa: E402
 from brailix.ir.document import (  # noqa: E402
+    Footnote,
     Heading,
     List,
     ListItem,
@@ -2499,3 +2500,244 @@ class TestUnreadableArchiveMembers:
         monkeypatch.setattr(docx_adapter, "_MAX_DOCX_FILE_BYTES", 1)
         with pytest.raises(InputTooLargeError, match="over the"):
             parse_docx(p, profile="cn_current", language="zh-CN")
+
+
+# ---------------------------------------------------------------------------
+# Hand-built minimal OOXML packages
+# ---------------------------------------------------------------------------
+
+_PKG_CT = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+{extra_overrides}
+</Types>"""
+
+_PKG_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>"""
+
+_DOC_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+{rows}
+</Relationships>"""
+
+_FOOTNOTES_RELTYPE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
+)
+
+
+def _write_minimal_ooxml(
+    path: Path,
+    document_xml: bytes,
+    *,
+    extra_members: dict[str, bytes] | None = None,
+    doc_rel_rows: str = "",
+    content_type_overrides: str = "",
+) -> Path:
+    """A legal-enough OOXML package whose ``document.xml`` (and optional
+    extra parts) the caller supplies — the fixture for malformed-main-part
+    and footnote tests, where python-docx's own writer can't produce the
+    shape being tested."""
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            "[Content_Types].xml",
+            _PKG_CT.format(extra_overrides=content_type_overrides),
+        )
+        zf.writestr("_rels/.rels", _PKG_RELS)
+        zf.writestr("word/document.xml", document_xml)
+        if doc_rel_rows:
+            zf.writestr(
+                "word/_rels/document.xml.rels", _DOC_RELS.format(rows=doc_rel_rows)
+            )
+        for name, data in (extra_members or {}).items():
+            zf.writestr(name, data)
+    return path
+
+
+class TestMalformedDocumentXmlContract:
+    """The package opens (valid ZIP, valid package rels) but the main part
+    is broken: every such file is one ``ParseError``, the surface
+    ``parse_docx`` documents — not an lxml traceback, not a ``TypeError``
+    from walking a body that isn't there."""
+
+    def test_garbage_document_xml_is_a_parse_error(self, tmp_path: Path) -> None:
+        p = _write_minimal_ooxml(
+            tmp_path / "garbage.docx", b"\x00\x01<<<not xml\xff\xfe"
+        )
+        with pytest.raises(ParseError, match="not a valid .docx"):
+            parse_docx(p, language="zh-CN", profile="cn_current")
+
+    def test_missing_body_is_a_parse_error(self, tmp_path: Path) -> None:
+        # Well-formed document.xml without a w:body: python-docx opens the
+        # package and hands back a None body — the walker then used to blow
+        # up with TypeError deep inside the block iterator.
+        p = _write_minimal_ooxml(
+            tmp_path / "nobody.docx",
+            f'<w:document xmlns:w="{_W_NS}"><w:sectPr/></w:document>'.encode(),
+        )
+        with pytest.raises(ParseError, match="no w:body"):
+            parse_docx(p, language="zh-CN", profile="cn_current")
+
+    def test_well_formed_minimal_package_still_parses(self, tmp_path: Path) -> None:
+        # The same hand-built package WITH a body parses — proving the two
+        # refusals above are about the main part, not about the fixture.
+        p = _write_minimal_ooxml(
+            tmp_path / "ok.docx",
+            (
+                f'<w:document xmlns:w="{_W_NS}"><w:body>'
+                f'<w:p><w:r><w:t>hi</w:t></w:r></w:p>'
+                f"<w:sectPr/></w:body></w:document>"
+            ).encode(),
+        )
+        result = parse_docx(p, language="zh-CN", profile="cn_current")
+        assert [b.text for b in result.blocks if isinstance(b, Paragraph)] == ["hi"]
+
+
+# ---------------------------------------------------------------------------
+# Footnotes
+# ---------------------------------------------------------------------------
+
+
+def _footnotes_xml(notes: list[tuple[str, str]]) -> bytes:
+    """A ``word/footnotes.xml`` with the separator / continuationSeparator
+    entries Word always writes plus one content footnote per
+    ``(id, body)`` pair; a body of ``"a\\nb"`` becomes two paragraphs."""
+    parts = [
+        '<w:footnote w:type="separator" w:id="-1">'
+        "<w:p><w:r><w:separator/></w:r></w:p></w:footnote>",
+        '<w:footnote w:type="continuationSeparator" w:id="0">'
+        "<w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>",
+    ]
+    for fid, body in notes:
+        paras = "".join(
+            "<w:p><w:r><w:footnoteRef/></w:r>"
+            '<w:r><w:t xml:space="preserve">' + text + "</w:t></w:r></w:p>"
+            for text in body.split("\n")
+        )
+        parts.append('<w:footnote w:id="' + fid + '">' + paras + "</w:footnote>")
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:footnotes xmlns:w="' + _W_NS + '">' + "".join(parts) + "</w:footnotes>"
+    ).encode()
+
+
+def _footnoted_docx(tmp_path: Path, *, with_part: bool = True) -> Path:
+    """A body paragraph referencing footnote 1 mid-sentence, plus footnotes
+    1 (one paragraph) and 2 (two paragraphs) in the package."""
+    body = (
+        f'<w:document xmlns:w="{_W_NS}" xmlns:r="{_R_NS}"><w:body>'
+        f'<w:p><w:r><w:t>body text</w:t></w:r>'
+        f'<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr>'
+        f'<w:footnoteReference w:id="1"/></w:r>'
+        f'<w:r><w:t> after</w:t></w:r></w:p>'
+        f'<w:p><w:r><w:t>second</w:t></w:r>'
+        f'<w:r><w:footnoteReference w:id="2"/></w:r></w:p>'
+        f"<w:sectPr/></w:body></w:document>"
+    ).encode()
+    extra = (
+        {
+            "word/footnotes.xml": _footnotes_xml(
+                [("1", "first note"), ("2", "second note\nnote part two")]
+            )
+        }
+        if with_part
+        else None
+    )
+    return _write_minimal_ooxml(
+        tmp_path / ("footnoted.docx" if with_part else "no-part.docx"),
+        body,
+        extra_members=extra,
+        doc_rel_rows=(
+            f'<Relationship Id="rId9" Type="{_FOOTNOTES_RELTYPE}" '
+            f'Target="footnotes.xml"/>'
+            if with_part
+            else ""
+        ),
+        content_type_overrides=(
+            '<Override PartName="/word/footnotes.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.'
+            'wordprocessingml.footnotes+xml"/>'
+            if with_part
+            else ""
+        ),
+    )
+
+
+class TestFootnotes:
+    """A footnote reference in the body surfaces the note's content as a
+    :class:`Footnote` block at the reference position, with ``ref`` set so
+    the backend prepends the marker cells. Before this, the notes were
+    parsed by nobody — silently dropped, whole."""
+
+    def test_footnote_surfaces_at_its_reference(self, tmp_path: Path) -> None:
+        result = parse_docx(
+            _footnoted_docx(tmp_path), language="zh-CN", profile="cn_current"
+        )
+        footnote = next(b for b in result.blocks if isinstance(b, Footnote))
+        assert footnote.ref == "1"
+        assert footnote.text == "first note"
+        # At the reference position: the paragraph splits around the note
+        # (the same block-boundary split a picture makes), in document order.
+        kinds = [type(b).__name__ for b in result.blocks]
+        assert kinds == ["Paragraph", "Footnote", "Paragraph", "Paragraph", "Footnote"]
+        assert result.blocks[0].text == "body text"
+        assert result.blocks[2].text == "after"
+
+    def test_multi_paragraph_note_joins_with_newline(self, tmp_path: Path) -> None:
+        result = parse_docx(
+            _footnoted_docx(tmp_path), language="zh-CN", profile="cn_current"
+        )
+        second = [b for b in result.blocks if isinstance(b, Footnote)][1]
+        assert second.ref == "2"
+        assert second.text == "second note\nnote part two"
+
+    def test_no_footnotes_part_keeps_the_old_behaviour(self, tmp_path: Path) -> None:
+        # References with no footnotes part (or a dangling id) degrade to
+        # the pre-footnote parse: body text intact, no crash, no invented
+        # note. Separators never surface.
+        result = parse_docx(
+            _footnoted_docx(tmp_path, with_part=False),
+            language="zh-CN",
+            profile="cn_current",
+        )
+        assert not any(isinstance(b, Footnote) for b in result.blocks)
+        assert [b.text for b in result.blocks] == ["body text after", "second"]
+        # (No footnote part → no split either: the reference is invisible,
+        # so the paragraph stays whole — exactly the pre-fix parse.)
+
+    def test_python_docx_document_without_footnotes_is_unchanged(
+        self, tmp_path: Path
+    ) -> None:
+        # The common case: an ordinary python-docx document has no
+        # footnotes relationship at all — its parse is exactly what it was.
+        path, doc = _make_docx(tmp_path)
+        doc.add_paragraph("plain body")
+        doc.save(path)
+        result = parse_docx(path, profile="cn_current", language="zh-CN")
+        non_empty = [
+            b
+            for b in result.blocks
+            if not (isinstance(b, Paragraph) and not (b.text or "").strip())
+        ]
+        assert [b.text for b in non_empty] == ["plain body"]
+
+    def test_footnote_content_reaches_the_braille(self, tmp_path: Path) -> None:
+        # End-to-end: through the pipeline, each note is a footnote block
+        # whose leading cells are the ref marker the backend prepends
+        # (role="footnote_ref") — the marker logic this fix feeds — with
+        # the note prose translated after it.
+        from brailix import Pipeline
+
+        path = _footnoted_docx(tmp_path)
+        result = Pipeline(
+            profile="cn_current", analyzer="char", resolver="null"
+        ).translate_file(str(path))
+        blocks = [b for b in result.braille_ir.blocks if b.block_type == "footnote"]
+        assert len(blocks) == 2
+        first = blocks[0]
+        assert any(c.role == "footnote_ref" for c in first.cells)
+        assert first.cells[-1].source_text is not None  # note prose after the marker
+

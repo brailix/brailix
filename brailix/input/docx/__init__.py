@@ -104,6 +104,7 @@ from brailix.core.errors import (
     ParseError,
 )
 from brailix.input.docx._blocks import _iter_body_blocks
+from brailix.input.docx._footnotes import _build_footnote_map
 from brailix.input.docx._media import _build_image_blob_map
 from brailix.input.docx._ole import _build_ole_blob_map, _is_equation_ole
 from brailix.input.docx._xml import _INLINE_MATH_CLOSE, _INLINE_MATH_OPEN
@@ -385,11 +386,19 @@ def parse_docx(
 
     # python-docx raises ``docx.opc.exceptions.PackageNotFoundError`` for
     # anything that isn't a valid ZIP / OOXML container; older paths still
-    # surface ``zipfile.BadZipFile`` / ``KeyError``. Gather them into one
-    # exception tuple so the caller always sees a brailix :class:`ParseError`.
-    # The tuple is typed as a generic exception tuple, so it type-checks the
-    # same whether or not python-docx is installed (the import resolves to the
-    # real class with the extra, or to ``Any`` without it).
+    # surface ``zipfile.BadZipFile`` / ``KeyError``. A container that *is* a
+    # legal package but whose main part is garbage (``document.xml`` not
+    # parseable as XML) raises lxml's ``XMLSyntaxError`` — python-docx parses
+    # its parts with lxml, a hard dependency of the ``docx`` extra, so the
+    # lazy import below can only fail when python-docx itself already did
+    # (and :class:`MissingExtraError` was raised). No broad ``Exception``
+    # fallback here: lxml is guaranteed present whenever this tuple is built,
+    # and an unfetchable exception class is not a reason to swallow
+    # programming errors. Gather them into one exception tuple so the caller
+    # always sees a brailix :class:`ParseError`. The tuple is typed as a
+    # generic exception tuple, so it type-checks the same whether or not
+    # python-docx is installed (the import resolves to the real class with
+    # the extra, or to ``Any`` without it).
     bad_docx: tuple[type[BaseException], ...] = (_zipfile.BadZipFile, KeyError)
     try:
         from docx.opc.exceptions import PackageNotFoundError
@@ -397,6 +406,12 @@ def parse_docx(
         bad_docx += (Exception,)
     else:
         bad_docx += (PackageNotFoundError,)
+    try:
+        from lxml.etree import XMLSyntaxError
+    except ImportError:  # pragma: no cover — python-docx hard-requires lxml
+        pass
+    else:
+        bad_docx += (XMLSyntaxError,)
 
     # ONE read, under both ceilings; everything below consumes these bytes.
     data = _read_docx_bytes(p, limits)
@@ -415,7 +430,17 @@ def parse_docx(
 
     ole_blobs = _build_ole_blob_map(document)
     image_blobs = _build_image_blob_map(document)
+    footnote_map = _build_footnote_map(document)
     body = document.element.body
+    if body is None:
+        # A package whose document.xml is well-formed XML but has no
+        # ``w:body`` (a hand-built or truncated file): ``None`` here used to
+        # escape as a ``TypeError`` deep in the block walker, past the
+        # "malformed OOXML → ParseError" surface. Report it where the
+        # contract lives.
+        raise ParseError(
+            f"not a valid .docx file: {p} (document.xml has no w:body element)"
+        )
     try:
         blocks = list(
             _iter_body_blocks(
@@ -423,6 +448,7 @@ def parse_docx(
                 ole_blobs=ole_blobs,
                 chem_detection=chem_detection,
                 image_blobs=image_blobs,
+                footnotes=footnote_map,
             )
         )
     except RecursionError as e:
