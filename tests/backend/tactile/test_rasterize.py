@@ -66,6 +66,47 @@ class TestGeometryResolution:
         assert r.page_height_mm == 297.0
         assert any(w.code == "GRAPHICS_NO_GEOMETRY" for w in warn)
 
+    def test_single_width_derives_height_from_viewbox(self):
+        # SVG2 / mainstream-renderer semantics: width=100mm over a 2:1
+        # viewBox fixes the height at 50mm. It used to silently take the
+        # viewBox height in user units as millimetres (a 100x100 mm page),
+        # squashing the drawing.
+        root = _svg(viewBox="0 0 200 100", width="100mm")
+        warn = WarningCollector()
+        r = rasterize(root, _profile(), warn)
+        assert r.page_width_mm == 100.0
+        assert r.page_height_mm == 50.0
+        assert r.width == 394 and r.height == 197  # 2:1 preserved
+        assert "GRAPHICS_PARTIAL_PHYSICAL_SIZE" not in _codes(warn)
+
+    def test_single_height_derives_width_from_viewbox(self):
+        root = _svg(viewBox="0 0 200 100", height="50mm")
+        warn = WarningCollector()
+        r = rasterize(root, _profile(), warn)
+        assert r.page_width_mm == 100.0
+        assert r.page_height_mm == 50.0
+        assert r.width == 394 and r.height == 197
+        assert "GRAPHICS_PARTIAL_PHYSICAL_SIZE" not in _codes(warn)
+
+    def test_partial_size_without_viewbox_warns_and_falls_back(self):
+        # No viewBox → no aspect ratio to derive the missing side from: the
+        # unitless height falls back to user-units-as-mm, now with a warning
+        # instead of a silent distortion.
+        root = _svg(width="100mm", height="80")
+        warn = WarningCollector()
+        r = rasterize(root, _profile(), warn)
+        assert r.page_width_mm == 100.0
+        assert r.page_height_mm == 80.0
+        assert "GRAPHICS_PARTIAL_PHYSICAL_SIZE" in _codes(warn)
+
+    def test_both_physical_sides_unchanged_and_silent(self):
+        root = _svg(viewBox="0 0 200 100", width="100mm", height="80mm")
+        warn = WarningCollector()
+        r = rasterize(root, _profile(), warn)
+        assert r.page_width_mm == 100.0
+        assert r.page_height_mm == 80.0
+        assert "GRAPHICS_PARTIAL_PHYSICAL_SIZE" not in _codes(warn)
+
 
 class TestPrimitiveRendering:
     def test_line_raises_cells(self):
@@ -161,6 +202,42 @@ class TestSoftFailures:
         codes = [w.code for w in warn]
         assert codes.count("GRAPHICS_UNSUPPORTED_ELEMENT") == 1
 
+    def test_nested_svg_viewport_warns(self):
+        # A nested <svg> establishes a viewport (x/y/width/height/viewBox)
+        # the walk does not model — its children draw in the parent's space,
+        # silently misplaced. Detection only: the children still draw, and
+        # the same warning channel as <use> reports the ignored viewport.
+        root = _svg(
+            '<svg x="50" y="0" width="20" height="20" viewBox="0 0 10 10">'
+            "<line x1='0' y1='0' x2='10' y2='10'/></svg>",
+            viewBox="0 0 100 100",
+        )
+        warn = WarningCollector()
+        r = rasterize(root, _profile(), warn)
+        codes = [w.code for w in warn]
+        assert codes.count("GRAPHICS_UNSUPPORTED_ELEMENT") == 1
+        assert any("viewport" in w.message for w in warn)
+        assert r.raised_count() > 0  # children still drawn in place
+
+    def test_two_nested_svgs_warn_once(self):
+        root = _svg(
+            "<svg><line x1='0' y1='0' x2='1' y2='1'/></svg>"
+            "<svg><line x1='0' y1='0' x2='1' y2='1'/></svg>",
+            viewBox="0 0 100 100",
+        )
+        warn = WarningCollector()
+        rasterize(root, _profile(), warn)
+        assert [w.code for w in warn].count("GRAPHICS_UNSUPPORTED_ELEMENT") == 1
+
+    def test_root_svg_never_warns(self):
+        # The drawing's own root <svg> is the entry, not a child — it must
+        # not be reported as a nested viewport.
+        root = _svg("<line x1='0' y1='0' x2='10' y2='10'/>", viewBox="0 0 100 100")
+        warn = WarningCollector()
+        r = rasterize(root, _profile(), warn)
+        assert not any(w.code == "GRAPHICS_UNSUPPORTED_ELEMENT" for w in warn)
+        assert r.raised_count() > 0
+
     def test_path_is_drawn(self):
         root = _svg('<path d="M0 0 L9 9"/>', viewBox="0 0 100 100")
         warn = WarningCollector()
@@ -243,6 +320,85 @@ class TestStrokeWidth:
         )
         thin = self._line()
         assert rasterize(root, _profile()).raised_count() == thin
+
+    def test_singular_transform_stroke_width_does_not_raise(self):
+        # The red-team crash: matrix(1e200 ...) makes scale_factor()'s
+        # determinant overflow to inf, and round(inf) raised OverflowError
+        # out of _resolve_radius — escaping rasterize's never-raise contract
+        # through every entry point. The product guard degrades the radius
+        # instead.
+        root = _svg(
+            '<g transform="matrix(1e200 0 0 1e200 0 0)">'
+            '<line x1="0" y1="50" x2="100" y2="50" stroke-width="5"/></g>',
+            viewBox="0 0 100 100",
+        )
+        r = rasterize(root, _profile(), WarningCollector())  # must not raise
+        assert r.width >= 1 and r.height >= 1
+
+    def test_singular_transform_stroke_falls_back_to_inherited(self):
+        # Same singular transform, but tiny coordinates keep the line
+        # on-page (1e-198 * 1e200 = 100 user units ≈ the viewBox): the
+        # unusable stroke-width must fall back to the inherited radius —
+        # the bounded value — so the raster matches the stroke-less line.
+        def _count(extra: str) -> int:
+            root = _svg(
+                '<g transform="matrix(1e200 0 0 1e200 0 0)">'
+                f'<line x1="0" y1="0" x2="1e-198" y2="1e-198" {extra}/></g>',
+                viewBox="0 0 100 100",
+            )
+            return rasterize(root, _profile(), WarningCollector()).raised_count()
+
+        assert _count('stroke-width="5"') == _count("") > 0
+
+    def test_singular_transform_path_stroke_does_not_raise(self):
+        # A <path> under the same transform takes the same inf scale through
+        # path_scale(); flattening already guards non-finite spans, and the
+        # stroke guard keeps the whole handler raise-free.
+        root = _svg(
+            '<g transform="matrix(1e200 0 0 1e200 0 0)">'
+            '<path d="M0 0 L1e-198 1e-198" stroke-width="5"/></g>',
+            viewBox="0 0 100 100",
+        )
+        r = rasterize(root, _profile(), WarningCollector())  # must not raise
+        assert r.raised_count() > 0
+
+
+_SINGULAR_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+    '<g transform="matrix(1e200 0 0 1e200 0 0)">'
+    '<line x1="0" y1="50" x2="100" y2="50" stroke-width="5"/></g></svg>'
+)
+
+
+class TestSingularTransformEntries:
+    """The #1 crash escaped through every pipeline entry point (an
+    incremental per-block compile caller kept the poisoned fence failing
+    forever); each entry must now survive the same SVG. Imports are
+    function-local so this backend test module stays free of a hard
+    pipeline dependency."""
+
+    def _pipe(self):
+        from brailix.pipeline import Pipeline
+
+        return Pipeline(profile="cn_current", analyzer="char", resolver="null")
+
+    def test_translate_block_compiles_the_graphic_block(self):
+        from brailix.ir.document import GraphicBlock
+
+        compiled = self._pipe().translate_block(
+            GraphicBlock(text=_SINGULAR_SVG, source="svg")
+        )
+        assert compiled.raster is not None
+        assert compiled.raster.width >= 1
+
+    def test_translate_document_to_pages_survives(self):
+        from brailix.ir.document import DocumentIR, GraphicBlock
+        from brailix.pipeline import TactilePageResult
+
+        res = self._pipe().translate_document_to_pages(
+            DocumentIR(blocks=[GraphicBlock(text=_SINGULAR_SVG, source="svg")])
+        )
+        assert isinstance(res, TactilePageResult)
 
 
 class TestRasterClamp:
@@ -474,3 +630,57 @@ class TestSeparation:
                     height="100mm", viewBox="0 0 100 100")
         r = rasterize(root, _profile(), None, _full_cell_translator)
         assert r.raised_count() > 0
+
+
+class TestLabelOffPage:
+    """Off-page label detection — both axes. A label whose dots run past the
+    right page edge (x) or the bottom page edge (y) is silently truncated by
+    the raster's clipping; the stamp leaves half a cell that reads as
+    nothing. Detection only — the geometry is never moved (T2's rule). Same
+    diagnostic channel as the overlap checks. 1 user unit = 1 mm."""
+
+    def _render(self, inner: str):
+        root = _svg(inner, width="100mm", height="100mm", viewBox="0 0 100 100")
+        warn = WarningCollector()
+        r = rasterize(root, _profile(), warn, _full_cell_translator)
+        return warn, r
+
+    def test_label_past_right_edge_warns(self):
+        # A long label anchored near the right edge runs off the page: the
+        # first cells are on-page (still stamped, un-moved), the rest clip.
+        warn, r = self._render('<text x="90" y="20">abcdefghij</text>')
+        assert "GRAPHICS_LABEL_OFF_PAGE" in _codes(warn)
+        assert r.raised_count() > 0
+
+    def test_label_past_bottom_edge_warns(self):
+        # A cell's dot rows reach ~4 dot-pitches below the anchor; anchored
+        # at the page bottom the lower rows land below the last raster row.
+        warn, r = self._render('<text x="10" y="99">A</text>')
+        assert "GRAPHICS_LABEL_OFF_PAGE" in _codes(warn)
+
+    def test_label_partly_below_bottom_edge_still_stamps_rest(self):
+        # The truncation shape that matters: upper dot rows on-page, lower
+        # rows clipped — the label stays where the author put it.
+        warn, r = self._render('<text x="10" y="96">A</text>')
+        assert r.raised_count() > 0
+        assert any(
+            w.code == "GRAPHICS_LABEL_OFF_PAGE" and "bottom" in w.message
+            for w in warn
+        )
+
+    def test_in_page_label_no_warn(self):
+        warn, r = self._render('<text x="10" y="50">A</text>')
+        assert "GRAPHICS_LABEL_OFF_PAGE" not in _codes(warn)
+        assert r.raised_count() > 0
+
+    def test_off_page_warning_does_not_move_the_label(self):
+        # Detection only: the raster with the diagnostic is byte-identical
+        # to one compiled with no warning collector at all — the check
+        # never re-places the author's geometry (T2's rule).
+        root = _svg('<text x="70" y="20">abcdef</text>',
+                    width="100mm", height="100mm", viewBox="0 0 100 100")
+        warn = WarningCollector()
+        flagged = rasterize(root, _profile(), warn, _full_cell_translator)
+        silent = rasterize(root, _profile(), None, _full_cell_translator)
+        assert "GRAPHICS_LABEL_OFF_PAGE" in _codes(warn)
+        assert bytes(flagged.data) == bytes(silent.data)

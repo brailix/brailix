@@ -10,6 +10,7 @@ missing) are asserted by direct rasterizer calls and a monkeypatch.
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import xml.etree.ElementTree as ET
 
@@ -260,3 +261,126 @@ class TestRasterize:
         r = rasterize(svg, _profile(), record_provenance=True)
         assert r.provenance is not None
         assert r.provenance.get("img1")  # the image element touched pixels
+
+
+class TestSamplingSnapshot:
+    """Byte-exactness lock for the row-level affine sampler.
+
+    ``_h_image``'s per-pixel ``inv.apply`` + ``sampler.sample`` double loop
+    (a full-page A4@100dpi ``<image>`` spent ~0.5 s there) was replaced by
+    row-precomputed affine increments — hoisting the per-row terms out of
+    the column loop and inlining the sampler's index arithmetic, with a
+    fast path for axis-aligned placements (no rotation / skew). The
+    optimisation must reproduce the original output byte-for-byte, locked
+    two ways:
+
+    * frozen sha256 snapshots captured from the ORIGINAL per-pixel
+      implementation (seven placements / modes, incl. skew + rotation,
+      which take the generic path, and axis-aligned forms, which take the
+      fast path);
+    * a live reference loop re-running the original arithmetic
+      (``Affine.apply`` + ``ImageSampler.sample`` per pixel) compared
+      against whole rasters.
+    """
+
+    W, H = 24, 18
+
+    # name -> (image attrs, group transform or None, sha256 of raster data)
+    _SNAPSHOTS = {
+        "plain": (
+            'x="0" y="0" width="100" height="100"',
+            None,
+            "6fd0ca802f2e80c00369d1541b703a0f7a97343a8fa1464cd015f5df46d16889",
+        ),
+        "offset": (
+            'x="25" y="25" width="50" height="30"',
+            None,
+            "659b0425148bfca3aeca83694db18de2d1fb9149ecf4baeb92290796b5c33fa0",
+        ),
+        "skew": (
+            'x="10" y="10" width="60" height="60"',
+            "matrix(1 0.3 0.2 1 5 5)",
+            "572118a252db6b3bcbae0529edae59b90a3b07d8ac3bc76ef0db375364a38b5a",
+        ),
+        "rotate": (
+            'x="10" y="10" width="60" height="60"',
+            "rotate(30 50 50)",
+            "dd3f67816c83e362d03dffcf9ab253eaed17c8da21b02330b46a1977b65a3b2b",
+        ),
+        "scale": (
+            'x="0" y="0" width="40" height="40"',
+            "scale(2)",
+            "527246b744758c4c72e9f62d60d5b118d7d4270edaf999acac76d6dd85627e8b",
+        ),
+        "grayscale": (
+            'x="0" y="0" width="100" height="100" data-bk-mode="grayscale"',
+            None,
+            "bbd4f22cad91cea15e6de5680f5bc67c143a01df2f68d79a8e617e8d80a3b743",
+        ),
+        "invert": (
+            'x="0" y="0" width="100" height="100" data-bk-invert="1"',
+            None,
+            "62447781ab824c9b45f5401fbd64fe6b7e6e66c31aa5ad574b16a849cac3c4de",
+        ),
+    }
+
+    def _pattern(self) -> list[list[int]]:
+        # A fixed mixed-magnitude gray pattern: values straddling the 128
+        # threshold make any per-pixel index drift visible.
+        w, h = self.W, self.H
+        return [
+            [((x * 37 + y * 91) % 256 + (x * y) % 5) % 256 for x in range(w)]
+            for y in range(h)
+        ]
+
+    def _svg(self, attrs: str, transform: str | None) -> ET.Element:
+        href = _data_uri(self._pattern())
+        image = f'<image href="{href}" {attrs}/>'
+        if transform is not None:
+            image = f'<g transform="{transform}">{image}</g>'
+        return ET.fromstring(
+            '<svg width="100mm" height="100mm" viewBox="0 0 100 100">'
+            f"{image}</svg>"
+        )
+
+    @pytest.mark.parametrize("name", sorted(_SNAPSHOTS))
+    def test_snapshot_hash_unchanged(self, name):
+        attrs, transform, digest = self._SNAPSHOTS[name]
+        r = rasterize(self._svg(attrs, transform), _profile())
+        assert hashlib.sha256(bytes(r.data)).hexdigest() == digest
+
+    @pytest.mark.parametrize("mode", ["threshold", "grayscale"])
+    def test_full_page_matches_reference_loop(self, mode):
+        # The live equivalence check: rebuild the ORIGINAL per-pixel loop —
+        # Affine.apply for every device pixel, ImageSampler.sample for the
+        # mapping — and require the whole raster to match. A full-page
+        # placement makes the sampler's target size exactly the raster, so
+        # the reference needs no bbox replication.
+        from brailix.backend.tactile._transform import IDENTITY, Affine
+
+        href = _data_uri(self._pattern())
+        svg = _svg_image(href, mode=mode, box=(0, 0, 100, 100))
+        r = rasterize(svg, _profile())
+        # Exactly what _h_image builds: viewBox→device, then the (identity)
+        # CTM, then the [0,100]×[0,100] placement box, inverted for sampling.
+        sx = r.width / 100.0
+        sy = r.height / 100.0
+        viewbox = Affine(sx, 0.0, 0.0, sy, -0.0 * sx, -0.0 * sy)
+        full = viewbox.then(IDENTITY).then(Affine(100.0, 0.0, 0.0, 100.0, 0.0, 0.0))
+        inv = full.inverse()
+        sampler = load_tactile_image(
+            href, mode=mode, threshold=128, invert=False,
+            target_w=r.width, target_h=r.height,
+        )
+        ref = TactileRaster.blank(
+            r.width, r.height, dpi=r.dpi,
+            page_width_mm=r.page_width_mm, page_height_mm=r.page_height_mm,
+        )
+        for dy in range(r.height):
+            for dx in range(r.width):
+                u, v = inv.apply(dx + 0.5, dy + 0.5)
+                if 0.0 <= u < 1.0 and 0.0 <= v < 1.0:
+                    level = sampler.sample(u, v)
+                    if level > 0:
+                        ref.set_raise(dx, dy, level)
+        assert bytes(r.data) == bytes(ref.data)

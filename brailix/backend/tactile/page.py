@@ -295,7 +295,11 @@ def compose_pages(
     Both go through :func:`resolve_margin_mm` / :func:`resolve_item_gap_mm`,
     so an out-of-range one is refused here, in the caller's own terms, rather
     than turning into a clipped or mostly-blank page nobody can tell from an
-    intended one. Returns one raster per page — empty when ``items`` is empty.
+    intended one. Returns one raster per page — empty when ``items`` is empty
+    *or when nothing drew any ink* (a figure whose raster is entirely flat —
+    e.g. an empty graphic — or a run of blank separator lines): an embossed
+    blank sheet carries no information, and the compile's own warnings
+    already explain why nothing drew, so no blank page is shipped.
 
     Never raises **for its content**: a figure that cannot be placed degrades
     to a warning, not an exception. Its own geometry arguments are a
@@ -437,4 +441,11 @@ def compose_pages(
             place_text(item.lines)
         prev_was_figure = is_figure
 
-    return pages
+    # A page nothing was stamped on — a figure whose raster is entirely flat
+    # (an empty graphic fence still rasterises to a valid blank raster), a
+    # run of blank separator lines that alone opened the first page — is
+    # dropped: embossing it ships a blank sheet indistinguishable from a
+    # failure. ``max`` over the bytearray is a C-level scan, so the check
+    # costs far less than the stamping that filled the pages. Content pages
+    # are untouched: every one of them carries at least one raised dot.
+    return [page for page in pages if max(page.data) > 0]

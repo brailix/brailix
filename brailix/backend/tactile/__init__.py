@@ -15,10 +15,12 @@ Coordinate mapping
   ``viewBox`` (or ``width`` / ``height`` user units if no viewBox).
 * Its **physical** size in millimetres comes from ``width`` / ``height``
   when they carry real units (``mm`` / ``cm`` / ``in`` / ``pt`` / ``px``);
-  otherwise one logical user unit is taken as one millimetre — a clean,
-  predictable default that makes our own generated primitives
-  millimetre-addressable. With nothing at all, the profile page size is
-  used (with a warning).
+  when exactly one side carries a real unit and a viewBox is present, the
+  other side is derived through the viewBox aspect ratio (SVG2 /
+  mainstream-renderer semantics). Otherwise one logical user unit is
+  taken as one millimetre — a clean, predictable default that makes our
+  own generated primitives millimetre-addressable. With nothing at all,
+  the profile page size is used (with a warning).
 * **Device pixels** = physical millimetres × DPI ÷ 25.4. The single
   device-dependent dial is the profile's ``dpi``; everything else is
   device independent.
@@ -547,13 +549,67 @@ def _h_image(
             message=f"could not load image {href!r}: {exc}",
         )
         return
-    for dy in range(lo_y, hi_y + 1):
+    # Row-level affine sampling. ``u``/``v`` are affine in ``(dx, dy)``, so
+    # the per-row constant terms (``c·(dy+½)``, ``d·(dy+½)``) are hoisted
+    # out of the column loop and the sampler's index arithmetic
+    # (``int(u·w)`` + clamp) is inlined. Each expression keeps
+    # :meth:`Affine.apply`'s exact operation order (``a*x + c*y + e``
+    # evaluates ``((a*x) + (c*y)) + e``; the hoisted ``c*(dy+0.5)`` term is
+    # the same rounding), so every pixel maps to the same source texel the
+    # per-pixel ``inv.apply`` + ``sampler.sample`` loop produced — output
+    # locked byte-for-byte by test_image.py's snapshot hashes.
+    a, b, c, d, e, f = inv
+    sw = sampler.width
+    sh = sampler.height
+    levels = sampler.levels
+    set_raise = raster.set_raise
+    if b == 0.0 and c == 0.0:
+        # Axis-aligned placement (no rotation / skew — the overwhelmingly
+        # common case): u depends only on dx and v only on dy, so the
+        # column pass over u/px runs once per image and each row costs one
+        # v/py computation. With b == c == 0 the dropped cross terms are
+        # exact zeros, so the precomputed values equal apply()'s bit-for-bit.
+        cols = []
         for dx in range(lo_x, hi_x + 1):
-            u, v = inv.apply(dx + 0.5, dy + 0.5)
-            if 0.0 <= u < 1.0 and 0.0 <= v < 1.0:
-                level = sampler.sample(u, v)
+            u = a * (dx + 0.5) + e
+            if 0.0 <= u < 1.0:
+                px = int(u * sw)
+                if px >= sw:  # u < 1 but u*sw can round up to sw
+                    px = sw - 1
+                cols.append((dx, px))
+        for dy in range(lo_y, hi_y + 1):
+            v = d * (dy + 0.5) + f
+            if not 0.0 <= v < 1.0:
+                continue
+            py = int(v * sh)
+            if py >= sh:
+                py = sh - 1
+            row_base = py * sw
+            for dx, px in cols:
+                level = levels[row_base + px]
                 if level > 0:
-                    raster.set_raise(dx, dy, level)
+                    set_raise(dx, dy, level)
+        return
+    for dy in range(lo_y, hi_y + 1):
+        t = dy + 0.5
+        cu = c * t
+        dv = d * t
+        for dx in range(lo_x, hi_x + 1):
+            u = a * (dx + 0.5) + cu + e
+            if not 0.0 <= u < 1.0:
+                continue
+            v = b * (dx + 0.5) + dv + f
+            if not 0.0 <= v < 1.0:
+                continue
+            px = int(u * sw)
+            if px >= sw:
+                px = sw - 1
+            py = int(v * sh)
+            if py >= sh:
+                py = sh - 1
+            level = levels[py * sw + px]
+            if level > 0:
+                set_raise(dx, dy, level)
 
 
 _DISPATCH: dict[str, object] = {
@@ -640,7 +696,17 @@ def _resolve_radius(elem: ET.Element, st: _State, inherited: int) -> int:
     val = _parse_float(sw, -1.0)
     if val <= 0:
         return inherited
-    return max(st.min_radius, round(val * st.scale * st.ctm.scale_factor() / 2.0))
+    # The *product* must be finite, not just the parsed value: a huge
+    # ``matrix(1e200 0 0 1e200 0 0)`` makes ``scale_factor()``'s determinant
+    # overflow to inf, and ``round(inf)`` raises — the one gap (blue-team
+    # confirmed) in this path's never-raise coverage, escaping through
+    # every rasterize entry point. Degrade to the inherited radius (itself
+    # never below ``min_radius``) silently, the same degradation
+    # :func:`_round_finite` applies to coordinates.
+    scaled = val * st.scale * st.ctm.scale_factor() / 2.0
+    if not _math.isfinite(scaled):
+        return inherited
+    return max(st.min_radius, round(scaled))
 
 
 def _resolve_fill(elem: ET.Element, inherited: str | None) -> str | None:
@@ -674,6 +740,22 @@ def _walk(
         radius = _resolve_radius(child, st_eff, inherited_radius)
         fill = _resolve_fill(child, inherited_fill)
         if tag in _CONTAINERS:
+            if tag == "svg":
+                # A nested <svg> establishes its own viewport (x / y /
+                # width / height / viewBox) that this walk does not model:
+                # its children are drawn in the parent's coordinate space,
+                # silently misplaced. Detection only — the children keep
+                # drawing as before; the author learns the viewport is
+                # ignored. The root <svg> never passes through this loop,
+                # so it is never warned. Same warning channel / wording
+                # family as the deferred ``<use>`` diagnostic.
+                st_eff.warn_once(
+                    key="tag:svg",
+                    code="GRAPHICS_UNSUPPORTED_ELEMENT",
+                    message="<svg> nested inside the drawing: its "
+                    "x/y/viewBox viewport is not supported and is ignored; "
+                    "children are drawn in the parent coordinate space",
+                )
             # A group's stroke-width / fill / transform inherit into its subtree.
             _walk(child, raster, st_eff, radius, fill)
         elif tag == "text":
@@ -724,6 +806,16 @@ def _resolve_geometry(
     h_mm = _length_to_mm(root.get("height"))
     if vb:
         minx, miny, logw, logh = vb
+        # One physical side given, the other not: derive the missing side
+        # through the viewBox aspect ratio (SVG2 / mainstream-renderer
+        # semantics — the viewBox stretches to fit the given physical box).
+        # Without this, the missing side silently took the viewBox extent
+        # *in user units* as millimetres, distorting the drawing whenever
+        # the two numbers differ.
+        if w_mm is not None and h_mm is None:
+            h_mm = w_mm * logh / logw
+        elif h_mm is not None and w_mm is None:
+            w_mm = h_mm * logw / logh
     else:
         wu = _parse_float(root.get("width"), 0.0)
         hu = _parse_float(root.get("height"), 0.0)
@@ -739,6 +831,18 @@ def _resolve_geometry(
                 )
             minx, miny = 0.0, 0.0
             logw, logh = profile.page_width_mm, profile.page_height_mm
+        # No viewBox → no aspect ratio to derive the missing side from, so
+        # the single given physical side cannot fix its partner. Say so
+        # instead of silently letting the other side fall back to user
+        # units as millimetres (a page of the wrong proportions).
+        if warnings is not None and (w_mm is None) != (h_mm is None):
+            warnings.warn(
+                code="GRAPHICS_PARTIAL_PHYSICAL_SIZE",
+                message="only one of width/height carries a physical unit "
+                "and there is no viewBox to derive the other side; the "
+                "missing side falls back to user units as millimetres",
+                source="backend.tactile",
+            )
     phys_w_mm = w_mm if w_mm is not None else logw
     phys_h_mm = h_mm if h_mm is not None else logh
     # Defensive guards so a degenerate value can never divide by zero — or
@@ -770,7 +874,9 @@ def _place_labels(
     label, flag any whose dots land on already-raised *figure* pixels (the
     raster carries no labels yet) and collect footprints for the
     label-to-label check; (2) stamp them. A missing braille profile is warned
-    once and the label skipped."""
+    once and the label skipped. Labels whose dots run past the right or
+    bottom page edge are warned too — the stamp clips silently, so without
+    the check the truncation would be invisible."""
     placed: list[tuple[LabelStamper, str | None, list[BrailleCell], int, int]] = []
     label_boxes: list[tuple[str, tuple[int, int, int, int]]] = []
     figure_overlaps = 0
@@ -823,6 +929,23 @@ def _place_labels(
             message=f"{figure_overlaps} label(s) overlap the figure; "
             f"{len(label_collisions)} label pair(s) overlap each other — "
             f"braille dots may be unreadable",
+            source="backend.tactile",
+        )
+    # Off-page detection, both axes: a label whose dots run past the right
+    # page edge (x) or the bottom page edge (y) is silently truncated by
+    # the raster's clipping — half a cell embosses as unreadable dots. The
+    # raster here is the graphic's own page (and the page a PageFigure
+    # lands on is laid out from it), so its edges are the page edges. As
+    # with the overlap diagnostics: detection only, never moves the
+    # author's geometry.
+    off_right = sum(1 for _t, bb in label_boxes if bb[2] >= raster.width)
+    off_bottom = sum(1 for _t, bb in label_boxes if bb[3] >= raster.height)
+    if warnings is not None and (off_right or off_bottom):
+        warnings.warn(
+            code="GRAPHICS_LABEL_OFF_PAGE",
+            message=f"{off_right} label(s) run past the right page edge; "
+            f"{off_bottom} label(s) run past the bottom page edge — "
+            f"truncated braille dots cannot be read",
             source="backend.tactile",
         )
 
