@@ -10,11 +10,14 @@ The job here is purely ``reading -> cells``:
 
 1. Normalise the reading to katakana (tolerate hiragana input).
 2. Segment it into mora — maximal munch, so a base kana plus a following
-   small ゃ/ゅ/ょ binds into one youon mora (キ + ャ -> キャ).
+   small ゃ/ゅ/ょ binds into one youon mora (キ + ャ -> キャ), and a base
+   plus a following small vowel into one 外来語 mora (フ + ァ -> ファ).
 3. Look each mora up in the profile's ``kana`` table
    (``resources/ja/<scheme>/kana.json``) and emit one BrailleCell per
    cell. Dakuon / handakuon / youon mora resolve to two-cell sequences
-   already composed in the table (the ⑤/⑥/④ prefix then the base).
+   already composed in the table (the ⑤/⑥/④ prefix then the base); the
+   loanword mora (ファ / ウィ / シェ / ティ / ヴァ …) follow the same
+   prefix+base scheme per 日本点字表記法 2018.
 
 Missing reading -> ``MISSING_READING`` warning + one unknown cell per
 surface character. Unknown mora -> ``UNKNOWN_KANA`` warning + an unknown
@@ -36,11 +39,13 @@ from brailix.core.span import Span
 from brailix.ir.braille import BrailleCell
 from brailix.ir.inline import DateComponent, Word
 
-# Katakana small ya/yu/yo — these glue onto the preceding kana to form a
-# youon mora (キ + ャ -> キャ). Other small kana (ァ ィ ゥ ェ ォ, foreign
-# sounds) are left standalone — the 外来語 (loanword) rules don't bind
-# them here — so they miss the table gracefully.
-_SMALL_YOUON = ("ャ", "ュ", "ョ")
+# Katakana small kana that glue onto the preceding kana to form one
+# mora: the youon trio ャ/ュ/ョ (キ + ャ -> キャ) and the small vowels
+# ァ/ィ/ゥ/ェ/ォ of the 外来語 (loanword) sounds (フ + ァ -> ファ,
+# テ + ィ -> ティ). Both families resolve to composed two-cell table
+# entries; a small kana with no table entry still misses gracefully
+# (UNKNOWN_KANA), so binding is safe for readings the table lacks.
+_SMALL_KANA = ("ャ", "ュ", "ョ", "ァ", "ィ", "ゥ", "ェ", "ォ")
 
 # Hiragana block — shifted to katakana by +0x60 so the table (katakana-
 # keyed) can be looked up regardless of which kana the reading uses.
@@ -108,12 +113,13 @@ def _to_katakana(reading: str) -> str:
 
 
 def _split_mora(reading: str) -> list[str]:
-    """Segment a katakana reading into mora (maximal munch on youon)."""
+    """Segment a katakana reading into mora (maximal munch on the small
+    kana: youon ャ/ュ/ョ and the loanword small vowels ァ/ィ/ゥ/ェ/ォ)."""
     kata = _to_katakana(reading)
     mora: list[str] = []
     i, n = 0, len(kata)
     while i < n:
-        if i + 1 < n and kata[i + 1] in _SMALL_YOUON:
+        if i + 1 < n and kata[i + 1] in _SMALL_KANA:
             mora.append(kata[i : i + 2])
             i += 2
         else:
