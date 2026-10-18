@@ -22,19 +22,61 @@ if _TYPE_CHECKING:
     from brailix.pipeline._results import TreeSubcache
 
 
+# Cached union behind :func:`_all_prose_types`, keyed on the registry's
+# :attr:`~brailix.core.registry.Registry.generation`.  Every mutation of the
+# language-frontend registry (register / unregister / clear_cache / an
+# ``overriding`` exit) advances the generation, so a re-registration never
+# sees a stale union while the steady state — a warning classification per
+# unhandled prose segment — costs one ``int`` read instead of re-loading
+# every frontend.  Module-level rather than registry state because the
+# aggregate belongs to this consumer: the registry caches *instances*, not
+# answers computed over its membership.  Thread note: two threads racing the
+# first call may both compute the union and last-write-win the slot; both
+# results are valid for the generation they read, so the worst case is a
+# duplicated computation, never a false hit (same shape as
+# :func:`brailix.pipeline._fingerprint.registries_generation` consumers).
+_PROSE_TYPES_CACHE: tuple[int, frozenset[str]] | None = None
+
+
 def _all_prose_types() -> frozenset[str]:
-    """Union of every registered language frontend's ``prose_types``.
+    """Union of every registered language frontend's ``prose_types``, cached
+    against the registry's generation.
 
     Used only to distinguish a prose segment that *some* language would
     handle (the active profile just has no matching frontend → warn
     ``NO_LANGUAGE_FRONTEND``) from a genuinely unknown segment type
     (warn ``UNHANDLED_SEGMENT_TYPE``).
+
+    A frontend whose loader fails is skipped, not fatal.  This is a
+    *warning-classification* aggregate, not a resolution: the loud failure
+    still happens where the frontend is actually selected
+    (:meth:`FrontendDriver._language_frontend
+    <brailix.pipeline.frontend_driver.FrontendDriver._language_frontend>`
+    resolves the active language's frontend with the registry's own error
+    ladder), so swallowing the error here cannot hide it from a user who
+    needs it — while letting it through turned a routine warning into a
+    whole-block compile crash whenever any *third-party* language's loader
+    was broken, on a path that also re-ran every loader per call.
     """
-    return frozenset(
-        t
-        for name in language_frontend_registry.names()
-        for t in language_frontend_registry.get(name).prose_types
-    )
+    global _PROSE_TYPES_CACHE
+    generation = language_frontend_registry.generation
+    cached = _PROSE_TYPES_CACHE
+    if cached is not None and cached[0] == generation:
+        return cached[1]
+    types: set[str] = set()
+    for name in language_frontend_registry.names():
+        try:
+            frontend = language_frontend_registry.get(name)
+        except Exception:
+            # That language's prose types are unknowable; it simply does
+            # not participate in the aggregate (its segments, if any reach
+            # the active language, classify as UNHANDLED_SEGMENT_TYPE
+            # rather than NO_LANGUAGE_FRONTEND).
+            continue
+        types.update(frontend.prose_types)
+    union = frozenset(types)
+    _PROSE_TYPES_CACHE = (generation, union)
+    return union
 
 
 def _ensure_block_span(block: Any) -> tuple[str, Span, Span]:
