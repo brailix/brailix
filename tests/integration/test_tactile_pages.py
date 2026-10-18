@@ -133,10 +133,14 @@ class TestProfileAndWarnings:
 
     def test_bad_figure_soft_fails_and_warns(self, pipe: Pipeline) -> None:
         # A malformed figure never crashes the page build; its soft-failure
-        # diagnostics are aggregated onto the result.
+        # diagnostics are aggregated onto the result. The paragraph is
+        # Latin text on purpose: it must render real dots so the assertion
+        # pins "the bad figure doesn't take its page-mate down with it" —
+        # under the null resolver Chinese stays blank, and a fully blank
+        # document now correctly composes ZERO pages (blank-page filter).
         doc = DocumentIR(
             blocks=[
-                Paragraph(text="正文"),
+                Paragraph(text="Note"),
                 GraphicBlock(text="<not-svg", source="svg"),
             ]
         )
