@@ -27,6 +27,29 @@
         }
       ]
     },
+    "embedded_chem": {
+      "description": "Formulas mixing maths and \\ce{...} segments — every \\ce goes through the chemistry converter (leading ⠸ chemical-formula indicator), the rest stays maths; no stray \"function ce\"",
+      "cases": [
+        {
+          "src": "$\\ce{H2O} + x$",
+          "expected": "⠸⠓⠆⠕⠀⠖⠰⠭",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "chemistry H2O (⠸⠓⠆⠕) + maths x — the embedded \\ce is segmented out to the chem converter instead of latex2mathml's stray <mi>\\ce</mi>"
+        },
+        {
+          "src": "$K = \\ce{[H+]}$",
+          "expected": "⠠⠅⠀⠶⠷⠠⠓⠨⠖⠾",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "maths K = then the bracketed complex ion [H+] with its charge sign ⠨"
+        },
+        {
+          "src": "$\\ce{2H2O}+\\ce{O2}=\\ce{2H2O}$",
+          "expected": "⠼⠃⠸⠓⠆⠕⠀⠖⠕⠆⠀⠶⠼⠃⠸⠓⠆⠕",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "multiple \\ce segments with maths operators between them, joined in source order"
+        }
+      ]
+    },
     "zh_latin": {
       "description": "Chinese + English acronym",
       "cases": [
@@ -34,6 +57,16 @@
           "src": "用 CPU 计算",
           "expected": "⠹⠆⠀⠠⠠⠉⠏⠥⠀⠛⠊⠆⠎⠻⠆",
           "note": "Chinese + CPU acronym (doubled ⠠⠠ for whole-word capitals) + Chinese"
+        }
+      ]
+    },
+    "zh_number": {
+      "description": "Chinese + number",
+      "cases": [
+        {
+          "src": "我有3个苹果",
+          "expected": "⠕⠄⠀⠳⠄⠀⠼⠉⠤⠛⠢⠆⠀⠏⠡⠂⠛⠕⠄",
+          "note": "Chinese + digit + measure word + noun; a number is its own word, so 有→3 takes a word-boundary space (every hanzi but the ordinal prefix 第 does); the hyphen/connector ⠤ binds 3个 (个's leading cell ⠛=7)"
         }
       ]
     },
@@ -63,16 +96,6 @@
             "UNKNOWN_PUNCT"
           ],
           "note": "amounts around full-width commas: both $ stay prose, both numbers survive whole"
-        }
-      ]
-    },
-    "zh_number": {
-      "description": "Chinese + number",
-      "cases": [
-        {
-          "src": "我有3个苹果",
-          "expected": "⠕⠄⠀⠳⠄⠀⠼⠉⠤⠛⠢⠆⠀⠏⠡⠂⠛⠕⠄",
-          "note": "Chinese + digit + measure word + noun; a number is its own word, so 有→3 takes a word-boundary space (every hanzi but the ordinal prefix 第 does); the hyphen/connector ⠤ binds 3个 (个's leading cell ⠛=7)"
         }
       ]
     },
