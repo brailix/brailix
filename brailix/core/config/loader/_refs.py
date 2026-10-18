@@ -591,14 +591,30 @@ def _load_cells_pool(
     metadata other than the standard ``_*`` skipped keys. Returns
     ``{name: tuple_of_int_dots}``; empty if the profile doesn't include
     the pool (callers can still use the inline ``dots`` form per spec).
+
+    A non-metadata entry that is not a bare list of ints raises
+    :class:`ConfigurationError` naming the file and the key — the same
+    loud-failure policy every other loader shape error here follows. It
+    used to be skipped silently, which pushed the diagnosis far from the
+    mistake: the broken entry simply didn't exist, and the first table
+    referencing it reported an unresolvable reference that pointed at the
+    *referring* table instead of the broken one.
     """
     if not relative:
         return {}
-    payload = _read_json(base / relative)
+    path = base / relative
+    payload = _read_json(path)
     out: dict[str, tuple[int, ...]] = {}
     for k, v in payload.items():
         if _is_metadata_key(k):
             continue
-        if isinstance(v, list) and all(isinstance(x, int) for x in v):
-            out[k] = _to_dots(v)
+        if not isinstance(v, list) or not all(isinstance(x, int) for x in v):
+            raise ConfigurationError(
+                f"{path}: cells-pool entry {k!r} must be a bare list of "
+                f"dot indices (1..8), got {v!r}. (A malformed entry was "
+                f"silently skipped before, so every table referencing it "
+                f"failed later as an unresolvable reference — pointing at "
+                f"the referrer, not at this entry.)"
+            )
+        out[k] = _to_dots(v)
     return out

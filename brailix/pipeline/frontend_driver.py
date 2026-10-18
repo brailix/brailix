@@ -33,6 +33,8 @@ forced co-location of this class with the parse-function aliases.
 from __future__ import annotations
 
 import xml.etree.ElementTree as _ET
+from dataclasses import fields as _fields
+from dataclasses import replace as _replace
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 from typing import Any as _Any
 
@@ -53,7 +55,7 @@ from brailix.frontend.graphics import (
 )
 from brailix.frontend.music import parse_music_tree as _frontend_parse_music_tree
 from brailix.ir.document import EmbeddedBlock, Paragraph
-from brailix.ir.inline import InlineNode, MathInline
+from brailix.ir.inline import DateComponent, InlineNode, MathInline
 from brailix.pipeline._helpers import (
     _all_prose_types,
     _block_surface,
@@ -127,13 +129,83 @@ def _shift_node_spans(node: _Any, delta: int) -> None:
     without provenance (``span is None``) are left untouched.
 
     Both of a block's content fields are walked, since either can hold spans a
-    rebase has to move; an inline node has neither and stops the recursion."""
+    rebase has to move; an inline node has neither and stops the recursion —
+    except through its **value objects**, the records a node holds instead of
+    child nodes (a :class:`~brailix.ir.inline.Date`'s ``components``): their
+    ``*_span`` fields are provenance like any node's, and
+    :func:`_shift_value_object_fields` moves them with the node."""
     span = getattr(node, "span", None)
     if span is not None:
         node.span = span.shift(delta)
     for attr in ("inlines", "blocks"):
         for child in getattr(node, attr, ()) or ():
             _shift_node_spans(child, delta)
+    _shift_value_object_fields(node, delta)
+
+
+# IR value objects (records a node holds rather than child nodes — see the
+# :class:`~brailix.ir.inline.DateComponent` docstring) whose fields carry
+# ``*_span`` provenance.  A row rebase has to move those with the node holding
+# them: they are what the backend slices the row text by
+# (``DateComponent.digits_span`` / ``marker_span`` feed
+# ``brailix.backend.number``'s digit pipeline and the marker's
+# ``translate_date_marker``), so an unshifted one keeps pointing into some
+# *earlier* column's text and poisons the proofreading trail exactly the way
+# an unshifted inline span does — silently, the braille staying correct.
+#
+# Deliberately an explicit table rather than a blanket "shift every field
+# whose name ends in ``_span`` on every attribute": a generic walk over
+# arbitrary fields cannot tell a provenance span from an unrelated field that
+# happens to end in ``_span``, and silently mutating data it does not
+# understand is worse than the miss it replaces.  What keeps the table honest
+# is its reflection guard — ``TestRowRebaseValueObjectGuard`` in
+# ``tests/integration/test_document_pipeline.py`` walks every registered
+# block / inline type's dataclass fields and fails when a span-carrying value
+# object exists that this table does not name, so the next value object
+# cannot quietly reintroduce this bug.
+_SPAN_CARRYING_VALUE_OBJECTS: tuple[type, ...] = (DateComponent,)
+
+
+def _shift_value_object_fields(node: _Any, delta: int) -> None:
+    """Shift the ``*_span`` fields of any table-listed value object ``node``
+    holds directly or as a list (a :class:`~brailix.ir.inline.Date`'s
+    ``components``)."""
+    if not hasattr(type(node), "__dataclass_fields__"):
+        return
+    for f in _fields(node):
+        value = getattr(node, f.name, None)
+        if isinstance(value, _SPAN_CARRYING_VALUE_OBJECTS):
+            setattr(node, f.name, _shift_value_object_spans(value, delta))
+        elif (
+            isinstance(value, list)
+            and value
+            and isinstance(value[0], _SPAN_CARRYING_VALUE_OBJECTS)
+        ):
+            setattr(
+                node,
+                f.name,
+                [_shift_value_object_spans(item, delta) for item in value],
+            )
+
+
+def _shift_value_object_spans(value: _Any, delta: int) -> _Any:
+    """Shift every ``*_span`` field on one table-listed value object.
+
+    Value objects are frozen records, so unlike a node — mutated in place —
+    the shift returns a *replacement* instance for the caller to reassign.
+    The fields are reflected rather than named, so a new ``*_span`` field on
+    an already-listed value object is covered without touching this module;
+    what stays manual is listing the value object's *type*
+    (:data:`_SPAN_CARRYING_VALUE_OBJECTS`), which is what the reflection
+    guard test pins."""
+    updates: dict[str, _Any] = {}
+    for f in _fields(value):
+        if not f.name.endswith("_span"):
+            continue
+        span = getattr(value, f.name)
+        if span is not None:
+            updates[f.name] = span.shift(delta)
+    return _replace(value, **updates) if updates else value
 
 
 def _table_cell_source_len(cell: _Any) -> int:

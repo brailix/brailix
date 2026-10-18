@@ -345,6 +345,74 @@ class TestHelpers:
         assert out == {"a": (1, 2)}
 
 
+class TestCellsPool:
+    """``_load_cells_pool`` — the shared 63-cell pool every spec table's
+    ``c_*`` refs resolve through. A malformed entry used to be skipped
+    silently, so the error surfaced later — and elsewhere: as an
+    "unresolvable reference" on whichever table referenced it, pointing at
+    the referrer instead of the broken entry. It now fails loudly at the
+    pool itself, naming the file and the key, like every other loader
+    shape error."""
+
+    @staticmethod
+    def _write(tmp_path: Path, payload: dict) -> Path:
+        (tmp_path / "resources").mkdir(exist_ok=True)
+        (tmp_path / "resources" / "cells.json").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+        return tmp_path
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "124",  # dots typed as a string
+            124,  # dots typed as a bare number
+            [1.5],  # float dot index
+            {"dots": [1, 2]},  # spec object — the pool takes bare lists only
+            None,
+        ],
+    )
+    def test_malformed_entry_raises_naming_file_and_key(
+        self, tmp_path: Path, bad: object
+    ) -> None:
+        from brailix.core.config.loader import _load_cells_pool
+
+        base = self._write(tmp_path, {"c_ok": [1, 2], "c_bad": bad})
+        with pytest.raises(ConfigurationError) as excinfo:
+            _load_cells_pool(base, "resources/cells.json")
+        message = str(excinfo.value)
+        assert "c_bad" in message
+        assert "cells.json" in message
+
+    def test_valid_entries_and_metadata_survive(self, tmp_path: Path) -> None:
+        from brailix.core.config.loader import _load_cells_pool
+
+        base = self._write(
+            tmp_path,
+            {
+                "schema": "v1",
+                "_note": "hand-maintained",
+                "c_12": [1, 2],
+                "c_empty": [],
+            },
+        )
+        pool = _load_cells_pool(base, "resources/cells.json")
+        # Metadata keys skipped, real entries parsed, empty list → ().
+        assert pool == {"c_12": (1, 2), "c_empty": ()}
+
+    def test_builtin_pool_still_loads(self) -> None:
+        # The shipped resources/cells.json — 63 named cells, all bare lists.
+        from brailix.core.config.loader import PACKAGE_ROOT, _load_cells_pool
+
+        pool = _load_cells_pool(PACKAGE_ROOT, "resources/cells.json")
+        assert len(pool) >= 60
+        assert all(
+            isinstance(dots, tuple)
+            and all(isinstance(d, int) and 1 <= d <= 8 for d in dots)
+            for dots in pool.values()
+        )
+
+
 class TestRichSchemaCompat:
     """Confirm the loader accepts the new cell-spec object schema used
     by ``resources/numbers.json`` (and forwards-compat for the
