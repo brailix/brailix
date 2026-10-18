@@ -290,6 +290,210 @@ class TestTableCellSpanRebasingOnRecompile:
         assert checked, "no braille cell carried provenance to check"
 
 
+class TestDateComponentSpansAreRowLocal:
+    """A :class:`~brailix.ir.inline.Date`'s components are **value objects**
+    held by the node, not inline nodes of their own — so the row rebase's
+    recursion (which walks ``inlines`` / ``blocks``) used to step straight
+    past them.  A date in any column but the first kept its cell-local
+    ``digits_span`` / ``marker_span`` offsets: the backend still sliced the
+    row text correctly only by luck of the layout, while every provenance
+    consumer (click-to-source, cross-pane highlight, proofreading anchors)
+    jumped into an earlier column's text.  The rebase now shifts a listed
+    value object's ``*_span`` fields with the node holding it.
+    """
+
+    @staticmethod
+    def _dates(cell):
+        from brailix.ir.inline import Date
+
+        return [n for n in cell.inlines if isinstance(n, Date)]
+
+    def _table(self, pipe, source: str):
+        from brailix.ir.document import Table
+
+        doc = parse_markdown(source, profile="cn_current", language="zh-CN")
+        pipe.translate_document(doc)
+        return doc, next(b for b in doc.blocks if isinstance(b, Table))
+
+    @staticmethod
+    def _assert_components_row_local(row, cell) -> None:
+        # Every component half of every Date in ``cell``: the row-text slice
+        # at its span is exactly its text, and the span sits inside the
+        # cell's own extent (the review probe's shape: |甲|2026年5月17日|乙|).
+        row_text = "  ".join(c.text for c in row.blocks)
+        for date in TestDateComponentSpansAreRowLocal._dates(cell):
+            assert date.components
+            for comp in date.components:
+                for span, text in (
+                    (comp.digits_span, comp.digits),
+                    (comp.marker_span, comp.marker),
+                ):
+                    assert span is not None
+                    assert row_text[span.start : span.end] == text, (
+                        f"component half {text!r}: row slice "
+                        f"{row_text[span.start : span.end]!r} at {span} "
+                        f"points outside its own text"
+                    )
+                    assert cell.span.start <= span.start
+                    assert span.end <= cell.span.end
+
+    def test_second_column_date_components_point_into_their_own_cell(
+        self, pipe
+    ):
+        doc, table = self._table(
+            pipe, "| 甲 | 2026年5月17日 | 乙 |\n| --- | --- | --- |\n"
+        )
+        row = table.blocks[0]
+        self._assert_components_row_local(row, row.blocks[1])
+        # The node itself is row-local as before (the pre-existing inline
+        # path) — the fix extended it to the records inside, not replaced it.
+        date = self._dates(row.blocks[1])[0]
+        row_text = "  ".join(c.text for c in row.blocks)
+        assert row_text[date.span.start : date.span.end] == date.surface
+
+    def test_first_column_date_stays_anchored_at_row_start(self, pipe):
+        # Column 0's offset is 0, so cell-local == row-local: the shift must
+        # be a no-op there, not a spurious translation of the components.
+        doc, table = self._table(
+            pipe, "| 2026年5月10日 | 乙 |\n| --- | --- |\n"
+        )
+        row = table.blocks[0]
+        self._assert_components_row_local(row, row.blocks[0])
+        date = self._dates(row.blocks[0])[0]
+        assert (date.span.start, date.span.end) == (0, len("2026年5月10日"))
+
+    def test_widening_the_first_column_moves_a_later_date_too(self, pipe):
+        # The rebase-after-edit path: the date's inlines are reused (its own
+        # text is untouched), so the components' spans must move by the same
+        # difference the node does — the replacement (frozen value objects
+        # are swapped, not mutated) has to land back inside the row text.
+        doc, table = self._table(
+            pipe, "| 甲 | 2026年5月17日 |\n| --- | --- |\n"
+        )
+        row = table.blocks[0]
+        row.blocks[0].text = "甲乙丙"
+        pipe.translate_document(doc)
+        self._assert_components_row_local(row, row.blocks[1])
+
+    def test_date_in_a_plain_paragraph_stays_leaf_local(self, pipe):
+        # Non-table regression: a leaf block's date components were already
+        # leaf-local, and the value-object pass must not disturb that.
+        from brailix.ir.inline import Date
+
+        text = "写于2026年5月17日。"
+        result = pipe.translate_text(text)
+        dates = [
+            n for n in result.ir.blocks[0].inlines if isinstance(n, Date)
+        ]
+        assert dates
+        for comp in dates[0].components:
+            for span, half in (
+                (comp.digits_span, comp.digits),
+                (comp.marker_span, comp.marker),
+            ):
+                assert span is not None
+                assert text[span.start : span.end] == half
+
+
+class TestRowRebaseValueObjectGuard:
+    """Reflection guard for :data:`_SPAN_CARRYING_VALUE_OBJECTS
+    <brailix.pipeline.frontend_driver._SPAN_CARRYING_VALUE_OBJECTS>`.
+
+    The row rebase shifts value-object spans through an explicit table of
+    the IR's value-object types (frozen records a node holds — see the
+    ``DateComponent`` docstring), because a blanket "shift every
+    ``*_span``-named field" cannot tell provenance from coincidence.  The
+    cost of an explicit table is that the next value object someone adds
+    can silently miss it — this test walks every registered block / inline
+    type's dataclass fields (transitively through nested value objects)
+    and fails while a span-carrying value object exists that the table does
+    not name, or while the table names one that no longer carries spans.
+    """
+
+    @staticmethod
+    def _annotation_types(annotation: object):
+        """Every concrete class ``annotation`` names, unwrapping ``list[X]``
+        / ``X | None`` style wrappers."""
+        from typing import get_args, get_origin
+
+        origin = get_origin(annotation)
+        if origin is not None:
+            for arg in get_args(annotation):
+                yield from TestRowRebaseValueObjectGuard._annotation_types(arg)
+        elif isinstance(annotation, type):
+            yield annotation
+
+    @classmethod
+    def _value_object_types(cls) -> set[type]:
+        """Dataclass types the IR's nodes and blocks hold as fields —
+        directly, through lists, or through other value objects — that are
+        not themselves nodes, blocks, or ``Span``."""
+        from dataclasses import fields, is_dataclass
+        from typing import get_type_hints
+
+        from brailix.core.span import Span
+        from brailix.ir.document import _BLOCK_REGISTRY, Block
+        from brailix.ir.inline import _INLINE_REGISTRY, InlineNode
+
+        node_kinds = (InlineNode, Block, Span)
+        value_objects: set[type] = set()
+        seen: set[type] = set()
+        frontier: list[type] = [
+            *_INLINE_REGISTRY.values(),
+            *_BLOCK_REGISTRY.values(),
+        ]
+        while frontier:
+            node_cls = frontier.pop()
+            if node_cls in seen:
+                continue
+            seen.add(node_cls)
+            hints = get_type_hints(node_cls)
+            for f in fields(node_cls):
+                for referenced in cls._annotation_types(
+                    hints.get(f.name, f.type)
+                ):
+                    if (
+                        is_dataclass(referenced)
+                        and not issubclass(referenced, node_kinds)
+                    ):
+                        if referenced not in value_objects:
+                            value_objects.add(referenced)
+                            frontier.append(referenced)
+        return value_objects
+
+    @classmethod
+    def _carries_span_fields(cls, value_object: type) -> bool:
+        from dataclasses import fields
+        from typing import get_type_hints
+
+        from brailix.core.span import Span
+
+        hints = get_type_hints(value_object)
+        return any(
+            f.name.endswith("_span")
+            and Span in set(cls._annotation_types(hints.get(f.name, f.type)))
+            for f in fields(value_object)
+        )
+
+    def test_every_span_carrying_value_object_is_rebased(self) -> None:
+        from brailix.pipeline.frontend_driver import _SPAN_CARRYING_VALUE_OBJECTS
+
+        listed = set(_SPAN_CARRYING_VALUE_OBJECTS)
+        span_carrying = {
+            t
+            for t in self._value_object_types()
+            if self._carries_span_fields(t)
+        }
+        assert span_carrying == listed, (
+            f"IR value objects carrying ``*_span`` fields that the table-row "
+            f"rebase does not shift: "
+            f"{sorted(t.__name__ for t in span_carrying - listed)} — add them "
+            f"to _SPAN_CARRYING_VALUE_OBJECTS in "
+            f"brailix/pipeline/frontend_driver.py (or drop stale listings: "
+            f"{sorted(t.__name__ for t in listed - span_carrying)})"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Layout honors heading_level metadata
 # ---------------------------------------------------------------------------
