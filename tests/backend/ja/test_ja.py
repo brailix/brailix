@@ -119,6 +119,46 @@ def _expected_kana():
             table[ik + sm] = ((4, 5), s[bk])
     for sm, bk in zip(_SMALLS, ("ハ", "フ", "ホ"), strict=True):
         table["ピ" + sm] = ((4, 6), s[bk])
+    # ---- 外来音 (foreign sounds), 日本点字表記法 2018 外来語の表記 ----
+    # Same prefix+base mechanism as the youon above, extended per the
+    # 2018 rules (cross-checked: ja.wikipedia 点字「外来語の表記」 and
+    # 点字支援サイト かわら版38; the prefix cells 4 / 45 / 5 already in
+    # this derivation corroborate the mechanism).
+    _GOU_YOUON = (2, 6)          # 合拗音 prefix (the 疑問符 cell)
+    _GOU_YOUON_DAKU = (2, 5, 6)  # voiced 合拗音 prefix (the 句点 cell)
+    # Closed youon (合拗音): prefix + the row's kana in the small
+    # vowel's column — ウ+ァ..ォ → ア行, ク/グ → カ行, ツ → タ行,
+    # フ/ヴ → ハ行, and トゥ/ドゥ → ツ by consonant replacement.
+    _CLOSED = (
+        ("ウァ", False, "ア"), ("ウィ", False, "イ"),
+        ("ウェ", False, "エ"), ("ウォ", False, "オ"),
+        ("クァ", False, "カ"), ("クィ", False, "キ"),
+        ("クェ", False, "ケ"), ("クォ", False, "コ"),
+        ("ツァ", False, "タ"), ("ツィ", False, "チ"),
+        ("ツェ", False, "テ"), ("ツォ", False, "ト"),
+        ("ファ", False, "ハ"), ("フィ", False, "ヒ"),
+        ("フェ", False, "ヘ"), ("フォ", False, "ホ"),
+        ("グァ", True, "カ"), ("グィ", True, "キ"),
+        ("グェ", True, "ケ"), ("グォ", True, "コ"),
+        ("ヴァ", True, "ハ"), ("ヴィ", True, "ヒ"),
+        ("ヴェ", True, "ヘ"), ("ヴォ", True, "ホ"),
+        ("トゥ", False, "ツ"), ("ドゥ", True, "ツ"),
+    )
+    for mora, voiced, base in _CLOSED:
+        table[mora] = (_GOU_YOUON_DAKU if voiced else _GOU_YOUON, s[base])
+    # E-row open youon (開拗音): the youon prefix 4 (voiced 45) + the
+    # row's e-column kana — the a/u/o-column rule above generalised.
+    for base, ek in (
+        ("イ", "エ"), ("キ", "ケ"), ("シ", "セ"), ("チ", "テ"),
+        ("ニ", "ネ"), ("ヒ", "ヘ"),
+    ):
+        table[base + "ェ"] = ((4,), s[ek])
+    table["ジ" + "ェ"] = ((4, 5), s["セ"])
+    # Consonant-replaced i-sounds: ティ/ディ → prefix + チ, スィ/ズィ → + シ.
+    table["テ" + "ィ"] = ((4,), s["チ"])
+    table["デ" + "ィ"] = ((4, 5), s["チ"])
+    table["ス" + "ィ"] = ((4,), s["シ"])
+    table["ズ" + "ィ"] = ((4, 5), s["シ"])
     return table
 
 
@@ -127,7 +167,10 @@ class TestKanaTable:
         assert profile.lang_table("kana") == _expected_kana()
 
     def test_mora_count(self, profile):
-        assert len(profile.lang_table("kana")) == 110
+        # 110 base entries (seion / dakuon / handakuon / youon / specials)
+        # + 37 外来音 entries (26 closed youon incl. トゥ/ドゥ, 7 e-row
+        # open youon, 4 consonant-replaced i-sounds).
+        assert len(profile.lang_table("kana")) == 147
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +272,88 @@ class TestHiraganaTolerance:
 
     def test_hiragana_youon(self, ctx, profile):
         assert _seq(ctx, profile, "きょ") == _seq(ctx, profile, "キョ")
+
+
+class TestForeignSounds:
+    """外来音 (loanword sounds) — each entry's derivation basis is
+    stated inline. The mechanism (prefix cell + base kana cell) is the
+    one the 110 base entries already use; the per-family rules come
+    from 日本点字表記法 2018 外来語の表記 (cross-checked against
+    ja.wikipedia 点字「外来語の表記」 and 点字支援サイト かわら版38)."""
+
+    def test_file(self, ctx, profile):
+        # ファイル = ファ + イ + ル.
+        # ファ = 合拗音 prefix ⠢ (2,6) + ハ (1,3,6) — the ha-row kana in
+        # the small-ァ column (rule: は行 + 小ア → prefix+ハ行).
+        assert _seq(ctx, profile, "ファイル") == [
+            (2, 6), (1, 3, 6),   # ファ
+            (1, 2),              # イ
+            (1, 4, 5),           # ル
+        ]
+
+    def test_check(self, ctx, profile):
+        # チェック = チェ + ッ + ク.
+        # チェ = youon prefix ⠘ (4) + テ (1,2,3,4,5) — the ta-row e-column
+        # kana (rule: 開拗音 uses the same 4-prefix as キャ=4+カ).
+        assert _seq(ctx, profile, "チェック") == [
+            (4,), (1, 2, 3, 4, 5),  # チェ
+            (2,),                   # ッ
+            (1, 4, 6),              # ク
+        ]
+
+    def test_party(self, ctx, profile):
+        # パーティー = パ + ー + ティ + ー.
+        # ティ = youon prefix ⠘ + チ — consonant replacement
+        # (rule: ティ = 拗音符+チ, like スィ = 拗音符+シ).
+        assert _seq(ctx, profile, "パーティー") == [
+            (6,), (1, 3, 6),     # パ (handakuon prefix + ハ)
+            (2, 5),              # ー
+            (4,), (1, 2, 3, 5),  # ティ
+            (2, 5),              # ー
+        ]
+
+    def test_violin(self, ctx, profile):
+        # ヴァイオリン: ヴァ = voiced 合拗音 prefix ⠲ (2,5,6) + ハ
+        # (rule: ヴァ行 = 句点符 + ハ行); ヴ itself = 5+ウ was already
+        # in the base table — the same voiced-prefix mechanism.
+        assert _seq(ctx, profile, "ヴァイオリン") == [
+            (2, 5, 6), (1, 3, 6),  # ヴァ
+            (1, 2),                # イ
+            (2, 4),                # オ
+            (1, 2, 5),             # リ
+            (3, 5, 6),             # ン
+        ]
+
+    def test_je(self, ctx, profile):
+        # ジェ = 拗濁音符 (4,5) + セ — the voiced counterpart of シェ
+        # (rule: ジェ = 拗濁音符+セ, same 45-prefix as ギャ=45+カ).
+        assert _seq(ctx, profile, "ジェ") == [(4, 5), (1, 2, 4, 5, 6)]
+
+    def test_wi_we_wo(self, ctx, profile):
+        # ウィ/ウェ/ウォ = ⠢ + イ/エ/オ (a-row closed youon).
+        assert _seq(ctx, profile, "ウィ") == [(2, 6), (1, 2)]
+        assert _seq(ctx, profile, "ウェ") == [(2, 6), (1, 2, 4)]
+        assert _seq(ctx, profile, "ウォ") == [(2, 6), (2, 4)]
+
+    def test_tu_du(self, ctx, profile):
+        # トゥ/ドゥ = ⠢/⠲ + ツ (consonant replacement → ツ).
+        assert _seq(ctx, profile, "トゥ") == [(2, 6), (1, 3, 4, 5)]
+        assert _seq(ctx, profile, "ドゥ") == [(2, 5, 6), (1, 3, 4, 5)]
+
+    def test_small_kana_binding(self, ctx, profile):
+        # _split_mora binds ァィゥェォ onto the preceding kana (the
+        # ァ of ファ never stands alone as an unknown mora).
+        from brailix.backend.ja import _split_mora
+
+        assert _split_mora("ファイル") == ["ファ", "イ", "ル"]
+        assert _split_mora("チェック") == ["チェ", "ッ", "ク"]
+        assert _split_mora("きゃ") == ["キャ"]  # hiragana folds first
+
+    def test_youon_base_entries_unchanged(self, ctx, profile):
+        # The pre-existing youon readings still split and resolve the
+        # same way with the widened binding set.
+        assert _seq(ctx, profile, "キャ") == [(4,), (1, 6)]
+        assert _seq(ctx, profile, "シュ") == [(4,), (1, 4, 5, 6)]
 
 
 class TestSoftFailure:
