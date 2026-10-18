@@ -525,22 +525,53 @@ class TestMetronome:
         assert cells == []
 
     def test_real_mxl_score_metronome_translates(self, profile):
-        # The real MuseScore export 1-20-Piano.mxl carries the tempo
-        # mark M.M. ♩=60. End to end (mxl adapter → backend) the tempo
-        # numbers must land as braille cells instead of vanishing into
+        # A metronome mark inside a real .mxl container (zipped MusicXML).
+        # End to end (mxl adapter → backend) the tempo numbers must land
+        # as braille cells instead of vanishing into
         # MUSIC_UNSUPPORTED_NOTATION.
-        from pathlib import Path
+        #
+        # The score is a minimal hand-built .mxl (META-INF/container.xml
+        # + a partwise score carrying one ♩=60 direction) rather than the
+        # MuseScore export in the repo root: that file is a private
+        # asset the public mirror deliberately does not ship, and this
+        # test must run identically there.
+        import io
+        import zipfile
 
         from brailix.frontend.music.adapters.mxl import MxlSourceAdapter
 
-        repo_root = Path(__file__).resolve().parents[3]
-        mxl_path = repo_root / "1-20-Piano.mxl"
-        # A committed regression fixture, not an optional capability —
-        # its absence is a broken checkout and must fail, not skip.
-        assert mxl_path.exists(), f"missing fixture {mxl_path}"
-        xml_text = MxlSourceAdapter().to_musicxml(
-            mxl_path.read_bytes()
+        score_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<score-partwise version="3.1">'
+            '<part-list><score-part id="P1">'
+            "<part-name>Piano</part-name>"
+            "</score-part></part-list>"
+            '<part id="P1"><measure number="1">'
+            "<attributes><divisions>1</divisions>"
+            "<time><beats>4</beats><beat-type>4</beat-type></time>"
+            "</attributes>"
+            '<direction placement="above"><direction-type>'
+            '<metronome parentheses="no">'
+            "<beat-unit>quarter</beat-unit>"
+            "<per-minute>60</per-minute>"
+            "</metronome></direction-type>"
+            '<sound tempo="60"/></direction>'
+            "<note><pitch><step>C</step><octave>4</octave></pitch>"
+            "<duration>1</duration><type>quarter</type></note>"
+            "</measure></part></score-partwise>"
         )
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            container = (
+                '<?xml version="1.0" encoding="UTF-8" standalone="no"?>'
+                "<container><rootfiles>"
+                '<rootfile full-path="score.musicxml" '
+                'media-type="application/vnd.recordare.musicxml+xml"/>'
+                "</rootfiles></container>"
+            )
+            zf.writestr("META-INF/container.xml", container)
+            zf.writestr("score.musicxml", score_xml)
+        xml_text = MxlSourceAdapter().to_musicxml(buf.getvalue())
         root = ET.fromstring(xml_text)
         assert any(True for _ in root.iter("metronome"))
         ctx2 = BackendContext(profile="cn_current", block_type="score")
