@@ -151,6 +151,17 @@ class TestLoader:
         assert "地道" in word_overrides.by_word
         assert word_overrides.by_word["地道"] == (False, True)
 
+    def test_declared_pinyin_loaded(self, char_overrides):
+        # The resource's ``_pinyin`` declarations survive the loader —
+        # the backend's reading gate consumes them.
+        assert char_overrides.declared_pinyin("的") == "de0"
+        assert char_overrides.declared_pinyin("么") == "me0"
+        assert char_overrides.declared_pinyin("你") == "ni3"
+        assert char_overrides.declared_pinyin("他") == "ta1"
+
+    def test_declared_pinyin_unknown_char_is_none(self, char_overrides):
+        assert char_overrides.declared_pinyin("汉") is None
+
 
 # ---------------------------------------------------------------------------
 # NcbCharOverrides.shorthand_cells_for — shorthand chars + tone-omission
@@ -339,6 +350,234 @@ class TestShorthandEndToEnd:
 
 
 # ---------------------------------------------------------------------------
+# Reading gate: a declared shorthand fires only under its declared reading
+# ---------------------------------------------------------------------------
+
+
+class TestShorthandReadingGate:
+    """NCB definite-word shorthands are readings, not glyphs.
+
+    The 讲义 (lesson 10) pins 的 to the neutral-tone *de* of 我的; the
+    same character read *dì* (目的 / 的确) must render by full spelling —
+    the shorthand would drop the final and read 目的 as "mù de".  The
+    gate compares 声韵 (initial + final) tone-blind, so de5 / de / de0
+    all match the declaration while di4 does not.
+    """
+
+    def test_mudi_de_reads_full_spelling(self, ctx, cn_ncb):
+        # 目的 mu4/di4 — 的 by full spelling: d + i, tone 4 dropped by
+        # the d-omit-4 rule.  No zh_shorthand cell.
+        cells = translate_word(
+            Word(surface="目的", reading="mu4 di4"), ctx, cn_ncb
+        )
+        assert _dots(cells) == [
+            (1, 3, 4),  # m
+            (1, 3, 6),  # u
+            (2, 3),     # tone 4
+            (1, 4, 5),  # d
+            (2, 4),     # i (tone 4 omitted: d-omit-4)
+        ]
+        assert all(c.role != "zh_shorthand" for c in cells)
+
+    def test_dique_de_reads_full_spelling(self, ctx, cn_ncb):
+        # 的确 di2/que4 — di2 keeps its tone (d omits 4, not 2).
+        cells = translate_word(
+            Word(surface="的确", reading="di2 que4"), ctx, cn_ncb
+        )
+        assert _dots(cells) == [
+            (1, 4, 5),  # d
+            (2, 4),     # i
+            (2,),       # tone 2 (kept)
+            (1, 3),     # q
+            (2, 3, 4, 5, 6),  # üe
+            (2, 3),     # tone 4 (q omits 2, not 4)
+        ]
+
+    def test_nide_de_still_shortens(self, ctx, cn_ncb):
+        # 你的 ni3/de5 — both chars take their shorthands (既有行为).
+        cells = translate_word(
+            Word(surface="你的", reading="ni3 de5"), ctx, cn_ncb
+        )
+        assert _dots(cells) == [
+            (1, 3, 4, 5),  # 你 shorthand (n)
+            (1, 4, 5),     # 的 shorthand (d)
+        ]
+        assert [c.role for c in cells] == ["zh_shorthand", "zh_shorthand"]
+
+    def test_youde_de_still_shortens(self, ctx, cn_ncb):
+        # 有的 you3/de5 — the 的 shorthand under its declared reading.
+        cells = translate_word(
+            Word(surface="有的", reading="you3 de5"), ctx, cn_ncb
+        )
+        assert _dots(cells) == [
+            (1, 2, 5, 6),  # you3: zero-initial iou, tone 3 kept
+            (1, 4, 5),     # 的 shorthand
+        ]
+
+    def test_handcrafted_di4_de_falls_back(self, ctx, cn_ncb):
+        # Hand-fed reading: 的 read di4 → full spelling, no shorthand.
+        cells = translate_word(Word(surface="的", reading="di4"), ctx, cn_ncb)
+        assert _dots(cells) == [(1, 4, 5), (2, 4)]  # d + i (d-omit-4)
+
+    def test_gate_is_tone_blind(self, ctx, cn_ncb):
+        # de5 matches the "de0" declaration; untoned "de" too — only
+        # 声韵 is compared.  A bare di (no tone) still mismatches.
+        assert _dots(
+            translate_word(Word(surface="的", reading="de5"), ctx, cn_ncb)
+        ) == [(1, 4, 5)]
+        assert _dots(
+            translate_word(Word(surface="的", reading="de"), ctx, cn_ncb)
+        ) == [(1, 4, 5)]
+        assert _dots(
+            translate_word(Word(surface="的", reading="di"), ctx, cn_ncb)
+        ) == [(1, 4, 5), (2, 4)]
+
+    def test_gate_runs_before_the_boundary_exception(self, ctx, cn_ncb):
+        # 的 de5 followed by a zero-initial syllable: the gate passes
+        # (de matches) and THEN the boundary exception drops the
+        # shorthand → full spelling d + e (neutral tone unmarked).
+        cells = translate_word(
+            Word(surface="的爱", reading="de5 ai4"), ctx, cn_ncb
+        )
+        assert _dots(cells) == [
+            (1, 4, 5),  # d
+            (2, 6),     # e
+            (2, 4, 6),  # ai (zero-initial default-omit-4)
+        ]
+
+    def test_unparseable_reading_falls_back_with_warning(self, ctx, cn_ncb):
+        # An unparseable annotated syllable counts as a reading mismatch:
+        # the gate returns None and the full-spelling path raises the
+        # BAD_PINYIN warning instead of a silently-wrong shorthand.
+        cells = translate_word(Word(surface="的", reading="d6"), ctx, cn_ncb)
+        assert any(w.code == "BAD_PINYIN" for w in ctx.warnings)
+        assert cells[0].role == "unknown"
+
+
+class TestPolyphoneShorthandGate:
+    """Polyphonic shorthand chars generally: 地 (de 助词 / dì 土地) and
+    了 (le / liǎo) are not in the shipped 定字简写 table (the 讲义 pins
+    that table to exactly 的/么/你/他/她/它), so these entries are built
+    here through the real loader to prove the gate holds for any
+    polyphone a future resource might declare.
+    """
+
+    @pytest.fixture(scope="class")
+    def polyphone_overrides(self, tmp_path_factory):
+        import json
+
+        from brailix.core.config.loader import _load_zh_exceptions
+
+        d = tmp_path_factory.mktemp("polyphone")
+        res = d / "exceptions.json"
+        res.write_text(
+            json.dumps(
+                {
+                    "char_overrides": {
+                        "entries": [
+                            {
+                                "_id": "de_ground",
+                                "surface": "地",
+                                "_pinyin": "de0",
+                                "shorthand": {
+                                    "cells": ["c_145"],
+                                    "boundary_exception": True,
+                                },
+                            },
+                            {
+                                "_id": "le_aspect",
+                                "surface": "了",
+                                "_pinyin": "le5",
+                                "shorthand": {"cells": ["c_123"]},
+                            },
+                        ]
+                    }
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        exc = _load_zh_exceptions(
+            d, "exceptions.json", {"c_145": (1, 4, 5), "c_123": (1, 2, 3)}
+        )
+        assert exc is not None and exc.char_overrides is not None
+        return exc.char_overrides
+
+    def test_di_ground_reading_falls_back(self, polyphone_overrides):
+        from brailix.backend.zh import _try_shorthand
+
+        # 土地 的 地 (dì) — declared reading de0 mismatches → full spelling.
+        assert _try_shorthand("地", "di4", None, None, polyphone_overrides) is None
+
+    def test_de_particle_reading_shortens(self, polyphone_overrides):
+        from brailix.backend.zh import _try_shorthand
+
+        cells = _try_shorthand("地", "de5", None, None, polyphone_overrides)
+        assert cells is not None and _dots(cells) == [(1, 4, 5)]
+
+    def test_le_aspect_reading_shortens(self, polyphone_overrides):
+        from brailix.backend.zh import _try_shorthand
+
+        cells = _try_shorthand("了", "le5", None, None, polyphone_overrides)
+        assert cells is not None and _dots(cells) == [(1, 2, 3)]
+
+    def test_liao_reading_falls_back(self, polyphone_overrides):
+        from brailix.backend.zh import _try_shorthand
+
+        # 了解 的 了 (liǎo) — declared reading le5 mismatches.
+        assert _try_shorthand("了", "liao3", None, None, polyphone_overrides) is None
+
+    def test_untoned_declared_reading_matches(self, polyphone_overrides):
+        from brailix.backend.zh import _try_shorthand
+
+        cells = _try_shorthand("了", "le", None, None, polyphone_overrides)
+        assert cells is not None and _dots(cells) == [(1, 2, 3)]
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: pypinyin resolver feeds the reading gate real readings
+# ---------------------------------------------------------------------------
+
+
+class TestPypinyinEnginePath:
+    """The real resolver annotates 目的 as mu4/di4 — the gate must see
+    that di4 and render 的 by full spelling, while 你的 (ni3/de5) keeps
+    both shorthands.  Skipped when pypinyin / jieba aren't installed.
+    """
+
+    def test_mudi_through_pypinyin_reads_d_i(self):
+        pytest.importorskip("pypinyin")
+        pytest.importorskip("jieba")
+        from brailix import Pipeline
+
+        result = Pipeline(
+            profile="cn_ncb", analyzer="jieba", resolver="pypinyin"
+        ).translate_text("目的")
+        assert result.render() == "⠍⠥⠆⠙⠊"
+        assert not any(
+            c.role == "zh_shorthand"
+            for b in result.braille_ir.blocks
+            for c in b.cells
+        )
+
+    def test_nide_through_pypinyin_keeps_shorthands(self):
+        pytest.importorskip("pypinyin")
+        pytest.importorskip("jieba")
+        from brailix import Pipeline
+
+        result = Pipeline(
+            profile="cn_ncb", analyzer="jieba", resolver="pypinyin"
+        ).translate_text("你的")
+        shorthand = [
+            c.source_text
+            for b in result.braille_ir.blocks
+            for c in b.cells
+            if c.role == "zh_shorthand"
+        ]
+        assert shorthand == ["你", "的"]
+
+
+# ---------------------------------------------------------------------------
 # End-to-end: cn_ncb + zh backend — tone disambiguation
 # ---------------------------------------------------------------------------
 
@@ -494,3 +733,50 @@ class TestLoaderValidation:
         )
         with pytest.raises(ConfigurationError, match="by_initial"):
             _load_zh_exceptions(tmp_path, "bad_exceptions.json", {})
+
+    def test_pinyin_declaration_two_syllables_raises(self, tmp_path):
+        # A multi-syllable ``_pinyin`` would make the reading gate compare
+        # nonsense; fail at load like every other shape error.
+        from brailix.core.config.loader import _load_zh_exceptions
+        from brailix.core.errors import ConfigurationError
+
+        bad = tmp_path / "bad_exceptions.json"
+        bad.write_text(
+            '{"char_overrides": {"entries": ['
+            '{"_id": "x", "surface": "的", "_pinyin": "de0 di4", '
+            '"shorthand": {"cells": ["c_145"]}}'
+            "]}}",
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigurationError, match="_pinyin"):
+            _load_zh_exceptions(tmp_path, "bad_exceptions.json", {"c_145": (1, 4, 5)})
+
+    def test_pinyin_declaration_non_string_raises(self, tmp_path):
+        from brailix.core.config.loader import _load_zh_exceptions
+        from brailix.core.errors import ConfigurationError
+
+        bad = tmp_path / "bad_exceptions.json"
+        bad.write_text(
+            '{"char_overrides": {"entries": ['
+            '{"_id": "x", "surface": "的", "_pinyin": 5, '
+            '"shorthand": {"cells": ["c_145"]}}'
+            "]}}",
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigurationError, match="_pinyin"):
+            _load_zh_exceptions(tmp_path, "bad_exceptions.json", {"c_145": (1, 4, 5)})
+
+    def test_entry_without_pinyin_declaration_loads_unconditional(self, tmp_path):
+        # No ``_pinyin`` → the entry is unconditional (gate skipped),
+        # which keeps hand-authored minimal resources loadable.
+        from brailix.core.config.loader import _load_zh_exceptions
+
+        res = tmp_path / "ok_exceptions.json"
+        res.write_text(
+            '{"char_overrides": {"entries": ['
+            '{"_id": "x", "surface": "的", "shorthand": {"cells": ["c_145"]}}'
+            "]}}",
+            encoding="utf-8",
+        )
+        exc = _load_zh_exceptions(tmp_path, "ok_exceptions.json", {"c_145": (1, 4, 5)})
+        assert exc.char_overrides.declared_pinyin("的") is None
