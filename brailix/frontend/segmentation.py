@@ -39,8 +39,10 @@ Segment types emitted (consumed downstream by
 :mod:`~brailix.frontend.normalization` and ChineseAnalyzer):
 
 * ``hanzi_text``  — CJK Unified Ideographs run.
-* ``digit_run``   — ASCII or fullwidth digit run (normalization turns
-  this into ``number`` / ``date``).
+* ``digit_run``   — ASCII or fullwidth digit run, decimal point and
+  comma included (fullwidth ．/， folded to ASCII — see
+  :func:`_digit_separator`); normalization turns this into ``number`` /
+  ``date``.
 * ``latin_text``  — ASCII letters.
 * ``greek_text``  — Greek alphabet letters (Α-Ω / α-ω + variants
   ϕ ϵ ϑ ϱ ς). Split from latin_text so each script gets its own
@@ -89,6 +91,35 @@ if _TYPE_CHECKING:
 # other's guard. We still do not treat ``$$...$$`` (display
 # math) as inline here; the input layer marks display math as a
 # math_block.
+
+# ASCII Unit Separator — the char that follows the opening ``$`` of a
+# *tagged* inline-math island (``$<US>source<US>payload$``, written by
+# :func:`brailix.core.inline_math.wrap`). That wire format's single
+# discriminator, mirrored here because the scanner must recognise the
+# island it delimits as one atom; ``tests/frontend/test_segment.py``
+# builds islands through ``wrap`` itself so the two can never drift.
+_ISLAND_TAG = "\x1d"
+
+# Prefix of the *untagged* inline-math island a Word-importer writes at
+# its export boundary: ``$<math ...>...</math>$`` (rendered by the
+# importer's inline-island serialiser). Unlike a tagged island, its
+# payload is raw MathML and MAY contain ``$`` characters, so its close
+# is the first ``$`` AFTER the ``</math>`` terminator, not the first
+# ``$`` overall.
+_MATH_OPEN = "<math"
+_MATH_CLOSE = "</math>"
+
+
+def _opens_island(text: str, j: int) -> bool:
+    """Whether position ``j`` starts an inline-math island payload.
+
+    True for the tagged wire form (Unit Separator) and for the
+    untagged ``<math`` MathML form — the two shapes machine-written
+    islands take in paragraph text.
+    """
+    return j < len(text) and (
+        text[j] == _ISLAND_TAG or text.startswith(_MATH_OPEN, j)
+    )
 
 # Half-width characters that are universally math operators / delimiters
 # in modern technical writing — semantically "half-width = math" per the
@@ -282,19 +313,46 @@ def segment_text(
 def _iter_inline_math_spans(text: str) -> Iterator[tuple[int, int, str]]:
     r"""Yield ``(start, end, "math_inline")`` for each ``$...$`` island.
 
-    A single ``$`` opens an island; the next ``$`` on the same line closes
-    it, and the content between must be non-empty and newline-free. Two
-    *adjacent* islands (``$a$$b$``) therefore parse as two islands — the
-    old lookaround regex rejected the whole run because each side of the
-    ``$$`` junction tripped the other's ``(?<!\$)`` / ``(?!\$)`` guard.
+    The scan treats four shapes, in the order it meets them:
 
-    A *doubled* ``$$`` is treated as a display-math delimiter and skipped
-    (left as text): the input layer extracts display math as a MathBlock
-    upstream, so a ``$$`` reaching the segmenter is not an inline boundary.
+    * **Machine island** — a ``$`` whose payload starts with the Unit
+      Separator ``\x1d`` (a tagged island from
+      :func:`brailix.core.inline_math.wrap`: deferred inline math the
+      input layer extracted — Word OMML, an EQ field) or with ``<math``
+      (an untagged island a Word importer renders at its export
+      boundary) is machine-written math and emitted as ONE atomic span
+      through its closing ``$``. Tagged payloads carry no inner ``$``
+      and no newline (``wrap`` guarantees both), so the next ``$`` is
+      the close; untagged MathML locates its close past the ``</math>``
+      terminator, because a payload ``$`` (escaped to ``&#36;`` by the
+      importer, but robust anyway) must never end the island.
+    * **Doubled ``$$``** — a display-math delimiter, skipped (left as
+      text); the input layer extracts display math as a MathBlock
+      upstream. Exception: when the pair's *second* ``$`` opens a machine
+      island, the island wins — skipping the pair would shred the
+      island into control-char / MathML chunks (unrecoverable), while
+      the skipped
+      ``$$`` merely stays two punct ``$`` characters.
+    * **Prose ``$`` pairing** — any other ``$`` pairs with the next
+      ``$`` on the same line, unless that candidate close is itself a
+      machine island's opener (a prose ``$`` must never reach *across*
+      machine math: the span would swallow the island and its payload
+      would hit the math frontend as raw LaTeX), or the candidate is
+      immediately followed by a digit — ``苹果$5,梨$6。``: a ``$`` glued
+      to a digit is a currency amount, so the greedy pair ``$5,梨$`` is
+      really two amounts and the prose between them survives. In that
+      case the pair's *own* next ``$`` decides: when that reads as a
+      clean island close (``价格 $5 和 $1+1=2$ 知道``), the candidate was
+      a formula opener, not a price tag, and the scan abandons the
+      first ``$`` so the formula pairs when the scan reaches it;
+      otherwise both ``$`` stay prose. The digit lookahead only looks
+      *after* the candidate close, never at the content — a golden
+      ``$\text{速度}$`` keeps its hanzi, and ``我 $1+1=2$ 知道`` still
+      pairs because its closer is followed by a space, not a digit.
+    * **No eligible close** on the same line — the ``$`` is prose; the
+      scan advances one so a later genuine island still pairs.
 
-    Tagged inline-math islands (:mod:`brailix.core.inline_math`) carry no
-    inner ``$`` (it is escaped) and no newline, so each matches here in
-    full exactly as a user-typed ``$x^2$`` does.
+    Two *adjacent* islands (``$a$$b$``) parse as two islands.
     """
     i = 0
     n = len(text)
@@ -302,13 +360,64 @@ def _iter_inline_math_spans(text: str) -> Iterator[tuple[int, int, str]]:
         if text[i] != "$":
             i += 1
             continue
+        if _opens_island(text, i + 1):
+            # Machine-written island: atomic. Tagged islands carry no
+            # inner ``$`` (wrap() escapes them), so the next ``$`` is the
+            # close; untagged ``<math`` islands locate their close past
+            # the ``</math>`` terminator because raw MathML may contain
+            # ``$`` characters of its own.
+            if text[i + 1] == _ISLAND_TAG:
+                close = text.find("$", i + 1)
+            else:
+                end = text.find(_MATH_CLOSE, i + 1)
+                close = text.find("$", end) if end != -1 else -1
+            if close != -1 and text.find("\n", i + 1, close) == -1:
+                yield (i, close + 1, "math_inline")
+                i = close + 1
+            else:
+                # Not machine output after all (unterminated marker) —
+                # prose; the scan falls through to the pairing rules.
+                i += 1
+            continue
         if i + 1 < n and text[i + 1] == "$":
+            if _opens_island(text, i + 2):
+                # The pair's second ``$`` opens a machine island: prefer
+                # the island over the display-delimiter skip (see docstring).
+                i += 1
+                continue
             # Doubled ``$$``: display-math delimiter, not an inline island.
             i += 2
             continue
         close = text.find("$", i + 1)
         if close == -1 or text.find("\n", i + 1, close) != -1:
             i += 1
+            continue
+        if _opens_island(text, close + 1):
+            # The candidate close opens a machine island: a prose ``$``
+            # never pairs across machine math. Leave both for later — the
+            # island protects itself when the scan reaches its opener.
+            i += 1
+            continue
+        if close + 1 < n and _is_digit(text[close + 1]):
+            # Candidate close glued to a digit: currency shape. It might
+            # still be a *formula opener* (``$5 和 $1+1=2$``) — decide by
+            # whether the candidate's own next ``$`` reads as a clean close.
+            nxt = text.find("$", close + 1)
+            clean_close = (
+                nxt != -1
+                and text.find("\n", close + 1, nxt) == -1
+                and (
+                    nxt + 1 >= n
+                    or (
+                        not _opens_island(text, nxt + 1)
+                        and not _is_digit(text[nxt + 1])
+                    )
+                )
+            )
+            if clean_close:
+                i += 1  # the candidate pairs as an island when reached
+            else:
+                i = close + 1  # both ``$`` are currency: prose
             continue
         yield (i, close + 1, "math_inline")
         i = close + 1
@@ -442,6 +551,28 @@ def _find_protected_regions(text: str) -> list[tuple[int, int, str]]:
     return spans
 
 
+def _digit_separator(ch: str) -> str | None:
+    """The ASCII decimal separator ``ch`` plays inside a digit run, or
+    ``None``.
+
+    ``.`` / ``,`` themselves, plus their full-width forms ． (U+FF0E) and
+    ， (U+FF0C) — routine CJK typography between full-width digits
+    (``３．５`` / ``３，５００``), which must reach the number backend as the
+    ASCII separator it maps. The fold mirrors how prose numbers treat
+    full-width *digits* (:func:`brailix.backend._digits.ascii_decimal_digit`
+    under ``fold_nonascii``) with one difference in *where* it happens:
+    the digit fold is per-character at render time, while a full-width
+    separator is folded into the run's surface here, because the surface
+    is the only string the number path ever reads and the backend knows
+    only the ASCII ``.`` / ``,``. The ideographic 。 / 、 are Chinese
+    sentence punctuation, never decimal separators, and stay punct.
+    """
+    if ch in ".,":
+        return ch
+    folded = fold_fullwidth(ch)
+    return folded if folded in (".", ",") else None
+
+
 def _segment_unprotected(
     text: str,
     start: int,
@@ -455,7 +586,18 @@ def _segment_unprotected(
     one (the Japanese frontend's adds ``ja_text``) to reuse this
     chunking. Special case: a decimal point or comma flanked by digits
     stays inside the digit_run so ``3.5`` and ``1,234`` survive as one
-    segment. Downstream normalization relies on this.
+    segment — and their full-width twins fold to the ASCII separator
+    (:func:`_digit_separator`), so ``３．５米`` and ``3.5米`` translate
+    cell-for-cell alike. Downstream normalization relies on this.
+
+    A digit_run whose run text is not pure ASCII carries its full-width
+    digits verbatim (the prose backend folds those at render time) but
+    its separators folded, so the surface may differ from the source
+    slice character-for-character in exactly those two positions — the
+    one deliberate exception to the segmenter's surfaces-tile-the-text
+    contract, taken because it keeps the fold on the single path every
+    number translation reads. Span positions and lengths are unaffected
+    (each folded separator is one char for one char).
     """
     segments: list[Segment] = []
     i = start
@@ -492,17 +634,22 @@ def _segment_unprotected(
                 if categorize(text[j]) == "digit_run":
                     j += 1
                 elif (
-                    text[j] in ".,"
-                    and j + 1 < end
+                    j + 1 < end
                     and categorize(text[j + 1]) == "digit_run"
+                    and _digit_separator(text[j]) is not None
                 ):
-                    j += 1  # absorb the punctuation; the loop picks up the next digit
+                    j += 1  # absorb the separator; the loop picks up the next digit
                 else:
                     break
+            run = text[i:j]
+            if not run.isascii():
+                # Full-width separators fold to ASCII here (see docstring);
+                # full-width digits pass through for the backend to fold.
+                run = "".join(_digit_separator(c) or c for c in run)
             segments.append(
                 Segment(
                     type="digit_run",
-                    surface=text[i:j],
+                    surface=run,
                     span=Span(base_offset + i, base_offset + j),
                 )
             )
