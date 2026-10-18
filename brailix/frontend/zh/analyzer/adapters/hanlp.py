@@ -1,6 +1,6 @@
 """HanLP-backed Chinese analyzer adapter.
 
-HanLP is heavy (downloads large transformer models on first use). We
+HanLP is heavy (its transformer weights are a large download). We
 import it lazily inside :func:`_load` so users who pick a different
 adapter never pay the import cost. If the package isn't installed,
 the registry surfaces a :class:`MissingExtraError` pointing at the
@@ -11,12 +11,12 @@ level — keep it that way, or the lazy-loading contract breaks.
 
 Model cache directory: :func:`_load` sets ``HANLP_HOME`` to the
 portable ``models/hanlp/`` before importing hanlp, so weights live
-there rather than in ``~/.hanlp/``.  By default HanLP then
-auto-downloads the model on first use, like any NLP library.  A
-front-end that manages downloads itself can call
-:func:`brailix.core.models.set_managed_download`, after which this
-adapter raises :class:`ModelNotInstalledError` for an absent model
-instead of letting HanLP fetch it.
+there rather than in ``~/.hanlp/``.  The library only checks
+availability: when the model directory is absent this adapter raises
+:class:`ModelNotInstalledError` (and the ``auto`` chain degrades to
+the next tokenizer) — HanLP's own first-use auto-download is never
+allowed to fire from inside a translation.  Fetching weights is
+exclusively a front-end download manager's job.
 """
 
 from __future__ import annotations
@@ -36,7 +36,6 @@ from brailix.core.errors import (
 )
 from brailix.core.models.asset_registry import (
     ModelAsset,
-    is_managed_download,
     register_asset,
 )
 from brailix.core.models.paths import get_model_dir
@@ -180,10 +179,12 @@ def _load() -> HanLPChineseAnalyzer:
 
     Order matters: ``HANLP_HOME`` must be in the environment *before*
     ``import hanlp`` so the library's ``hanlp_home_default()`` reads
-    our value rather than caching the OS default. By default HanLP then
-    auto-downloads the model on first use; under managed download (a
-    front-end opted in via ``set_managed_download``) we instead pre-check
-    and raise so that front-end's downloader handles it.
+    our value rather than caching the OS default. Availability is
+    checked *after* the import so a missing hanlp package still
+    surfaces as MissingExtraError (the registry rewrites the
+    ImportError from the line below); an absent model directory then
+    raises :class:`ModelNotInstalledError` — HanLP's first-use
+    auto-download never fires from here.
     """
     _check_transformers_compatibility()
 
@@ -192,22 +193,15 @@ def _load() -> HanLPChineseAnalyzer:
 
     import hanlp  # noqa: WPS433 — lazy by design
 
-    # Defer to a front-end's download manager only when one has opted in
-    # via set_managed_download; otherwise let HanLP auto-download on first
-    # use (the standalone path). The check runs *after* the import so a
-    # missing hanlp package still surfaces as MissingExtraError (the
-    # registry rewrites the ImportError from the line above).
-    if is_managed_download():
-        _ensure_model_installed(hanlp_home)
+    _ensure_model_installed(hanlp_home)
 
-    # Standalone (non-managed) path: HanLP auto-downloads the model here on
-    # first use. A download / IO failure (no network, a truncated or corrupt
-    # archive, a read-only models dir) raises deep inside hanlp.load as
+    # A load of a *present* model can still fail (a truncated or corrupt
+    # archive, a read-only models dir) deep inside hanlp.load as
     # OSError / RuntimeError / zipfile.BadZipFile — none of which the ``auto``
     # chain catches, so the whole translation would crash instead of degrading
     # to the next tokenizer. Re-raise as ModelNotInstalledError (the model
     # genuinely isn't usable) so ``auto`` falls back to jieba → char, exactly
-    # as the managed-download pre-check above already does.
+    # as the pre-check above does.
     try:
         pipeline = hanlp.load(
             hanlp.pretrained.mtl.CLOSE_TOK_POS_NER_SRL_DEP_SDP_CON_ELECTRA_SMALL_ZH
@@ -233,11 +227,11 @@ def _load() -> HanLPChineseAnalyzer:
 def _ensure_model_installed(hanlp_home: _Path) -> None:
     """Raise :class:`ModelNotInstalledError` if the MTL model is absent.
 
-    Used under managed download to defer the fetch to a front-end's
-    downloader: the check happens before any ``hanlp.load`` call has a
-    chance to auto-download. A present-but-empty directory is also
-    treated as missing (a half-finished download leaves an empty folder
-    that would otherwise fool the existence check).
+    The library's only model policy: check, never fetch. The check
+    happens before any ``hanlp.load`` call has a chance to
+    auto-download. A present-but-empty directory is also treated as
+    missing (a half-finished download leaves an empty folder that
+    would otherwise fool the existence check).
     """
     install_dir = hanlp_home / _MTL_DIR
     if not install_dir.is_dir() or not any(install_dir.iterdir()):

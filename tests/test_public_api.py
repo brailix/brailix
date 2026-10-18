@@ -143,8 +143,6 @@ _FACADE: dict[str, list[str]] = {
         "all_assets",
         "get_asset",
         "register_asset",
-        "is_managed_download",
-        "set_managed_download",
         "get_model_dir",
         "get_models_root",
     ],

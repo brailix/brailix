@@ -101,10 +101,10 @@ def test_auto_re_raises_last_error_when_all_candidates_fail():
 
 
 def test_auto_falls_through_model_not_installed_candidate():
-    # A candidate that imports fine but whose model isn't downloaded raises
-    # ModelNotInstalledError (e.g. hanlp under managed download). The chain
-    # must treat it as "unavailable" and degrade to char rather than
-    # crashing the whole compile.
+    # A candidate that imports fine but whose model isn't installed raises
+    # ModelNotInstalledError (e.g. hanlp with an absent models/ directory).
+    # The chain must treat it as "unavailable" and degrade to char rather
+    # than crashing the whole compile.
     from brailix.core.errors import ModelNotInstalledError
     from brailix.frontend.zh.analyzer.adapters.auto import AutoChineseAnalyzer
 
@@ -141,11 +141,11 @@ def test_auto_falls_through_incompatible_dependency_candidate():
 
 
 def test_hanlp_load_failure_surfaces_as_model_not_installed(monkeypatch, tmp_path):
-    # In the standalone (non-managed) path hanlp.load auto-downloads the
-    # model; a network / IO failure there must surface as
-    # ModelNotInstalledError — which the ``auto`` chain catches (see
-    # test_auto_falls_through_model_not_installed_candidate) — rather than the
-    # raw OSError that would crash the whole compile.
+    # Loading a *present* model can still fail (a truncated or corrupt
+    # archive, a read-only models dir) deep inside hanlp.load as OSError;
+    # that must surface as ModelNotInstalledError — which the ``auto``
+    # chain catches (see test_auto_falls_through_model_not_installed_candidate)
+    # — rather than the raw OSError that would crash the whole compile.
     import types
     from unittest.mock import MagicMock
 
@@ -157,9 +157,13 @@ def test_hanlp_load_failure_surfaces_as_model_not_installed(monkeypatch, tmp_pat
     fake.load = MagicMock(side_effect=OSError("network unreachable"))
     monkeypatch.setitem(sys.modules, "hanlp", fake)
     monkeypatch.setattr(hanlp_adapter, "get_model_dir", lambda _name: tmp_path)
-    monkeypatch.setattr(hanlp_adapter, "is_managed_download", lambda: False)
+    # The pre-check must see a "present" model so the failure comes from
+    # hanlp.load itself (the check-first path has its own tests).
+    install_dir = tmp_path / hanlp_adapter._MTL_DIR
+    install_dir.mkdir(parents=True)
+    (install_dir / "config.json").write_text("{}", encoding="utf-8")
 
     with pytest.raises(ModelNotInstalledError) as ei:
         hanlp_adapter._load()
-    # The underlying download failure is chained, not swallowed.
+    # The underlying load failure is chained, not swallowed.
     assert isinstance(ei.value.__cause__, OSError)

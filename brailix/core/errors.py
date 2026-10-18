@@ -238,14 +238,13 @@ class ModelNotInstalledError(BrailixError):
     """Raised when an adapter needs a downloadable model that isn't
     present in the portable ``models/`` directory.
 
-    Only raised under managed download (a front-end opted in via
-    :func:`brailix.core.models.set_managed_download`): the adapter checks
-    the expected install path and raises this instead of letting its
-    backend auto-download, so a front-end's downloader can fetch the
-    model under its own control (progress feedback, user consent),
-    rendering a "please download" prompt against the ``model_id`` +
-    ``install_dir`` fields.  By default adapters auto-download on first
-    use and this is never raised.
+    The library's only model policy is to *check* availability: an
+    adapter whose expected install path is absent raises this instead
+    of letting its backend auto-download on first use, and the ``auto``
+    chain degrades to the next tokenizer. Fetching a model is
+    exclusively a front-end download manager's job (progress feedback,
+    user consent), which pairs the ``model_id`` + ``install_dir``
+    fields with a "please download" prompt.
 
     Callers without an interactive UI (CLI, scripts) still get a
     meaningful English fallback from ``str(exc)``.
