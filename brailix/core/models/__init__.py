@@ -22,9 +22,12 @@ Adapter code calls :func:`paths.get_model_dir` to find its weights
 and :func:`asset_registry.register_asset` to announce itself; the
 model-manager front-end walks the asset registry to populate its list.
 Both sides stay decoupled — adapters don't import any front-end, and
-a front-end doesn't import adapters.  By default adapters auto-download a
-missing model on first use; a front-end that manages downloads itself
-calls :func:`set_managed_download` so adapters defer to it instead.
+a front-end doesn't import adapters.  The library only ever *checks*
+availability: an adapter whose model directory is absent raises
+:class:`~brailix.core.errors.ModelNotInstalledError` (the ``auto``
+chain then degrades to the next tokenizer), and never reaches for
+the network itself — fetching a model is exclusively the front-end
+download manager's job.
 
 This ``__init__`` re-exports the adapter-side public surface so callers
 import from ``brailix.core.models`` rather than the concrete
@@ -37,9 +40,7 @@ from brailix.core.models.asset_registry import (
     ModelAsset,
     all_assets,
     get_asset,
-    is_managed_download,
     register_asset,
-    set_managed_download,
 )
 from brailix.core.models.paths import get_model_dir, get_models_root
 
@@ -47,9 +48,7 @@ __all__ = (
     "ModelAsset",
     "all_assets",
     "get_asset",
-    "is_managed_download",
     "register_asset",
-    "set_managed_download",
     "get_model_dir",
     "get_models_root",
 )

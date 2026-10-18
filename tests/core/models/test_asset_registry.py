@@ -10,9 +10,7 @@ from brailix.core.models.asset_registry import (
     ModelAsset,
     all_assets,
     get_asset,
-    is_managed_download,
     register_asset,
-    set_managed_download,
 )
 
 
@@ -23,15 +21,12 @@ def _isolated_registry():
     from brailix.core.models import asset_registry as ar
 
     snap = dict(ar._assets)
-    snap_managed = ar._managed_download
     try:
         ar._assets.clear()
-        ar._managed_download = False
         yield
     finally:
         ar._assets.clear()
         ar._assets.update(snap)
-        ar._managed_download = snap_managed
 
 
 def _asset(name: str, install_dir: Path, key: str = "model.x.display_name") -> ModelAsset:
@@ -106,22 +101,25 @@ class TestIsInstalled:
         assert asset.is_installed() is True
 
 
-class TestManagedDownload:
-    """The download-policy seam: default auto-download vs. front-end-managed."""
+class TestDownloadPolicyIsGone:
+    """The library only ever CHECKS model availability; the download-policy
+    switch (``set_managed_download`` / ``is_managed_download`` /
+    ``_managed_download``) was deleted with the auto-download path it gated
+    (2026-10-17). Guard that none of it sneaks back: an adapter must not be
+    able to "let the backend fetch it" behind a policy flag again."""
 
-    def test_default_is_unmanaged(self) -> None:
-        # Library default: adapters auto-download a missing model on first use.
-        assert is_managed_download() is False
+    def test_policy_symbols_are_not_exported(self) -> None:
+        import brailix.core.models as m
 
-    def test_opt_in_then_out(self) -> None:
-        set_managed_download(True)
-        assert is_managed_download() is True
-        set_managed_download(False)
-        assert is_managed_download() is False
+        assert not hasattr(m, "set_managed_download")
+        assert not hasattr(m, "is_managed_download")
 
-    def test_default_arg_enables(self) -> None:
-        set_managed_download()
-        assert is_managed_download() is True
+    def test_policy_symbols_are_gone_from_the_registry_module(self) -> None:
+        from brailix.core.models import asset_registry as ar
+
+        assert not hasattr(ar, "set_managed_download")
+        assert not hasattr(ar, "is_managed_download")
+        assert not hasattr(ar, "_managed_download")
 
 
 class TestConcurrencyContract:
@@ -166,7 +164,7 @@ class TestConcurrencyContract:
 
     @pytest.mark.parametrize(
         "operation",
-        ["register_asset", "all_assets", "set_managed_download"],
+        ["register_asset", "all_assets"],
     )
     def test_the_guarded_operations_wait_for_the_lock(
         self, operation: str, tmp_path: Path
@@ -176,7 +174,6 @@ class TestConcurrencyContract:
         calls = {
             "register_asset": lambda: register_asset(_asset("m", tmp_path)),
             "all_assets": all_assets,
-            "set_managed_download": lambda: set_managed_download(True),
         }
         with ar._lock:
             thread, done = self._call_in_thread(calls[operation])
@@ -187,17 +184,15 @@ class TestConcurrencyContract:
         assert done.wait(self._UNBLOCKED), f"{operation} never completed"
         thread.join(timeout=self._UNBLOCKED)
 
-    @pytest.mark.parametrize("operation", ["get_asset", "is_managed_download"])
+    @pytest.mark.parametrize("operation", ["get_asset"])
     def test_the_hot_path_reads_stay_lock_free(self, operation: str) -> None:
-        """The deliberate other half. Both are a single atomic ``dict.get`` /
-        attribute read that adapters run per compile; putting them behind the
-        lock would serialise the hot path to buy nothing. Pinned so that stays
-        a decision."""
+        """The deliberate other half. A single atomic ``dict.get`` that
+        adapters run per compile; putting it behind the lock would serialise
+        the hot path to buy nothing. Pinned so that stays a decision."""
         from brailix.core.models import asset_registry as ar
 
         calls = {
             "get_asset": lambda: get_asset("anything"),
-            "is_managed_download": is_managed_download,
         }
         with ar._lock:
             thread, done = self._call_in_thread(calls[operation])

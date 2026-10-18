@@ -55,14 +55,7 @@ class ModelAsset:
 
 _assets: dict[str, ModelAsset] = {}
 
-# Download policy. Default: adapters auto-download a missing model on first
-# use (standalone library behaviour). A front-end that ships its own
-# download manager calls :func:`set_managed_download` so adapters instead
-# raise :class:`~brailix.core.errors.ModelNotInstalledError` and defer the
-# fetch to that manager (progress feedback, user consent, etc.).
-_managed_download = False
-
-# Guards both of the above, for the same reason
+# Guards the table, for the same reason
 # :class:`brailix.core.registry.Registry` guards its dicts — and because
 # ARCHITECTURE#arch-boundaries names this table among the process-level
 # assembly surfaces whose reads and writes are safe against a concurrent
@@ -83,7 +76,7 @@ _managed_download = False
 #   snapshot-and-restore fixture this module recommends does, so the window is
 #   open in-process.
 # * Insert-only, the two-step read did NOT fail in a 10s hammer: CPython
-#   materialises the key list in one bytecode under the GIL. That is an
+#   materialises the key list in one bytecode under the GIL. That's an
 #   implementation detail of one build, not a property to document a guarantee
 #   on — a free-threaded interpreter (PEP 703, available from the 3.13 brailix
 #   targets) removes exactly it.
@@ -120,47 +113,16 @@ def all_assets() -> list[ModelAsset]:
 
 
 # (There is deliberately no ``clear()`` reset helper. A test that needs a
-# clean registry snapshots ``_assets`` / ``_managed_download`` and restores
-# them in a fixture — restoring beats wiping, since the real registrations
+# clean registry snapshots ``_assets`` and restores
+# it in a fixture — restoring beats wiping, since the real registrations
 # come from adapter imports that only happen once per process. A global
 # "drop everything" function on a stable facade would be an app-reachable
 # way to un-register those.)
-
-
-def set_managed_download(enabled: bool = True) -> None:
-    """Opt into front-end-managed model downloading.
-
-    When enabled, adapters that need a downloadable model raise
-    :class:`~brailix.core.errors.ModelNotInstalledError` instead of
-    triggering their backend's own auto-download, so a front-end's
-    download manager can fetch the model under its own control (progress
-    feedback, user consent). The default (disabled) lets each adapter
-    auto-download on first use — what a standalone library user expects.
-
-    Process-level policy, deliberately: it changes the behaviour of every
-    adapter in the interpreter, not of one run. A front-end sets it once at
-    startup — it is not a per-compile option, and a multi-tenant host cannot
-    use it to give two tenants different policies
-    (ARCHITECTURE#arch-boundaries).
-    """
-    global _managed_download
-    with _lock:
-        _managed_download = bool(enabled)
-
-
-def is_managed_download() -> bool:
-    """``True`` when a front-end has taken over model downloading."""
-    # Lock-free: reading a module-level ``bool`` is a single atomic operation
-    # under the GIL, and adapters call this on the compile hot path. The write
-    # takes the lock so a reader sees one side of the flip or the other.
-    return _managed_download
 
 
 __all__ = (
     "ModelAsset",
     "all_assets",
     "get_asset",
-    "is_managed_download",
     "register_asset",
-    "set_managed_download",
 )

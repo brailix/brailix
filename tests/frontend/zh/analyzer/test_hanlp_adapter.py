@@ -7,11 +7,10 @@ We do not require ``hanlp`` to be installed. Instead we:
 2. Exercise the adapter's token-conversion logic by injecting a fake
    pipeline object, so the structural contract (what we do with HanLP
    output) is fully covered.
-3. Cover the model-download paths: ``_load`` sets ``HANLP_HOME``
-   before importing hanlp; by default it lets hanlp auto-download a
-   missing model, and under managed download (a front-end opted in via
-   ``set_managed_download``) it raises :class:`ModelNotInstalledError`
-   instead.
+3. Cover the model-availability contract: ``_load`` sets ``HANLP_HOME``
+   before importing hanlp, and an absent model directory always raises
+   :class:`ModelNotInstalledError` — the library checks availability,
+   it never lets hanlp auto-download on first use.
 """
 
 from __future__ import annotations
@@ -29,7 +28,6 @@ from brailix.core.errors import (
     MissingExtraError,
     ModelNotInstalledError,
 )
-from brailix.core.models.asset_registry import set_managed_download
 from brailix.core.span import Span
 from brailix.frontend.zh.analyzer.adapters.hanlp import (
     _MTL_DIR,
@@ -53,15 +51,6 @@ def _seed_mtl_dir(hanlp_home: Path) -> Path:
     install_dir.mkdir(parents=True, exist_ok=True)
     (install_dir / "config.json").write_text("{}", encoding="utf-8")
     return install_dir
-
-
-@pytest.fixture(autouse=True)
-def _reset_download_policy():
-    """Some tests opt into managed download; reset around each so test
-    ordering can't leak the policy."""
-    set_managed_download(False)
-    yield
-    set_managed_download(False)
 
 
 # ---------------------------------------------------------------------------
@@ -269,20 +258,21 @@ class TestEnsureModelInstalled:
         _seed_mtl_dir(tmp_path)
         _ensure_model_installed(tmp_path)  # no raise
 
-    def test_load_under_managed_download_raises_when_missing(
+    def test_load_raises_when_model_missing_no_auto_download(
         self, monkeypatch, tmp_path: Path
     ):
-        """Under managed download, registry.get('hanlp') surfaces
-        ModelNotInstalledError when hanlp is importable but the model
-        directory is absent — and must NOT call hanlp.load (a front-end's
-        downloader handles the fetch)."""
-        set_managed_download(True)
+        """An absent model directory always surfaces
+        ModelNotInstalledError when hanlp is importable — and must NOT
+        call hanlp.load: the library checks availability, it never lets
+        the backend auto-download on first use (fetching is exclusively
+        a front-end download manager's job)."""
         monkeypatch.delattr(sys, "frozen", raising=False)
         monkeypatch.chdir(tmp_path)
 
         fake_module = types.ModuleType("hanlp")
         fake_module.load = lambda *a, **kw: pytest.fail(
-            "hanlp.load must not be called under managed download"
+            "hanlp.load must not be called when the model is absent — "
+            "the adapter must check first, never auto-download"
         )
 
         class _Pretrained:
@@ -295,35 +285,6 @@ class TestEnsureModelInstalled:
 
         with pytest.raises(ModelNotInstalledError):
             analyzer_registry.get("hanlp")
-
-    def test_load_default_auto_downloads_when_missing(
-        self, monkeypatch, tmp_path: Path
-    ):
-        """By default (no managed download) an absent model does NOT
-        raise: the adapter lets hanlp.load auto-download on first use."""
-        monkeypatch.delattr(sys, "frozen", raising=False)
-        monkeypatch.chdir(tmp_path)
-
-        loaded: dict[str, Any] = {}
-
-        def fake_load(model_name):
-            loaded["called"] = True
-            return lambda text: None
-
-        fake_module = types.ModuleType("hanlp")
-        fake_module.load = fake_load
-
-        class _Pretrained:
-            class mtl:
-                CLOSE_TOK_POS_NER_SRL_DEP_SDP_CON_ELECTRA_SMALL_ZH = "<x>"
-
-        fake_module.pretrained = _Pretrained
-        monkeypatch.setitem(sys.modules, "hanlp", fake_module)
-        analyzer_registry.clear_cache()
-
-        analyzer = analyzer_registry.get("hanlp")  # no raise
-        assert loaded.get("called") is True
-        assert isinstance(analyzer, HanLPChineseAnalyzer)
 
 
 class TestTransformersCompatGuard:

@@ -47,7 +47,6 @@ from brailix.core.errors import (
     MissingExtraError,
     ModelNotInstalledError,
 )
-from brailix.core.models.asset_registry import set_managed_download
 from brailix.frontend.zh.analyzer.adapters.auto import AutoChineseAnalyzer
 from brailix.frontend.zh.analyzer.registry import analyzer_registry
 from brailix.frontend.zh.pinyin.adapters.auto import AutoPinyinResolver
@@ -205,13 +204,18 @@ def _isolated_loaders(
         "_check_transformers_compatibility",
         lambda: None,
     )
-    # Default (non-managed) download policy: the managed pre-check would raise
-    # ModelNotInstalledError before the injected failure could happen.
-    set_managed_download(False)
+    # Seed a "present" hanlp model dir so the availability pre-check passes
+    # and the INJECTED hanlp.load failure is what these tests exercise —
+    # the adapter checks availability first now (the auto-download path is
+    # gone), so an absent model would raise before the injected boom.
+    from brailix.frontend.zh.analyzer.adapters.hanlp import _MTL_DIR
+
+    install = tmp_path / "models" / "hanlp" / _MTL_DIR
+    install.mkdir(parents=True)
+    (install / "config.json").write_text("{}", encoding="utf-8")
     analyzer_registry.clear_cache()
     resolver_registry.clear_cache()
     yield
-    set_managed_download(False)
     analyzer_registry.clear_cache()
     resolver_registry.clear_cache()
 
