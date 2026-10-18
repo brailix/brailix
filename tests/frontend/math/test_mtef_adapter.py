@@ -1798,3 +1798,28 @@ class TestPayloadEdges:
         assert "<mtable>" in out
         assert "<mi>a</mi>" in out
         assert "merror" not in out
+
+
+class TestUnknownSelectorPassthroughLogs:
+    def test_unknown_selector_logs_warning(self, caplog):
+        # A TMPL selector outside both dispatch tables used to degrade
+        # to slot passthrough SILENTLY — plausible-but-wrong MathML a
+        # blind proofreader can't catch. The passthrough now logs a
+        # warning through the same seam the handler-failure branch
+        # uses (module logger brailix...mtef._mathml).
+        import logging
+
+        num = B.v5_simple_char_line(_ord("x"))
+        payload = B.v5_prelude() + B.v5_line(B.v5_tmpl(99, [num]))
+        with caplog.at_level(
+            logging.WARNING, logger="brailix.frontend.math.adapters.mtef._mathml"
+        ):
+            out = _to_mathml(payload)
+        # The slots still pass through (soft-failure contract)...
+        assert "<mi>x</mi>" in out
+        # ...and the degradation is visible in the log.
+        assert any(
+            "selector not recognised" in rec.message
+            and "99" in rec.message
+            for rec in caplog.records
+        )
