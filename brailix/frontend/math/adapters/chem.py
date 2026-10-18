@@ -384,6 +384,79 @@ def _soft_unknown_mathml(ch: str) -> str:
     return f'<merror data-bk-soft="1">{_escape(ch)}</merror>'
 
 
+def _match_isotope_prescript(inner: str, i: int) -> tuple[str, str | None, int] | None:
+    r"""Recognise an isotope pre-script at ``i``: mhchem ``^{A}_{Z}`` —
+    the caret mass number and underscore atomic number that precede an
+    element symbol (``^{227}_{90}Th``, ``^{14}_{6}C``).
+
+    Both sides accept optional braces (``^{227}`` / ``^227``); the
+    underscore side may be absent (``^{14}C``). Returns
+    ``(sup_digits, sub_digits_or_None, next_index)`` or ``None`` when
+    position ``i`` doesn't open a digit-only caret group — that keeps a
+    gas-arrow ``^`` / a charge ``^{2+}`` (a ``+`` / ``-`` after the
+    digits) falling through to their own branches."""
+    n = len(inner)
+    if i >= n or inner[i] != "^":
+        return None
+
+    def _digit_group(j: int) -> tuple[str | None, int]:
+        braced = j < n and inner[j] == "{"
+        if braced:
+            j += 1
+        d0 = j
+        while j < n and inner[j].isdigit():
+            j += 1
+        digits = inner[d0:j] or None
+        if braced and digits is not None and j < n and inner[j] == "}":
+            j += 1
+        return digits, j
+
+    sup, j = _digit_group(i + 1)
+    if sup is None:
+        return None
+    sub = None
+    if j < n and inner[j] == "_":
+        sub, j2 = _digit_group(j + 1)
+        if sub is not None:
+            j = j2
+    return sup, sub, j
+
+
+def _isotope_mathml(
+    element: str,
+    elem_sub: str | None,
+    charge: tuple[str, str | None, int] | None,
+    pre_sup: str,
+    pre_sub: str | None,
+) -> str:
+    """Build the ``<mmultiscripts>`` for an isotope species.
+
+    Layout mirrors OMML ``sPre`` / MTEF selector 44: base element, the
+    (post-sub, post-sup) pair — the element's own subscript and/or ionic
+    charge — then ``<mprescripts/>`` and the (pre-sub, pre-sup) pair
+    (atomic number below, mass number above). Absent slots carry
+    ``<none/>``; the backend's mmultiscripts handler owns every braille
+    decision (46-prefix + sub/sup signs for the pre-scripts, chem charge
+    rules for the post pair)."""
+    if charge is not None:
+        sign, magnitude, _ = charge
+        csup = _charge_sup(magnitude, sign)
+        post = (
+            f"<mn>{elem_sub}</mn>{csup}"
+            if elem_sub is not None
+            else f"<none/>{csup}"
+        )
+    elif elem_sub is not None:
+        post = f"<mn>{elem_sub}</mn><none/>"
+    else:
+        post = "<none/><none/>"
+    presub = f"<mn>{pre_sub}</mn>" if pre_sub is not None else "<none/>"
+    return (
+        f"<mmultiscripts><mi>{element}</mi>{post}"
+        f"<mprescripts/>{presub}<mn>{pre_sup}</mn></mmultiscripts>"
+    )
+
+
 def _emit_formula(inner: str, _depth: int = 0) -> str:
     """Parse the content of a ``\\ce{...}`` into MathML children.
 
@@ -499,6 +572,48 @@ def _emit_formula(inner: str, _depth: int = 0) -> str:
             prev_was_atom = False
             species_atoms = 0
             continue
+        if ch == "." and i + 1 < n and inner[i + 1].isdigit():
+            # Hydrate dot (mhchem ``CuSO4.5H2O``): the print middle dot
+            # between a species and its water of crystallisation. Emitted
+            # as the dot-operator ``<mo>`` tagged ``data-bk-chem-hydrate``
+            # — the backend renders the existing ⋅ cell tight (no operator
+            # spacing); no new braille sign is invented. Only a ``.``
+            # directly followed by a digit qualifies, so a stray period
+            # keeps its soft-unknown path.
+            parts.append('<mo data-bk-chem-hydrate="1">⋅</mo>')
+            i += 1
+            prev_boundary = False
+            prev_was_connector = False
+            prev_was_atom = False
+            species_atoms = 0
+            continue
+        if ch == "^" and species_atoms == 0:
+            # Isotope pre-script (mhchem ``^{227}_{90}Th+``): only at a
+            # species start — mid-species a ``^`` is the charge / gas
+            # arrow. Requires an element symbol base after it, else the
+            # existing branches (gas arrow, charge, soft unknown) apply.
+            iso = _match_isotope_prescript(inner, i)
+            if iso is not None:
+                pre_sup, pre_sub, j = iso
+                m = _ELEMENT_RE.match(inner, j)
+                if m is not None:
+                    element = m.group(0)
+                    i = m.end()
+                    start = i
+                    while i < n and inner[i].isdigit():
+                        i += 1
+                    elem_sub = inner[start:i] if i > start else None
+                    charge = _match_charge(inner, i)
+                    if charge is not None:
+                        i = charge[2]
+                    parts.append(
+                        _isotope_mathml(element, elem_sub, charge, pre_sup, pre_sub)
+                    )
+                    prev_boundary = False
+                    prev_was_connector = False
+                    prev_was_atom = True
+                    species_atoms = 1
+                    continue
         arrow = _match_arrow(inner, i)
         if arrow is not None:
             symbol, i = arrow

@@ -20,8 +20,9 @@ Subpackage map (per MathML element family):
 * :mod:`.roots`      — ``<msqrt>`` / ``<mroot>``
 * :mod:`.matrices`   — ``<mtable>`` linear notation (fenced + bare +
   equation-system ``{``-only form)
-* :mod:`.scripts`    — ``<msub>`` / ``<msup>`` / ``<msubsup>`` +
-  ``<munder>`` / ``<mover>`` / ``<munderover>`` dispatch
+* :mod:`.scripts`    — ``<msub>`` / ``<msup>`` / ``<msubsup>`` /
+  ``<mmultiscripts>`` + ``<munder>`` / ``<mover>`` / ``<munderover>``
+  dispatch
 * :mod:`.accents`    — ``accent="true"`` under/over variants (no top-level tag)
 * :mod:`.fallback`   — ``<merror>`` + unsupported catch-all (``<mtr>`` / ``<mtd>``)
 """

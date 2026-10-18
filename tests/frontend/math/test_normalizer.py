@@ -324,3 +324,77 @@ class TestSoftFailures:
         # so it does not depend on one being drawn again.
         root = normalize(chr(codepoint))
         assert root.find(".//merror") is not None
+
+
+class TestSemanticsMactionUnwrap:
+    """``<semantics>`` / ``<maction>`` wrappers are stripped to their
+    payload so a hand-pasted annotated formula translates normally
+    instead of collapsing into one unsupported-element cell."""
+
+    def test_semantics_keeps_first_non_annotation_child(self):
+        root = normalize(
+            "<math><semantics><mrow><mi>x</mi><mo>+</mo><mn>1</mn></mrow>"
+            "<annotation encoding=\"MathML-Content\">plus</annotation>"
+            "</semantics></math>"
+        )
+        assert _tags(root) == ["math", "mrow", "mi", "mo", "mn"]
+
+    def test_semantics_annotation_xml_also_skipped(self):
+        root = normalize(
+            "<math><semantics><mi>y</mi>"
+            "<annotation-xml encoding=\"MathML-Content\"><csymbol/></annotation-xml>"
+            "</semantics></math>"
+        )
+        assert _tags(root) == ["math", "mi"]
+
+    def test_semantics_only_annotations_dropped(self):
+        root = normalize(
+            "<math><mi>a</mi>"
+            "<semantics><annotation>x</annotation></semantics>"
+            "<mi>b</mi></math>"
+        )
+        assert _tags(root) == ["math", "mi", "mi"]
+
+    def test_maction_keeps_first_expression(self):
+        root = normalize(
+            '<math><maction actiontype="toggle">'
+            "<mn>1</mn><mn>2</mn><mn>3</mn></maction></math>"
+        )
+        assert _tags(root) == ["math", "mn"]
+        assert root[0].text == "1"
+
+    def test_nested_wrappers_unwrap_depth_first(self):
+        root = normalize(
+            "<math><semantics><maction><mi>z</mi><mi>w</mi></maction>"
+            "<annotation>src</annotation></semantics></math>"
+        )
+        assert _tags(root) == ["math", "mi"]
+
+    def test_unwrapped_child_inherits_provenance_and_tail(self):
+        root = normalize(
+            '<math><semantics data-bk-span="2,4"><mi>q</mi></semantics>'
+            "<mi>r</mi></math>"
+        )
+        kept = root[0]
+        assert kept.tag == "mi" and kept.get("data-bk-span") == "2,4"
+        # The text following the wrapper survives on the kept child.
+        assert (kept.tail or "").strip() == ""
+
+    def test_translates_through_backend(self):
+        # End to end: the semantics-wrapped formula emits real braille
+        # (x + 1), not an unknown cell with MATH_UNSUPPORTED_ELEMENT.
+        from tests.backend._math_common import emit
+
+        profile_root = normalize(
+            "<math><semantics><mrow><mi>x</mi><mo>+</mo><mn>1</mn></mrow>"
+            "<annotation>src</annotation></semantics></math>"
+        )
+        import brailix.core.config as _cfg
+
+        cells, wc = emit(
+            profile_root, _cfg.load_profile("cn_current")
+        )
+        assert any(c.source_text == "x" for c in cells)
+        assert not any(
+            w.code == "MATH_UNSUPPORTED_ELEMENT" for w in wc
+        )

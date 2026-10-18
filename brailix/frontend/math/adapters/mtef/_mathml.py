@@ -45,7 +45,10 @@ def _classify_token(text: str) -> str:
 
 
 # Script templates whose first child is the *nucleus* (base) slot.
-_SCRIPT_BASE_TAGS = frozenset({"msub", "msup", "msubsup"})
+# ``mmultiscripts`` is included so MathType's "base precedes the script
+# template" storage pattern (see _attach_preceding_base) also populates
+# a left-sub/superscript template's base slot (selector 44).
+_SCRIPT_BASE_TAGS = frozenset({"msub", "msup", "msubsup", "mmultiscripts"})
 
 
 def _attach_preceding_base(
@@ -206,6 +209,16 @@ def _build_tmpl(
     table = _V5_TMPL if version == 5 else _V3_TMPL
     handler = table.get(selector)
     if handler is None:
+        # An unrecognised selector degrades to slot passthrough — same
+        # rationale (and same log seam) as the handler-failure branch
+        # below: a silent passthrough emits plausible-but-wrong MathML a
+        # blind proofreader can't catch by eye, so record that it happened.
+        _LOG.warning(
+            "MTEF TMPL selector not recognised (selector=%r, version=%d); "
+            "passing slots through",
+            selector,
+            version,
+        )
         return _tmpl_passthrough(slots)
     try:
         return handler(variation, slots)

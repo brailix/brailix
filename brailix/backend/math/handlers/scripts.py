@@ -1,10 +1,12 @@
 """Script handlers for the math backend.
 
 Covers the sub/superscript family — ``<msub>`` / ``<msup>`` /
-``<msubsup>`` — and the under/over family — ``<munder>`` / ``<mover>`` /
-``<munderover>``. The dispatch routes each to a regular script, a big-op
-script (symbol or function base), the chem charge / subscript paths, or
-(for under/over) the accent handler.
+``<msubsup>`` — the under/over family — ``<munder>`` / ``<mover>``
+/ ``<munderover>`` — and the multi-script family ``<mmultiscripts>``
+(tensor-style pre-scripts plus ordinary post-scripts; OMML ``sPre``
+and MTEF selector 44 both land here). The dispatch routes each to a
+regular script, a big-op script (symbol or function base), the chem
+charge / subscript paths, or (for under/over) the accent handler.
 
 Cross-imports :func:`_emit_function_name` from :mod:`.leaves` and the
 accent handler / predicates from :mod:`.accents`.
@@ -34,6 +36,111 @@ from brailix.ir.braille import BrailleCell
 
 if _TYPE_CHECKING:
     import xml.etree.ElementTree as ET
+
+
+def _pair_script_slots(
+    children: list[ET.Element],
+) -> list[tuple[ET.Element | None, ET.Element | None]]:
+    """Group an ``<mmultiscripts>`` script run into ``(sub, sup)`` pairs.
+
+    MathML stores the scripts that follow the base (before / after the
+    ``<mprescripts>`` marker) as alternating subscript / superscript
+    pairs; a ``<none/>`` element occupies an absent slot. Position
+    decides the role, so a ``<none/>`` is turned into ``None`` here and
+    a dangling odd child is completed with an absent second slot."""
+    pairs: list[tuple[ET.Element | None, ET.Element | None]] = []
+    slot: list[ET.Element | None] = []
+    for child in children:
+        slot.append(None if child.tag == "none" else child)
+        if len(slot) == 2:
+            pairs.append((slot[0], slot[1]))
+            slot = []
+    if slot:
+        pairs.append((slot[0], None))
+    return pairs
+
+
+def _emit_multiscripts(
+    cells: list[BrailleCell], mctx: MathBrailleContext, elem: ET.Element
+) -> None:
+    """``<mmultiscripts>`` — a base with BOTH pre-scripts (the left-side
+    scripts of OMML ``sPre`` / tensor notation) and ordinary post-scripts.
+
+    Child layout: ``base, (post-sub, post-sup)*, <mprescripts/>,
+    (pre-sub, pre-sup)*`` with ``<none/>`` marking absent slots.
+
+    Braille shape — no new notation, both halves reuse existing forms:
+
+    * **Pre-scripts** are written FIRST (they sit to the left of the base
+      in print, and linear braille follows print order), each side in the
+      big-operator limit form: 46-prefix ⠨ + subscript sign ⠡ /
+      superscript sign ⠌ + content + ``script.close`` — exactly how an
+      under/over limit of ∑ / ∫ / a chem condition is emitted
+      (:func:`_emit_big_op_side`, ``use_prefix=True``).
+    * **Base + post-scripts** then render exactly as the equivalent
+      ``<msubsup>`` would (:func:`_emit_regular_script` in maths; the
+      chem charge / subscript emitters in chemistry mode — an isotope's
+      ``^{A}_{Z}X`` is a charged or neutral species with pre-scripts).
+    """
+    kids = list(elem)
+    base = kids[0] if kids else None
+    pre_index: int | None = None
+    for idx in range(1, len(kids)):
+        if kids[idx].tag == "mprescripts":
+            pre_index = idx
+            break
+    post_children = kids[1:] if pre_index is None else kids[1:pre_index]
+    pre_children = [] if pre_index is None else kids[pre_index + 1 :]
+    post_pairs = _pair_script_slots(post_children)
+    pre_pairs = _pair_script_slots(pre_children)
+
+    for sub, sup in pre_pairs:
+        if sub is not None:
+            _emit_big_op_side(
+                cells, mctx, sub, "script.sub", "math_subscript", True
+            )
+        if sup is not None:
+            _emit_big_op_side(
+                cells, mctx, sup, "script.sup", "math_superscript", True
+            )
+
+    sub0, sup0 = post_pairs[0] if post_pairs else (None, None)
+    if mctx.chem:
+        from brailix.backend.math import chem as _chem
+
+        if sup0 is not None:
+            # A post-superscript in chemistry is an ion's charge
+            # (same rule _emit_script_dispatch applies to <msup>).
+            _chem.emit_charge(cells, mctx, base, sub0, sup0)
+        elif sub0 is not None:
+            # Lone subscripted species: per-element capital-sign casing
+            # (the conservative form — mirrors an ion's casing).
+            mctx.chem_per_element = True
+            _chem.emit_subscript(cells, mctx, base, sub0)
+        elif base is not None:
+            # Neutral isotope species: molecule casing (⠸ vs ⠠) applies.
+            if base.tag == "mrow":
+                _chem.emit_children(cells, mctx, list(base))
+            else:
+                _chem.emit_molecule(cells, mctx, [base])
+        mctx.need_number_sign = True
+        return
+
+    _emit_regular_script(cells, mctx, base, sub0, sup0)
+    # Tensors with more than one post pair (X^a_b^c_d): further pairs
+    # keep the regular script side shape (indicator + body + close).
+    simplify = mctx.profile.feature("math.simplify_script", True)
+    for sub, sup in post_pairs[1:]:
+        if sub is not None:
+            _emit_structure(cells, mctx, "script.sub", role="math_subscript")
+            _emit_script_body(cells, mctx, sub, None, simplify)
+        if sup is not None:
+            if _is_accent_leaf(mctx, sup):
+                # Postfix mark (prime) in a sup slot — as _emit_regular_script.
+                _emit_accent_char(cells, mctx, (sup.text or "").strip())
+            else:
+                _emit_structure(cells, mctx, "script.sup", role="math_superscript")
+                _emit_script_body(cells, mctx, sup, None, simplify)
 
 
 def _emit_script_dispatch(
@@ -355,6 +462,7 @@ _DISPATCH_PARTIAL = {
     "msub": _emit_script_dispatch,
     "msup": _emit_script_dispatch,
     "msubsup": _emit_script_dispatch,
+    "mmultiscripts": _emit_multiscripts,
     "munder": _emit_under_over_dispatch,
     "mover": _emit_under_over_dispatch,
     "munderover": _emit_under_over_dispatch,

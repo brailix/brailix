@@ -8,6 +8,8 @@ provided by ``tests/backend/conftest.py``.
 
 from __future__ import annotations
 
+import pytest
+
 from tests.backend._math_common import emit, mml, roles
 
 # ---------------------------------------------------------------------------
@@ -221,6 +223,73 @@ class TestUnderOver:
 
 
 # ---------------------------------------------------------------------------
+# hat-family accents (check / breve / acute / grave / widehat): recognition
+# without a cell mapping — accent structure + no-mapping warning, never an
+# exponent. Both misrouting paths are pinned: the mover path (latex2mathml
+# emits these WITHOUT accent="true") and the msup path (producers that put
+# the diacritic in a superscript slot).
+# ---------------------------------------------------------------------------
+
+_ACCENT_FAMILY = ["ˇ", "˘", "´", "`", "^", "ˆ"]
+_CODEPOINT_ID = lambda m: f"U+{ord(m):04X}"  # noqa: E731
+
+
+class TestAccentMarkFamily:
+    @pytest.mark.parametrize("mark", _ACCENT_FAMILY, ids=_CODEPOINT_ID)
+    def test_mover_routes_to_accent_not_exponent(self, profile, mark):
+        # \check{x} etc. — <mover> with no accent attribute. The mark
+        # must be treated as an accent (marker ⠘ + unknown cell + the
+        # same MATH_UNKNOWN_SYMBOL warning \hat gets), NOT read as
+        # "x to the mark-th power" via the script path.
+        cells, wc = emit(
+            mml(f"<math><mover><mi>x</mi><mo>{mark}</mo></mover></math>"),
+            profile,
+        )
+        seq = [(c.role, c.dots) for c in cells]
+        assert ("math_accent_prefix", (4, 5)) in seq  # accent.over ⠘
+        assert "math_superscript" not in seq  # no exponent indicator
+        codes = [w.code for w in wc]
+        assert "MATH_UNKNOWN_SYMBOL" in codes
+        assert "MATH_UNSUPPORTED_ELEMENT" not in codes
+
+    @pytest.mark.parametrize("mark", ["ˇ", "˘", "´", "`"], ids=_CODEPOINT_ID)
+    def test_msup_mark_is_postfix_not_exponent(self, profile, mark):
+        # The second misrouting path: the diacritic in an <msup> script
+        # slot (like the prime ′) — emitted as the mark itself, without
+        # the superscript indicator ⠌.
+        cells, wc = emit(
+            mml(f"<math><msup><mi>x</mi><mo>{mark}</mo></msup></math>"),
+            profile,
+        )
+        seq = [(c.role, c.dots) for c in cells]
+        assert ("math_superscript", (3, 4)) not in seq
+        assert any(c.role == "unknown" for c in cells)
+        assert "MATH_UNKNOWN_SYMBOL" in [w.code for w in wc]
+
+    def test_combining_forms_recognised(self, profile):
+        # The combining codepoints (U+030C U+0306 U+0301 U+0300 U+0302)
+        # that OMML / hand-written MathML may carry.
+        for mark in ["̌", "̆", "́", "̀", "̂"]:
+            cells, wc = emit(
+                mml(f"<math><mover><mi>x</mi><mo>{mark}</mo></mover></math>"),
+                profile,
+            )
+            assert "math_accent_prefix" in roles(cells), repr(mark)
+            assert not any(c.role == "math_superscript" for c in cells)
+
+    def test_known_accents_unaffected(self, profile):
+        # The existing golden set (\bar \dot \tilde \vec shapes) still
+        # routes and resolves — recognition widened, mappings untouched.
+        cells, wc = emit(
+            mml("<math><mover><mi>x</mi><mo>¯</mo></mover></math>"), profile
+        )
+        seq = [(c.role, c.dots) for c in cells]
+        assert ("math_accent_prefix", (4, 5)) in seq
+        assert ("math_accent", (2, 5)) in seq  # horizontal bar ⠒
+        assert "MATH_UNKNOWN_SYMBOL" not in [w.code for w in wc]
+
+
+# ---------------------------------------------------------------------------
 # Additional script coverage
 # ---------------------------------------------------------------------------
 
@@ -320,6 +389,119 @@ class TestScriptsExtras:
         assert "math_digit_lower" not in r
         assert "number_sign" in r
         assert "math_script_close" in r
+
+
+# ---------------------------------------------------------------------------
+# mmultiscripts — pre-scripts (OMML sPre / MTEF selector 44 / chem isotopes)
+# ---------------------------------------------------------------------------
+
+
+class TestMultiscripts:
+    def test_prescripts_use_46_prefix_limit_form(self, profile):
+        # {^a_2}X (OMML sPre shape): pre-sub a + pre-sup 2 BEFORE the
+        # base, each side in the big-op limit form — 46-prefix ⠨ +
+        # subscript/superscript sign + content — the existing
+        # "directly above/below" notation, no new braille sign.
+        cells, wc = emit(
+            mml(
+                "<math><mmultiscripts><mi>X</mi><none/><none/>"
+                "<mprescripts/><mi>a</mi><mn>2</mn></mmultiscripts></math>"
+            ),
+            profile,
+        )
+        seq = [(c.role, c.dots) for c in cells]
+        # Pre-sub: ⠨ + ⠡ + a (+ close — a letter keeps the bound).
+        assert ("math_big_op_script_prefix", (4, 6)) in seq
+        assert ("math_subscript", (1, 6)) in seq
+        assert ("math_script_close", (1, 5, 6)) in seq
+        # Pre-sup: ⠨ + ⠌ + lowered 2 (atomic digit, no close needed).
+        assert ("math_superscript", (3, 4)) in seq
+        assert ("math_digit_lower", (2, 3)) in seq
+        # Order: pre-scripts precede the base cell(s).
+        r = roles(cells)
+        assert r.index("math_subscript") < r.index("math_superscript")
+        assert any(c.source_text == "X" for c in cells)
+        # The whole structure translates — no unsupported-element error.
+        assert not any(
+            w.code == "MATH_UNSUPPORTED_ELEMENT" for w in wc
+        )
+
+    def test_pre_sub_only(self, profile):
+        # A lone pre-subscript (no pre-sup): the absent pre-sup slot is
+        # a <none/> and must not emit anything.
+        cells, wc = emit(
+            mml(
+                "<math><mmultiscripts><mi>X</mi><none/><none/>"
+                "<mprescripts/><mi>a</mi><none/></mmultiscripts></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert "math_subscript" in r
+        assert "math_superscript" not in r
+        assert not any(w.code == "MATH_UNSUPPORTED_ELEMENT" for w in wc)
+
+    def test_post_scripts_render_like_msubsup(self, profile):
+        # X_1^2 with no pre-scripts: base + post pair behave exactly as
+        # <msubsup> — subscript first, no close on the atomic digits.
+        cells, wc = emit(
+            mml(
+                "<math><mmultiscripts><mi>X</mi><mn>1</mn><mn>2</mn>"
+                "</mmultiscripts></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert "math_subscript" in r
+        assert "math_superscript" in r
+        assert "math_big_op_script_prefix" not in r  # no 46-prefix on posts
+        assert r.index("math_subscript") < r.index("math_superscript")
+        assert "math_script_close" not in r
+        assert not any(w.code == "MATH_UNSUPPORTED_ELEMENT" for w in wc)
+
+    def test_pre_and_post_scripts_together(self, profile):
+        # {^2_1}X^3 — both families present.
+        cells, wc = emit(
+            mml(
+                "<math><mmultiscripts><mi>X</mi><none/><mn>3</mn>"
+                "<mprescripts/><mn>1</mn><mn>2</mn></mmultiscripts></math>"
+            ),
+            profile,
+        )
+        r = roles(cells)
+        assert r.count("math_big_op_script_prefix") == 2  # both pre sides
+        assert "math_subscript" in r and "math_superscript" in r
+        assert not any(w.code == "MATH_UNSUPPORTED_ELEMENT" for w in wc)
+
+    def test_empty_mmultiscripts_emits_nothing(self, profile):
+        cells, wc = emit(mml("<math><mmultiscripts/></math>"), profile)
+        assert all(c.role != "unknown" for c in cells)
+        assert not any(w.code == "MATH_UNSUPPORTED_ELEMENT" for w in wc)
+
+    def test_omml_spre_end_to_end(self, profile):
+        # Word's left-side sub/sup (m:sPre, base X / pre-sub a / pre-sup 2)
+        # through the OMML adapter + normalizer + backend: the prescript
+        # markers land in the braille instead of a single unknown cell.
+        from brailix.frontend.math.adapters.omml import OmmlMathSourceAdapter
+
+        omml_ns = (
+            "http://schemas.openxmlformats.org/officeDocument/2006/math"
+        )
+        omml = (
+            f'<m:oMath xmlns:m="{omml_ns}"><m:sPre>'
+            "<m:e><m:r><m:t>X</m:t></m:r></m:e>"
+            "<m:sub><m:r><m:t>a</m:t></m:r></m:sub>"
+            "<m:sup><m:r><m:t>2</m:t></m:r></m:sup>"
+            "</m:sPre></m:oMath>"
+        )
+        mathml = OmmlMathSourceAdapter().to_mathml(omml)
+        cells, wc = emit(mml(mathml), profile)
+        r = roles(cells)
+        assert "math_big_op_script_prefix" in r
+        assert "math_subscript" in r
+        assert "math_superscript" in r
+        assert any(c.source_text == "X" for c in cells)
+        assert not any(w.code == "MATH_UNSUPPORTED_ELEMENT" for w in wc)
 
 
 # ---------------------------------------------------------------------------

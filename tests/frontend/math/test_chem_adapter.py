@@ -835,3 +835,87 @@ class TestChargeProbeEdgeCases:
             if e.get("data-bk-soft") == "1"
         ]
         assert soft == ["^", "{", "-"]
+
+
+# ---------------------------------------------------------------------------
+# Isotope pre-scripts (^{A}_{Z}X) and the hydrate dot (CuSO4.5H2O)
+# ---------------------------------------------------------------------------
+
+
+class TestIsotopePrescripts:
+    def test_prescript_becomes_mmultiscripts(self):
+        # ^{227}_{90}Th — the mass/atomic numbers precede the element:
+        # <mmultiscripts> with the pre pair after <mprescripts/>, the
+        # base's post pair holding <none/>s. Same layout OMML sPre and
+        # MTEF selector 44 produce, so one backend handler serves all.
+        root = ET.fromstring(convert_ce("^{227}_{90}Th"))
+        multi = root.find(f"{_NS}mmultiscripts")
+        assert multi is not None
+        tags = [c.tag for c in multi]
+        assert tags == [
+            f"{_NS}mi", f"{_NS}none", f"{_NS}none",
+            f"{_NS}mprescripts", f"{_NS}mn", f"{_NS}mn",
+        ]
+        assert multi[0].text == "Th"
+        assert [m.text for m in multi.findall(f"{_NS}mn")] == ["90", "227"]
+
+    def test_prescript_with_charge_keeps_charge_post_sup(self):
+        # ^{227}_{90}Th+ — the charge fills the post-superscript slot.
+        root = ET.fromstring(convert_ce("^{227}_{90}Th+"))
+        multi = root.find(f"{_NS}mmultiscripts")
+        assert multi is not None
+        assert multi[1].tag == f"{_NS}none"  # post-sub absent
+        assert multi[2].tag == f"{_NS}mo" and multi[2].text == "+"
+
+    def test_prescript_only_caret_side(self):
+        # ^{14}C — the underscore side may be absent.
+        root = ET.fromstring(convert_ce("^{14}C"))
+        multi = root.find(f"{_NS}mmultiscripts")
+        tail = list(multi)[3:]
+        assert [c.tag for c in tail] == [
+            f"{_NS}mprescripts", f"{_NS}none", f"{_NS}mn"
+        ]
+        assert tail[2].text == "14"
+
+    def test_mid_species_caret_is_still_charge_or_arrow(self):
+        # The pre-script branch only fires at a species start; after a
+        # parsed element the ^ keeps its charge / gas-arrow readings.
+        root = ET.fromstring(convert_ce("H+"))
+        assert root.find(f"{_NS}msup") is not None
+        root2 = ET.fromstring(convert_ce("O2^"))
+        assert [e.text for e in root2.iter(f"{_NS}mo")] == ["↑"]
+
+    def test_non_digit_prescript_not_matched(self):
+        # ^{2+} at a species start has a sign — not an isotope; it must
+        # not be swallowed by the prescript branch (no crash, flagged).
+        root = ET.fromstring(convert_ce("^{2+}"))
+        assert root.find(f"{_NS}mmultiscripts") is None
+
+
+class TestHydrateDot:
+    def test_hydrate_dot_emits_tagged_mo(self):
+        # CuSO4.5H2O — the '.' between a species and the water
+        # coefficient becomes the dot-operator <mo> tagged
+        # data-bk-chem-hydrate; the backend owns its (tight) spacing.
+        root = ET.fromstring(convert_ce("CuSO4.5H2O"))
+        mos = [e for e in root.iter(f"{_NS}mo")]
+        hydrate = [e for e in mos if e.get("data-bk-chem-hydrate") == "1"]
+        assert len(hydrate) == 1
+        assert hydrate[0].text == "⋅"
+        # The 5 after it is a plain <mn> coefficient, the H2O a species
+        # (the element subscripts 4 / 2 live inside <msub>s).
+        assert [m.text for m in root.iter(f"{_NS}mn")] == ["4", "5", "2"]
+
+    def test_stray_period_not_followed_by_digit_still_flagged(self):
+        # A '.' not followed by a digit keeps the soft-unknown path.
+        root = ET.fromstring(convert_ce("NaCl.+"))
+        hydrate = [
+            e for e in root.iter(f"{_NS}mo")
+            if e.get("data-bk-chem-hydrate") is not None
+        ]
+        assert not hydrate
+        soft = [
+            e.text for e in root.iter(f"{_NS}merror")
+            if e.get("data-bk-soft") == "1"
+        ]
+        assert "." in soft

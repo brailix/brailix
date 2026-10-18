@@ -28,21 +28,56 @@ if _TYPE_CHECKING:
     import xml.etree.ElementTree as ET
 
 
+# Diacritic accent characters that have NO symbols.json entry (yet) but
+# must still be *recognised* as accents: the hat / check (caron) /
+# breve / acute / grave family, in both the spacing modifier form
+# latex2mathml emits (``\\hat`` → ``^`` U+005E, ``\\check`` → ``ˇ``
+# U+02C7, ``\\breve`` → ``˘`` U+02D8, ``\\acute`` → ``´`` U+00B4,
+# ``\\grave`` → `` ` `` U+0060) and the combining form (U+0302 / U+030C
+# / U+0306 / U+0301 / U+0300). Without this set a ``<mover>`` over one
+# of them (latex2mathml sends ``\\check`` / ``\\breve`` / ``\\acute`` /
+# ``\\grave`` / ``\\widehat`` WITHOUT ``accent="true"``) is misrouted to
+# the regular-script path and reads as an exponent — "x to an unknown
+# power" — instead of an accent with a no-mapping warning.
+#
+# Recognition only, never cells: a char here falls through
+# :func:`_emit_accent_char`'s whole lookup chain (accent_mark / symbol /
+# letter / punctuation) to the ``MATH_UNKNOWN_SYMBOL`` warning + unknown
+# cell — the same treatment ``\\hat`` already gets. The braille cells
+# for these five marks are NOT invented here; they stay unmapped until
+# an authoritative source records them (math-symbols-plan S5).
+_ACCENT_MARK_CHARS: frozenset[str] = frozenset({
+    "^", "ˆ", "̂",  # hat: caret, modifier circumflex, combining circumflex
+    "ˇ", "̌",  # check / caron: modifier, combining
+    "˘", "̆",  # breve: modifier, combining
+    "´", "́",  # acute: spacing, combining
+    "`", "̀",  # grave: spacing, combining
+})
+
+
 def _is_accent_leaf(mctx: MathBrailleContext, node: ET.Element | None) -> bool:
     """True if ``node`` is a single-character ``<mo>`` / ``<mi>`` whose
-    char is a ``role=accent`` symbol (prime ′, bar ¯, dot ˙, tilde ˜, ...).
+    char is a ``role=accent`` symbol (prime ′, bar ¯, dot ˙, tilde ˜, ...),
+    or one of the :data:`_ACCENT_MARK_CHARS` diacritics (hat / check /
+    breve / acute / grave — recognised as accents even though they carry
+    no cell mapping yet).
 
     Lets the backend recognise an accent independent of latex2mathml's
     unreliable ``accent="true"`` attribute (``\\bar`` / ``\\dot`` /
-    ``\\tilde`` come through as ``accent="false"``), and treat a
-    prime-as-superscript as a postfix mark rather than an exponent.
+    ``\\tilde`` come through as ``accent="false"``, and ``\\check`` /
+    ``\\breve`` / ``\\acute`` / ``\\grave`` / ``\\widehat`` arrive with
+    no attribute at all), and treat a prime-as-superscript as a postfix
+    mark rather than an exponent.
     """
     if node is None or node.tag not in ("mo", "mi") or list(node):
         return False
     text = (node.text or "").strip()
     if len(text) != 1:
         return False
-    return mctx.profile.math_symbol_role(text) == "accent"
+    return (
+        mctx.profile.math_symbol_role(text) == "accent"
+        or text in _ACCENT_MARK_CHARS
+    )
 
 
 def _is_accent_mark_node(
