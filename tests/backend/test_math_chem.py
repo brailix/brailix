@@ -1026,3 +1026,77 @@ class TestFullWidthDigitIsWritingError:
         full, wc = ce_cells("２H2O", profile)
         plain, _ = ce_cells("2H2O", profile)
         self._assert_flagged(full, wc, plain)
+
+
+# ---------------------------------------------------------------------------
+# Isotope pre-scripts (^{A}_{Z}X) and the hydrate dot (CuSO4.5H2O)
+# ---------------------------------------------------------------------------
+
+
+class TestIsotopePrescripts:
+    def test_prescripts_use_46_prefix_limit_form(self, profile):
+        # ^{227}_{90}Th — the pre-scripts render in the big-op limit
+        # form (46-prefix ⠨ + subscript/superscript sign + lowered
+        # digits), then the element. No script content is lost.
+        cells, wc = ce_cells("^{227}_{90}Th", profile)
+        seq = [(c.role, c.dots) for c in cells]
+        # Pre-sub 90: ⠨ + ⠡ + lowered 9, lowered 0.
+        assert ("math_big_op_script_prefix", (4, 6)) in seq
+        assert ("math_subscript", (1, 6)) in seq
+        # Pre-sup 227: ⠌ + lowered 2,2,7.
+        assert ("math_superscript", (3, 4)) in seq
+        lowered = [c.source_text for c in cells if c.role == "math_digit_lower"]
+        assert "".join(lowered).startswith("9022")  # sub side first, then sup
+        # The multi-letter element Th takes the capital sign ⠠.
+        assert ("math_chem_capital", (6,)) in seq
+        assert any(c.source_text == "T" for c in cells)
+        assert not [w for w in wc if w.code.startswith("MATH_")]
+
+    def test_isotope_with_charge(self, profile):
+        # ^{227}_{90}Th+ — the post-superscript is the ion charge:
+        # prescripts + ⠠Th + charge sign ⠨ + ⠖.
+        cells, wc = ce_cells("^{227}_{90}Th+", profile)
+        seq = [(c.role, c.dots) for c in cells]
+        assert ("math_chem_charge", (4, 6)) in seq
+        assert ("math_chem_charge_sign", (2, 3, 5)) in seq  # + ⠖
+        assert ("math_big_op_script_prefix", (4, 6)) in seq
+        assert not [w for w in wc if w.code.startswith("MATH_")]
+
+    def test_single_letter_isotope_uses_indicator(self, profile):
+        # ^{14}_{6}C — a lone single-letter neutral species keeps the
+        # chemical-formula indicator ⠸ (the molecule rule).
+        cells, wc = ce_cells("^{14}_{6}C", profile)
+        seq = [(c.role, c.dots) for c in cells]
+        assert ("math_chem_indicator", (4, 5, 6)) in seq
+        assert not [w for w in wc if w.code.startswith("MATH_")]
+
+
+class TestHydrateDot:
+    def test_hydrate_dot_renders_dot_operator_tight(self, profile):
+        # CuSO4.5H2O — the hydrate separator is the existing ⋅ cell ⠄
+        # (math dot operator), tight: no blank on either side of it.
+        cells, wc = ce_cells("CuSO4.5H2O", profile)
+        seq = [(c.role, c.dots) for c in cells]
+        assert ("math_chem_hydrate", (3,)) in seq
+        # The water coefficient is a normal number-sign coefficient...
+        assert ("number_sign", (3, 4, 5, 6)) in seq
+        # ...and the trailing H2O is a ⠸-introduced single-letter run.
+        assert ("math_chem_indicator", (4, 5, 6)) in seq
+        assert not [w for w in wc if w.code.startswith("MATH_")]
+
+    def test_hydrate_dot_has_no_operator_blanks_around(self, profile):
+        # No space cell may sit immediately before/after the hydrate ⠄.
+        cells, _ = ce_cells("CuSO4.5H2O", profile)
+        i = next(
+            k for k, c in enumerate(cells) if c.role == "math_chem_hydrate"
+        )
+        assert not any(
+            c.role == "space" for c in cells[max(0, i - 1) : i + 2]
+        )
+
+    def test_stray_dot_still_flags(self, profile):
+        # A '.' not followed by a digit is a writing error, flagged in
+        # place (soft merror path), not a hydrate.
+        cells, wc = ce_cells("NaCl.+", profile)
+        assert not any(c.role == "math_chem_hydrate" for c in cells)
+        assert wc.by_code("MATH_NONSTANDARD_CHAR")
