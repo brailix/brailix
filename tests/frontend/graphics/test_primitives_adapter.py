@@ -66,6 +66,28 @@ class TestBuilder:
         root = ET.fromstring(out)
         assert root[0].text == "A & B < C"
 
+    def test_label_with_xml_invalid_characters_keeps_the_figure(self):
+        # A NUL (or other XML-1.0-forbidden char) in label text used to be
+        # serialised verbatim: the normalizer's re-parse then failed and
+        # soft-failed the WHOLE figure to a blank page. The character is
+        # dropped instead — the rest of the label and the rest of the
+        # figure survive.
+        from brailix.frontend.graphics.adapters.svg import SVGSourceAdapter
+
+        out = primitives_to_svg(
+            {"width": 9, "height": 9, "shapes": [
+                {"type": "line", "x1": 0, "y1": 0, "x2": 9, "y2": 9},
+                {"type": "label", "x": 1, "y": 1, "text": "A\x00B\x0bC"},
+            ]}
+        )
+        # The pass-through adapter is the normalizer's front door: its
+        # verdict is "parse error" (blank figure) or not.
+        settled = SVGSourceAdapter().to_svg(out)
+        assert "data-bk-error" not in settled
+        root = ET.fromstring(settled)
+        assert root[0].tag == "line"
+        assert root[1].text == "ABC"
+
     def test_stroke_width_emitted(self):
         out = primitives_to_svg(
             {"width": 9, "height": 9, "shapes": [

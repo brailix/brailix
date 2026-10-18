@@ -129,14 +129,58 @@ class TestBasics:
         assert pages[0].raised_count() > 0
 
     def test_blank_figure_raster_ignored(self) -> None:
-        # A zero-size figure (nothing to draw) never crashes and adds no ink.
+        # A zero-size figure (nothing to draw) never crashes — and a figure
+        # that draws nothing no longer opens a page at all.
         prof = _profile()
         empty = TactileRaster.blank(
             0, 0, dpi=prof.dpi, page_width_mm=10, page_height_mm=10
         )
-        pages = compose_pages([PageFigure(empty)], prof)
-        # A page is started for the item but stays flat.
-        assert pages and pages[0].raised_count() == 0
+        assert compose_pages([PageFigure(empty)], prof) == []
+
+    def test_flat_figure_raster_opens_no_page(self) -> None:
+        # A non-zero but entirely flat raster (what an empty graphic fence
+        # rasterises to) used to ship one blank embossed page.
+        prof = _profile()
+        flat = TactileRaster.blank(
+            20, 20, dpi=prof.dpi, page_width_mm=10, page_height_mm=10
+        )
+        assert compose_pages([PageFigure(flat)], prof) == []
+
+    def test_blank_lines_only_open_no_page(self) -> None:
+        # A run of blank separator lines alone carries no ink: no page.
+        assert compose_pages([PageText([[BLANK_CELL], [BLANK_CELL]])],
+                             _profile()) == []
+
+    def test_blank_items_before_content_still_lay_out(self) -> None:
+        # Blank items ahead of real content neither open nor shift a page:
+        # one page, carrying the real ink.
+        prof = _profile()
+        flat = TactileRaster.blank(
+            20, 20, dpi=prof.dpi, page_width_mm=10, page_height_mm=10
+        )
+        pages = compose_pages(
+            [
+                PageText([[BLANK_CELL]]),
+                PageFigure(flat),
+                PageText([[FULL_CELL]]),
+            ],
+            prof,
+        )
+        assert len(pages) == 1
+        assert pages[0].raised_count() > 0
+
+    def test_empty_graphic_fence_pipeline_makes_no_page(self) -> None:
+        # The reachable face from review: an empty graphic fence compiles
+        # to a valid blank raster (NO_GEOMETRY) — the mixed-document path
+        # must hand back zero pages, not one blank sheet.
+        from brailix.ir.document import DocumentIR, GraphicBlock
+        from brailix.pipeline import Pipeline
+
+        pipe = Pipeline(profile="cn_current", analyzer="char", resolver="null")
+        res = pipe.translate_document_to_pages(
+            DocumentIR(blocks=[GraphicBlock(text="<svg/>", source="svg")])
+        )
+        assert res.page_count == 0
 
 
 class TestPlacement:

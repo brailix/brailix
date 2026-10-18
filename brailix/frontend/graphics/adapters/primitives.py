@@ -34,7 +34,10 @@ braille dots by the tactile backend. Unknown shape types are skipped with a
 warning.
 
 The SVG is assembled with :mod:`xml.etree.ElementTree` so attribute
-escaping and well-formedness come for free.
+escaping and well-formedness come for free; label text additionally passes
+:func:`~brailix.core._xml.strip_xml_invalid_chars`, because ``ET`` will
+serialise a character XML 1.0 forbids into output the normalizer cannot
+re-parse.
 """
 
 from __future__ import annotations
@@ -45,6 +48,7 @@ from collections.abc import Sequence as _Sequence
 from dataclasses import dataclass as _dataclass
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
+from brailix.core._xml import strip_xml_invalid_chars
 from brailix.core.context import GraphicsContext
 from brailix.core.errors import WarningCollector
 from brailix.frontend.graphics._numbers import as_finite, fmt_number, non_finite_paths
@@ -132,7 +136,14 @@ def _b_label(svg: _ET.Element, s: dict[str, Any]) -> None:
     el = _ET.SubElement(svg, "text")
     el.set("x", _fmt(s.get("x", 0)))
     el.set("y", _fmt(s.get("y", 0)))
-    el.text = str(s.get("text", ""))
+    # Label text is author input and may carry characters XML 1.0 forbids
+    # (a NUL from a mangled string, a control char from a copy-paste).
+    # ``ET`` happily serialises them into output the graphics normalizer
+    # then can't re-parse — one bad character blanked the WHOLE figure via
+    # the soft-failure page. Strip them the way every soft-failure document
+    # is sanitised (:func:`~brailix.core._xml.strip_xml_invalid_chars`), so
+    # the figure survives minus the characters that can't be written.
+    el.text = strip_xml_invalid_chars(str(s.get("text", "")))
 
 
 _SHAPE_BUILDERS: dict[str, Any] = {
