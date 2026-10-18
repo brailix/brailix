@@ -12,6 +12,13 @@ cases to handle:
   formula in one) are renamed to ``<mrow>`` so their content keeps
   flowing through ordinary dispatch, and ``<mspace>`` / ``<mphantom>``
   (print-space occupiers with no braille meaning) are removed;
+* unwrap annotation wrappers: ``<semantics>`` (Content-MathML
+  annotation pairs — the payload is its first non-``<annotation>``
+  child) keeps only that presentation subtree, and ``<maction>``
+  (interactive alternatives — a braille edition can show one) keeps
+  its first sub-expression. Hand-pasted MathML from annotation-aware
+  tools wraps formulas in one of these, which used to fold the whole
+  tree into a single unsupported-element cell;
 * drop invisible-operator ``<mo>`` elements (U+2061 function application
   / U+2062 invisible times / U+2063 invisible separator / U+2064
   invisible plus — the OMML ``m:func`` adapter emits U+2061): they
@@ -80,6 +87,7 @@ def normalize(mathml: str) -> _ET.Element:
         return degraded
     strip_namespace(root)
     _drop_presentational(root)
+    _unwrap_semantics_maction(root)
     _collapse_singleton_mrows(root)
     strip_whitespace_text(root)
     _flag_repeated_operators(root)
@@ -166,6 +174,66 @@ def _drop_presentational(elem: _ET.Element) -> None:
         kept.append(child)
     if dropped:
         elem[:] = kept
+
+
+# Annotation-wrapper elements. ``<semantics>`` pairs a presentation tree
+# with Content-MathML / LaTeX-source ``<annotation>``(s); ``<maction>``
+# holds interactive alternatives. A braille edition is linear and static,
+# so both unwrap to ONE payload subtree (see
+# :func:`_unwrap_semantics_maction`).
+_SEMANTICS_ANNOTATION_TAGS: frozenset[str] = frozenset(
+    {"annotation", "annotation-xml"}
+)
+
+
+def _unwrap_semantics_maction(elem: _ET.Element) -> None:
+    """In-place: replace each ``<semantics>`` / ``<maction>`` child with
+    its payload subtree.
+
+    * ``<semantics>`` keeps its first child that is NOT an
+      ``<annotation>`` / ``<annotation-xml>`` — the presentation tree the
+      annotated formula rendered from (the annotations are source
+      encodings, not content).
+    * ``<maction>`` keeps its first sub-expression — MathML's default
+      action (``actiontype="toggle"`` etc.) shows one alternative at a
+      time, and braille shows the first.
+
+    Children are unwrapped depth-first, then this element's child list is
+    rebuilt, so a payload that is itself wrapped keeps unwrapping. An
+    empty / annotation-only ``<semantics>`` or a childless ``<maction>``
+    is dropped (nothing to show). The unwrapped child inherits the
+    wrapper's ``data-bk-*`` provenance (``setdefault``, the collapse-pass
+    rule) and its ``tail``, so nothing that followed the wrapper stops
+    existing. Runs before :func:`_collapse_singleton_mrows` so an
+    unwrapped single-child ``<mrow>`` collapses like any other."""
+    for child in elem:
+        _unwrap_semantics_maction(child)
+    new_children: list[_ET.Element] = []
+    changed = False
+    for child in elem:
+        if child.tag == "semantics":
+            changed = True
+            picked = next(
+                (c for c in child if c.tag not in _SEMANTICS_ANNOTATION_TAGS),
+                None,
+            )
+            if picked is not None:
+                _inherit_provenance(picked, child)
+                if child.tail:
+                    picked.tail = (picked.tail or "") + child.tail
+                new_children.append(picked)
+        elif child.tag == "maction":
+            changed = True
+            if len(child):
+                picked = child[0]
+                _inherit_provenance(picked, child)
+                if child.tail:
+                    picked.tail = (picked.tail or "") + child.tail
+                new_children.append(picked)
+        else:
+            new_children.append(child)
+    if changed:
+        elem[:] = new_children
 
 
 def _collapse_singleton_mrows(elem: _ET.Element) -> None:
