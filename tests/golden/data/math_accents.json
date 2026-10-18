@@ -93,6 +93,36 @@
           "expected": "⠰⠭⠘⠀",
           "warnings_include": ["MATH_UNKNOWN_SYMBOL"],
           "note": "hat ^ (U+005E) has no exact docx correspondence, not yet recorded → above marker ⠘ + unknown cell (see math-symbols-plan S5)"
+        },
+        {
+          "src": "$\\widehat{x}$",
+          "expected": "⠰⠭⠘⠀",
+          "warnings_include": ["MATH_UNKNOWN_SYMBOL"],
+          "note": "widehat arrives WITHOUT accent=\"true\" (same ^ mark as \\hat) — recognised as an accent by character, same unknown-mark shape; used to misread as \"x to an unknown power\""
+        },
+        {
+          "src": "$\\check{x}$",
+          "expected": "⠰⠭⠘⠀",
+          "warnings_include": ["MATH_UNKNOWN_SYMBOL"],
+          "note": "check ˇ (U+02C7) — accent structure + no-mapping warning; the caron cell itself awaits an authoritative recording (math-symbols-plan S5)"
+        },
+        {
+          "src": "$\\breve{x}$",
+          "expected": "⠰⠭⠘⠀",
+          "warnings_include": ["MATH_UNKNOWN_SYMBOL"],
+          "note": "breve ˘ (U+02D8) — same path as \\check; cell pending"
+        },
+        {
+          "src": "$\\acute{x}$",
+          "expected": "⠰⠭⠘⠀",
+          "warnings_include": ["MATH_UNKNOWN_SYMBOL"],
+          "note": "acute ´ (U+00B4) — same path as \\check; cell pending"
+        },
+        {
+          "src": "$\\grave{x}$",
+          "expected": "⠰⠭⠘⠀",
+          "warnings_include": ["MATH_UNKNOWN_SYMBOL"],
+          "note": "grave ` (U+0060) — same path as \\check; cell pending"
         }
       ]
     }

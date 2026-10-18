@@ -27,6 +27,29 @@
         }
       ]
     },
+    "embedded_chem": {
+      "description": "Formulas mixing maths and \\ce{...} segments — every \\ce goes through the chemistry converter (leading ⠸ chemical-formula indicator), the rest stays maths; no stray \"function ce\"",
+      "cases": [
+        {
+          "src": "$\\ce{H2O} + x$",
+          "expected": "⠸⠓⠆⠕⠀⠖⠰⠭",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "chemistry H2O (⠸⠓⠆⠕) + maths x — the embedded \\ce is segmented out to the chem converter instead of latex2mathml's stray <mi>\\ce</mi>"
+        },
+        {
+          "src": "$K = \\ce{[H+]}$",
+          "expected": "⠠⠅⠀⠶⠷⠠⠓⠨⠖⠾",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "maths K = then the bracketed complex ion [H+] with its charge sign ⠨"
+        },
+        {
+          "src": "$\\ce{2H2O}+\\ce{O2}=\\ce{2H2O}$",
+          "expected": "⠼⠃⠸⠓⠆⠕⠀⠖⠕⠆⠀⠶⠼⠃⠸⠓⠆⠕",
+          "warnings_exclude_prefix": "MATH_",
+          "note": "multiple \\ce segments with maths operators between them, joined in source order"
+        }
+      ]
+    },
     "zh_latin": {
       "description": "Chinese + English acronym",
       "cases": [
@@ -44,6 +67,35 @@
           "src": "我有3个苹果",
           "expected": "⠕⠄⠀⠳⠄⠀⠼⠉⠤⠛⠢⠆⠀⠏⠡⠂⠛⠕⠄",
           "note": "Chinese + digit + measure word + noun; a number is its own word, so 有→3 takes a word-boundary space (every hanzi but the ordinal prefix 第 does); the hyphen/connector ⠤ binds 3个 (个's leading cell ⠛=7)"
+        }
+      ]
+    },
+    "dollar_prose": {
+      "description": "Literal $ in prose (currency) — amounts must not pair into a formula that swallows the words between them; the $ signs themselves are unmapped punctuation and warn",
+      "cases": [
+        {
+          "src": "苹果$5,梨$6。",
+          "expected": "⠏⠡⠂⠛⠕⠄⠀⠼⠑⠂⠀⠇⠊⠂⠀⠼⠋⠐⠆",
+          "warnings_include": [
+            "UNKNOWN_PUNCT"
+          ],
+          "note": "two currency amounts: each $ stays prose (blank cell + warning), 5/6 render as numbers, 梨 stays a word — the old greedy pair read $5,梨$ as one 'formula' and blanked the hanzi"
+        },
+        {
+          "src": "价格 $5 和 $1+1=2$ 知道",
+          "expected": "⠛⠫⠆⠛⠢⠂⠀⠀⠼⠑⠀⠓⠢⠂⠀⠼⠁⠀⠖⠼⠁⠀⠶⠼⠃⠀⠌⠁⠙⠖⠆",
+          "warnings_include": [
+            "UNKNOWN_PUNCT"
+          ],
+          "note": "a price followed by a digit-led formula: the formula still pairs (its closer is followed by a space, not a digit), and the price's $ stays prose instead of stealing the formula's opener as its close"
+        },
+        {
+          "src": "费用$100，总价$200。",
+          "expected": "⠋⠮⠆⠹⠆⠀⠼⠁⠚⠚⠐⠀⠵⠲⠄⠛⠫⠆⠀⠼⠃⠚⠚⠐⠆",
+          "warnings_include": [
+            "UNKNOWN_PUNCT"
+          ],
+          "note": "amounts around full-width commas: both $ stay prose, both numbers survive whole"
         }
       ]
     },

@@ -299,10 +299,40 @@ def emit_operator(
     ⠠⠶⠂ **spaced** (a leading blank, like the forward connector) — not the math
     left arrow ⠫⠒.
 
+    The hydrate dot (mhchem ``CuSO4.5H2O``, tagged ``data-bk-chem-hydrate`` by
+    the frontend) renders through the existing dot-operator symbol cell (``⋅`` →
+    ⠄) with **no** surrounding space — tight against the species like a bond, so
+    CuSO₄·5H₂O stays one visual unit. No chemistry-specific cell was invented:
+    the math table's ⋅ entry is reused.
+
     Returns ``False`` for every other ``<mo>`` (``+`` / spaced ``=`` / ⇌ …) so
     they take the ordinary spaced maths operator path; chemistry reuses maths
     operator rules for those.
     """
+    if elem.get("data-bk-chem-hydrate") is not None:
+        # Hydrate separator: the existing ⋅ cell, tight (bond-like).
+        hydrate = mctx.profile.math_symbol("⋅")
+        if hydrate is None:
+            mctx.backend.warnings.warn(
+                code="MATH_UNKNOWN_SYMBOL",
+                message="no braille mapping for the hydrate dot ⋅",
+                surface="⋅",
+                span=mctx.span,
+                source="backend.math",
+            )
+            cells.append(_unknown_cell("⋅", mctx.span))
+            return True
+        for dots in hydrate:
+            cells.append(
+                BrailleCell(
+                    dots=dots,
+                    role="math_chem_hydrate",
+                    source_span=mctx.span,
+                    source_text="⋅",
+                )
+            )
+        mctx.need_number_sign = True
+        return True
     bond = elem.get("data-bk-chem-bond")
     if bond in ("double", "triple"):
         for dots in mctx.profile.math_structure(f"chem.bond_{bond}"):

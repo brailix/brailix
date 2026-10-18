@@ -115,6 +115,115 @@ class TestSoftFailures:
         assert err.get("data-reason") == "non-utf8 bytes"
 
 
+# ---------------------------------------------------------------------------
+# Embedded \ce{...} segmentation (mixed maths + chemistry formulas)
+# ---------------------------------------------------------------------------
+
+_MML_NS = "{http://www.w3.org/1998/Math/MathML}"
+
+
+def _local_tags(root: ET.Element) -> list[str]:
+    return [c.tag.replace(_MML_NS, "") for c in root.iter()]
+
+
+class TestEmbeddedCe:
+    def test_top_level_single_ce_unchanged(self):
+        # A formula that is exactly one \ce{...} keeps the historical
+        # whole-formula chemistry output: data-bk-chem on the <math>
+        # root, no mrow re-wrapping, and the LaTeX converter is not
+        # consulted at all.
+        adapter = LatexMathSourceAdapter(converter=_fake_converter)
+        out = adapter.to_mathml(r"\ce{H2O}")
+        root = ET.fromstring(out)
+        assert root.get("data-bk-chem") == "1"
+        assert "<mtext>H2O</mtext>" not in out  # converter never saw it
+
+    def test_mixed_ce_and_math_joins_in_order(self):
+        # $\ce{H2O} + x$ — the \ce segment goes through the chem
+        # converter (its <mrow> carries data-bk-chem) and the maths
+        # segment through latex2mathml, re-joined in one <math> root.
+        adapter = LatexMathSourceAdapter(converter=_fake_converter)
+        out = adapter.to_mathml(r"\ce{H2O} + x")
+        root = ET.fromstring(out)
+        assert root.tag.endswith("math")
+        chem_mrows = [
+            m for m in root.iter(f"{_MML_NS}mrow")
+            if m.get("data-bk-chem") == "1"
+        ]
+        assert len(chem_mrows) == 1
+        # The chem segment's content is chemistry MathML (H with a
+        # subscript) — the stray "\ce" text latex2mathml would have
+        # produced is gone from the whole document.
+        tags = _local_tags(root)
+        assert "msub" in tags
+        assert "\\ce" not in "".join(root.itertext())
+        # The maths segment's text survives after the chem mrow.
+        math_mrows = [
+            m for m in root.iter(f"{_MML_NS}mrow")
+            if m.get("data-bk-chem") is None and list(m)
+        ]
+        assert any(
+            "".join(m.itertext()).strip() == "+ x" for m in math_mrows
+        )
+
+    def test_math_then_ce_then_math_order(self):
+        # K = \ce{[H+]} — a leading maths segment, a chem segment, no
+        # trailing text; the K and = land before the chem mrow.
+        adapter = LatexMathSourceAdapter(converter=_fake_converter)
+        out = adapter.to_mathml(r"K = \ce{[H+]}")
+        root = ET.fromstring(out)
+        texts = "".join(root.itertext())
+        assert "K =" in texts
+        chem_mrows = [
+            m for m in root.iter(f"{_MML_NS}mrow")
+            if m.get("data-bk-chem") == "1"
+        ]
+        assert len(chem_mrows) == 1
+
+    def test_multiple_ce_segments(self):
+        # \ce{2H2O}+\ce{O2}=\ce{2H2O} — every \ce segment converts; the
+        # operators between them stay maths (converter sees them).
+        adapter = LatexMathSourceAdapter(converter=_fake_converter)
+        out = adapter.to_mathml(r"\ce{2H2O}+\ce{O2}=\ce{2H2O}")
+        root = ET.fromstring(out)
+        chem_mrows = [
+            m for m in root.iter(f"{_MML_NS}mrow")
+            if m.get("data-bk-chem") == "1"
+        ]
+        assert len(chem_mrows) == 3
+
+    def test_longer_macro_not_split(self):
+        # \centering is NOT \ce + "ntering": the control-name boundary
+        # check keeps the formula whole for latex2mathml.
+        adapter = LatexMathSourceAdapter(converter=_fake_converter)
+        out = adapter.to_mathml(r"\centering")
+        assert "<mtext>\\centering</mtext>" in out
+
+    def test_unbalanced_ce_falls_back_to_converter(self):
+        # \ce{H2O (unclosed) — not a usable mhchem argument; the whole
+        # text goes to latex2mathml like before segmentation existed.
+        adapter = LatexMathSourceAdapter(converter=_fake_converter)
+        out = adapter.to_mathml(r"\ce{H2O")
+        assert "<mtext>\\ce{H2O</mtext>" in out
+
+    def test_failing_math_segment_degrades_alone(self):
+        # One broken maths segment becomes its own <merror>; the chem
+        # segment beside it still converts.
+        def flaky(formula: str) -> str:
+            if "bad" in formula:
+                raise ValueError("bad segment")
+            return f"<math><mtext>{formula}</mtext></math>"
+
+        adapter = LatexMathSourceAdapter(converter=flaky)
+        out = adapter.to_mathml(r"\ce{H2O} + bad")
+        root = ET.fromstring(out)
+        assert root.find(f".//{_MML_NS}merror") is not None
+        assert any(
+            m.get("data-bk-chem") == "1"
+            for m in root.iter(f"{_MML_NS}mrow")
+        )
+
+
 class TestDelimiterHelper:
     @pytest.mark.parametrize(
         "wrapped,inner",
