@@ -69,6 +69,13 @@ from dataclasses import field as _field
 from pathlib import Path as _Path
 
 from brailix.core._xml import xml_root_element as _xml_root_element
+
+# Runtime import (not TYPE_CHECKING) with a private alias: the public
+# signature of :func:`parse_file` annotates this type, and the public-API
+# guard resolves every published annotation at import time — while a bare
+# ``WarningCollector`` name here would become part of this package's
+# surface by accident (the same promise ``__all__`` makes).
+from brailix.core.errors import WarningCollector as _WarningCollector
 from brailix.input.docx import (
     DOC_SUFFIXES as _DOC_SUFFIXES,
 )
@@ -172,6 +179,10 @@ class _FileCtx:
     ``text`` is read lazily (and cached) so a handler that consumes the
     path directly — every binary format (``.docx`` / ``.mid`` / ``.mxl``
     / ...) — never decodes the file as UTF-8. Text formats read it once.
+
+    ``warnings`` (optional) is where a parser that degrades instead of
+    raising reports what it had to degrade (Markdown's unclosed ``$$``
+    fence) — None means the caller doesn't want parse-level diagnostics.
     """
 
     path: _Path
@@ -184,6 +195,7 @@ class _FileCtx:
     # reading under ``DEFAULT_INPUT_LIMITS`` instead of the caller's ceiling.
     # ``parse_file`` is the only constructor and always passes its own.
     limits: InputLimits
+    warnings: _WarningCollector | None = None
     _text: str | None = _field(default=None, init=False, repr=False)
 
     @property
@@ -313,7 +325,12 @@ def _route_xml(ctx: _FileCtx) -> _DocumentIR:
 
 
 def _route_markdown(ctx: _FileCtx) -> _DocumentIR:
-    return parse_markdown(ctx.text, language=ctx.language, profile=ctx.profile)
+    return parse_markdown(
+        ctx.text,
+        language=ctx.language,
+        profile=ctx.profile,
+        warnings=ctx.warnings,
+    )
 
 
 def _route_plain(ctx: _FileCtx) -> _DocumentIR:
@@ -358,6 +375,7 @@ def parse_file(
     mathtype_fallback: str = "off",
     chem_detection: bool = False,
     limits: InputLimits = DEFAULT_INPUT_LIMITS,
+    warnings: _WarningCollector | None = None,
 ) -> _DocumentIR:
     """Read ``path`` and parse to :class:`DocumentIR` by suffix.
 
@@ -424,6 +442,10 @@ def parse_file(
     ``.mxl`` / ``.docx`` member's decompressed size, the zip-bomb defence)
     are separate and always on, in their adapters.
 
+    ``warnings`` (optional) receives parse-level diagnostics from the
+    routes that degrade instead of raising (today Markdown's unclosed
+    ``$$`` math fence); None discards them.
+
     Errors propagate as-is: :class:`FileNotFoundError` when ``path``
     doesn't exist, :class:`InputTooLargeError` when its bytes or its decoded
     text exceed ``limits``,
@@ -446,6 +468,7 @@ def parse_file(
         mathtype_fallback=mathtype_fallback,
         chem_detection=chem_detection,
         limits=limits,
+        warnings=warnings,
     )
     handler = _SUFFIX_ROUTES.get(ctx.path.suffix.lower(), _route_plain)
     return handler(ctx)

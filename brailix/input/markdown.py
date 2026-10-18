@@ -30,6 +30,9 @@ pattern):
   figures inline so the document stays one portable file. See :func:`graphic_fence_source` /
   :func:`graphic_fence_open`, the two directions of the fence grammar.
 * ``$$display math$$`` → :class:`MathBlock` (``source="latex"``).
+  Multi-line form: a line that starts with ``$$`` opens, and only a
+  line that is exactly ``$$`` closes (the code fence's bare-close
+  rule); a body line that merely ends in ``$$`` is formula text.
 * ``![alt](target)`` alone on a line → :class:`ImageAlt` — the
   placeholder for an image that is **not** (yet) a tactile graphic: the
   alt text translates as ordinary prose, ``target`` names the image (a
@@ -69,6 +72,7 @@ from dataclasses import dataclass as _dataclass
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core import inline_math
+from brailix.core.errors import WarningCollector
 from brailix.core.span import Span
 from brailix.ir.document import (
     Block,
@@ -227,6 +231,7 @@ def parse_markdown(
     *,
     language: str,
     profile: str,
+    warnings: WarningCollector | None = None,
 ) -> DocumentIR:
     """Parse ``text`` as Markdown into a :class:`DocumentIR`.
 
@@ -234,8 +239,14 @@ def parse_markdown(
     left as raw :attr:`Block.text`. The Pipeline's frontend tokenises
     that text per language / domain rules — Markdown's grammar
     deliberately does **not** reach inside paragraphs.
+
+    ``warnings`` (optional) receives parse-level diagnostics — today the
+    one thing Markdown can notice but not repair, a ``$$`` math fence
+    left unclosed at end of input (its lines fall back to a paragraph,
+    so the literal ``$$`` reaches the braille; the warning says so).
+    Degrading instead of raising keeps a half-edited document readable.
     """
-    blocks: list[Block] = list(_iter_blocks(text))
+    blocks: list[Block] = list(_iter_blocks(text, warnings=warnings))
     return DocumentIR(
         metadata={"language": language, "profile": profile},
         blocks=blocks,
@@ -292,7 +303,9 @@ class _LineCursor:
         return Span(start, end)
 
 
-def _iter_blocks(text: str) -> Iterable[Block]:
+def _iter_blocks(
+    text: str, *, warnings: WarningCollector | None = None
+) -> Iterable[Block]:
     """Yield blocks from ``text`` until exhausted.
 
     Each branch consumes from the cursor in line-blocks; ordering
@@ -318,7 +331,7 @@ def _iter_blocks(text: str) -> Iterable[Block]:
 
         # $$ display math fence.
         if stripped.startswith(_DOLLAR_FENCE):
-            math_block = _consume_dollar_math(cur)
+            math_block = _consume_dollar_math(cur, warnings=warnings)
             if math_block is not None:
                 yield math_block
                 continue
@@ -462,13 +475,27 @@ def _consume_fenced_code(
     return CodeBlock(language=language, text=text, span=span)
 
 
-def _consume_dollar_math(cur: _LineCursor) -> MathBlock | None:
+def _consume_dollar_math(
+    cur: _LineCursor, *, warnings: WarningCollector | None = None
+) -> MathBlock | None:
     """Eat a ``$$ ... $$`` fence pair.
 
     Returns ``None`` (without consuming) if the start line lacks a
     matching closing line — the caller then treats it as a normal
     paragraph. This keeps short-form ``$$x = y$$`` on one line working
     as a single math block.
+
+    A *closing* ``$$`` is a line that is exactly ``$$`` — the same
+    bare-close rule the code fence uses (:data:`_CLOSING_FENCE_RE`).
+    A body line that merely *ends* with ``$$`` (``a + b = c + d $$``)
+    stays body: it is one character of the formula's own text, and
+    treating it as a close truncated the formula at that line and
+    dropped everything after the marker from the math.
+
+    Reaching end of input without a close is reported on ``warnings``
+    (when given): the lines then fall back to a paragraph, so the
+    literal ``$$`` reaches the braille — a half-edited document stays
+    readable, and the warning says why.
     """
     start = cur.i
     first = cur.lines[start]
@@ -482,8 +509,8 @@ def _consume_dollar_math(cur: _LineCursor) -> MathBlock | None:
             text=body,
             span=cur.span_of(start, start + 1),
         )
-    # Multi-line case: opening line is exactly ``$$`` (possibly with
-    # leading content after it).
+    # Multi-line case: opening line is ``$$`` possibly with leading
+    # content after it.
     body_lines: list[str] = []
     leading_after_fence = stripped[2:].lstrip()
     if leading_after_fence:
@@ -492,19 +519,23 @@ def _consume_dollar_math(cur: _LineCursor) -> MathBlock | None:
     end_line = start + 1
     while end_line < len(cur.lines):
         line = cur.lines[end_line]
-        stripped_line = line.strip()
-        if stripped_line.endswith(_DOLLAR_FENCE):
-            # Closing fence — strip the trailing ``$$`` and keep any
-            # preceding content on this line.
-            head = stripped_line[:-2].rstrip()
-            if head:
-                body_lines.append(head)
+        if line.strip() == _DOLLAR_FENCE:
+            # Closing fence — a bare ``$$`` line, nothing else on it.
             saw_close = True
             end_line += 1
             break
         body_lines.append(line.rstrip("\r"))
         end_line += 1
     if not saw_close:
+        if warnings is not None:
+            warnings.warn(
+                code="MARKDOWN_UNCLOSED_MATH_FENCE",
+                message=(
+                    f"unclosed $$ math fence starting at line {start + 1}; "
+                    "treated as a paragraph (the literal $$ stays in the text)"
+                ),
+                source="input.markdown",
+            )
         return None
     # Advance the cursor past the consumed range.
     cur.i = end_line
@@ -573,6 +604,12 @@ def _consume_list(cur: _LineCursor) -> List:
         line = cur.peek()
         if line is None or not line.strip():
             break
+        # A CRLF source's line ends in \r, which the item regex's ``(.*)$``
+        # would otherwise swallow into the content — the same \r the fence
+        # body strips and strip()-based consumers drop. Normalise before the
+        # match so a CRLF list and its LF twin parse identically (and the
+        # content-exact span keeps covering the content, not the line break).
+        line = line.rstrip("\r")
         m_unord = _UNORDERED_RE.match(line)
         m_ord = _ORDERED_RE.match(line)
         # Pick the match that fits the list's flavour. Each guard above
