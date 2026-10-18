@@ -20,7 +20,11 @@ tone-emission decision algorithm lives in
 Layering rule: this module imports nothing from :mod:`brailix.backend`.
 That's why :meth:`NcbCharOverrides.shorthand_cells_for` takes a plain
 ``next_is_zero_initial: bool`` instead of a ``ParsedPinyin`` —
-backend computes the bool from its parser and passes it in.
+backend computes the bool from its parser and passes it in.  For the
+same reason the declared-reading gate is an accessor
+(:meth:`NcbCharOverrides.declared_pinyin`) rather than a comparison
+here: it hands the raw ``_pinyin`` string to the backend, which parses
+both sides with its own parser and compares initial + final.
 
 JSON layout convention (since 2026-05-25): char/word entries are
 **arrays of objects** with explicit ``surface`` fields and ASCII
@@ -108,6 +112,15 @@ class _CharOverride:
       ``boundary_spelling`` is set, fall-through otherwise).
     * ``keep_tone``: forcibly keep this character's
       tone cell regardless of what the per-initial rule says.
+    * ``pinyin``: the reading the entry was declared for
+      (``"de0"`` / ``"me0"`` / ``"ni3"`` — the resource's ``_pinyin``).
+      The NCB definite-word shorthands are readings, not glyphs: 的
+      shortens as the neutral-tone *de* of 我的, never as the *dì* of
+      目的 / 的确.  The backend compares the entry's reading against the
+      syllable actually annotated (:meth:`NcbCharOverrides.declared_pinyin`)
+      and falls back to full spelling on a mismatch — the parse itself
+      lives in the backend's pinyin_parser, which this layer must not
+      import.  ``None`` means unconditional (any reading).
 
     An entry without ``shorthand`` simply has no shorthand behavior
     (e.g. 再 / 问 — only ``keep_tone`` fires).
@@ -116,6 +129,7 @@ class _CharOverride:
     surface: str
     shorthand: _Shorthand | None = None
     keep_tone: bool = False
+    pinyin: str | None = None
 
 
 @_dataclass(frozen=True, slots=True)
@@ -152,6 +166,18 @@ class NcbCharOverrides:
         if sh.boundary_exception and next_is_zero_initial:
             return sh.boundary_spelling  # may itself be None → fall through
         return sh.cells
+
+    def declared_pinyin(self, ch: str) -> str | None:
+        """The reading this char's entry was declared for, or ``None``.
+
+        ``None`` covers every "no gate applies" case — char not in the
+        table, or an entry that declares no ``_pinyin`` — so the caller
+        needs only one truth: a declared reading the current syllable
+        must match (initial + final; the backend parses and compares)
+        before the entry's behaviors may fire.
+        """
+        spec = self.by_char.get(ch)
+        return None if spec is None else spec.pinyin
 
     def should_force_keep_tone(self, ch: str) -> bool:
         """``True`` iff ``ch`` carries an explicit ``keep_tone`` override."""

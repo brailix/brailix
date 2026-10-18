@@ -380,30 +380,11 @@ class TestEndToEnd:
         )
         assert _has_tone(cells)
 
-    def test_cross_word_boundary_two_hanzichars(self, ctx, cn_ncb):
-        # Cross-IR-node boundary: 慈 + 爱 as two separate Word
-        # nodes (no Space between) should also trigger the boundary
-        # rule — same outcome as the Word("慈爱") case.
-        from brailix.backend.block import translate_document
-        from brailix.ir.document import DocumentIR, Paragraph
-        from brailix.ir.inline import Word
-        doc = DocumentIR(blocks=[Paragraph(inlines=[
-            Word(surface="慈", reading="ci2"),
-            Word(surface="爱", reading="ai4"),
-        ])])
-        braille = translate_document(doc, ctx, cn_ncb)
-        cells = braille.blocks[0].cells
-        tone_cells = [c for c in cells if c.role == "zh_tone"]
-        assert len(tone_cells) == 1, (
-            "cross-Word boundary should keep ci2's tone (and omit ai4's "
-            "per zero-initial default-omit-4)"
-        )
-        assert tone_cells[0].dots == cn_ncb.lang_table("tones")["2"][0]
-
-    def test_cross_word_boundary_breaks_on_space(self, ctx, cn_ncb):
-        # When a Space sits between the two HanziChars, they're not
-        # written together as one word; boundary rule must NOT fire and ci2
-        # gets omitted per the c-initial rule.
+    def test_space_between_words_blocks_boundary_rule(self, ctx, cn_ncb):
+        # A Space renders as a blank cell — the braille word boundary.
+        # NCB lesson 9's boundary rule fires only 连写 (syllables written
+        # together, no blank between), so 慈 / 爱 as two words must NOT
+        # trigger it: ci2's tone is omitted by the standard c-omit-2 rule.
         from brailix.backend.block import translate_document
         from brailix.ir.document import DocumentIR, Paragraph
         from brailix.ir.inline import Space, Word
@@ -420,11 +401,14 @@ class TestEndToEnd:
             "omitted by the standard c-omit-2 rule"
         )
 
-    def test_cross_word_boundary_inactive_when_next_has_initial(
+    def test_adjacent_word_nodes_are_separate_lianxie_units(
         self, ctx, cn_ncb
     ):
-        # 慈 (ci2, syllabic-i) followed by 北 (bei3, has b initial) —
-        # boundary rule doesn't fire because next is not zero-initial.
+        # One Word node = one 连写 unit (the segmentation's word).  Even
+        # with no Space node between them, 慈 and 北 as two Word nodes are
+        # two units, so the boundary rule never crosses the node edge:
+        # ci2 gets no next syllable and follows c-omit-2 (omitted);
+        # bei3 follows b-omit-4 (tone 3 kept).
         from brailix.backend.block import translate_document
         from brailix.ir.document import DocumentIR, Paragraph
         from brailix.ir.inline import Word
@@ -435,7 +419,7 @@ class TestEndToEnd:
         braille = translate_document(doc, ctx, cn_ncb)
         cells = braille.blocks[0].cells
         tone_cells = [c for c in cells if c.role == "zh_tone"]
-        # ci2: c-omit-2, no boundary → omitted.
+        # ci2: c-omit-2, no next syllable in its Word → omitted.
         # bei3: b-omit-4, tone 3 → kept.
         # Only one tone cell, and it should be tone-3.
         assert len(tone_cells) == 1
