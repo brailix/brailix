@@ -36,7 +36,19 @@
       "cases": [
         {"src": "2026年", "expected": "⠼⠃⠚⠃⠋⠝⠩⠂", "note": "year only: digits + 年(nian2); 年 is the sole exception to the hyphen/connector, written directly attached"},
         {"src": "2026年5月", "expected": "⠼⠃⠚⠃⠋⠝⠩⠂⠀⠼⠑⠤⠾⠆", "note": "date components are space-separated (年 / 5月); within a component the number attaches to its marker — 年 directly (no separator), 月 via the hyphen/connector ⠤"},
-        {"src": "2026年5月17日", "expected": "⠼⠃⠚⠃⠋⠝⠩⠂⠀⠼⠑⠤⠾⠆⠀⠼⠁⠛⠤⠚⠆", "note": "year/month/day components are space-separated (2026年 5月 17日); within each, the number attaches to its marker — 年 directly, 月/日 via the hyphen/connector ⠤ (日's ⠚=0, so 17日 needs the ⠤)"}
+        {"src": "2026年5月17日", "expected": "⠼⠃⠚⠃⠋⠝⠩⠂⠀⠼⠑⠤⠾⠆⠀⠼⠁⠛⠤⠚⠆", "note": "year/month/day components are space-separated (2026年 5月 17日); within each, the number attaches to its marker — 年 directly, 月/日 via the hyphen/connector ⠤ (日's ⠚=0, so 17日 needs the ⠤)"},
+        {"src": "第2026年", "expected": "⠙⠊⠆⠼⠃⠚⠃⠋⠝⠩⠂", "note": "the ordinal prefix 第 binds to a digit-led date exactly as to a bare number (第3): no space — it used to take the composite's word-boundary space and split 第 from its own year"},
+        {"src": "2026年5月17日23时", "expected": "⠼⠃⠚⠃⠋⠝⠩⠂⠀⠼⠑⠤⠾⠆⠀⠼⠁⠛⠤⠚⠆⠀⠼⠃⠉⠤⠱⠂", "note": "a date followed by a number (…31日23时) takes the composite's word-boundary space — 日's tone cell must not run straight into 23's number sign — matching the date-internal component spacing; 23时 keeps the number→hanzi connector ⠤"}
+      ]
+    },
+    "fullwidth": {
+      "description": "Full-width digits with full-width separators fold to their half-width spellings — cell-for-cell identical, no warnings (the ideographic 。 is sentence punctuation and never a decimal)",
+      "cases": [
+        {"src": "２０２６", "expected": "⠼⠃⠚⠃⠋", "note": "pure full-width digit run: the prose backend folds each digit at render time"},
+        {"src": "３．５", "expected": "⠼⠉⠂⠑", "note": "full-width decimal point ． folds into the digit run as its ASCII separator — same cells as 3.5 (it used to die as UNKNOWN_PUNCT plus a split number)"},
+        {"src": "３，５００", "expected": "⠼⠉⠄⠑⠚⠚", "note": "full-width comma folds the same way, aligned with half-width thousands behavior — same cells as 3,500 (it used to render the comma as prose punct ⠐ and split the number with no warning at all)"},
+        {"src": "３．５米", "expected": "⠼⠉⠂⠑⠤⠍⠊⠄", "note": "full-width decimal with unit: identical to 3.5米"},
+        {"src": "３。５", "expected": "⠼⠉⠐⠆⠼⠑", "note": "the ideographic full stop 。 is the Chinese sentence end, never a decimal point: the number splits, unlike its full-width twin ．"}
       ]
     },
     "percent": {

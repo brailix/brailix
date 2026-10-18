@@ -498,11 +498,25 @@ def insert_cross_kind_boundary_spaces(
     exception that skips the connector.)
 
     **Composite ↔ Chinese** (``在2026年`` / ``…日我``) takes a word-boundary
-    :class:`Space` on *either* side. A Date is a whole word, set off from the
-    surrounding prose; without a separator it abuts the neighbouring
+    :class:`Space` on *either* side. A Date is a whole word, set off from
+    the surrounding prose; without a separator it abuts the neighbouring
     hanzi. A plain Space, not a connector. A bare :class:`Number` is
     different — an ordinal-bound number (``第3``) stays tight — so the
     Chinese ↔ Number boundary keeps its own policy and isn't spaced here.
+
+    **Composite ↔ Number** (``…31日23时``) takes the same word-boundary
+    :class:`Space`: a date's trailing cell (日's tone mark) running
+    straight into the next number's sign is exactly the collision the
+    composite rule exists to prevent, and the neighbour happening to be a
+    number rather than a hanzi changes nothing about it — the date is a
+    whole word on *both* flanks. (The Number→Date direction cannot arise
+    from the segmenter — two digit runs never touch — but hand-built IR
+    may carry it, and it takes the same Space.)
+
+    The **ordinal prefix 第** binds to whatever digit-led thing follows
+    it, so ``第3`` *and* ``第2026年`` stay tight (no space): see
+    :func:`_is_composite_chinese_boundary` /
+    :func:`_is_chinese_number_boundary`.
 
     Idempotent: if a Space already sits between the two nodes (either
     user-typed or previously inserted), the boundary check fails on both
@@ -526,6 +540,8 @@ def insert_cross_kind_boundary_spaces(
         elif _is_number_hanzi_join(prev, cur):
             out.append(Connector(surface="", span=span))
         elif _is_composite_chinese_boundary(prev, cur):
+            out.append(Space(surface="", span=span))
+        elif _is_composite_number_boundary(prev, cur):
             out.append(Space(surface="", span=span))
         elif _is_chinese_number_boundary(prev, cur):
             out.append(Space(surface="", span=span))
@@ -600,6 +616,13 @@ def _is_composite_chinese_boundary(prev: InlineNode, cur: InlineNode) -> bool:
     straight on from the preceding syllable). A plain Space, not a
     connector: the composite isn't bound to the neighbouring word.
 
+    The ordinal prefix 第 is the one exemption on the Chinese→composite
+    side, mirroring :func:`_is_chinese_number_boundary`: ``第2026年`` binds
+    tight (第2026年) exactly as ``第3`` does, because per spec 第 attaches
+    directly to a following *number*, and a date is digit-led by
+    construction (normalization only builds one from a leading
+    ``digit_run``). Every other hanzi keeps the space (``在2026年``).
+
     (A bare :class:`Number` is different — a number bound by an ordinal
     prefix like 第3 takes no space, so the Chinese ↔ Number boundary
     keeps its own policy and isn't handled here.)
@@ -613,6 +636,46 @@ def _is_composite_chinese_boundary(prev: InlineNode, cur: InlineNode) -> bool:
         cur, _COMPOSITE_NODE_TYPES
     )
     if not (composite_then_chinese or chinese_then_composite):
+        return False
+    if (
+        chinese_then_composite
+        and prev.surface
+        and prev.surface.endswith("第")
+    ):
+        return False  # ordinal prefix binds directly to its date (第2026年)
+    if prev.span and cur.span and prev.span.end != cur.span.start:
+        return False
+    return True
+
+
+def _is_composite_number_boundary(prev: InlineNode, cur: InlineNode) -> bool:
+    """Whether a normalizer composite (Date) is directly adjacent to a
+    :class:`Number` in **either** order, so a word-boundary :class:`Space`
+    belongs between them.
+
+    ``2026年12月31日23时`` is a date then a number: without a separator the
+    date's trailing cell (31日's tone mark) runs straight into ``23``'s
+    number sign — the same collision :func:`_is_composite_chinese_boundary`
+    exists to prevent when the neighbour is a hanzi, and the composite is
+    a whole word set off from *whatever* follows it. A plain Space, not a
+    connector: the number after a date starts its own word (and the
+    number sign already delimits it from the left).
+
+    The Number→Date direction cannot come out of the segmenter — two
+    digit runs separated by nothing merge into one run, so a Date's
+    digit-led surface can never directly follow a Number — but hand-built
+    IR (tests, round-trips) may carry the pair, and it takes the same
+    Space by the same whole-word rule.
+
+    Source-adjacency guard mirrors the other predicates: a known gap
+    between the spans means a separator node already sits between them."""
+    composite_then_number = isinstance(prev, _COMPOSITE_NODE_TYPES) and isinstance(
+        cur, Number
+    )
+    number_then_composite = isinstance(prev, Number) and isinstance(
+        cur, _COMPOSITE_NODE_TYPES
+    )
+    if not (composite_then_number or number_then_composite):
         return False
     if prev.span and cur.span and prev.span.end != cur.span.start:
         return False
