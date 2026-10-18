@@ -63,6 +63,26 @@ def pipe():
 # ---------------------------------------------------------------------------
 
 
+def test_cross_node_sibling_stash_is_gone():
+    """``ctx.options['_next_inline_sibling']`` must not come back.
+
+    The stash existed to let the zh backend peek across IR-node
+    boundaries for NCB's cross-syllable rules, but the frontend puts a
+    Space between every pair of words, so the peek never saw a Word in
+    the real pipeline — and the rules themselves are 连写 (same-word)
+    rules per the NCB lessons, which a word boundary already ends. The
+    peek and its stash were deleted together; this static guard keeps a
+    future "helpful" re-introduction from silently reviving dead
+    machinery (the behavioural side — adjacent Word nodes are separate
+    连写 units — is pinned in ``tests/backend/zh/test_zh_tone_policy.py``).
+    """
+    import inspect
+
+    import brailix.backend.block as block_mod
+
+    assert "_next_inline_sibling" not in inspect.getsource(block_mod)
+
+
 class TestParagraph:
     def test_single_block_returned(self, ctx, profile):
         para = Paragraph(inlines=[Word(surface="我", reading="wo3")])

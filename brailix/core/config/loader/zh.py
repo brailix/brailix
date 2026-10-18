@@ -171,6 +171,13 @@ def _load_zh_exceptions_char_overrides(
       ``boundary_spelling`` (default null).
     * ``keep_tone`` boolean (default false).
 
+    plus the optional declared reading ``_pinyin`` (e.g. ``"de0"``) —
+    loaded onto the record so the backend can gate an override on the
+    syllable actually annotated (的 shortens as *de*, not the *dì* of
+    目的).  Unlike ``_id`` / ``_note``, ``_pinyin`` is runtime data,
+    not authoring metadata, so it is kept in the record (tone-blind;
+    the backend compares initial + final only).
+
     Duplicate ``surface`` across entries → :class:`ConfigurationError`
     at load (an authoring bug — same char with two overrides is
     almost certainly wrong; merge into one entry).
@@ -215,12 +222,34 @@ def _load_zh_exceptions_char_overrides(
             else None
         )
         keep_tone = bool(entry.get("keep_tone", False))
+        pinyin = _declared_pinyin(entry.get("_pinyin"), surface, path)
         by_char[surface] = _CharOverride(
             surface=surface,
             shorthand=shorthand,
             keep_tone=keep_tone,
+            pinyin=pinyin,
         )
     return NcbCharOverrides(by_char=by_char)
+
+
+def _declared_pinyin(raw: Any, surface: str, path: Path) -> str | None:
+    """Validate an entry's ``_pinyin`` into the declared-reading string.
+
+    One syllable-shaped token (``"de0"`` / ``"ni3"``), no whitespace —
+    a multi-syllable or empty declaration is an authoring bug that would
+    otherwise make the backend's reading gate never (or always) match,
+    so it fails loudly like every other shape error in this file.  The
+    deeper "is it a parseable syllable" check belongs to the backend's
+    parser, which this layer must not import; this is the shape check.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw or len(raw.split()) != 1:
+        raise ConfigurationError(
+            f"{path}: char_overrides[{surface!r}]._pinyin must be one "
+            f"pinyin syllable like 'de0', got {raw!r}"
+        )
+    return raw
 
 
 def _build_shorthand(

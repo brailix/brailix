@@ -22,7 +22,11 @@ warning + unknown cell. The pipeline never crashes on data gaps.
 from __future__ import annotations
 
 from brailix.backend.zh._ncb import ncb_exceptions as _ncb_exceptions
-from brailix.backend.zh.pinyin_parser import ParsedPinyin, parse_pinyin
+from brailix.backend.zh.pinyin_parser import (
+    ParsedPinyin,
+    normalize_syllable_spelling,
+    parse_pinyin,
+)
 from brailix.backend.zh.tone import tone_policy_for
 from brailix.core.config import BrailleProfile
 from brailix.core.config.zh_ncb_tables import NcbCharOverrides
@@ -158,38 +162,25 @@ def _translate_chinese(
         exceptions.char_overrides if exceptions is not None else None
     )
 
-    # Cross-IR-node lookahead: when this is the last syllable of the
-    # current Word and the immediately adjacent sibling is
-    # another Chinese node (no Space / Punct between them), peek at
-    # its first syllable so the cross-syllable boundary rule fires across
-    # IR-node boundaries too — not just within a single Word.
-    # ``_translate_inlines`` in :mod:`brailix.backend.block` stashes
-    # the next sibling under ``ctx.options['_next_inline_sibling']``
-    # before each dispatch; ``None`` here means "no peek available".
-    cross_node_next_syl = _peek_next_chinese_syllable(ctx)
-
+    # Boundary conditions end at the word: the NCB rules that look at a
+    # *following* syllable (the tone-omission boundary rule of lesson 9
+    # and the definite-word shorthand boundary exception of lesson 10)
+    # fire only 连写 — syllables written together with no blank cell
+    # between them, i.e. inside one Word node.  The zh frontend puts a
+    # Space (→ one blank cell) between every pair of word tokens, so a
+    # different Word is by construction a different 连写 unit and the
+    # last character of a Word never sees a next syllable.
     out: list[BrailleCell] = []
     # strict=True is the right contract here — the mismatch case is
     # already handled by the length check above; if we ever reach this
     # zip with different lengths, that's a bug we want to surface.
     for i, (ch, syl) in enumerate(zip(surface, syllables, strict=True)):
         char_span = _char_span(span, i)
-        # Explicit ``str | None`` because the cross-node peek branch
-        # can legitimately return None — and both downstream
-        # consumers (``_try_shorthand`` / ``_syllable_cells``) declare
-        # the parameter as ``str | None``.  Without this annotation
-        # mypy narrows to ``str`` from the first branch and complains
-        # about the second.
-        next_syl: str | None
-        if i + 1 < len(syllables):
-            next_syl = syllables[i + 1]
-        else:
-            # At the last char of this surface: fall back to the
-            # cross-IR-node peek so 慈/爱 split across single-character Word nodes
-            # still triggers the boundary rule. (慈/爱 = cí/ài, example chars.)
-            next_syl = cross_node_next_syl
+        next_syl: str | None = (
+            syllables[i + 1] if i + 1 < len(syllables) else None
+        )
         if char_overrides is not None:
-            sh_cells = _try_shorthand(ch, next_syl, char_span, char_overrides)
+            sh_cells = _try_shorthand(ch, syl, next_syl, char_span, char_overrides)
             if sh_cells is not None:
                 out.extend(sh_cells)
                 continue
@@ -203,29 +194,9 @@ def _translate_chinese(
     return out
 
 
-def _peek_next_chinese_syllable(ctx: BackendContext) -> str | None:
-    """Return the first syllable of the next adjacent Chinese sibling.
-
-    Reads the hint set by ``brailix.backend.block._translate_inlines``
-    before each dispatch. Returns ``None`` when:
-
-    * no sibling exists (last child),
-    * the sibling is not a Chinese node (Punct / Space / Number / ...),
-    * the sibling has no pinyin (a Word's default), or
-    * the pinyin string is empty after splitting.
-    """
-    sibling = ctx.options.get("_next_inline_sibling")
-    if sibling is None:
-        return None
-    pinyin = getattr(sibling, "reading", None)
-    if not isinstance(pinyin, str) or not pinyin:
-        return None
-    syllables = pinyin.split()
-    return syllables[0] if syllables else None
-
-
 def _try_shorthand(
     ch: str,
+    syllable: str,
     next_syllable: str | None,
     span: Span | None,
     char_overrides: NcbCharOverrides,
@@ -233,12 +204,23 @@ def _try_shorthand(
     """Look up ``ch`` in the char_overrides shorthand table; return cells or ``None``.
 
     ``None`` means "no shorthand emitted, fall through to the
-    standard syllable path" — the case for non-shorthand characters
-    AND for boundary-exception fall-throughs (的/么/你 — de/me/nǐ — followed by a
-    zero-initial syllable).  When ``None`` is returned,
-    ``_translate_chinese`` runs the regular initial+final+tone
-    emission for ``ch``.
+    standard syllable path" — the case for non-shorthand characters,
+    for **reading mismatches** (的 declared *de0* but annotated *dì* as
+    in 目的 / 的确 — the NCB definite-word shorthands are readings, not
+    glyphs, so the full spelling is the correct rendering, not an
+    error), and for boundary-exception fall-throughs (的/么/你 —
+    de/me/nǐ — followed by a zero-initial syllable).  When ``None`` is
+    returned, ``_translate_chinese`` runs the regular
+    initial+final+tone emission for ``ch``.
     """
+    # Reading gate: an entry that declares its reading (_pinyin) only
+    # shortens under that reading, compared tone-blind on initial +
+    # final via the parser below.  An unparseable annotated syllable
+    # counts as a mismatch — the full-spelling path re-parses it and
+    # raises the BAD_PINYIN warning the proofreader needs.
+    declared = char_overrides.declared_pinyin(ch)
+    if declared is not None and not _same_initial_final(declared, syllable):
+        return None
     # The shorthand table only needs one bit out of the next syllable
     # ("is the next initial empty?") to decide the boundary exception.
     # We parse here and pass the bool — keeps the data-layer
@@ -266,6 +248,36 @@ def _try_shorthand(
         )
         for dots in cell_seq
     ]
+
+
+def _toneless_parse(syllable: str) -> ParsedPinyin:
+    """Parse a syllable for the reading gate, dropping any tone digit.
+
+    The gate compares 声韵 (initial + final) only, so the tone digit is
+    stripped before parsing — which also makes the resources' neutral-
+    tone ``"0"`` spelling (``de0`` / ``me0``) parseable, since
+    :func:`parse_pinyin` accepts tone digits 1–5 only.  Spelling
+    normalization (lowercase, ``v`` → ``ü``) comes free through
+    :func:`normalize_syllable_spelling`, the parser's own first step.
+    """
+    s = normalize_syllable_spelling(syllable)
+    if s and s[-1].isdigit():
+        s = s[:-1]
+    return parse_pinyin(s)
+
+
+def _same_initial_final(declared: str, syllable: str) -> bool:
+    """Whether two syllables agree on initial + final (tone-blind).
+
+    Raises nothing: an unparseable side is reported to the caller as a
+    mismatch by :func:`_try_shorthand`'s contract.
+    """
+    try:
+        a = _toneless_parse(declared)
+        b = _toneless_parse(syllable)
+    except ValueError:
+        return False
+    return a.initial == b.initial and a.final == b.final
 
 
 def _syllable_cells(
