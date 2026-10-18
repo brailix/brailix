@@ -177,6 +177,37 @@ class TestDecodeXmlBytes:
         with pytest.raises(XmlDecodeError, match="x-made-up"):
             decode_xml_bytes(raw)
 
+    @pytest.mark.parametrize("codec", ["unicode_escape", "rot_13", "base64_codec"])
+    def test_a_python_codec_xml_does_not_permit_is_refused(self, codec: str) -> None:
+        # A declaration may only name a *character encoding* from the
+        # families XML 1.0 registers. Python's codec registry happily
+        # resolves ``unicode_escape`` / ``rot_13`` / ``base64_codec`` —
+        # and decoding XML "as" one of them is a category error
+        # (base64_codec even succeeds, turning a byte error into mojibake).
+        raw = f'<?xml version="1.0" encoding="{codec}"?><a/>'.encode()
+        with pytest.raises(XmlDecodeError, match="XML permits"):
+            decode_xml_bytes(raw)
+
+    def test_a_codec_xml_permits_under_an_alias_is_accepted(self) -> None:
+        # The rule is per-FAMILY, not per-spelling: ``latin-1`` resolves to
+        # the iso8859-1 codec and ``windows-1252`` to cp1252, both in the
+        # permitted set — a declaration may use any spelling of a family.
+        doc = '<?xml version="1.0" encoding="latin-1"?><a>café</a>'
+        assert decode_xml_bytes(doc.encode("iso-8859-1")) == doc
+        doc2 = '<?xml version="1.0" encoding="windows-1252"?><a>café</a>'
+        assert decode_xml_bytes(doc2.encode("cp1252")) == doc2
+
+    def test_a_gbk_declaration_is_decoded(self) -> None:
+        # GB is an IANA-registered family real CJK XML documents ship in;
+        # it must keep parsing (the refusal is for codecs, not charsets).
+        doc = '<?xml version="1.0" encoding="gbk"?><a>中文</a>'
+        assert decode_xml_bytes(doc.encode("gbk")) == doc
+
+    def test_the_shift_jis_family_is_decoded(self) -> None:
+        # One of the three legacy charsets the XML spec itself names.
+        doc = '<?xml version="1.0" encoding="Shift_JIS"?><a>ありがとうございます</a>'
+        assert decode_xml_bytes(doc.encode("shift_jis")) == doc
+
     def test_bytes_that_decode_under_no_rule_are_reported(self) -> None:
         # No mark and no declaration means UTF-8, and these are not UTF-8.
         with pytest.raises(XmlDecodeError, match="UTF-8"):
