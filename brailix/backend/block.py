@@ -161,12 +161,7 @@ def _translate_inlines(
 ) -> list[BrailleCell]:
     """Run the inline dispatcher over each node and concatenate.
 
-    Each dispatch sees the immediately-following sibling stashed under
-    ``ctx.options['_next_inline_sibling']`` so backends can peek
-    across IR-node boundaries (the zh backend uses this for NCB's
-    cross-syllable boundary rule).
-
-    It also threads a running-English flag under
+    It threads a running-English flag under
     ``ctx.options['_english_run_active']``: the flag is on whenever an
     earlier sibling already opened an English stretch that the current
     node hasn't broken, letting :func:`brailix.backend.latin.translate_latin`
@@ -187,10 +182,7 @@ def _translate_inlines(
     english_active = False
     digits_since_letter = False
     try:
-        for i, node in enumerate(inlines):
-            ctx.options["_next_inline_sibling"] = (
-                inlines[i + 1] if i + 1 < len(inlines) else None
-            )
+        for node in inlines:
             ctx.options["_english_run_active"] = english_active
             ctx.options["_english_run_after_digit"] = digits_since_letter
             out.extend(translate_node(node, ctx, profile))
@@ -210,7 +202,6 @@ def _translate_inlines(
         # Clear in a ``finally`` so a mid-loop dispatch failure can't leave
         # these traversal keys behind on a shared ``ctx.options`` for an
         # unrelated caller to trip over.
-        ctx.options.pop("_next_inline_sibling", None)
         ctx.options.pop("_english_run_active", None)
         ctx.options.pop("_english_run_after_digit", None)
     return _drop_separator_before_attached_punct(
