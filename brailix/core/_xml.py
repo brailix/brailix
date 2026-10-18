@@ -27,6 +27,7 @@ depending on the other.
 
 from __future__ import annotations
 
+import codecs as _codecs
 import re as _re
 import xml.etree.ElementTree as _ET
 
@@ -194,6 +195,86 @@ def _decode_as(raw: bytes, codec: str, how: str) -> str:
         raise XmlDecodeError(f"not decodable as {how}: {e}") from e
 
 
+# ---------------------------------------------------------------------------
+# Encodings an XML declaration may name
+# ---------------------------------------------------------------------------
+
+# XML 1.0 §4.3.3: an ``encoding`` declaration names a *character encoding*
+# registered with IANA — the families the spec itself lists are the Unicode
+# transforms (UTF-8 / UTF-16), ISO-8859-x, and the three legacy Japanese
+# charsets; Windows-125x and the GB / Big5 / EUC-KR charsets are the other
+# IANA-registered single/multi-byte families real XML documents ship in.
+# Python's codec registry is deliberately wider than that: ``unicode_escape``,
+# ``rot_13``, ``base64_codec``, ``punycode`` … are codecs, not character
+# encodings, and decoding XML "as" one of them is a category error —
+# base64_codec even *succeeds*, producing mojibake where a byte error was the
+# honest answer.
+#
+# The set is held in **canonical** codec names (``codecs.lookup(declared)``
+# resolves every alias and case spelling to one), so the declaration may use
+# any of a family's spellings — ``ISO-8859-1`` / ``latin-1`` / ``latin1``,
+# ``windows-1252`` / ``cp1252``, ``UTF8`` — and the rule stays one name per
+# family. ISO-8859-12 has never existed (the slot was reserved for
+# Devanagari, then withdrawn); cp1251..cp1258 are the Windows Cyrillic /
+# Greek / Turkish / Hebrew / Arabic / Vietnamese siblings of cp1252.
+_XML_DECLARED_CODEC_NAMES: frozenset[str] = frozenset(
+    {
+        # The Unicode transforms. UTF-7 is IANA-registered but absent from
+        # XML's own list and from every real XML file — and it is a security
+        # folklore encoding (SMTP-era smuggling); leaving it out errs closed.
+        "utf-8",
+        "utf-8-sig",
+        "utf-16",
+        "utf-16-le",
+        "utf-16-be",
+        "utf-32",
+        "utf-32-le",
+        "utf-32-be",
+        # ASCII, the 7-bit floor.
+        "ascii",
+        # ISO-8859-1 .. -16 (minus the never-defined -12).
+        *(f"iso8859-{n}" for n in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16)),
+        # Windows-1250 .. -1258.
+        *(f"cp125{n}" for n in range(0, 9)),
+        # The legacy CJK / Korean charsets: the three the XML spec names…
+        "iso2022_jp",
+        "shift_jis",
+        "euc_jp",
+        # …and the GB / Big5 / EUC-KR families IANA registers alongside them.
+        "gb2312",
+        "gbk",
+        "gb18030",
+        "big5",
+        "euc_kr",
+    }
+)
+
+
+def _declared_codec(declared: str) -> str:
+    """The codec an XML declaration's ``encoding`` name resolves to.
+
+    One rule, two verdicts, both :class:`XmlDecodeError`: a name Python
+    doesn't know at all, and a name that resolves to a codec outside the
+    families XML permits (``codecs.lookup`` is the authority on *aliases* —
+    it folds case and spelling to one canonical name — this check is the
+    authority on *which codecs are encodings XML may name*). Returns the
+    canonical name, so the decode itself runs on exactly what was vetted.
+    """
+    try:
+        info = _codecs.lookup(declared)
+    except LookupError as e:
+        raise XmlDecodeError(
+            f"encoding {declared!r} named by the XML declaration is not a "
+            f"known character encoding: {e}"
+        ) from e
+    if info.name not in _XML_DECLARED_CODEC_NAMES:
+        raise XmlDecodeError(
+            f"encoding {declared!r} named by the XML declaration is not one "
+            f"XML permits (resolves to the codec {info.name!r})"
+        )
+    return info.name
+
+
 def _declared_encoding(raw: bytes) -> str | None:
     """The encoding named by ``raw``'s XML declaration, or ``None``.
 
@@ -229,7 +310,9 @@ def decode_xml_bytes(data: bytes | bytearray) -> str:
     Returns the decoded text with any byte order mark consumed. Raises
     :class:`XmlDecodeError` when the bytes do not decode under the rule that
     was selected — including an ``encoding`` naming a codec Python does not
-    have. Never raises anything else, so a caller that soft-fails can catch
+    have, or one that is a Python codec but not a character encoding XML 1.0
+    permits a declaration to name (``unicode_escape``, ``base64_codec``, …).
+    Never raises anything else, so a caller that soft-fails can catch
     exactly one thing.
 
     Text handed in as ``str`` needs none of this and does not come here; each
@@ -245,7 +328,13 @@ def decode_xml_bytes(data: bytes | bytearray) -> str:
             return _decode_as(raw, codec, f"{codec} (XML declaration bytes)")
     declared = _declared_encoding(raw)
     if declared is not None:
-        return _decode_as(raw, declared, f"declared encoding {declared!r}")
+        # The name is validated (and canonicalised) against the encodings
+        # XML 1.0 permits before anything decodes by it — a codec Python
+        # happens to know but XML does not name (``unicode_escape``, …)
+        # is refused here, not decoded into mojibake.
+        return _decode_as(
+            raw, _declared_codec(declared), f"declared encoding {declared!r}"
+        )
     return _decode_as(raw, "utf-8", "UTF-8 (no BOM, no encoding declaration)")
 
 

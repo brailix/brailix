@@ -167,6 +167,66 @@ class TestProseTypes:
     def test_all_prose_types_unions_registered_frontends(self):
         assert "hanzi_text" in _all_prose_types()
 
+    def test_union_is_cached_against_the_registry_generation(self):
+        # The cold call loads (and counts) one throwaway frontend; the warm
+        # call must not touch any loader at all — the union is cached on the
+        # registry's generation, which ``overriding`` advances on BOTH entry
+        # and exit, so the exit side of this block is the invalidation check.
+        loads: list[str] = []
+
+        class _Probe:
+            prose_types = frozenset({"probe_prose"})
+
+            def segment(self, block, ctx=None):  # noqa: ANN001
+                return []
+
+            def process(self, surface, base, ctx):  # noqa: ANN001
+                return []
+
+        def counting_loader() -> _Probe:
+            loads.append("load")
+            return _Probe()
+
+        with language_frontend_registry.overriding("probe", counting_loader):
+            union = _all_prose_types()
+            assert "probe_prose" in union
+            assert len(loads) == 1
+            _all_prose_types()
+            assert len(loads) == 1, "warm call went back to the loaders"
+        # Generation advanced on exit: the cache no longer serves the union
+        # the temporary registration produced.
+        assert "probe_prose" not in _all_prose_types()
+
+    def test_a_broken_loader_degrades_to_unknown_not_crash(self):
+        # A third-party frontend whose loader raises anything at all is
+        # "that language is unknowable" for the warning classification —
+        # not a reason to take down every compile that emits a routine
+        # warning. The healthy languages still aggregate.
+        def _broken():
+            raise RuntimeError("third-party frontend exploded")
+
+        with language_frontend_registry.overriding("broken", _broken):
+            union = _all_prose_types()
+        assert "hanzi_text" in union
+        assert "broken" not in union
+
+    def test_a_broken_loader_cannot_crash_a_warning_path_compile(self):
+        # End to end: the active language has no frontend (so the warning
+        # path runs the aggregate) while another registration's loader is
+        # broken. Classification still lands on NO_LANGUAGE_FRONTEND —
+        # zh claims hanzi_text — instead of the compile dying in the
+        # RuntimeError the broken loader raised.
+        def _broken():
+            raise RuntimeError("third-party frontend exploded")
+
+        pipe = Pipeline(profile="cn_current")
+        pipe._profile.language = "xx-XX"
+        with language_frontend_registry.overriding("broken", _broken):
+            result = pipe.translate_text("我")
+        codes = {w.code for w in result.warnings}
+        assert "NO_LANGUAGE_FRONTEND" in codes
+        assert "UNHANDLED_SEGMENT_TYPE" not in codes
+
 
 class TestNoSecondConfigurationAxis:
     """What the driver publishes, and what it no longer does."""

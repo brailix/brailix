@@ -21,6 +21,64 @@ class TestRoundTrip:
         _, payload = inline_math.unwrap(inline_math.wrap("omml", "  a\n\t b   "))
         assert payload == "a b"
 
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            "a\x1cb",  # File Separator
+            "a\x1db",  # Unit Separator — the format's own field delimiter
+            "a\x1eb",  # Record Separator — the format's own escape char
+            "a\x1fb",  # Group Separator — the ``$`` escape's marker half
+            "a\x1cb\x1dc\x1dd\x1ee\x1ff",  # all four interleaved
+            "\x1c\x1d\x1e\x1f",  # nothing but controls
+            "$\x1e$",  # dollar next to a payload-borne RS
+            "\x1e$",  # RS then dollar at the field's edge
+            "$\x1e",  # dollar then RS at the field's edge
+            "a \x1c b",  # control adjacent to single spaces: byte-exact
+        ],
+    )
+    def test_separator_controls_round_trip_byte_exact(self, payload: str) -> None:
+        # ``\s`` matches U+001C–U+001F, so the flattening used to eat them
+        # (``wrap("omml", "a\x1eb")`` came back as ``"a b"``) and the RS→``$``
+        # unescape used to turn a payload-borne RS into a dollar. They are
+        # payload data now: flattened never, escaped only where they collide
+        # with the wire format's own machinery, and restored byte for byte.
+        src, out = inline_math.unwrap(inline_math.wrap("omml", payload))
+        assert src == "omml"
+        assert out == payload
+
+    @pytest.mark.parametrize(
+        ("payload", "expected"),
+        [
+            (" \x1c", "\x1c"),  # edge whitespace trims, the control does not
+            ("\x1e ", "\x1e"),
+            ("  \x1f  ", "\x1f"),
+            ("a  \x1c  b", "a \x1c b"),  # runs flatten, the control does not
+        ],
+    )
+    def test_edge_trim_keeps_controls_drops_real_whitespace(
+        self, payload: str, expected: str
+    ) -> None:
+        # ``str.strip()``'s default set classes the controls as whitespace,
+        # so the OLD codec deleted a leading/trailing one outright. The trim
+        # now drops only genuinely flattenable whitespace: the control at
+        # the field's edge survives, the real space around it does not.
+        _, out = inline_math.unwrap(inline_math.wrap("omml", payload))
+        assert out == expected
+
+    def test_wrapped_controls_survive_the_segmenter_scan(self) -> None:
+        # The island carrying controls must still parse as ONE atomic
+        # protected region — controls are not ``$`` and not newlines, so
+        # the scan closes on the island's own trailing ``$``.
+        from brailix.frontend.segmentation import _find_protected_regions
+
+        island = inline_math.wrap("omml", "a\x1cb\x1ec$d\x1ff")
+        text = "前 " + island + " 后"
+        regions = _find_protected_regions(text)
+        assert len(regions) == 1
+        start, end, type_name = regions[0]
+        assert type_name == "math_inline"
+        assert text[start:end] == island
+
 
 class TestIsTagged:
     def test_true_for_wrapped(self) -> None:
