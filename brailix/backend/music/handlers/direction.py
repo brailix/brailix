@@ -1,8 +1,9 @@
-"""M3.4 direction: dynamics + words + wedge (hairpin) — BANA Table 22.
+"""M3.4 direction: dynamics + words + wedge (hairpin) + metronome — BANA Table 22.
 
 ``<direction>`` is the container; each ``<direction-type>`` holds one
-marker (``<dynamics>``, ``<words>``, ``<wedge>``). All emissions are
-gated by per-marker features (``show_dynamics`` / ``show_words``).
+marker (``<dynamics>``, ``<words>``, ``<wedge>``, ``<metronome>``). All
+emissions are gated by per-marker features (``show_dynamics`` /
+``show_words``).
 """
 
 from __future__ import annotations
@@ -15,7 +16,11 @@ from brailix.backend.music.dispatch import _emit_element
 from brailix.backend.music.handlers._common import warn_feature_unimplemented
 from brailix.backend.music.utils import (
     emit_cells_for_entity,
+    emit_dot_seq,
     emit_synthesized_word,
+    is_known_note_type,
+    note_entity_name,
+    numeral_dots,
 )
 from brailix.ir.braille import BrailleCell
 
@@ -273,6 +278,108 @@ def _emit_wedge(
         )
 
 
+# --- Metronome (tempo mark) ------------------------------------------------
+
+
+# The metronome mark's beat-unit note is pitch-less (a tempo reference,
+# not a sounded note). Braille note cells are keyed by (step, value), so
+# the mark is written on the C (do) row — the scale's reference pitch —
+# through the ordinary notes-table entity; no new cell shape is invented.
+_METRONOME_NOTE_STEP = "C"
+
+
+def _emit_metronome(
+    cells: list[BrailleCell], mctx: MusicBrailleContext, elem: ET.Element
+) -> None:
+    """``<metronome><beat-unit>quarter</beat-unit><per-minute>120`` —
+    the tempo mark ``M.M. ♩ = 120``.
+
+    Synthesised from existing table entries, BANA Table 1 shape
+    ``note-value cell(s) + metronome_equals ⠶ + number sign + digits``:
+
+    * ``<beat-unit>`` (a MusicXML note-type value: quarter / eighth /
+      half / ...) renders through the ordinary notes-table cell for that
+      value — the same entity a sounded note of the type uses, written
+      on the pitch-less C reference row (see
+      :data:`_METRONOME_NOTE_STEP`);
+    * each ``<beat-unit-dot/>`` adds the dot-added-value cell, exactly
+      as a sounded dotted note;
+    * ``<per-minute>`` renders as number sign + upper-row digits
+      (numerals table — the same synthesis a time signature uses).
+
+    Gated by ``music.show_words`` — a tempo mark is expression text
+    (the sibling ``<words>(M.M. ...)</words>`` that often prefixes it is
+    already gated there). Unknown beat-unit values degrade to the
+    quarter-note shape with the same ``MUSIC_DURATION_AMBIGUOUS``
+    warning the note handler raises, so the silent-mistranslation guard
+    covers this path too."""
+    if not mctx.profile.feature("music.show_words", True):
+        return
+    for child in elem:
+        tag = child.tag
+        if tag == "beat-unit":
+            type_name = (child.text or "").strip() or "quarter"
+            if not is_known_note_type(type_name):
+                mctx.warn(
+                    code="MUSIC_DURATION_AMBIGUOUS",
+                    message=(
+                        f"unknown <beat-unit>{type_name!r}</beat-unit>; "
+                        "falling back to quarter-note shape"
+                    ),
+                    source="backend.music",
+                )
+            entity = note_entity_name(_METRONOME_NOTE_STEP, type_name)
+            if not emit_cells_for_entity(
+                cells, mctx,
+                topic="notes",
+                entity=entity,
+                role="music_tempo_note",
+                source_text=f"metronome:{type_name}",
+            ):
+                mctx.warn(
+                    code="MUSIC_UNSUPPORTED_NOTATION",
+                    message=f"no note entry for metronome beat-unit {entity}",
+                    source="backend.music",
+                )
+        elif tag == "beat-unit-dot":
+            emit_cells_for_entity(
+                cells, mctx,
+                topic="notes", entity="dot_added_value",
+                role="music_dot",
+                source_text="metronome:dot",
+            )
+        elif tag == "per-minute":
+            raw = (child.text or "").strip()
+            digits = [ch for ch in raw if ch.isdigit()]
+            if not digits:
+                mctx.warn(
+                    code="MUSIC_UNSUPPORTED_NOTATION",
+                    message=f"<per-minute> without digits: {raw!r}",
+                    source="backend.music",
+                )
+                continue
+            # The metronome equals sign ⠶ (BANA Table 1) joins the note
+            # value to the tempo digits.
+            emit_cells_for_entity(
+                cells, mctx,
+                topic="general", entity="metronome_equals",
+                role="music_tempo_equals",
+                source_text="metronome:equals",
+            )
+            profile = mctx.profile
+            seq: list[tuple[int, ...]] = [numeral_dots(profile, "number_sign")]
+            for ch in digits:
+                seq.append(numeral_dots(profile, f"digit_upper_{ch}"))
+            emit_dot_seq(
+                cells, mctx, seq,
+                role="music_tempo_bpm",
+                source_text=f"metronome:{raw}",
+            )
+        # Other children (positioning, <sound> playback hints) carry no
+        # braille meaning; they are skipped silently, matching how
+        # <direction> itself skips <offset> / <staff>.
+
+
 _DISPATCH_PARTIAL = {
     # M3.4: direction container + leaf markers.
     "direction": _emit_direction,
@@ -280,4 +387,5 @@ _DISPATCH_PARTIAL = {
     "dynamics": _emit_dynamics,
     "words": _emit_words,
     "wedge": _emit_wedge,
+    "metronome": _emit_metronome,
 }

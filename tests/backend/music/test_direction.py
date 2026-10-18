@@ -458,3 +458,103 @@ class TestPipelineIntegration:
         ]
         codes = [w.code for w in result.warnings.warnings]
         assert codes == []
+
+
+# ---------------------------------------------------------------------------
+# <metronome> — tempo marks (M.M. ♩ = 120)
+# ---------------------------------------------------------------------------
+
+
+class TestMetronome:
+    def test_quarter_120_synthesises_note_equals_number(self, profile, ctx):
+        # ♩=120 → quarter-note C cell + metronome_equals ⠶ (2,3,5,6)
+        # + number sign + upper digits 1,2,0.
+        direction = _wrap_direction(
+            "<metronome><beat-unit>quarter</beat-unit>"
+            "<per-minute>120</per-minute></metronome>"
+        )
+        cells = translate_tree(direction, ctx, profile)
+        assert _dots(cells) == [
+            (1, 4, 5, 6),   # quarter_or_64th_C — the beat-unit note
+            (2, 3, 5, 6),   # metronome_equals ⠶
+            (3, 4, 5, 6),   # number sign
+            (1,), (1, 2), (2, 4, 5),  # 1 2 0 upper-row digits
+        ]
+        assert _roles(cells) == [
+            "music_tempo_note", "music_tempo_equals", "music_tempo_bpm",
+            "music_tempo_bpm", "music_tempo_bpm", "music_tempo_bpm",
+        ]
+        # No unsupported-notation warning: nothing is dropped silently.
+        assert not any(
+            w.code == "MUSIC_UNSUPPORTED_NOTATION" for w in ctx.warnings
+        )
+
+    def test_eighth_and_dotted_beat_units(self, profile, ctx):
+        # A dotted eighth ♪. — the note cell plus the dot-added-value
+        # cell, the same cells a sounded dotted eighth carries.
+        direction = _wrap_direction(
+            "<metronome><beat-unit>eighth</beat-unit><beat-unit-dot/>"
+            "<per-minute>84</per-minute></metronome>"
+        )
+        cells = translate_tree(direction, ctx, profile)
+        seq = list(zip(_dots(cells), _roles(cells), strict=True))
+        assert seq[0] == ((1, 4, 5), "music_tempo_note")   # eighth_or_128th_C
+        assert seq[1] == ((3,), "music_dot")               # dot-added-value
+        assert seq[2] == ((2, 3, 5, 6), "music_tempo_equals")
+
+    def test_unknown_beat_unit_warns_and_uses_quarter(self, profile, ctx):
+        direction = _wrap_direction(
+            "<metronome><beat-unit>bogus</beat-unit>"
+            "<per-minute>60</per-minute></metronome>"
+        )
+        cells = translate_tree(direction, ctx, profile)
+        assert any(
+            w.code == "MUSIC_DURATION_AMBIGUOUS" for w in ctx.warnings
+        )
+        assert _dots(cells)[0] == (1, 4, 5, 6)  # quarter fallback shape
+
+    def test_feature_gate_disables(self, profile, ctx, monkeypatch):
+        monkeypatch.setitem(
+            profile.features.setdefault("music", {}), "show_words", False,
+        )
+        direction = _wrap_direction(
+            "<metronome><beat-unit>quarter</beat-unit>"
+            "<per-minute>120</per-minute></metronome>"
+        )
+        cells = translate_tree(direction, ctx, profile)
+        assert cells == []
+
+    def test_real_mxl_score_metronome_translates(self, profile):
+        # The real MuseScore export 1-20-Piano.mxl carries the tempo
+        # mark M.M. ♩=60. End to end (mxl adapter → backend) the tempo
+        # numbers must land as braille cells instead of vanishing into
+        # MUSIC_UNSUPPORTED_NOTATION.
+        from pathlib import Path
+
+        from brailix.frontend.music.adapters.mxl import MxlSourceAdapter
+
+        repo_root = Path(__file__).resolve().parents[3]
+        mxl_path = repo_root / "1-20-Piano.mxl"
+        # A committed regression fixture, not an optional capability —
+        # its absence is a broken checkout and must fail, not skip.
+        assert mxl_path.exists(), f"missing fixture {mxl_path}"
+        xml_text = MxlSourceAdapter().to_musicxml(
+            mxl_path.read_bytes()
+        )
+        root = ET.fromstring(xml_text)
+        assert any(True for _ in root.iter("metronome"))
+        ctx2 = BackendContext(profile="cn_current", block_type="score")
+        cells = translate_tree(root, ctx2, profile)
+        roles_seq = _roles(cells)
+        assert "music_tempo_note" in roles_seq
+        assert "music_tempo_equals" in roles_seq
+        assert "music_tempo_bpm" in roles_seq
+        # The 6 and 0 of per-minute 60 as upper digits.
+        dots_seq = _dots(cells)
+        assert (1, 2, 4) in dots_seq  # upper 6
+        assert (2, 4, 5) in dots_seq  # upper 0
+        assert not any(
+            w.code == "MUSIC_UNSUPPORTED_NOTATION"
+            and "<metronome>" in w.message
+            for w in ctx2.warnings
+        )
