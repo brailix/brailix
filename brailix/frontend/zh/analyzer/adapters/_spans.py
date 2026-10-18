@@ -7,6 +7,16 @@ not found in the remaining text falls back to a synthetic span plus an
 emit ``<ENGINE>_SKIPPED_CHARS``.  This is that one recovery loop, extracted
 so a fix lands once instead of in two near-identical copies.  (jieba and
 char carry their own offsets and don't use this.)
+
+The warning codes are declared below as module constants whose *name equals
+their value* (``HANLP_WORD_NOT_IN_TEXT = "HANLP_WORD_NOT_IN_TEXT"``) and
+emitted by reference — deliberately NOT by f-string assembly.  The i18n
+guard (the warning-code/locale parity test) scans source text for
+literal ``code=`` sites and for this constant form; a dynamically assembled
+code is invisible to it, which is exactly how these four shipped with no
+locale entries and no guard.  ``code_prefix`` remains the per-engine knob
+for callers; an unregistered prefix is a programming error and raises
+rather than silently inventing an unscannable code.
 """
 
 from __future__ import annotations
@@ -19,6 +29,35 @@ from brailix.frontend.zh.tokens import ChineseToken
 
 if _TYPE_CHECKING:
     from collections.abc import Iterable
+
+# name == value so the i18n scanner can enumerate them statically.
+HANLP_WORD_NOT_IN_TEXT = "HANLP_WORD_NOT_IN_TEXT"
+HANLP_SKIPPED_CHARS = "HANLP_SKIPPED_CHARS"
+THULAC_WORD_NOT_IN_TEXT = "THULAC_WORD_NOT_IN_TEXT"
+THULAC_SKIPPED_CHARS = "THULAC_SKIPPED_CHARS"
+
+#: prefix → (word-not-in-text code, skipped-chars code); keep in sync with
+#: the adapters that call :func:`recover_spans_by_cursor`.
+_CODES_BY_PREFIX: dict[str, tuple[str, str]] = {
+    "HANLP": (HANLP_WORD_NOT_IN_TEXT, HANLP_SKIPPED_CHARS),
+    "THULAC": (THULAC_WORD_NOT_IN_TEXT, THULAC_SKIPPED_CHARS),
+}
+
+
+def _warning_codes(code_prefix: str) -> tuple[str, str]:
+    """(word-not-in-text code, skipped-chars code) for a registered prefix.
+
+    Resolved lazily, only on a warn path with a live context: an
+    unregistered prefix reaching a real emission is a programming error and
+    raises instead of inventing a dynamic code the i18n scanner can't see.
+    """
+    try:
+        return _CODES_BY_PREFIX[code_prefix]
+    except KeyError:
+        raise ValueError(
+            f"unknown code_prefix {code_prefix!r}: register its warning codes "
+            f"in _CODES_BY_PREFIX so the i18n scanner can see them"
+        ) from None
 
 
 def recover_spans_by_cursor(
@@ -35,8 +74,10 @@ def recover_spans_by_cursor(
 
     ``words`` yields ``(surface, pos)`` pairs (``pos`` may be ``None``).
     The cursor advances past each match so repeated words (``很好，很好``)
-    resolve to the right occurrence.  ``code_prefix`` / ``engine`` name the
-    warnings (``"THULAC"`` → ``THULAC_WORD_NOT_IN_TEXT``); ``source`` is the
+    resolve to the right occurrence.  ``code_prefix`` selects this engine's
+    warning codes from ``_CODES_BY_PREFIX`` (``"THULAC"`` →
+    ``THULAC_WORD_NOT_IN_TEXT`` / ``THULAC_SKIPPED_CHARS``) and must be
+    registered there once a warning is actually emitted; ``source`` is the
     warning source tag.  ``skip_blank`` drops empty / whitespace-only
     surfaces (THULAC emits per-line markers, and an empty surface would
     make ``find`` match at the cursor and stall).
@@ -55,7 +96,7 @@ def recover_spans_by_cursor(
             start = cursor
             if ctx is not None:
                 ctx.warnings.warn(
-                    code=f"{code_prefix}_WORD_NOT_IN_TEXT",
+                    code=_warning_codes(code_prefix)[0],
                     message=(
                         f"{engine} returned word {word!r} not found in "
                         f"source at cursor {cursor}"
@@ -69,7 +110,7 @@ def recover_spans_by_cursor(
             # token (the engine's input cleaning dropped them) — proofread
             # accuracy needs to know about the gap.
             ctx.warnings.warn(
-                code=f"{code_prefix}_SKIPPED_CHARS",
+                code=_warning_codes(code_prefix)[1],
                 message=(
                     f"{engine} skipped {start - cursor} char(s) before "
                     f"word {word!r}; gap text: {text[cursor:start]!r}"
