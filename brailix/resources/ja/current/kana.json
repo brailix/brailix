@@ -3,7 +3,7 @@
   "name": "ja_current_kana",
   "cell": "six_dot",
   "reference": "Japanese Braille Notation 2018 (日本点字表記法, Japan Braille Committee) / \"Let's read braille\" primer (A42025)",
-  "_note": "Japanese kana -> braille, keyed by katakana mora (1 char; 2 for youon like キャ). seion = vowel base (dots 1/2/4) + row dots: ka+6, sa+56, ta+35, na+3, ha+36, ma+356, ra+5; ya/wa/n are special shapes. dakuon = 5-dot prefix, handakuon = 6, youon = 4, youon-dakuon = 45, youon-handakuon = 46 (prefix cell then the unvoiced a/u/o base). ー(chouon)=25, ッ(sokuon)=2, ン(hatsuon)=356. Numbers reuse the global number sign. Cross-checked against CyberLibrarian; re-verify against the Japanese Braille Notation (日本点字表記法) 2018 before treating as final.",
+  "_note": "Japanese kana -> braille, keyed by katakana mora (1 char; 2 for youon like キャ). seion = vowel base (dots 1/2/4) + row dots: ka+6, sa+56, ta+35, na+3, ha+36, ma+356, ra+5; ya/wa/n are special shapes. dakuon = 5-dot prefix, handakuon = 6, youon = 4, youon-dakuon = 45, youon-handakuon = 46 (prefix cell then the unvoiced a/u/o base). ー(chouon)=25, ッ(sokuon)=2, ン(hatsuon)=356. Numbers reuse the global number sign. Cross-checked against CyberLibrarian; re-verify against the Japanese Braille Notation (日本点字表記法) 2018 before treating as final. Foreign-sound (外来音) mora follow the same prefix+base mechanism per 日本点字表記法 2018 外来語の表記: 合拗音 (クァ/ツァ/ファ/ウィ…, labial closed youon) prefix dots 2-6 (voiced 2-5-6) + the row's kana in the small vowel's column; e-row 開拗音 (シェ/チェ/ジェ…) reuse the youon prefixes 4/45 + the row's e-column kana; consonant-replaced i-sounds (ティ/ディ/スィ/ズィ) and トゥ/ドゥ follow the same tables. Sources: ja.wikipedia 点字「外来語の表記」(quoting the 2018 rules) and 点字支援サイト かわら版38; the prefix cells 4/45/5 already in this table corroborate the mechanism.",
   "kana": {
     "ア": "c_1",
     "イ": "c_12",
@@ -423,6 +423,228 @@
       "cells": [
         "c_46",
         "c_2346"
+      ]
+    },
+    "ウァ": {
+      "cells": [
+        "c_26",
+        "c_1"
+      ]
+    },
+    "ウィ": {
+      "cells": [
+        "c_26",
+        "c_12"
+      ]
+    },
+    "ウェ": {
+      "cells": [
+        "c_26",
+        "c_124"
+      ]
+    },
+    "ウォ": {
+      "cells": [
+        "c_26",
+        "c_24"
+      ]
+    },
+    "クァ": {
+      "cells": [
+        "c_26",
+        "c_16"
+      ]
+    },
+    "クィ": {
+      "cells": [
+        "c_26",
+        "c_126"
+      ]
+    },
+    "クェ": {
+      "cells": [
+        "c_26",
+        "c_1246"
+      ]
+    },
+    "クォ": {
+      "cells": [
+        "c_26",
+        "c_246"
+      ]
+    },
+    "ツァ": {
+      "cells": [
+        "c_26",
+        "c_135"
+      ]
+    },
+    "ツィ": {
+      "cells": [
+        "c_26",
+        "c_1235"
+      ]
+    },
+    "ツェ": {
+      "cells": [
+        "c_26",
+        "c_12345"
+      ]
+    },
+    "ツォ": {
+      "cells": [
+        "c_26",
+        "c_2345"
+      ]
+    },
+    "ファ": {
+      "cells": [
+        "c_26",
+        "c_136"
+      ]
+    },
+    "フィ": {
+      "cells": [
+        "c_26",
+        "c_1236"
+      ]
+    },
+    "フェ": {
+      "cells": [
+        "c_26",
+        "c_12346"
+      ]
+    },
+    "フォ": {
+      "cells": [
+        "c_26",
+        "c_2346"
+      ]
+    },
+    "グァ": {
+      "cells": [
+        "c_256",
+        "c_16"
+      ]
+    },
+    "グィ": {
+      "cells": [
+        "c_256",
+        "c_126"
+      ]
+    },
+    "グェ": {
+      "cells": [
+        "c_256",
+        "c_1246"
+      ]
+    },
+    "グォ": {
+      "cells": [
+        "c_256",
+        "c_246"
+      ]
+    },
+    "ヴァ": {
+      "cells": [
+        "c_256",
+        "c_136"
+      ]
+    },
+    "ヴィ": {
+      "cells": [
+        "c_256",
+        "c_1236"
+      ]
+    },
+    "ヴェ": {
+      "cells": [
+        "c_256",
+        "c_12346"
+      ]
+    },
+    "ヴォ": {
+      "cells": [
+        "c_256",
+        "c_2346"
+      ]
+    },
+    "トゥ": {
+      "cells": [
+        "c_26",
+        "c_1345"
+      ]
+    },
+    "ドゥ": {
+      "cells": [
+        "c_256",
+        "c_1345"
+      ]
+    },
+    "イェ": {
+      "cells": [
+        "c_4",
+        "c_124"
+      ]
+    },
+    "キェ": {
+      "cells": [
+        "c_4",
+        "c_1246"
+      ]
+    },
+    "シェ": {
+      "cells": [
+        "c_4",
+        "c_12456"
+      ]
+    },
+    "チェ": {
+      "cells": [
+        "c_4",
+        "c_12345"
+      ]
+    },
+    "ニェ": {
+      "cells": [
+        "c_4",
+        "c_1234"
+      ]
+    },
+    "ヒェ": {
+      "cells": [
+        "c_4",
+        "c_12346"
+      ]
+    },
+    "ジェ": {
+      "cells": [
+        "c_45",
+        "c_12456"
+      ]
+    },
+    "スィ": {
+      "cells": [
+        "c_4",
+        "c_1256"
+      ]
+    },
+    "ズィ": {
+      "cells": [
+        "c_45",
+        "c_1256"
+      ]
+    },
+    "ティ": {
+      "cells": [
+        "c_4",
+        "c_1235"
+      ]
+    },
+    "ディ": {
+      "cells": [
+        "c_45",
+        "c_1235"
       ]
     }
   }
