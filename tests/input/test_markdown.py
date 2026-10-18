@@ -135,6 +135,27 @@ class TestList:
         assert isinstance(doc.blocks[0], List)
         assert isinstance(doc.blocks[1], Paragraph)
 
+    def test_crlf_list_items_match_lf_parse(self):
+        # A CRLF source's item line ends in \r, which the item regex's
+        # ``(.*)$`` used to swallow into the content — the same list read
+        # differently depending on how the file was saved. The \r is
+        # normalised away (as every other consumer here already does), and
+        # the content-exact span keeps covering the content, not the break.
+        lf_src = "- 一项\n- 二项\n\n1. 甲\n2. 乙"
+        crlf_src = lf_src.replace("\n", "\r\n")
+        lf_doc = parse_markdown(lf_src, profile="cn_current", language="zh-CN")
+        crlf_doc = parse_markdown(crlf_src, profile="cn_current", language="zh-CN")
+        assert [it.text for it in crlf_doc.blocks[0].blocks] == ["一项", "二项"]
+        assert [it.text for it in crlf_doc.blocks[1].blocks] == ["甲", "乙"]
+        assert [it.text for it in crlf_doc.blocks[0].blocks] == [
+            it.text for it in lf_doc.blocks[0].blocks
+        ]
+        first_lf, first_crlf = lf_doc.blocks[0].blocks[0], crlf_doc.blocks[0].blocks[0]
+        assert first_crlf.span is not None and "\r" not in crlf_src[
+            first_crlf.span.start : first_crlf.span.end
+        ]
+        assert lf_src[first_lf.span.start : first_lf.span.end] == "一项"
+
 
 class TestQuote:
     def test_single_line_quote(self):
@@ -198,6 +219,108 @@ class TestMathBlock:
         # Either a paragraph or a code-like block — we just assert
         # it's not a runaway math block that ate everything.
         assert not isinstance(doc.blocks[0], MathBlock)
+
+    def test_body_line_ending_in_dollars_is_not_a_close(self):
+        # A closing ``$$`` is a line that is EXACTLY ``$$`` — the code
+        # fence's bare-close rule. A formula line like ``= c + d $$`` used
+        # to be taken for the close, truncating the math there and
+        # dropping the tail of its own line from the block.
+        src = "$$\na = b\n= c + d $$\ne = f\n$$"
+        doc = parse_markdown(src, profile="cn_current", language="zh-CN")
+        mb = doc.blocks[0]
+        assert isinstance(mb, MathBlock)
+        assert mb.text == "a = b\n= c + d $$\ne = f"
+
+    def test_bare_dollar_line_still_closes(self):
+        src = "$$\na + b\n$$"
+        doc = parse_markdown(src, profile="cn_current", language="zh-CN")
+        assert isinstance(doc.blocks[0], MathBlock)
+        assert doc.blocks[0].text == "a + b"
+
+    def test_content_after_the_opening_fence_line(self):
+        # ``$$ leading`` opens and the leading text is body (unchanged
+        # behaviour, pinned beside the close-condition change).
+        src = "$$ x = 1\ny = 2\n$$"
+        doc = parse_markdown(src, profile="cn_current", language="zh-CN")
+        assert isinstance(doc.blocks[0], MathBlock)
+        assert doc.blocks[0].text == "x = 1\ny = 2"
+
+    def test_unclosed_fence_at_eof_warns(self):
+        # EOF with the fence still open: the lines fall back to a
+        # paragraph (braille shows the literal $$) — degrading, but no
+        # longer silently: a MARKDOWN_UNCLOSED_MATH_FENCE warning says so.
+        from brailix.core.errors import WarningCollector
+
+        warnings = WarningCollector()
+        doc = parse_markdown(
+            "$$\na = b",
+            profile="cn_current",
+            language="zh-CN",
+            warnings=warnings,
+        )
+        assert not isinstance(doc.blocks[0], MathBlock)
+        assert [w.code for w in warnings.warnings] == ["MARKDOWN_UNCLOSED_MATH_FENCE"]
+
+    def test_closed_fence_emits_no_warning(self):
+        from brailix.core.errors import WarningCollector
+
+        warnings = WarningCollector()
+        parse_markdown(
+            "$$\na = b\n$$",
+            profile="cn_current",
+            language="zh-CN",
+            warnings=warnings,
+        )
+        assert warnings.warnings == []
+
+    def test_no_warnings_collector_is_fine(self):
+        # The default (no collector) changes nothing — the structural
+        # behaviour is identical, as every pre-existing caller sees it.
+        doc = parse_markdown("$$\na = b", profile="cn_current", language="zh-CN")
+        assert not isinstance(doc.blocks[0], MathBlock)
+
+
+class TestMarkdownWarningsThroughPipeline:
+    """Parse-level diagnostics ride the SAME collector the compile fills.
+
+    ``Pipeline.parse_file`` / ``parse_text`` / ``translate_file`` forward
+    their ``warnings`` into the Markdown route, so a caller asking for
+    diagnostics sees one list in document order instead of having to call
+    ``parse_markdown`` directly to learn about a degraded parse.
+    """
+
+    def test_translate_file_merges_parse_warning_into_result(self, tmp_path):
+        from brailix import Pipeline
+
+        path = tmp_path / "unclosed.md"
+        path.write_text("# 标题\n\n$$\na = b\n", encoding="utf-8")
+        result = Pipeline("cn_current").translate_file(path)
+        # The literal ``$$`` that survives the degrade ALSO warns as
+        # unknown punctuation at compile time; the parse-level fence
+        # warning rides the same collector, appended after the compile's.
+        codes = [w.code for w in result.warnings.warnings]
+        assert "MARKDOWN_UNCLOSED_MATH_FENCE" in codes
+        assert "MARKDOWN_UNCLOSED_MATH_FENCE" == codes[-1]
+
+    def test_translate_file_closed_fence_has_no_warning(self, tmp_path):
+        from brailix import Pipeline
+
+        path = tmp_path / "closed.md"
+        path.write_text("# 标题\n\n$$\na = b\n$$\n", encoding="utf-8")
+        result = Pipeline("cn_current").translate_file(path)
+        assert result.warnings.warnings == []
+
+    def test_parse_text_forwards_collector(self):
+        from brailix import Pipeline
+        from brailix.core.errors import WarningCollector
+
+        warnings = WarningCollector()
+        Pipeline("cn_current").parse_text(
+            "$$\na = b", format="markdown", warnings=warnings
+        )
+        assert [w.code for w in warnings.warnings] == [
+            "MARKDOWN_UNCLOSED_MATH_FENCE"
+        ]
 
 
 class TestTable:

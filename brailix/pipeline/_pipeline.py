@@ -943,14 +943,24 @@ class Pipeline:
         the file yourself and call :meth:`translate_document` if you
         need to catch them at a different layer.
         """
-        doc = self.parse_file(path, limits=limits)
-        return self.translate_document(doc)
+        # Parse-level diagnostics (e.g. Markdown's unclosed ``$$`` fence)
+        # land on the SAME collector the compile fills, appended after the
+        # compile's own warnings, so the caller sees one list instead of
+        # having to call ``parse_markdown`` directly to learn about a
+        # degraded parse.
+        pre_warnings = WarningCollector(mode=self.mode)
+        doc = self.parse_file(path, limits=limits, warnings=pre_warnings)
+        result = self.translate_document(doc)
+        for warning in pre_warnings.warnings:
+            result.warnings.emit(warning)
+        return result
 
     def parse_text(
         self,
         text: str,
         *,
         format: str = "plain",
+        warnings: WarningCollector | None = None,
     ) -> DocumentIR:
         """Parse ``text`` into a :class:`DocumentIR` without translating.
 
@@ -980,6 +990,7 @@ class Pipeline:
                 text,
                 language=self._profile.language,
                 profile=self._profile.name,
+                warnings=warnings,
             )
         elif format == "plain":
             doc = _parse_plain(
@@ -1019,6 +1030,7 @@ class Pipeline:
         path: str | _os.PathLike[str],
         *,
         limits: InputLimits = DEFAULT_INPUT_LIMITS,
+        warnings: WarningCollector | None = None,
     ) -> DocumentIR:
         """Read ``path`` as UTF-8 / bytes and parse to :class:`DocumentIR`.
 
@@ -1055,6 +1067,7 @@ class Pipeline:
                 "input.docx.detect_chemistry", False
             ),
             limits=limits,
+            warnings=warnings,
         )
         # Same identity stamp translate_* uses (see :meth:`parse_text`).
         doc.metadata.update(self._ir_metadata())
