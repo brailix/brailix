@@ -14,6 +14,13 @@ import xml.etree.ElementTree as _ET
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.frontend.math.adapters._atoms import classify_math_token
+from brailix.frontend.math.adapters.mtef._fonts import (
+    _MTCODE_PUA,
+    _MTCODE_SPACING,
+    _FontEnv,
+    _is_pua,
+    translate_font_position,
+)
 from brailix.frontend.math.adapters.mtef._reader import _MtefParseError
 from brailix.frontend.math.utils import mrow_wrap, mtext
 
@@ -86,8 +93,36 @@ def _attach_preceding_base(
 # ---------------------------------------------------------------------------
 
 
+def _unresolved_glyph_marker(value: int, font_name: str | None) -> _ET.Element:
+    """A soft ``<merror>`` standing in for a glyph we could not name.
+
+    The backend renders one unknown cell and a ``MTEF_PRIVATE_GLYPH``
+    warning (keyed on the ``mtef-private-glyph`` reason prefix) instead
+    of the character just vanishing — a blind proofreader must be able
+    to see *that* something was here. The surface is the readable hex
+    form rather than the raw codepoint: a PUA character renders as tofu
+    everywhere, while ``U+F0B4`` reads out cleanly under a screen
+    reader and brailes as plain text.
+    """
+    surface = f"U+{value:04X}"
+    el = _ET.Element(
+        "merror",
+        {
+            "data-bk-soft": "1",
+            "data-reason": (
+                f"mtef-private-glyph: {surface} "
+                f"font={font_name or 'unknown'}"
+            ),
+        },
+    )
+    el.append(mtext(surface))
+    return el
+
+
 def _char_to_mathml(
-    char_value: int | None, embell_list: list[int]
+    char_value: int | None,
+    embell_list: list[int],
+    font_name: str | None = None,
 ) -> list[_ET.Element]:
     """Map an MTCode / character value plus embellishments to MathML atoms.
 
@@ -96,26 +131,37 @@ def _char_to_mathml(
     sentinel char values (``None``, ``0``, ``0xEEFF`` used as MathType's
     "no character" marker) yield no output.
 
-    **PUA suppression**: MathType emits glyphs from its private fonts
-    (Symbol / MTExtra / custom typeface slots) by stuffing the font-
-    internal position into the MTCode field as a Unicode Private Use
-    Area codepoint (``U+E000``–``U+F8FF``). These codepoints have no
-    standard semantics — downstream (braille, screen reader, copy /
-    paste) cannot render them meaningfully, and the actual glyph
-    depends on a MathType-private font table we don't have. We treat
-    the whole PUA range as sentinels and drop them, the same way
-    ``0xEEFF`` (MathType's documented "no character" marker) is
-    already dropped. If a specific PUA codepoint is later identified
-    as a real symbol, add it to a translation table before this
-    suppression check rather than inside it.
+    **PUA translation / visible drop**: MathType emits glyphs from its
+    private fonts (Symbol / MT Extra / custom typeface slots) by stuffing
+    the font-internal position into the MTCode field as a Unicode
+    Private Use Area codepoint. MathType's own documented PUA
+    assignments resolve first (:data:`...mtef._fonts._MTCODE_PUA` —
+    extended operators, negated relations, letterlike constants; the
+    custom spacing values are dropped silently), then a font-position
+    reading for the named symbolic fonts
+    (:func:`...mtef._fonts.translate_font_position`). Anything the
+    tables don't cover becomes a soft ``<merror>`` marker instead of
+    being silently dropped, so the loss is visible to the proofreader.
 
     Embellishments wrap the base in an ``<mover>``/``<munder>`` with the
     corresponding combining character (e.g. dot, prime, hat, vector).
     """
     if char_value is None or char_value == 0 or char_value == 0xEEFF:
         return []
-    if 0xE000 <= char_value <= 0xF8FF:
-        return []
+    if _is_pua(char_value):
+        if char_value in _MTCODE_SPACING:
+            # MathType's custom spacing values (thin / em / hair /
+            # zero-width variants, observed in real Word documents):
+            # braille spacing inside a formula is the backend's own
+            # rule, so drop them like a plain space — a visible marker
+            # per space would be pure noise.
+            return []
+        text = _MTCODE_PUA.get(char_value)
+        if text is None:
+            text = translate_font_position(char_value, font_name)
+        if text is None:
+            return [_unresolved_glyph_marker(char_value, font_name)]
+        char_value = ord(text)
     if 0xD800 <= char_value <= 0xDFFF:
         # UTF-16 surrogate halves.  ``chr()`` accepts them, but a lone
         # surrogate poisons the produced string: it serialises fine and
@@ -139,6 +185,26 @@ def _char_to_mathml(
     for code in embell_list:
         out = _wrap_embell(out, code)
     return [out]
+
+
+def _position_to_mathml(
+    position: int,
+    embell_list: list[int],
+    font_name: str | None,
+) -> list[_ET.Element]:
+    """A font-position-only CHAR (no MTCode, or an MTCode in the PUA).
+
+    Symbolic-font characters are identified purely by their position in
+    the font (MTEF v3 stores *all* symbolic characters that way; v5
+    omits the MTCode for some). Translatable Symbol / MT Extra positions
+    go through the tables; everything else — unknown fonts, excluded
+    layout pieces — becomes the visible soft marker, matching the PUA
+    branch of :func:`_char_to_mathml`.
+    """
+    text = translate_font_position(position, font_name)
+    if text is None:
+        return [_unresolved_glyph_marker(position, font_name)]
+    return _char_to_mathml(ord(text), embell_list)
 
 
 _EMBELL_OVER = {
@@ -198,6 +264,7 @@ def _build_tmpl(
     slots: list[list[_ET.Element]],
     *,
     version: int,
+    env: _FontEnv | None = None,
 ) -> list[_ET.Element]:
     """Translate a TMPL record into MathML.
 
@@ -212,26 +279,35 @@ def _build_tmpl(
         # An unrecognised selector degrades to slot passthrough — same
         # rationale (and same log seam) as the handler-failure branch
         # below: a silent passthrough emits plausible-but-wrong MathML a
-        # blind proofreader can't catch by eye, so record that it happened.
+        # blind proofreader can't catch by eye, so record that it happened
+        # — in the module log for developers, and in ``env`` so the walk
+        # stamps it onto the <math> root as ``data-bk-degraded`` for the
+        # user-visible warning (frontend.math emits MATH_SOURCE_DEGRADED).
         _LOG.warning(
             "MTEF TMPL selector not recognised (selector=%r, version=%d); "
             "passing slots through",
             selector,
             version,
         )
+        if env is not None:
+            env.note_degradation(
+                f"mtef template not recognised "
+                f"(selector={selector}, version={version})"
+            )
         return _tmpl_passthrough(slots)
     try:
         return handler(variation, slots)
     except _MtefParseError:
         raise
-    except Exception:  # noqa: BLE001 — never crash a template
+    except Exception as e:  # noqa: BLE001 — never crash a template
         # A *known* handler raising is abnormal: an unrecognised selector is
         # already served by the passthrough above (before this try), so we get
         # here only on malformed slot data or a handler bug. Degrade to
         # passthrough as before — but log it, because a silent passthrough
         # emits plausible-but-wrong MathML a blind proofreader can't catch by
         # eye. No ``ctx`` reaches here to raise a user-facing warning, so the
-        # module log is the seam a developer greps when a formula looks off.
+        # module log is the seam a developer greps when a formula looks off —
+        # and ``env`` carries the same fact to the user-visible marker.
         _LOG.warning(
             "MTEF TMPL handler failed (selector=%r, version=%d); "
             "falling back to slot passthrough",
@@ -239,6 +315,11 @@ def _build_tmpl(
             version,
             exc_info=True,
         )
+        if env is not None:
+            env.note_degradation(
+                f"mtef template conversion failed "
+                f"(selector={selector}, version={version}): {e!r}"
+            )
         return _tmpl_passthrough(slots)
 
 

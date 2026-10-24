@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 
 from brailix.backend.math import translate
 from brailix.core.context import BackendContext
-from brailix.core.errors import RunMode, WarningCollector
+from brailix.core.errors import RunMode, WarningCollector, WarningLevel
 from brailix.core.span import Span
 from brailix.ir.inline import MathInline
 from tests.backend._math_common import emit, mml
@@ -33,6 +33,35 @@ class TestMerror:
         assert any(c.role == "unknown" for c in cells)
         codes = [w.code for w in wc]
         assert "MATH_ERROR" in codes
+
+    def test_mtef_private_glyph_soft_marker_uses_dedicated_code(self, profile):
+        # The MTEF adapter's private-font glyph marker: soft level, the
+        # dedicated MTEF_PRIVATE_GLYPH code (not the chem-oriented
+        # MATH_NONSTANDARD_CHAR — that one means "the writer used a
+        # character the math domain rejects"; this one means "MathType's
+        # private glyph could not be decoded", which the writer can't fix).
+        cells, wc = emit(
+            mml('<math><merror data-bk-soft="1" '
+                'data-reason="mtef-private-glyph: U+F0E6 font=Symbol">'
+                "<mtext>U+F0E6</mtext></merror></math>"),
+            profile,
+        )
+        assert any(c.role == "unknown" for c in cells)
+        hits = wc.by_code("MTEF_PRIVATE_GLYPH")
+        assert len(hits) == 1
+        assert hits[0].level is WarningLevel.WARN
+        assert "U+F0E6" in hits[0].message
+        assert not wc.by_code("MATH_NONSTANDARD_CHAR")
+
+    def test_chem_soft_marker_keeps_its_code(self, profile):
+        # A soft marker WITHOUT the mtef reason prefix keeps routing to
+        # MATH_NONSTANDARD_CHAR (the chem parser's stray-character flags).
+        cells, wc = emit(
+            mml('<math><merror data-bk-soft="1"><mtext>＝</mtext></merror></math>'),
+            profile,
+        )
+        assert wc.by_code("MATH_NONSTANDARD_CHAR")
+        assert not wc.by_code("MTEF_PRIVATE_GLYPH")
 
 
 # ---------------------------------------------------------------------------

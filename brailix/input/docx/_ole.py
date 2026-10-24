@@ -80,19 +80,42 @@ def _ole_object_to_inline_math(
     ``EQNOLEFILEHDR`` prefix). The MTEF adapter strips the header
     itself, so we hand the stream over unchanged.
 
-    Returns ``None`` if no recognisable equation OLE object is found,
-    the relationship has no blob, or ``olefile`` is missing. The
-    paragraph walker treats ``None`` as "skip" so a stray OLE picture
-    doesn't blow up parsing.
+    Returns ``None`` only when the object is *not* an equation OLE at
+    all — a stray OLE picture or chart the paragraph walker should
+    skip. An object whose ProgID says equation but whose payload can't
+    be extracted (broken relationship, missing blob, corrupt CFB,
+    oversized stream, no ``olefile``) yields an ``<merror>`` island
+    instead: the ProgID is the document's own claim that a formula
+    lives here, so letting it vanish without a trace hides content a
+    proofreader can't otherwise notice — a placeholder plus the
+    resulting MATH_ERROR warning makes the loss visible (and, under
+    ``mathtype_fallback="auto"``, the LibreOffice retry gettable).
     """
-    rid = _find_ole_rid(obj_elem)
-    if rid is None or rid not in ole_blobs:
-        return None
+    rid: str | None = None
+    found_equation = False
+    for child in obj_elem:
+        if _is_equation_ole(child):
+            found_equation = True
+            # ``r:id`` lives in the relationships namespace; some emitters
+            # also write it without a prefix. Try both forms.
+            rid = _ns_attr(child, _R_PREFIX, "id")
+            break
+    if not found_equation:
+        return None  # not an equation object — not our content
+    from brailix.frontend.math.registry import math_source_registry
+    from brailix.frontend.math.utils import merror_wrap
+
+    if not rid or rid not in ole_blobs:
+        return _wrap_inline_math(
+            merror_wrap("", reason="equation OLE unreadable: relationship missing")
+        )
     payload = _extract_mtef_payload(ole_blobs[rid])
     if payload is None:
-        return None
-    from brailix.frontend.math.registry import math_source_registry
-
+        return _wrap_inline_math(
+            merror_wrap(
+                "", reason="equation OLE unreadable: no Equation Native stream"
+            )
+        )
     mathml = math_source_registry.get("mtef").to_mathml(payload)
     return _wrap_inline_math(mathml)
 
@@ -103,32 +126,13 @@ def _is_equation_ole(elem: Element) -> bool:
     legacy Microsoft Equation Editor).
 
     The single recognition rule, shared by the per-object resolver
-    (:func:`_find_ole_rid`) and the document-wide counter
+    (:func:`_ole_object_to_inline_math`) and the document-wide counter
     (``_count_equation_oles`` in the package ``__init__``) so the two
     can't drift apart.
     """
     if _local(elem.tag) != "OLEObject":
         return False
     return (elem.get("ProgID") or "").startswith("Equation")
-
-
-def _find_ole_rid(obj_elem: Element) -> str | None:
-    """Return the ``r:id`` of the ``<o:OLEObject>`` child, if it's a math one.
-
-    Word writes the relationship id on the ``OLEObject`` element under
-    the ``r:`` (officeDocument relationships) namespace. ``v:imagedata``
-    siblings use the same attribute name for the preview image; we
-    ignore those.
-    """
-    for child in obj_elem:
-        if not _is_equation_ole(child):
-            continue
-        # ``r:id`` lives in the relationships namespace; some emitters
-        # also write it without a prefix. Try both forms.
-        rid = _ns_attr(child, _R_PREFIX, "id")
-        if rid:
-            return rid
-    return None
 
 
 def _extract_mtef_payload(blob: bytes) -> bytes | None:

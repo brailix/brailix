@@ -636,6 +636,21 @@ def _iter_block_texts(blocks: _Iterable[Block]) -> _Iterator[str]:
             yield from _iter_block_texts(blk.blocks)
 
 
+def _span_hard_merror_count(span: str) -> int:
+    """How many *hard* ``<merror>`` failures a math span contains.
+
+    Soft markers (``data-bk-soft="1"`` — an MTEF private-font glyph the
+    adapter could not name, the chem parser's stray-character flags)
+    degrade one character in place; the formula otherwise translated.
+    They must not count as "this equation failed" for the
+    ``mathtype_fallback`` decision, or a document whose formulas all
+    carry one exotic glyph would needlessly round-trip through
+    LibreOffice. Counting merror open tags minus soft markers handles a
+    span holding both kinds.
+    """
+    return span.count("<merror") - span.count("data-bk-soft")
+
+
 def _mtef_recovery_needed(result: DocumentIR, equation_oles: int) -> bool:
     """Decide whether ``mathtype_fallback="auto"`` should retry via LibreOffice.
 
@@ -644,21 +659,14 @@ def _mtef_recovery_needed(result: DocumentIR, equation_oles: int) -> bool:
     non-zero.  Two independent signals mean the native MTEF path failed:
 
     * **Fewer inline-math spans than equation OLEs** — at least one
-      equation vanished without a trace.  The extraction path returns
-      ``None`` (no span, not even an ``<merror>``) for a third-party
-      ProgID variant it half-recognises, a broken relationship, a
-      corrupt CFB container, or a missing ``olefile`` — exactly the
-      silent-loss class that already shipped once in a frozen build.
-      ``spans`` counts only *eager* ``$<math>...$`` islands, which only
-      the OLE→MTEF path emits (:func:`._xml._wrap_inline_math`); native
-      OMML, EQ fields and script-run clusters defer as source-tagged
-      islands (:func:`brailix.core.inline_math.wrap`) that don't open
-      with ``$<math`` and so aren't counted here. The count therefore
-      reflects decoded OLE equations only and is directly comparable to
-      ``equation_oles`` — a silently-dropped OLE shows up as a shortfall
-      that fires the retry, with no risk of a non-OLE span masking it.
-    * **Spans exist but every one is an ``<merror>`` soft failure** —
-      nothing decoded successfully (the original "all failed" rule).
+      equation vanished without a trace (kept as a belt-and-braces
+      check; the extraction path now emits an ``<merror>`` island for
+      an equation OLE it can't crack, so a shortfall should no longer
+      happen in practice).
+    * **Spans exist but every one carries a hard ``<merror>`` failure**
+      — nothing decoded successfully (the original "all failed" rule).
+      Soft in-place markers (:func:`_span_hard_merror_count`) don't
+      count as failures.
     """
     spans: list[str] = []
     for text in _iter_block_texts(result.blocks):
@@ -674,7 +682,7 @@ def _mtef_recovery_needed(result: DocumentIR, equation_oles: int) -> bool:
             idx = end + 1
     if len(spans) < equation_oles:
         return True
-    return bool(spans) and all("merror" in s for s in spans)
+    return bool(spans) and all(_span_hard_merror_count(s) > 0 for s in spans)
 
 
 def parse_doc(

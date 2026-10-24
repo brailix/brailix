@@ -13,10 +13,12 @@ from __future__ import annotations
 import xml.etree.ElementTree as _ET
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
+from brailix.frontend.math.adapters.mtef._fonts import _FontEnv, _is_pua
 from brailix.frontend.math.adapters.mtef._mathml import (
     _attach_preceding_base,
     _build_tmpl,
     _char_to_mathml,
+    _position_to_mathml,
 )
 from brailix.frontend.math.adapters.mtef._reader import (
     _MATHML_NS,
@@ -47,14 +49,22 @@ if _TYPE_CHECKING:
     from collections.abc import Callable
 
 
-def _convert_v5(data: bytes) -> str:
+def _convert_v5(data: bytes, env: _FontEnv | None = None) -> str:
+    env = env if env is not None else _FontEnv()
     r = _Reader(data)
     _read_v5_prelude(r)
     children: list[_ET.Element] = []
-    _read_object_list_v5(r, children, depth=0)
+    _read_object_list_v5(r, children, depth=0, env=env)
     math = _ET.Element("math", {"xmlns": _MATHML_NS})
     for c in children:
         math.append(c)
+    # Walk-level degradations (unknown templates, ...) ride the root as a
+    # marker attribute — the math frontend turns it into a visible
+    # MATH_SOURCE_DEGRADED warning at parse time, surviving the docx →
+    # markdown → reparse round-trip because the island text is copied
+    # verbatim and the normalizer never strips data-bk-* attributes.
+    if env.degradations:
+        math.set("data-bk-degraded", "; ".join(env.degradations))
     return _ET.tostring(math, encoding="unicode")
 
 
@@ -71,13 +81,15 @@ def _read_v5_prelude(r: _Reader) -> None:
 
 
 def _read_object_list_v5(
-    r: _Reader, sink: list[_ET.Element], *, depth: int
+    r: _Reader, sink: list[_ET.Element], *, depth: int, env: _FontEnv
 ) -> None:
     """Read records until END or EOF, appending MathML children to ``sink``.
 
     Definition records (FONT_STYLE_DEF, COLOR_DEF, FONT_DEF, EQN_PREFS,
     ENCODING_DEF) and styling records (SIZE, COLOR, FULL..SUBSYM) emit
-    nothing — braille rendering is style-agnostic.
+    nothing — braille rendering is style-agnostic. FONT_DEF names are
+    captured into ``env`` (encounter order, 1-based) so CHAR typefaces
+    that reference an explicit font can be resolved to a name.
     """
     if depth > 64:
         raise _MtefParseError("MTEF nesting too deep")
@@ -87,22 +99,22 @@ def _read_object_list_v5(
             return
         if rec == _REC_LINE:
             opts = r.u8()
-            elems = _read_line_v5(r, opts, depth + 1)
+            elems = _read_line_v5(r, opts, depth + 1, env)
             sink.extend(elems)
         elif rec == _REC_CHAR:
             opts = r.u8()
-            sink.extend(_read_char_v5(r, opts, depth + 1))
+            sink.extend(_read_char_v5(r, opts, depth + 1, env))
         elif rec == _REC_TMPL:
             opts = r.u8()
-            built = _read_tmpl_v5(r, opts, depth + 1)
+            built = _read_tmpl_v5(r, opts, depth + 1, env)
             _attach_preceding_base(sink, built)
             sink.extend(built)
         elif rec == _REC_PILE:
             opts = r.u8()
-            sink.append(_read_pile_v5(r, opts, depth + 1))
+            sink.append(_read_pile_v5(r, opts, depth + 1, env))
         elif rec == _REC_MATRIX:
             opts = r.u8()
-            sink.append(_read_matrix_v5(r, opts, depth + 1))
+            sink.append(_read_matrix_v5(r, opts, depth + 1, env))
         elif rec == _REC_EMBELL:
             # Stray embellishment outside a CHAR: skip.
             r.u8()
@@ -123,8 +135,8 @@ def _read_object_list_v5(
         elif rec == _REC_COLOR_DEF:
             _skip_color_def_v5(r)
         elif rec == _REC_FONT_DEF:
-            r.u_extended()
-            r.nstr()
+            r.u_extended()  # enc_def_index — indexes ENCODING_DEF, not the font
+            env.explicit_fonts[len(env.explicit_fonts) + 1] = r.nstr()
         elif rec == _REC_EQN_PREFS:
             _skip_eqn_prefs_v5(r)
         elif rec == _REC_ENCODING_DEF:
@@ -137,7 +149,7 @@ def _read_object_list_v5(
 
 
 def _read_line_v5(
-    r: _Reader, opts: int, depth: int
+    r: _Reader, opts: int, depth: int, env: _FontEnv
 ) -> list[_ET.Element]:
     """v5 LINE — flags bit 0x01=null, 0x02=ruler, 0x04=lspace, 0x08=nudge."""
     if opts & 0x08:
@@ -152,7 +164,7 @@ def _read_line_v5(
 
     def _body() -> list[_ET.Element]:
         children: list[_ET.Element] = []
-        _read_object_list_v5(r, children, depth=depth)
+        _read_object_list_v5(r, children, depth=depth, env=env)
         return children
 
     if opts & 0x02:
@@ -160,22 +172,36 @@ def _read_line_v5(
     return _body()
 
 
-def _read_char_v5(r: _Reader, opts: int, depth: int) -> list[_ET.Element]:
-    """v5 CHAR — typeface + MTCode (and/or font positions) + optional embell."""
+def _read_char_v5(
+    r: _Reader, opts: int, depth: int, env: _FontEnv
+) -> list[_ET.Element]:
+    """v5 CHAR — typeface + MTCode (and/or font positions) + optional embell.
+
+    The typeface (unbiased by ``s_extended``) resolves through ``env``
+    to a font name for the private-font styles (Greek / Symbol / MT
+    Extra) and explicit FONT_DEF references; text styles resolve to
+    ``None`` and their MTCode is plain Unicode. A font position takes
+    precedence over the MTCode only when the MTCode is absent or itself
+    a Private Use Area codepoint — for everything else MathType writes
+    the real Unicode into the MTCode and the position is redundant.
+    """
     if opts & 0x08:
         _read_nudge_v5(r)
-    r.s_extended()  # typeface (signed, biased+128 in 1-byte form)
+    font_name = env.resolve_typeface(r.s_extended())
     mtcode: int | None = None
     if not (opts & 0x20):
         mtcode = r.u16()
+    position: int | None = None
     if opts & 0x04:
-        r.u8()  # 8-bit font position
+        position = r.u8()  # 8-bit font position
     if opts & 0x10:
-        r.u16()  # 16-bit font position
+        position = r.u16()  # 16-bit font position
     embell_list: list[int] = []
     if opts & 0x01:
         _collect_embell_v5(r, embell_list, depth + 1)
-    return _char_to_mathml(mtcode, embell_list)
+    if position is not None and (mtcode is None or _is_pua(mtcode)):
+        return _position_to_mathml(position, embell_list, font_name)
+    return _char_to_mathml(mtcode, embell_list, font_name=font_name)
 
 
 def _collect_embell_v5(
@@ -214,7 +240,7 @@ def _collect_embell_v5(
 
 
 def _read_tmpl_v5(
-    r: _Reader, opts: int, depth: int
+    r: _Reader, opts: int, depth: int, env: _FontEnv
 ) -> list[_ET.Element]:
     """v5 TMPL — selector + variation + options + slot LINE/CHAR records."""
     if opts & 0x08:
@@ -229,14 +255,15 @@ def _read_tmpl_v5(
         r.u8()
     r.u8()  # template-specific options
     slots: list[list[_ET.Element]] = []
-    _read_tmpl_slots_v5(r, slots, depth + 1)
-    return _build_tmpl(selector, variation & 0x7F, slots, version=5)
+    _read_tmpl_slots_v5(r, slots, depth + 1, env)
+    return _build_tmpl(selector, variation & 0x7F, slots, version=5, env=env)
 
 
 def _read_tmpl_slots_v5(
     r: _Reader,
     slots: list[list[_ET.Element]],
     depth: int,
+    env: _FontEnv,
 ) -> None:
     """Read TMPL subobject list — sequence of LINE records ending in END.
 
@@ -252,19 +279,19 @@ def _read_tmpl_slots_v5(
             return
         if rec == _REC_LINE:
             opts = r.u8()
-            slots.append(_read_line_v5(r, opts, depth))
+            slots.append(_read_line_v5(r, opts, depth, env))
         elif rec == _REC_CHAR:
             opts = r.u8()
-            slots.append(_read_char_v5(r, opts, depth))
+            slots.append(_read_char_v5(r, opts, depth, env))
         elif rec == _REC_TMPL:
             opts = r.u8()
-            slots.append(_read_tmpl_v5(r, opts, depth))
+            slots.append(_read_tmpl_v5(r, opts, depth, env))
         elif rec == _REC_PILE:
             opts = r.u8()
-            slots.append([_read_pile_v5(r, opts, depth)])
+            slots.append([_read_pile_v5(r, opts, depth, env)])
         elif rec == _REC_MATRIX:
             opts = r.u8()
-            slots.append([_read_matrix_v5(r, opts, depth)])
+            slots.append([_read_matrix_v5(r, opts, depth, env)])
         elif rec == _REC_SIZE:
             _skip_size_v5(r)
         elif rec == _REC_COLOR:
@@ -279,8 +306,8 @@ def _read_tmpl_slots_v5(
         elif rec == _REC_COLOR_DEF:
             _skip_color_def_v5(r)
         elif rec == _REC_FONT_DEF:
-            r.u_extended()
-            r.nstr()
+            r.u_extended()  # enc_def_index
+            env.explicit_fonts[len(env.explicit_fonts) + 1] = r.nstr()
         elif rec == _REC_EQN_PREFS:
             _skip_eqn_prefs_v5(r)
         elif rec == _REC_ENCODING_DEF:
@@ -291,7 +318,9 @@ def _read_tmpl_slots_v5(
             )
 
 
-def _read_pile_v5(r: _Reader, opts: int, depth: int) -> _ET.Element:
+def _read_pile_v5(
+    r: _Reader, opts: int, depth: int, env: _FontEnv
+) -> _ET.Element:
     """v5 PILE — vertical stack of LINE records → ``<mtable>``."""
     if opts & 0x08:
         _read_nudge_v5(r)
@@ -306,7 +335,7 @@ def _read_pile_v5(r: _Reader, opts: int, depth: int) -> _ET.Element:
                 break
             if rec == _REC_LINE:
                 line_opts = r.u8()
-                row_children = _read_line_v5(r, line_opts, depth + 1)
+                row_children = _read_line_v5(r, line_opts, depth + 1, env)
                 mtr = _ET.Element("mtr")
                 mtd = _ET.Element("mtd")
                 for c in row_children:
@@ -324,7 +353,9 @@ def _read_pile_v5(r: _Reader, opts: int, depth: int) -> _ET.Element:
     return _rows()
 
 
-def _read_matrix_v5(r: _Reader, opts: int, depth: int) -> _ET.Element:
+def _read_matrix_v5(
+    r: _Reader, opts: int, depth: int, env: _FontEnv
+) -> _ET.Element:
     """v5 MATRIX → ``<mtable>`` of ``<mtr>``/``<mtd>``."""
     if opts & 0x08:
         _read_nudge_v5(r)
@@ -352,7 +383,7 @@ def _read_matrix_v5(r: _Reader, opts: int, depth: int) -> _ET.Element:
                     f"expected LINE in matrix cell, got 0x{rec:02x}"
                 )
             opts2 = r.u8()
-            cell_children = _read_line_v5(r, opts2, depth + 1)
+            cell_children = _read_line_v5(r, opts2, depth + 1, env)
             mtd = _ET.Element("mtd")
             for c in cell_children:
                 mtd.append(c)

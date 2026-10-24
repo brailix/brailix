@@ -86,7 +86,7 @@ def parse_math_tree(
 
     try:
         mathml = adapter.to_mathml(formula, ctx)
-        return normalize(mathml)
+        tree = normalize(mathml)
     except StrictModeError:
         # The adapter reported a diagnostic and STRICT mode promoted it. It
         # already carries the real code; degrading it to <merror> would hide
@@ -127,6 +127,23 @@ def parse_math_tree(
                 source="frontend.math",
             )
             return None
+
+    # A source adapter can stamp the <math> root with the degradations
+    # it suffered while converting (the MTEF walk marks unknown
+    # templates this way). The attribute is the only carrier that
+    # survives the docx → markdown → re-parse round-trip, so this is
+    # where a degradation becomes a user-visible warning — for a
+    # library caller and for an embedding editor application alike,
+    # since both re-parse the island through this seam.
+    degraded = tree.get("data-bk-degraded") if tree is not None else None
+    if degraded:
+        ctx.warnings.warn(
+            code="MATH_SOURCE_DEGRADED",
+            message=degraded,
+            surface=formula if isinstance(formula, str) else None,
+            source="frontend.math",
+        )
+    return tree
 
 
 __all__ = ("parse_math_tree",)
