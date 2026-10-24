@@ -30,13 +30,21 @@ is decoupled from :mod:`docx`.
 Coverage is the **common Word equation editor subset** — fractions,
 sub/sup/subsup, radicals, n-ary (sum / product / integral / ...),
 delimiters, matrices, equation arrays, limits, accents (bar / hat /
-tilde / vector). Constructs outside this subset emit ``<mtext>``
-carrying a marker so the document keeps parsing; a follow-up
-``<merror>`` wrapper is produced for truly malformed input.
+tilde / vector). Characters from MathType's private fonts are
+translated where a public table exists (the Symbol font with its
+Greek letters, and the MT Extra font — plus MathType's own
+Private-Use-Area operator / constant assignments; see
+:mod:`._fonts`); anything the tables don't cover, an unknown template
+and similar degradations become **visible** soft failures (a
+``data-bk-soft`` ``<merror>`` marker, or the ``data-bk-degraded``
+root attribute the math frontend warns about) rather than silently
+vanishing, and truly malformed input still becomes a full
+``<merror>`` wrapper.
 
 The byte-level parsing is split across this package: :mod:`._reader`
 holds the low-level reader and record-type constants, :mod:`._mathml`
-the MathML element builders and TMPL/fence translation, and
+the MathML element builders and TMPL/fence translation,
+:mod:`._fonts` the private-font glyph tables and walk-state, and
 :mod:`._v5` / :mod:`._v3` the version-specific reader walks.
 
 References:

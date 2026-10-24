@@ -100,12 +100,30 @@ class TestV5BasicChars:
         assert "<mi>b</mi>" in out
         assert "EEFF" not in out.upper()
 
-    def test_pua_chars_dropped(self):
-        # MathType emits its private-font glyphs (Symbol / MTExtra / custom
-        # typeface slots) as PUA codepoints — these have no standard
-        # Unicode semantics, downstream can't render them, and 0xEEFF
-        # (already dropped) is just one of many. The whole PUA range
-        # U+E000–U+F8FF is treated as a sentinel.
+    def test_pua_chars_marked_not_dropped(self):
+        # MathType emits its private-font glyphs as PUA codepoints. A PUA
+        # codepoint outside every table has no known semantics, so instead
+        # of silently vanishing the glyph becomes a visible soft-merror
+        # marker (one unknown cell + a warning) — the proofreader sees
+        # *that* something was there. 0xEC00 is a curly-bracket layout
+        # piece (MathType-PUA target, deliberately unlisted).
+        body = (
+            B.v5_char(_ord("a"))
+            + B.v5_char(0xEC00)
+            + B.v5_char(_ord("b"))
+        )
+        payload = B.v5_prelude() + B.v5_line(body)
+        out = _to_mathml(payload)
+        assert "<mi>a</mi>" in out
+        assert "<mi>b</mi>" in out
+        assert 'data-bk-soft="1"' in out
+        assert "U+EC00" in out
+
+    def test_mtcode_spacing_values_drop_silently(self):
+        # U+EF00-EF08 are MathType's custom spacing values (thin / em /
+        # hair / zero-width variants) — observed in real Word documents
+        # (U+EF04). Braille spacing is backend-driven, so they drop like
+        # a plain space: NO marker, no warning, no noise.
         body = (
             B.v5_char(_ord("a"))
             + B.v5_char(0xEF04)  # observed in real Word docs
@@ -113,13 +131,10 @@ class TestV5BasicChars:
         )
         payload = B.v5_prelude() + B.v5_line(body)
         out = _to_mathml(payload)
-        assert "<mi>a</mi>" in out
-        assert "<mi>b</mi>" in out
-        # No raw PUA codepoint leaks into the MathML (U+EF04 spelled
-        # via chr() so the literal stays visible to readers).
-        assert chr(0xEF04) not in out
+        assert _tree_shape(out) == "mi:a,mi:b"
+        assert "merror" not in out
 
-    def test_pua_boundary_codepoints_dropped(self):
+    def test_pua_boundary_codepoints_marked(self):
         # Boundary cases: U+E000 (PUA start) and U+F8FF (PUA end).
         for cp in (0xE000, 0xF8FF):
             body = B.v5_char(_ord("a")) + B.v5_char(cp) + B.v5_char(_ord("b"))
@@ -127,7 +142,216 @@ class TestV5BasicChars:
             out = _to_mathml(payload)
             assert "<mi>a</mi>" in out
             assert "<mi>b</mi>" in out
+            assert f"U+{cp:04X}" in out
             assert chr(cp) not in out, f"U+{cp:04X} leaked"
+
+
+# ---------------------------------------------------------------------------
+# Private-font glyph translation (Symbol font)
+# ---------------------------------------------------------------------------
+
+
+class TestV5SymbolFontTranslation:
+    def test_fn_symbol_style_pua_greek_becomes_alpha(self):
+        # Style 6 (fnSYMBOL) renders through the Symbol font; MathType
+        # writes its glyphs as PUA codepoints whose low byte is the font
+        # position — U+F061 is position 0x61 = α, previously dropped.
+        body = B.v5_char(0xF061, typeface=6)
+        out = _to_mathml(B.v5_prelude() + B.v5_line(body))
+        assert "<mi>α</mi>" in out
+        assert "merror" not in out
+
+    def test_greek_styles_translate_too(self):
+        # Styles 4 (fnLCGREEK) / 5 (fnUCGREEK) also render through Symbol.
+        lc = B.v5_char(0xF061, typeface=4)
+        uc = B.v5_char(0xF041, typeface=5)  # position 0x41 = Α
+        out = _to_mathml(B.v5_prelude() + B.v5_line(lc + uc))
+        assert "<mi>α</mi>" in out
+        assert "<mi>Α</mi>" in out
+
+    def test_symbol_operators_translate(self):
+        cases = {
+            0xF0A3: "≤",
+            0xF0B4: "×",
+            0xF0CE: "∈",
+            0xF0D1: "∇",
+            0xF0E5: "∑",
+            0xF0F2: "∫",
+            0xF0B6: "∂",
+            0xF0C6: "∅",
+        }
+        for pua, glyph in cases.items():
+            out = _to_mathml(
+                B.v5_prelude() + B.v5_line(B.v5_char(pua, typeface=6))
+            )
+            assert f"<mo>{glyph}</mo>" in out, f"U+{pua:04X} → {glyph}"
+
+    def test_font_def_negative_typeface_resolves_symbol(self):
+        # A negative unbiased typeface references an explicit FONT_DEF by
+        # encounter order; the second one here is "Symbol" (mirrors the
+        # real fixture's FONT_DEF batch: Times New Roman, Symbol, ...).
+        payload = (
+            B.v5_prelude()
+            + B.v5_font_def(5, "Times New Roman")
+            + B.v5_font_def(3, "Symbol")
+            + B.v5_line(B.v5_char(0xF0B4, typeface=-2))
+        )
+        out = _to_mathml(payload)
+        assert "<mo>×</mo>" in out
+
+    def test_position_only_char_translates(self):
+        # opts 0x24: no MTCode, 8-bit position. Symbol position 0xB4 = ×.
+        body = B.v5_position_char(0xB4, typeface=6)
+        out = _to_mathml(B.v5_prelude() + B.v5_line(body))
+        assert "<mo>×</mo>" in out
+
+    def test_position_wins_when_mtcode_is_pua(self):
+        # MTCode in the PUA plus an explicit font position: the position
+        # is the authoritative glyph identity. The PUA low byte (0x61 =
+        # α) deliberately disagrees with the position (0xCE = ∈) to pin
+        # the precedence.
+        raw = (
+            bytes([0x02, 0x04, (6 + 128) & 0xFF])
+            + B.u16_le(0xF061)
+            + bytes([0xCE])
+        )
+        out = _to_mathml(B.v5_prelude() + B.v5_line(raw))
+        assert "<mo>∈</mo>" in out
+
+    def test_real_fixture_unicode_mtcode_unchanged(self):
+        # The shipped real MathType 6.9 file (y = x³): '=' arrives as
+        # style 6 with a redundant 8-bit position whose MTCode is proper
+        # Unicode — the Unicode must keep winning, byte-for-byte as before.
+        from pathlib import Path
+
+        fixture = (
+            Path(__file__).parent
+            / "fixtures"
+            / "mathtype_v5_y_eq_x_cubed.bin"
+        ).read_bytes()
+        out = _to_mathml(fixture)
+        assert out == (
+            '<math xmlns="http://www.w3.org/1998/Math/MathML">'
+            "<mi>y</mi><mo>=</mo><msup><mi>x</mi><mn>3</mn></msup></math>"
+        )
+        assert "data-bk-degraded" not in out
+
+    def test_untranslatable_symbol_position_is_visible(self):
+        # Position 0xE6 (a big-paren layout piece) is deliberately absent
+        # from the table → visible soft marker naming font and position,
+        # not a silent drop.
+        body = B.v5_position_char(0xE6, typeface=6)
+        out = _to_mathml(B.v5_prelude() + B.v5_line(body))
+        assert 'data-bk-soft="1"' in out
+        assert "U+00E6" in out
+        assert "font=Symbol" in out
+
+    def test_mt_extra_position_is_visible(self):
+        # Style 11 (MT Extra) has no public encoding table yet: the glyph
+        # surfaces as a visible marker naming the font, not a vanishing.
+        body = B.v5_position_char(0x77, typeface=11)
+        out = _to_mathml(B.v5_prelude() + B.v5_line(body))
+        assert 'data-bk-soft="1"' in out
+        assert "font=MT Extra" in out
+
+
+class TestV3SymbolFontTranslation:
+    def test_fn_symbol_position_becomes_alpha(self):
+        # v3 symbolic fonts store the character as the font *position*:
+        # style 6 + 0x61 is α — previously mis-read as ASCII "a".
+        body = B.v3_char(0x61, typeface=6 + 128)
+        out = _to_mathml(B.v3_prelude() + B.v3_line(body))
+        assert "<mi>α</mi>" in out
+        assert "<mi>a</mi>" not in out
+
+    def test_text_style_char_stays_unicode(self):
+        body = B.v3_char(_ord("a"))  # default typeface 128 = fnTEXT
+        out = _to_mathml(B.v3_prelude() + B.v3_line(body))
+        assert "<mi>a</mi>" in out
+
+    def test_font_record_negative_typeface_resolves_symbol(self):
+        # FONT record tface=3 "Symbol"; a CHAR with unbiased typeface -3
+        # (wire byte 125) carrying position 0xB4 → ×. Mirrors the spec's
+        # own example ("a 3 in the FONT record corresponds to 125").
+        payload = (
+            B.v3_prelude()
+            + B.v3_font(3, "Symbol")
+            + B.v3_line(B.v3_char(0xB4, typeface=128 - 3))
+        )
+        out = _to_mathml(payload)
+        assert "<mo>×</mo>" in out
+
+    def test_symbol_position_above_byte_range_reads_as_unicode(self):
+        # A symbolic-font value above 0xFF cannot be a font position —
+        # read as Unicode (defensive; no known emitter writes this).
+        body = B.v3_char(0x3B1, typeface=6 + 128)  # U+03B1 α
+        out = _to_mathml(B.v3_prelude() + B.v3_line(body))
+        assert "<mi>α</mi>" in out
+
+
+# ---------------------------------------------------------------------------
+# MT Extra font + MathType's MTCode PUA assignments
+# ---------------------------------------------------------------------------
+
+
+class TestMTExtraFontTranslation:
+    def test_style_11_position_becomes_much_less(self):
+        # Style 11 (fnMTEXTRA) renders through MT Extra; position 0x3D
+        # is ≪ (official MTExtra encoding: 226A).
+        body = B.v5_position_char(0x3D, typeface=11)
+        out = _to_mathml(B.v5_prelude() + B.v5_line(body))
+        assert "<mo>≪</mo>" in out
+
+    def test_font_def_resolves_mt_extra_reals(self):
+        # FONT_DEF name "MT Extra" (the real fixture's spelling, with a
+        # space) referenced by a negative typeface: position 0xA1 = ℝ.
+        payload = (
+            B.v5_prelude()
+            + B.v5_font_def(4, "MT Extra")
+            + B.v5_line(B.v5_position_char(0xA1, typeface=-1))
+        )
+        out = _to_mathml(payload)
+        # ℝ lands as mtext — the shared token classifier counts Latin /
+        # Greek letters only, and letterlike symbols are text. That is
+        # the same tag OMML would give it; not the MTEF adapter's call.
+        assert "<mtext>ℝ</mtext>" in out
+
+    def test_v3_style_11_position_translates(self):
+        body = B.v3_char(0x3D, typeface=11 + 128)
+        out = _to_mathml(B.v3_prelude() + B.v3_line(body))
+        assert "<mo>≪</mo>" in out
+
+    def test_mtcode_pua_operators_translate(self):
+        # U+E90B / U+EA06 are MathType's own PUA assignments (superset-
+        # or-equal, not-less-than) — value-gated, independent of font.
+        body = B.v5_char(0xE90B) + B.v5_char(0xEA06)
+        out = _to_mathml(B.v5_prelude() + B.v5_line(body))
+        assert "<mo>⊇</mo>" in out
+        assert "<mo>≰</mo>" in out
+
+    def test_mtcode_pua_letterlike_constants_translate(self):
+        body = B.v5_char(0xED05)  # ExponentialE → ⅇ
+        out = _to_mathml(B.v5_prelude() + B.v5_line(body))
+        assert "ⅇ" in out
+
+    def test_mtextra_layout_position_stays_visible(self):
+        # Position 0xB0 (two-space wide tilde) is a layout fragment —
+        # deliberately unlisted: soft marker naming the font.
+        body = B.v5_position_char(0xB0, typeface=11)
+        out = _to_mathml(B.v5_prelude() + B.v5_line(body))
+        assert 'data-bk-soft="1"' in out
+        assert "font=MT Extra" in out
+
+    def test_symbol_zero_position_matches_official_encoding(self):
+        # The official Symbol encoding cross-check pins: 0x27 is ∍
+        # ("small contains as member") and 0x40 is ≅ — the two spots
+        # where the public Symbol charts wobble.
+        body = B.v5_position_char(0x27, typeface=6) + B.v5_position_char(
+            0x40, typeface=6
+        )
+        out = _to_mathml(B.v5_prelude() + B.v5_line(body))
+        assert "<mo>∍</mo>" in out
+        assert "<mo>≅</mo>" in out
 
     def test_non_pua_unicode_still_emitted(self):
         # U+0391 (Α — uppercase Greek alpha) is just outside any PUA
@@ -1777,13 +2001,18 @@ class TestPayloadEdges:
         out = MtefMathSourceAdapter().to_mathml(header)
         assert "<merror" in out
 
-    def test_v5_char_without_mtcode_emits_nothing(self):
+    def test_v5_char_without_mtcode_emits_visible_marker(self):
         # opts 0x20 = "no MTCode stored"; 0x04 = 8-bit font position. The
-        # record carries glyph-position data only, so no atom comes out.
+        # record carries glyph-position data only: the position names a
+        # glyph in the CHAR's font, and with no table to decode it the
+        # loss must be *visible* (soft merror marker), not a silent drop
+        # — a proofreader has to see that a character was there.
         silent = bytes([0x02, 0x24, 128, 0x33])
         body = B.v5_char(_ord("a")) + silent + B.v5_char(_ord("b"))
         out = _to_mathml(B.v5_prelude() + B.v5_line(body))
-        assert _tree_shape(out) == "mi:a,mi:b"
+        assert _tree_shape(out) == "mi:a,merror(mtext:U+0033),mi:b"
+        assert 'data-bk-soft="1"' in out
+        assert "mtef-private-glyph" in out
 
     def test_v5_pile_truncated_at_eof_keeps_rows(self):
         pile = bytes([0x04, 0x00, 1, 0]) + B.v5_line(B.v5_char(_ord("a")))
@@ -1823,3 +2052,65 @@ class TestUnknownSelectorPassthroughLogs:
             and "99" in rec.message
             for rec in caplog.records
         )
+
+
+class TestTemplateDegradationMarker:
+    """Unknown/degraded templates stamp ``data-bk-degraded`` on the root.
+
+    The attribute rides the MathML island through the docx → markdown →
+    re-parse round-trip and the normalizer (attribute-preserving), so
+    :func:`brailix.frontend.math.parse_math_tree` can turn it into a
+    user-visible ``MATH_SOURCE_DEGRADED`` warning — the log above only
+    reaches developers.
+    """
+
+    def test_unknown_selector_stamps_root_attribute(self):
+        num = B.v5_simple_char_line(_ord("x"))
+        payload = B.v5_prelude() + B.v5_line(B.v5_tmpl(99, [num]))
+        out = _to_mathml(payload)
+        assert 'data-bk-degraded="mtef template not recognised ' '(selector=99, version=5)"' in out
+        assert "<mi>x</mi>" in out
+
+    def test_known_template_leaves_no_attribute(self):
+        base = B.v5_simple_char_line(_ord("x"))
+        sup = B.v5_simple_char_line(_ord("2"))
+        payload = B.v5_prelude() + B.v5_line(B.v5_tmpl(28, [base, sup]))
+        assert "data-bk-degraded" not in _to_mathml(payload)
+
+    def test_v3_unknown_selector_stamps_attribute(self):
+        num = B.v3_line(B.v3_char(_ord("x")))
+        payload = B.v3_prelude() + B.v3_line(B.v3_tmpl(88, [num]))
+        out = _to_mathml(payload)
+        assert "data-bk-degraded" in out
+        assert "selector=88" in out
+        assert "version=3" in out
+
+    def test_degradation_becomes_warning_at_parse_seam(self):
+        from brailix.core.context import MathContext
+        from brailix.core.errors import WarningCollector
+        from brailix.frontend.math import parse_math_tree
+
+        num = B.v5_simple_char_line(_ord("x"))
+        payload = B.v5_prelude() + B.v5_line(B.v5_tmpl(99, [num]))
+        wc = WarningCollector()
+        tree = parse_math_tree(
+            payload,
+            MathContext(source="mtef", profile="cn_current", warnings=wc),
+        )
+        # The marker survives normalization (data-bk-* contract) ...
+        assert tree is not None
+        assert tree.get("data-bk-degraded") is not None
+        # ... and becomes exactly one warning carrying the reason.
+        hits = wc.by_code("MATH_SOURCE_DEGRADED")
+        assert len(hits) == 1
+        assert "selector=99" in hits[0].message
+
+    def test_degradation_attribute_is_bounded(self):
+        # Hundreds of unknown templates must not blow up the island text
+        # that rides the editable markdown.
+        body = b"".join(
+            B.v5_tmpl(200 + i, [B.v5_null_line()]) for i in range(20)
+        )
+        out = _to_mathml(B.v5_prelude() + B.v5_line(body))
+        assert "(more degradations not recorded)" in out
+        assert out.count("mtef template not recognised") == 10
