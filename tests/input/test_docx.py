@@ -867,6 +867,76 @@ class TestMathTypeOLE:
         joined = "\n".join(p.text or "" for p in paragraphs)
         assert "<msup>" in joined
 
+    def test_unreadable_equation_ole_becomes_visible_placeholder(
+        self, tmp_path: Path
+    ) -> None:
+        # The ProgID claims an equation but the blob is garbage (not a
+        # CFB container, not raw MTEF). This used to vanish without a
+        # trace — the silent-loss class that once shipped in a frozen
+        # build; now an <merror> island keeps a visible placeholder (and
+        # lets mathtype_fallback="auto" see the failure and retry).
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("公式 ")
+        _embed_ole_equation(doc, para, b"\x01not-an-ole-blob")
+        doc.save(path)
+
+        result = parse_docx(path, profile="cn_current", language="zh-CN")
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "公式" in joined
+        assert "$<math" in joined
+        assert "<merror" in joined
+        assert "no Equation Native stream" in joined
+
+    def test_equation_ole_broken_relationship_becomes_placeholder(
+        self, tmp_path: Path
+    ) -> None:
+        # r:id points at a relationship that doesn't exist — the ProgID
+        # still claims a formula lives here, so a placeholder beats a
+        # silent drop.
+        from lxml import etree as _etree
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("公式 ")
+        obj_xml = (
+            f'<w:r xmlns:w="{_W_NS}" xmlns:o="{_O_NS}" xmlns:r="{_R_NS}">'
+            f'<w:object>'
+            f'<o:OLEObject Type="Embed" ProgID="Equation.DSMT4" '
+            f'ShapeID="1000" DrawAspect="Content" ObjectID="1" '
+            f'r:id="rIdDoesNotExist"/>'
+            f'</w:object>'
+            f'</w:r>'
+        )
+        para._p.append(_etree.fromstring(obj_xml))
+        doc.save(path)
+
+        result = parse_docx(path, profile="cn_current", language="zh-CN")
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "<merror" in joined
+        assert "relationship missing" in joined
+
+    def test_non_equation_ole_still_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        # A chart / worksheet OLE object is not our content: no math
+        # island, no placeholder — exactly as before.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("表格 ")
+        _embed_ole_equation(
+            doc, para,
+            _eqnolehdr_wrapped(_mtef_sample_payload()),
+            progid="Excel.Sheet.12",
+        )
+        doc.save(path)
+
+        result = parse_docx(path, profile="cn_current", language="zh-CN")
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "表格" in joined
+        assert "$<math" not in joined
+        assert "<merror" not in joined
+
     def test_unknown_progid_is_skipped(self, tmp_path: Path) -> None:
         # An OLE object that isn't an equation (e.g. an embedded
         # spreadsheet) must not crash parse_docx — we just leave it
@@ -1469,8 +1539,10 @@ class TestMathTypeFallback:
 
     def test_recovery_needed_unit_semantics(self) -> None:
         # Unit semantics of the auto-retry decision: silent loss (fewer
-        # spans than equation OLEs) and all-merror both trigger; a
-        # healthy span count with at least one success doesn't.
+        # spans than equation OLEs) and all-hard-merror both trigger; a
+        # healthy span count with at least one success doesn't; soft
+        # in-place markers (a dropped private-font glyph) never count as
+        # failures.
         from brailix.input.docx import _mtef_recovery_needed
         from brailix.ir.document import DocumentIR
 
@@ -1479,15 +1551,27 @@ class TestMathTypeFallback:
 
         ok = "$<math><mi>x</mi></math>$"
         bad = "$<math><merror><mtext>?</mtext></merror></math>$"
+        soft = (
+            "$<math><mi>a</mi>"
+            '<merror data-bk-soft="1" data-reason="mtef-private-glyph: '
+            'U+F0E6 font=Symbol"><mtext>U+F0E6</mtext></merror></math>$'
+        )
 
         # One equation OLE, zero spans — it vanished silently → retry.
         assert _mtef_recovery_needed(doc_with("no math here"), 1) is True
         # Two equation OLEs, only one span — one vanished → retry.
         assert _mtef_recovery_needed(doc_with(f"前 {ok}"), 2) is True
-        # Every span is a soft failure → retry.
+        # Every span is a hard failure → retry.
         assert _mtef_recovery_needed(doc_with(f"前 {bad}"), 1) is True
         # As many spans as equations, at least one decoded → no retry.
         assert _mtef_recovery_needed(doc_with(f"前 {ok} 后 {bad}"), 2) is False
+        # Soft markers alone are not failures — the formula otherwise
+        # translated, so no LibreOffice round-trip.
+        assert _mtef_recovery_needed(doc_with(f"前 {soft}"), 1) is False
+        # A span holding both a soft marker and a hard failure counts as
+        # failed (both kinds in one island must not mask the hard one).
+        mixed = soft.replace("</math>$", "") + bad[len("$<math>"):]
+        assert _mtef_recovery_needed(doc_with(mixed), 1) is True
 
     def test_recovery_counts_spans_nested_in_table_and_list(self) -> None:
         # An equation living in a table cell (or list item) must count
