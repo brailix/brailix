@@ -34,17 +34,34 @@ def _emit_merror(
     else:
         surface = (elem.text or "").strip()
     if elem.get("data-bk-soft") == "1":
-        # Soft, in-place degrade (e.g. the chem parser flagging one stray
-        # full-width / zero-width / unsupported character): warn rather than
-        # error — the surrounding formula translated fine, only this cell is
-        # blank. The message names the writing problem so it's actionable.
-        mctx.backend.warnings.warn(
-            code="MATH_NONSTANDARD_CHAR",
-            message=_describe_nonstandard_char(surface),
-            surface=surface or None,
-            span=mctx.span,
-            source="backend.math",
-        )
+        if (elem.get("data-reason") or "").startswith("mtef-private-glyph"):
+            # A glyph from a MathType private font (Symbol position we
+            # have no table entry for, an MT Extra glyph, ...). The
+            # frontend's marker names it; keep the dedicated code so the
+            # warnings pane can tell "the document used a character we
+            # don't accept" (MATH_NONSTANDARD_CHAR — a writing problem)
+            # apart from "MathType's private glyph couldn't be decoded"
+            # (an import limitation the writer can't fix).
+            mctx.backend.warnings.warn(
+                code="MTEF_PRIVATE_GLYPH",
+                message=elem.get("data-reason", ""),
+                surface=surface or None,
+                span=mctx.span,
+                source="backend.math",
+            )
+        else:
+            # Soft, in-place degrade (e.g. the chem parser flagging one stray
+            # full-width / zero-width / unsupported character): warn rather
+            # than error — the surrounding formula translated fine, only this
+            # cell is blank. The message names the writing problem so it's
+            # actionable.
+            mctx.backend.warnings.warn(
+                code="MATH_NONSTANDARD_CHAR",
+                message=_describe_nonstandard_char(surface),
+                surface=surface or None,
+                span=mctx.span,
+                source="backend.math",
+            )
     else:
         reason = elem.get("data-reason", "merror")
         mctx.backend.warnings.error(

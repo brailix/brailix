@@ -78,6 +78,35 @@ def v5_char(mtcode: int, *, typeface: int = 0, embells: list[int] | None = None)
     return bytes(out)
 
 
+def v5_position_char(
+    position: int, *, typeface: int, sixteen: bool = False
+) -> bytes:
+    """v5 CHAR with a font position and **no** MTCode.
+
+    ``mtefOPT_CHAR_ENC_NO_MTCODE`` (0x20) plus an 8- (0x04) or 16-bit
+    (0x10) font position — the "glyph identified only by its slot in
+    the font" form symbolic fonts use. ``typeface`` is unbiased, same
+    as :func:`v5_char`.
+    """
+    opts = 0x20 | (0x10 if sixteen else 0x04)
+    out = bytearray([0x02, opts, (typeface + 128) & 0xFF])
+    if sixteen:
+        out.extend(u16_le(position))
+    else:
+        out.append(position & 0xFF)
+    return bytes(out)
+
+
+def v5_font_def(enc_def_index: int, name: str) -> bytes:
+    """v5 FONT_DEF record: enc_def_index + null-terminated font name.
+
+    The index names an ENCODING_DEF (not the font itself — fonts are
+    referenced by their encounter order, which the reader captures).
+    """
+    assert 0 <= enc_def_index < 0xFF
+    return bytes([0x11, enc_def_index]) + name.encode("ascii") + b"\x00"
+
+
 def v5_tmpl(
     selector: int,
     slots: list[bytes],
@@ -250,6 +279,19 @@ def v3_char(char: int, *, typeface: int = 128, embells: list[int] | None = None)
             out.extend(bytes([_tag(0x06, 0), e]))
         out.append(0x00)
     return bytes(out)
+
+
+def v3_font(tface: int, name: str, *, style: int = 0) -> bytes:
+    """v3 FONT record (tag 0x08): explicit font number + style + name.
+
+    A CHAR references this with an unbiased typeface of ``-tface``
+    (wire byte ``128 - tface``).
+    """
+    return (
+        bytes([_tag(0x08, 0), tface, style])
+        + name.encode("ascii")
+        + b"\x00"
+    )
 
 
 def v3_tmpl(
