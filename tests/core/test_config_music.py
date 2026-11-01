@@ -255,3 +255,104 @@ class TestMusicLoaderFailsLoud:
         assert _load_one_music_file(p, self._POOL) == {
             "whole_C": ((1, 3, 4, 5, 6),)
         }
+
+
+class TestSpecEntityReferences:
+    """A music ``_spec`` recipe's ``["entity", name]`` steps must name
+    entities the same topic's cells table defines (adversarial review
+    F10). The harmony handler ignores a lookup miss, so a typo'd entity
+    name in a hand-edited profile used to emit no cells for that step
+    with no diagnostic; the validator now rejects it at load. The shipped
+    tables are consistent — they load, which is the positive control."""
+
+    @staticmethod
+    def _write_music_profile(tmp_path, kind_spec):
+        """Scaffold a minimal profile with one music topic + ``_kind_spec``.
+
+        Returns the profile name for ``load_profile(name, root=tmp_path)``.
+        """
+        cells = {"c_1": [1], "c_36": [3, 6], "c_256": [2, 5, 6]}
+        (tmp_path / "resources").mkdir(exist_ok=True)
+        (tmp_path / "resources" / "cells.json").write_text(
+            json.dumps(cells), encoding="utf-8"
+        )
+        (tmp_path / "resources" / "chord_symbols.json").write_text(
+            json.dumps(
+                {
+                    "chord_symbols": {
+                        "plus": {"cells": ["c_36"]},
+                        "half_diminished": {"cells": ["c_256", "c_1"]},
+                    },
+                    "_kind_spec": kind_spec,
+                }
+            ),
+            encoding="utf-8",
+        )
+        prof = tmp_path / "profiles" / "music_demo.json"
+        prof.parent.mkdir(parents=True, exist_ok=True)
+        prof.write_text(
+            json.dumps(
+                {
+                    "name": "music_demo",
+                    "language": "zh-CN",
+                    "tables": {
+                        "cells": "resources/cells.json",
+                        "music": {"chord_symbols": "resources/chord_symbols.json"},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        return "music_demo"
+
+    def test_typoed_entity_reference_raises_at_load(self, tmp_path):
+        name = self._write_music_profile(
+            tmp_path,
+            {"augmented": [["entity", "pluss"]]},  # typo: plus → pluss
+        )
+        with pytest.raises(ConfigurationError, match="pluss"):
+            load_profile(name, root=tmp_path)
+
+    def test_valid_entity_reference_loads(self, tmp_path):
+        name = self._write_music_profile(
+            tmp_path,
+            {
+                "major": [],
+                "augmented": [["entity", "plus"]],
+                "half-diminished": [["entity", "half_diminished"]],
+                "minor": [["letters", "m"]],  # non-entity step: not a reference
+            },
+        )
+        profile = load_profile(name, root=tmp_path)
+        assert profile.music_spec("chord_symbols", "kind_spec")["augmented"] == [
+            ["entity", "plus"]
+        ]
+
+    def test_reference_into_missing_topic_raises(self, tmp_path):
+        # The cells table and the spec are keyed by the SAME topic slot;
+        # an entity step can never resolve elsewhere. Here the spec
+        # references an entity no topic defines at all.
+        name = self._write_music_profile(
+            tmp_path, {"x": [["entity", "no_such_entity"]]}
+        )
+        with pytest.raises(ConfigurationError, match="no_such_entity"):
+            load_profile(name, root=tmp_path)
+
+    def test_shipped_profiles_entity_refs_all_resolve(self):
+        # Positive control on the real data: cn_current / cn_ncb load (the
+        # validator runs inside load_profile) AND their specs contain
+        # entity references at all — keeping this test from passing
+        # vacuously if the spec format ever moves.
+        for name in ("cn_current", "cn_ncb"):
+            profile = load_profile(name)
+            refs = [
+                step[1]
+                for sections in profile.music_specs.values()
+                for spec in sections.values()
+                for recipe in spec.values()
+                for step in recipe
+                if isinstance(step, list)
+                and len(step) == 2
+                and step[0] == "entity"
+            ]
+            assert refs, f"{name}: expected at least one entity spec reference"

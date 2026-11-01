@@ -114,13 +114,32 @@ def _ensure_block_span(block: Any) -> tuple[str, Span, Span]:
 
 
 def _block_surface(block: Any) -> str:
-    """Reconstruct a human-readable surface for a block.
+    """Reconstruct the authoritative textual surface for a block.
 
-    Used by :meth:`Pipeline.translate_document` so the resulting
-    :class:`TranslationResult` has a meaningful ``text`` value for
-    proofread tooling. Falls back to the original raw ``text`` if
-    inlines haven't been populated; otherwise joins their surfaces.
-    Composite containers recurse into their nested ``blocks``.
+    Two consumers lean on this record, and they are why the reconstruction
+    is **lossless** rather than merely readable:
+
+    * the stale-re-entry heal (:meth:`FrontendDriver._heal_stale_content
+      <brailix.pipeline.frontend_driver.FrontendDriver._heal_stale_content>`)
+      compares a populated block's populate record (``populated_text``, the
+      raw text its content was built from — read directly by
+      :func:`~brailix.pipeline.frontend_driver._populated_from`) against
+      ``block.text`` to decide whether that content still describes it, and
+    * :func:`block_hash` folds this surface into the cache key, so it must
+      agree with what an unpopulated block hashes (its raw ``text``).
+
+    A block this pipeline populated answers with its
+    ``populated_text`` — the verbatim source including characters no
+    inline node carries, such as a phonetic region's ``/.../``
+    delimiters. Hand-built / pre-populated blocks (no record) fall back
+    to joining the inlines' surfaces, and an unpopulated block to its raw
+    ``text``. Composite containers recurse into their nested ``blocks``:
+    a List joins items with newlines, and a Table joins each row's cells
+    with the same **two-space** separator the row coordinate contract
+    uses (:attr:`FrontendDriver._TABLE_CELL_GAP
+    <brailix.pipeline.frontend_driver.FrontendDriver>`), so a table's
+    surface IS its rows' ``row_text`` — every span inside the table
+    (inline nodes, braille cells, warnings) slices its surface out of it.
     """
     from brailix.ir.document import List as ListBlock
     from brailix.ir.document import Table
@@ -129,9 +148,12 @@ def _block_surface(block: Any) -> str:
         return "\n".join(_block_surface(it) for it in block.blocks)
     if isinstance(block, Table):
         return "\n".join(
-            " | ".join(_block_surface(c) for c in row.blocks)
+            "  ".join(_block_surface(c) for c in row.blocks)
             for row in block.blocks
         )
+    populated_text = getattr(block, "populated_text", None)
+    if isinstance(populated_text, str):
+        return populated_text
     if block.inlines:
         return "".join(node.surface for node in block.inlines)
     return block.text or ""
@@ -141,7 +163,17 @@ def _block_surface(block: Any) -> str:
 # outlives one recipe (a front-end that ever persists digests across sessions)
 # can't serve an entry computed under the old composition against the new one.
 # Folded INTO the digest below, not merely prepended, so it perturbs the hash.
-_BLOCK_HASH_VERSION = "3"
+#
+# 3 → 4: the textual surface became the lossless one — a populated block now
+# hashes its ``populated_text`` (the verbatim source it was populated from)
+# rather than the join of inline surfaces. For a lossless block the two
+# agree, but a block with a phonetic region used to hash its *bare phoneme
+# join*: the populated ``[həˈləʊ]`` block and a plain ``həˈləʊ`` paragraph
+# shared one digest. Under recipe 4 the phonetic block hashes its
+# delimiter-bearing text, which equals what a plain ``həˈləʊ`` paragraph
+# produced under recipe 3 — without the bump, an entry persisted under the
+# old recipe could be served for (and by) the wrong source.
+_BLOCK_HASH_VERSION = "4"
 
 
 def block_hash(

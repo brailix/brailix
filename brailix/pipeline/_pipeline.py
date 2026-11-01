@@ -35,6 +35,10 @@ from types import MappingProxyType as _MappingProxyType
 from typing import Any as _Any
 
 from brailix.backend.block import translate_document as _translate_document
+from brailix.backend.tactile._asset_limits import (
+    DEFAULT_GRAPHIC_ASSET_LIMITS,
+    GraphicAssetLimits,
+)
 from brailix.backend.tactile.profile import TactileProfile as _TactileProfile
 from brailix.core.config import BrailleProfile
 from brailix.core.config import load_profile as _load_profile
@@ -277,7 +281,11 @@ class Pipeline:
       layered on top of ``resolver`` (a proofreading front-end's personal
       dictionary). Chinese-specific, as its name says and as ``resolver``
       effectively is: the pinyin post-pass is what consumes it.
-      Multi-char surfaces only; empty = no-op.
+      Multi-char surfaces only; empty = no-op. An entry whose value is
+      not a reading string is dropped at construction with a
+      ``USER_PINYIN_DICT_BAD_ENTRY`` warning (replayed into every
+      compile's diagnostics), so a mistyped dictionary entry announces
+      itself instead of silently changing nothing.
     * ``user_seg_dict`` — optional ``surface → pieces`` overrides layered
       on top of ``analyzer``, the same idea applied to word division:
       ``{"国家": ("国家",)}`` says *this is one word*, ``{"国家通用":
@@ -303,7 +311,14 @@ class Pipeline:
       profile exactly as it ships. A value must be a JSON **scalar** —
       a container is refused with :class:`~brailix.core.ConfigurationError`,
       since the dotted key already addresses a nested flag (see
-      :func:`~brailix.core.config._helpers._feature_merge`).
+      :func:`~brailix.core.config._helpers._feature_merge`). A value the
+      flag's type table rejects — ``{"zh.tone": "false"}``, the string a
+      serialized form often carries, where a bool is expected — is dropped
+      with a ``CONFIG_FEATURE_BAD_VALUE`` warning (the profile's own value
+      stands), and a key no reader knows is written but flagged
+      ``CONFIG_FEATURE_UNKNOWN_KEY`` (the typo hint; the features table is
+      an open extension point). Both diagnostics ride every compile's
+      warnings.
     * ``default_renderer`` — forwarded to every
       :class:`TranslationResult` so :meth:`TranslationResult.render`
       knows what to use when called without arguments.
@@ -449,6 +464,17 @@ class Pipeline:
     _fingerprint_env: tuple[tuple[int, ...], str] | None = _field(
         init=False, default=None
     )
+    # Non-fatal configuration diagnostics collected while this pipeline's
+    # configuration was assembled (a profile-load warning, a rejected
+    # feature override, a dropped user-dictionary entry). Replay-only
+    # state: CompilationSession.begin re-emits them into each run's
+    # collector, so they surface on the results the caller already reads.
+    _config_warnings: WarningCollector = _field(
+        init=False,
+        default_factory=lambda: WarningCollector(mode=RunMode.NORMAL),
+        compare=False,
+        repr=False,
+    )
     # Flipped at the end of ``__post_init__``: until then the dataclass's own
     # ``__init__`` and the normalisation below are still writing the fields,
     # and they must go through.
@@ -487,11 +513,43 @@ class Pipeline:
 
     def __post_init__(self) -> None:
         self.mode = normalize_run_mode(self.mode)
+        # Non-fatal configuration diagnostics (a typo'd profile key, a
+        # feature override with the wrong value type, a user-dictionary
+        # entry of the wrong shape) collected while THIS pipeline's
+        # configuration was assembled, then replayed into every compile's
+        # warnings (CompilationSession.begin) so a caller sees them on the
+        # results they already read — no separate polling API. NORMAL by
+        # design: construction must not crash over a recoverable typo; the
+        # replay respects the run's own mode, so a STRICT pipeline still
+        # fails its first compile over a configuration warning.
+        self._config_warnings = WarningCollector(mode=RunMode.NORMAL)
         # Defensive copy behind a read-only view: the caller keeps their own
         # dictionary and may go on editing it, but this pipeline's digest was
         # computed from the contents at *this* moment, so it must hold a
         # snapshot nobody else can reach — and one it cannot edit either.
-        self.user_pinyin_dict = _MappingProxyType(dict(self.user_pinyin_dict))
+        # An entry whose value is not a reading STRING is dropped here with
+        # a USER_PINYIN_DICT_BAD_ENTRY diagnostic rather than held: the
+        # resolver post-pass would silently skip it (a JSON hand-edit that
+        # turned ``"重庆": "zhong1 qing1"`` into a number or null used to
+        # change nothing, with no feedback at all), while what the
+        # fingerprint below hashes stays exactly what this pipeline holds.
+        pinyin_snapshot: dict[str, str] = {}
+        for surface, reading in dict(self.user_pinyin_dict).items():
+            if not isinstance(surface, str) or not isinstance(reading, str):
+                self._config_warnings.warn(
+                    code="USER_PINYIN_DICT_BAD_ENTRY",
+                    message=(
+                        f"user_pinyin_dict entry {surface!r}: {reading!r} is"
+                        f" not a reading string (expected"
+                        f" surface -> 'pinyin syllables', e.g."
+                        f" '重庆' -> 'zhong1 qing1'); entry ignored"
+                    ),
+                    surface=surface if isinstance(surface, str) else None,
+                    source="pipeline",
+                )
+                continue
+            pinyin_snapshot[surface] = reading
+        self.user_pinyin_dict = _MappingProxyType(pinyin_snapshot)
         # Same, plus each value is frozen to a tuple: a ``MappingProxyType``
         # over a copied dict protects the mapping, not the LISTS inside it,
         # so a caller who kept ``{"国家通用": ["国家", "通用"]}`` could still
@@ -521,7 +579,10 @@ class Pipeline:
             self.profile,
             extra_search_paths=[_Path(p) for p in self.extra_profile_paths]
             or None,
-        ).with_features(self.profile_features)
+            warnings=self._config_warnings,
+        ).with_features(
+            self.profile_features, warnings=self._config_warnings
+        )
         self._frontend = _FrontendDriver(
             profile=self.profile,
             profile_obj=self._profile,
@@ -752,6 +813,7 @@ class Pipeline:
         label_translator: _Callable[[str], list[BrailleCell]] | None = None,
         record_provenance: bool = False,
         warnings: WarningCollector | None = None,
+        limits: GraphicAssetLimits = DEFAULT_GRAPHIC_ASSET_LIMITS,
     ) -> GraphicResult:
         """Compile a tactile graphic into a :class:`GraphicResult`.
 
@@ -772,6 +834,14 @@ class Pipeline:
             if warnings is not None
             else WarningCollector(mode=self.mode)
         )
+        # Same configuration-diagnostic replay CompilationSession.begin
+        # does for the braille paths — this delegation has no session of
+        # its own, so it does the replay by hand. A caller-supplied
+        # collector gets them too: they are configuration facts, not
+        # compile noise, and suppressing them per-path would make the
+        # diagnostic depend on which entry point was picked.
+        for config_warning in self._config_warnings.warnings:
+            warns.emit(config_warning)
         translator = label_translator
         if translator is None and braille_profile is not None:
             translator = self._graphic_label_translator(braille_profile, warns)
@@ -787,6 +857,7 @@ class Pipeline:
             # document assets (a figure edited in isolation still shows its
             # embedded picture in the live preview).
             asset_resolver=self.asset_resolver,
+            limits=limits,
         )
 
     # (The shared GraphicBlock rasterising tail lives in
@@ -860,12 +931,16 @@ class Pipeline:
             self._frontend.populate_block(block, session.frontend_ctx)
         braille_doc = _translate_document(doc, session.backend_ctx, self._profile)
         session.report_epoch_drift()
-        # The surface for a multi-block document is the concatenation
-        # of every block's text — useful for proofread output but not
-        # always semantically meaningful (no separator between blocks).
-        rebuilt_text = "\n".join(
-            _block_surface(b) for b in doc.blocks
-        )
+        # The surface for a multi-block document is the concatenation of
+        # every block's reconstructed text (newline between blocks — useful
+        # for proofread output, though not always semantically meaningful).
+        # Inside each block the reconstruction is the lossless one
+        # (:func:`brailix.pipeline._helpers._block_surface`): a table's rows
+        # join their cells with the same two spaces the row-local span
+        # coordinate contract uses, so every span in the proofread payload
+        # (inline nodes, braille cells, warnings) slices its surface out of
+        # this text — the consumption §8.3 documents.
+        rebuilt_text = "\n".join(_block_surface(b) for b in doc.blocks)
         return TranslationResult(
             text=rebuilt_text,
             ir=doc,
@@ -1134,6 +1209,22 @@ class Pipeline:
         the tree, edit the copy, assign it back. See
         :data:`TreeSubcache` for the full immutability contract.
 
+        **An ``ir_transformer``'s in-place edits persist on the block you
+        passed in — including on later compiles that pass no transformer.**
+        The transformer runs on the caller's own ``Block`` object, and the
+        guarded reuse above only re-runs the frontend when the *surface* or
+        the *fingerprint* changed; an override that edits a ``reading``, a
+        ``surface``-less field or an inline tree moves neither. So
+        re-compiling the same Block after dropping the transformer (the
+        "user undid the override" move) reuses the mutated content and
+        returns the mutated braille under a ``source_hash`` equal to the
+        clean compile's. When the mutation must be undoable, don't mutate
+        the block you keep: hand this method a deep copy per compile (or a
+        freshly parsed block — the shape every editing front-end already
+        uses), so the transformer's edits live and die with that compile.
+        The mutation hook's whole point is that the caller owns the IR
+        between the two stages; this warning is the price of that.
+
         Pipeline keeps **no cache of its own** — the caller consults its
         own block cache via ``source_hash`` before calling this method. The
         hash covers ``(block surface, resolved profile, structure)`` plus
@@ -1152,7 +1243,8 @@ class Pipeline:
         the authoritative raw source, though, so this skip is **guarded**, two
         ways: if you mutate ``block.text`` on a block whose content was
         built from the old text, populate detects the mismatch (the
-        reconstructed surface no longer equals ``block.text``), drops the
+        populate-time record of the source no longer equals
+        ``block.text``), drops the
         stale content, and re-runs the frontend on the current text — so the
         re-compile reflects your edit and ``source_hash`` changes with it,
         rather than silently reusing stale braille. And if the content was
@@ -1298,6 +1390,7 @@ def translate_graphic(
     warnings: WarningCollector | None = None,
     mode: RunMode | str = RunMode.NORMAL,
     asset_resolver: _GraphicAssetResolver | None = None,
+    limits: GraphicAssetLimits = DEFAULT_GRAPHIC_ASSET_LIMITS,
 ) -> GraphicResult:
     """Compile a tactile graphic into a :class:`GraphicResult`.
 
@@ -1330,7 +1423,14 @@ def translate_graphic(
     ``asset_resolver`` resolves an ``image`` source's reference to
     in-document bytes (see
     :class:`~brailix.core.protocols.GraphicAssetResolver`);
-    ``None`` leaves it to read a filesystem path.
+    ``None`` leaves it to read a filesystem path. ``limits`` is the read
+    budget every ``<image>`` href in the compiled tree is resolved under
+    (see :class:`~brailix.backend.tactile._asset_limits.GraphicAssetLimits`):
+    the byte and pixel ceilings are always on, and ``allow_filesystem``
+    decides whether a bare path href may read a local file at all — pass
+    ``GraphicAssetLimits(allow_filesystem=False)`` when the source comes
+    from someone else (a received document, a service upload), which is the
+    configuration the default (desktop-first, reads allowed) is not for.
     """
     from brailix.backend.tactile import rasterize
     from brailix.backend.tactile.profile import load_tactile_profile
@@ -1377,7 +1477,12 @@ def translate_graphic(
         else tactile_profile
     )
     raster = rasterize(
-        tree, prof, warns, translator, record_provenance=record_provenance
+        tree,
+        prof,
+        warns,
+        translator,
+        record_provenance=record_provenance,
+        limits=limits,
     )
     if _registries_generation() != generation:
         _warn_epoch_changed(warns)

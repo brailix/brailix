@@ -68,6 +68,7 @@ from brailix.pipeline._results import TreeSubcache
 if _TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
+    from brailix.core.errors import Warning, WarningCollector
     from brailix.core.protocols import GraphicAssetResolver, LanguageFrontend
 
     TreeParser = Callable[[str, _Any], _ET.Element | None]
@@ -105,19 +106,29 @@ def _populated_from(block: _Any) -> str | None:
     """The source text a populated block's content currently describes.
 
     Compared against ``block.text`` to catch an edit made after population
-    (:meth:`FrontendDriver._heal_stale_content`). A text block's inlines
-    carry their own surfaces, so the answer is reconstructed from them; a
-    parsed tree cannot be turned back into source text, so an embedded block
-    records what it parsed instead.
+    (:meth:`FrontendDriver._heal_stale_content`). The authoritative answer
+    for a pipeline-populated block is its **populate record**
+    (``populated_text``): the verbatim text the content was built from,
+    kept because inline surfaces can be a lossy view of the source — a
+    phonetic region's node carries the bare phoneme run, without the
+    ``/.../`` delimiters, so a surface reconstruction cannot tell
+    "characters the frontend deliberately dropped" from "characters a
+    later edit changed", and an edit toward the lossy reconstruction used
+    to look fresh. A parsed tree cannot be turned back into source text,
+    so an embedded block records what it parsed instead (``tree_text``).
 
-    A tree with no such record was not put there by a populate — it was
-    hand-built, or assigned by a caller — so this answers with ``block.text``
-    itself: no record is no evidence of staleness, and the "content is used
-    as-is" contract hand-built IR relies on holds here the way it does for
-    hand-built inlines.
+    A block with neither record was not put there by a populate — it was
+    hand-built, or assigned by a caller — so the answer falls back to the
+    inline-surface reconstruction (the "used as-is" contract hand-built IR
+    relies on): ``None`` when there is nothing to reconstruct from, else
+    :func:`_block_surface`'s join of the node surfaces.
     """
     if isinstance(block, EmbeddedBlock):
         return block.tree_text if block.tree_text is not None else block.text
+    if block.populated_text is not None:
+        return block.populated_text
+    if not block.inlines:
+        return None
     return _block_surface(block)
 
 
@@ -206,6 +217,43 @@ def _shift_value_object_spans(value: _Any, delta: int) -> _Any:
         if span is not None:
             updates[f.name] = span.shift(delta)
     return _replace(value, **updates) if updates else value
+
+
+def _rebase_cell_warnings(
+    collector: WarningCollector, prior: Sequence[Warning], delta: int
+) -> None:
+    """Shift the spans of the warnings emitted while **one cell** was being
+    populated, by the same ``delta`` the cell's nodes were shifted.
+
+    Every warning a cell's populate emits is **cell-local** at the moment
+    it is recorded: segment warnings (`NO_LANGUAGE_FRONTEND`), resolver
+    warnings (`LOW_CONFIDENCE_PINYIN`) and inline-parse warnings
+    (`MATH_INLINE_PARSE_FAILED`) all carry the span they were filled with,
+    before the row rebase moves the nodes they describe. Without this pass
+    the same collector ends up holding two indistinguishable coordinate
+    systems — frontend-stage warnings cell-local, backend-stage warnings
+    row-local (those read the already-shifted inline spans) — and the
+    documented row-local contract
+    (``row_text[warning.span]`` slices the warning's surface, §4.4) holds
+    for one kind and silently fails for the other.
+
+    ``prior`` is the snapshot of the collector taken **before** the cell's
+    populate, held as a list rather than a count on purpose: a frontend may
+    :meth:`~brailix.core.errors.WarningCollector.discard` an earlier
+    warning mid-populate (the zh pinyin post-pass retracts
+    ``LOW_CONFIDENCE_PINYIN`` once the user dictionary resolves the word),
+    which rewrites the list and invalidates index arithmetic. Warning
+    records are frozen, so identity is stable; keeping the snapshot alive
+    also pins those records' ids against reuse by one allocated during
+    this window.
+    """
+    preexisting = {id(w) for w in prior}
+    stored = collector.warnings
+    for i in range(len(stored)):
+        warning = stored[i]
+        if id(warning) in preexisting or warning.span is None:
+            continue
+        stored[i] = _replace(warning, span=warning.span.shift(delta))
 
 
 def _table_cell_source_len(cell: _Any) -> int:
@@ -361,6 +409,28 @@ class FrontendDriver:
             for row in block.blocks:
                 self._populate_row(row, ctx, tree_in=tree_in, tree_out=tree_out)
             return
+        if block.blocks and type(block).child_type is None:
+            # Illegal IR shape: a block holding nested blocks without
+            # declaring ``child_type``. The serializer refuses it in BOTH
+            # directions (``Block.to_dict`` / ``block_from_dict`` raise
+            # TypeError naming the declaration), so this boundary used to be
+            # the odd one out — the nested blocks were silently walked past
+            # (only List / Table recurse) and their content vanished from
+            # the braille with zero diagnostics. Warn rather than raise:
+            # the compile boundary's contract is soft-failure, but a
+            # soft-failure is still a diagnostic the caller can see.
+            ctx.warnings.warn(
+                code="BLOCK_UNDECLARED_NESTED_BLOCKS",
+                message=(
+                    f"{type(block).__name__} holds nested blocks but declares"
+                    f" no child_type, so nothing says what they are; the"
+                    f" nested content is not compiled (to_dict / from_dict"
+                    f" refuse this shape)"
+                ),
+                surface=block.text,
+                span=block.span,
+                source="pipeline",
+            )
         self._heal_stale_content(block)
 
         # Leaf block.  Populate from raw ``text`` only when it's present and
@@ -372,9 +442,13 @@ class FrontendDriver:
             populate_leaf(self, block, ctx, tree_in=tree_in, tree_out=tree_out)
             # Stamp the configuration that built this content so a later
             # populate under a different configuration rebuilds it (see
-            # :meth:`_heal_stale_content`).  After the populate, so a
+            # :meth:`_heal_stale_content`), and record the verbatim text it
+            # was built from — the staleness record inline surfaces cannot
+            # provide (they are a lossy view of the source; see
+            # :func:`_populated_from`).  After the populate, so a
             # strict-mode abort can't leave a stamped-but-empty block.
             block.frontend_fingerprint = self.fingerprint
+            block.populated_text = block.text
             return
 
         # Already populated (or no text): a text-bearing block still lands
@@ -411,7 +485,13 @@ class FrontendDriver:
         joined by two spaces (matching the backend's two-blank column
         separator), so every cell's spans are shifted into that row
         coordinate — otherwise a non-first cell's inline node / braille cell
-        highlights the wrong column.
+        highlights the wrong column.  The rebase covers **warnings** as
+        well: the frontend-stage warnings a cell's populate emits
+        (``NO_LANGUAGE_FRONTEND``, ``LOW_CONFIDENCE_PINYIN``,
+        ``MATH_INLINE_PARSE_FAILED``, ...) are recorded cell-local and are
+        shifted by the same delta (:func:`_rebase_cell_warnings`), so every
+        span the compile reports — node, cell or warning — answers to the
+        one row-local coordinate system the contract documents.
 
         The rebase is stated as an **invariant, not a one-off shift**: after
         this pass a cell with provenance satisfies ``cell.span.start ==
@@ -452,10 +532,17 @@ class FrontendDriver:
                 # offset.  Drop it so ``_ensure_block_span`` rebuilds a
                 # cell-local one from the current text.
                 cell.span = None
+            # Snapshot the collector BEFORE the populate: the warnings this
+            # cell's populate emits are cell-local, and the rebase below has
+            # to move them with the nodes they describe (a list, not a count
+            # — a frontend may discard() an earlier warning mid-populate).
+            prior_warnings = list(ctx.warnings.warnings)
             self.populate_block(cell, ctx, tree_in=tree_in, tree_out=tree_out)
             applied = cell.span.start if cell.span is not None else None
             if applied is not None and applied != cell_offset:
-                _shift_node_spans(cell, cell_offset - applied)
+                delta = cell_offset - applied
+                _shift_node_spans(cell, delta)
+                _rebase_cell_warnings(ctx.warnings, prior_warnings, delta)
             cell_offset += _table_cell_source_len(cell) + _TABLE_CELL_GAP
 
     def _heal_stale_content(self, block: _Any) -> None:
@@ -466,11 +553,15 @@ class FrontendDriver:
         silently reused, emitting braille that doesn't match the input):
 
         * **Edited text**: the caller mutated
-          ``block.text`` after population.  Detected with the SAME surface
-          the cache key uses (:func:`_block_surface`) — when the
-          reconstructed surface no longer equals the raw text, drop
-          the content so the populate path rebuilds it from the
-          authoritative ``block.text``.  ``text`` is authoritative whenever
+          ``block.text`` after population.  Detected against the block's
+          populate record (``populated_text``) — the verbatim text its
+          content was built from — because inline surfaces are a lossy
+          view of the source (a phonetic region's node drops its
+          delimiters), and an edit *toward* that lossy view used to read
+          as fresh while the braille kept describing the old text.  When
+          the record no longer equals the raw text, drop the content so
+          the populate path rebuilds it from the authoritative
+          ``block.text``.  ``text`` is authoritative whenever
           it is a string — **including the empty string**: editing a
           populated block to ``""`` clears its content (and the block
           compiles to nothing), it does not keep emitting the old
@@ -525,10 +616,12 @@ class FrontendDriver:
         come apart: a stamp is only ever true of content that exists (see
         :meth:`_heal_stale_content`). An embedded block's content is its
         ``tree`` and the ``tree_text`` recording what that tree was parsed
-        from; every other block's is its ``inlines``.
+        from; every other block's is its ``inlines`` and the
+        ``populated_text`` recording what they were built from.
         """
         block.inlines = []
         block.frontend_fingerprint = None
+        block.populated_text = None
         if isinstance(block, EmbeddedBlock):
             block.tree = None
             block.tree_text = None

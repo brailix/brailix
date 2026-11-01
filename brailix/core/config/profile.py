@@ -26,6 +26,13 @@ from brailix.core.config._helpers import (
     _feature_merge,
 )
 
+# Runtime import, not TYPE_CHECKING: ``with_features`` is public API and
+# ``tests/test_public_api.py`` resolves its annotations at runtime — an
+# import that only exists for the type checker breaks
+# ``typing.get_type_hints`` on a public object (the same trap
+# ``brailix/pipeline/_pipeline.py`` documents for its own imports).
+from brailix.core.errors import WarningCollector
+
 
 @_dataclass(slots=True)
 class BrailleProfile:
@@ -179,7 +186,12 @@ class BrailleProfile:
         value = _feature_lookup(self.features, key, sentinel)
         return default if value is sentinel else value
 
-    def with_features(self, overrides: _Mapping[str, _Any]) -> BrailleProfile:
+    def with_features(
+        self,
+        overrides: _Mapping[str, _Any],
+        *,
+        warnings: WarningCollector | None = None,
+    ) -> BrailleProfile:
         """A copy of this profile with ``overrides`` written into its features.
 
         Keys are the same dotted paths :meth:`feature` reads
@@ -195,6 +207,17 @@ class BrailleProfile:
         profile must not see the value move underneath it; and a caller
         who loaded the profile for their own use keeps what they loaded.
 
+        An override whose value the flag's type table rejects — a bool flag
+        handed the string ``"false"`` — is dropped with a
+        ``CONFIG_FEATURE_BAD_VALUE`` warning; an override under a key no
+        reader knows is written but warned (``CONFIG_FEATURE_UNKNOWN_KEY``,
+        the typo hint — the features table stays an open extension point).
+        Both are reported on ``warnings`` when a
+        :class:`~brailix.core.errors.WarningCollector` is supplied (the
+        ``profile_features`` pipeline path always supplies one, so the
+        diagnostics ride the pipeline's compile results); see
+        :func:`~brailix.core.config._helpers._feature_merge`.
+
         Returns ``self`` unchanged when ``overrides`` is empty — the
         common case, and one that should cost nothing.
 
@@ -206,7 +229,9 @@ class BrailleProfile:
             return self
         return _replace(
             self,
-            features=_feature_merge(self.features, overrides),
+            features=_feature_merge(
+                self.features, overrides, warnings=warnings
+            ),
             # A fresh memo rather than the original's. ``letter()`` results
             # depend on the letter / structure tables, not on features, so
             # sharing would be harmless today — but it would be a mutable

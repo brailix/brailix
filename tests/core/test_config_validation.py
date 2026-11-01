@@ -1503,3 +1503,181 @@ class TestLoaderSilentDropRegressions:
         # A dict 'compounds' used to iterate its KEYS into the lexicon.
         with pytest.raises(ConfigurationError, match="compounds"):
             load_profile(name, root=tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Recoverable configuration diagnostics (review R2-05). The validator's
+# loud-failure philosophy covers shapes the loader cannot resolve; these
+# tests pin the *other* half — data that loads cleanly but no reader will
+# ever act on is reported on the ``warnings`` collector rather than either
+# crashing the load or staying silent. Without a collector the load is
+# exactly as before (these are non-fatal by design).
+# ---------------------------------------------------------------------------
+
+
+class TestRecoverableConfigWarnings:
+    @staticmethod
+    def _collector():
+        from brailix.core.errors import RunMode, WarningCollector
+
+        return WarningCollector(mode=RunMode.NORMAL)
+
+    def test_unknown_top_level_key_is_reported(self, tmp_path):
+        # The classic hand-edit typo: "features" misspelled as "featuers"
+        # used to be silently ignored, so every flag fell to its reader's
+        # default.
+        name = _write_profile(
+            tmp_path, extra={"featuers": {"zh": {"tone": True}}}
+        )
+        warns = self._collector()
+        load_profile(name, root=tmp_path, warnings=warns)
+        assert [w.code for w in warns] == ["CONFIG_PROFILE_UNKNOWN_KEY"]
+        assert "featuers" in warns.warnings[0].message
+
+    def test_known_and_metadata_keys_stay_quiet(self, tmp_path):
+        name = _write_profile(
+            tmp_path,
+            extra={
+                "features": {"zh": {"tone": False}},
+                "_note": "doc",
+                "reference": "x",
+            },
+        )
+        warns = self._collector()
+        load_profile(name, root=tmp_path, warnings=warns)
+        assert not warns.warnings
+
+    def test_without_a_collector_the_load_is_unchanged(self, tmp_path):
+        name = _write_profile(tmp_path, extra={"featuers": {}})
+        profile = load_profile(name, root=tmp_path)
+        assert profile.name == name
+
+    def test_bad_zh_phoneme_entries_warn_with_count(self, tmp_path):
+        # A hand-edit that breaks a real initial used to vanish at load
+        # (the resolver skips entries it cannot parse) and surfaced only
+        # as a blank cell at translation time.
+        (tmp_path / "initials.json").write_text(
+            json.dumps({
+                "initials": {
+                    "b": "c_12",
+                    "bogus_entry": {"no_cells_no_dots": [1]},
+                    "bogus_two": 42,
+                }
+            }),
+            encoding="utf-8",
+        )
+        name = _write_profile(
+            tmp_path,
+            tables_override={
+                "cells": "resources/cells.json",
+                "zh": {"initials": "initials.json"},
+            },
+        )
+        warns = self._collector()
+        profile = load_profile(name, root=tmp_path, warnings=warns)
+        assert [w.code for w in warns] == ["CONFIG_ZH_TABLE_BAD_ENTRIES"]
+        message = warns.warnings[0].message
+        assert "2" in message and "initials" in message
+        # The loadable entries still load; the broken ones are gone.
+        assert set(profile.lang_table("initials")) == {"b"}
+
+    def test_neutral_tone_empty_cell_is_not_bad(self, tmp_path):
+        # ``"5": []`` is the documented empty-cell sequence (the neutral
+        # tone's "emit nothing"), not a dropped entry — the warning must
+        # not fire for it.
+        (tmp_path / "tones.json").write_text(
+            json.dumps({"tones": {"1": "c_1", "5": []}}), encoding="utf-8"
+        )
+        name = _write_profile(
+            tmp_path,
+            tables_override={
+                "cells": "resources/cells.json",
+                "zh": {"tones": "tones.json"},
+            },
+        )
+        warns = self._collector()
+        profile = load_profile(name, root=tmp_path, warnings=warns)
+        assert not warns.warnings
+        assert profile.lang_table("tones")["5"] == ()
+
+    def test_zh_slot_on_a_non_zh_profile_warns(self, tmp_path):
+        # A zh profile copied as a starting point with only the language
+        # changed: the zh exceptions load into lang_specs["zh"], which a
+        # ja profile's lang_spec() never reads.
+        (tmp_path / "exceptions.json").write_text(
+            # All three sections are optional; an empty resource loads.
+            json.dumps({}),
+            encoding="utf-8",
+        )
+        _write_cells_pool(tmp_path)
+        prof = tmp_path / "profiles" / "ja_probe.json"
+        prof.parent.mkdir(parents=True, exist_ok=True)
+        prof.write_text(
+            json.dumps({
+                "name": "ja_probe",
+                "language": "ja-JP",
+                "cell": "six_dot",
+                "tables": {
+                    "cells": "resources/cells.json",
+                    "zh": {"exceptions": "exceptions.json"},
+                },
+            }),
+            encoding="utf-8",
+        )
+        warns = self._collector()
+        load_profile("ja_probe", root=tmp_path, warnings=warns)
+        assert [w.code for w in warns] == ["CONFIG_UNREACHABLE_LANG_SLOT"]
+        assert "exceptions" in warns.warnings[0].message
+        assert "ja-JP" in warns.warnings[0].message
+
+
+class TestSymbolsWithoutCells:
+    def test_role_only_symbol_entry_raises(self, tmp_path):
+        # functions.json has had this check (its docstring says the check
+        # exists precisely because silent drops are unfindable); symbols
+        # used to accept a role-only entry whose cells then vanished —
+        # the role half landed, the braille never did, and the symbol
+        # surfaced only as MATH_UNKNOWN_SYMBOL at translation time.
+        name = _write_profile(
+            tmp_path,
+            symbols={
+                "plus": {"role": "op", "cells": ["c_1"]},
+                "nexist": {"role": "rel"},  # forgot the cells
+            },
+        )
+        with pytest.raises(ConfigurationError) as ei:
+            load_profile(name, root=tmp_path)
+        message = str(ei.value)
+        assert "nexist" in message
+        assert "cells" in message or "braille" in message
+
+
+class TestFeatureTypeTableCoversEveryReader:
+    """Drift guard for ``_FEATURE_TYPES`` (review R2-06).
+
+    The table's claim is that it names every feature key the library
+    itself reads — a reader's ``feature("key", default)`` call IS the
+    declaration. A new reader without a table entry would silently lose
+    the type check this fix exists for, so the call sites are scanned and
+    compared against the table here (the same scan-by-source approach the
+    warning-code i18n guard uses).
+    """
+
+    def test_every_read_key_is_in_the_table(self):
+        import re
+        from pathlib import Path
+
+        from brailix.core.config._helpers import _FEATURE_TYPES
+
+        root = Path(__file__).resolve().parents[2] / "brailix"
+        pattern = re.compile(r'\.feature\(\s*"([a-z0-9_]+\.[a-z0-9_.]+)"')
+        read_keys: set[str] = set()
+        for path in root.rglob("*.py"):
+            read_keys.update(pattern.findall(path.read_text(encoding="utf-8")))
+        assert read_keys, "scanner went blind — no feature keys found"
+        missing = read_keys - set(_FEATURE_TYPES)
+        assert not missing, (
+            f"feature keys read by the library but absent from "
+            f"_FEATURE_TYPES (their overrides skip the type check): "
+            f"{sorted(missing)}"
+        )

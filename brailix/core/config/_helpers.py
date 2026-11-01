@@ -21,6 +21,8 @@ if _TYPE_CHECKING:
     from pathlib import Path
     from typing import Any
 
+    from brailix.core.errors import WarningCollector
+
 # Reserved keys at the top of each table file — ignored as metadata.
 _METADATA_KEYS: frozenset[str] = frozenset({
     "schema", "name", "cell", "status", "source", "version", "reference",
@@ -232,9 +234,157 @@ def _feature_lookup(features: dict[str, Any], key: str, default: Any) -> Any:
 #   instead.
 _FEATURE_VALUE_TYPES = (str, int, float, bool, type(None))
 
+# The value type every feature key the library itself reads declares —
+# enumerated exhaustively (a reader's ``feature(key, default)`` call is the
+# declaration; a key shipped in a profile JSON but read by nobody is NOT
+# here, and neither is a plugin's own flag). This is what lets
+# :func:`_feature_merge` reject ``{"zh.tone": "false"}`` — the string a
+# serialized checkbox often carries, truthy where a bool was meant, so the
+# override used to be silently accepted while the reader's ``if`` kept the
+# flag ON. Keys absent from the table are still overridable when the
+# profile itself declares them (a plugin flag lives in the profile's own
+# ``features``); only a key that is neither read by the library nor
+# declared by the profile is unknown.
+_FEATURE_TYPES: dict[str, tuple[type, ...]] = {
+    "input.docx.detect_chemistry": (bool,),
+    "input.docx.mathtype_fallback": (str,),
+    "list.ordered_marker": (str,),
+    "list.unordered_marker": (str,),
+    "math.atomic_script_lower_digit": (bool,),
+    "math.number_sign": (bool,),
+    "math.op_spacing": (bool,),
+    "math.simplify_fraction": (bool,),
+    "math.simplify_script": (bool,),
+    "music.accidental_persist_in_measure": (bool,),
+    "music.bar_line_print": (str,),
+    "music.dot_form": (str,),
+    "music.dynamics_form": (str,),
+    "music.expand_repeats": (bool,),
+    "music.in_accord_form": (str,),
+    "music.in_accord_marker": (bool,),
+    "music.lyrics_form": (str,),
+    "music.measure_separator": (str,),
+    "music.octave_rule": (str,),
+    "music.show_chord_symbols": (bool,),
+    "music.show_clef": (bool,),
+    "music.show_dynamics": (bool,),
+    "music.show_fingering": (bool,),
+    "music.show_key_signature": (bool,),
+    "music.show_lyrics": (bool,),
+    "music.show_ornaments": (bool,),
+    "music.show_string_techniques": (bool,),
+    "music.show_time_signature": (bool,),
+    "music.show_words": (bool,),
+    "music.tuplet_form": (str,),
+    "music.value_signs": (bool,),
+    "music.volta_style": (str,),
+    "number.sign": (bool,),
+    "zh.tone": (bool,),
+    "zh.tone_omit_neutral": (bool,),
+    "zh.tone_strategy": (str,),
+}
+
+# Closed value sets, for the (rare) string flags whose reader enumerates its
+# accepted values. ``zh.tone_strategy`` is deliberately NOT here: the
+# strategy registry is open (third parties register their own), so any
+# string is structurally valid and an unknown name fails loudly at the
+# reader with the registered list in the message.
+_FEATURE_VALUE_ENUMS: dict[str, frozenset[str]] = {
+    # Mirrors ``brailix.backend.music._VALID_OCTAVE_RULES`` — core cannot
+    # import the backend (layering), so the copy is deliberate; an unknown
+    # value is warned-and-rejected here either way, never silently kept.
+    "music.octave_rule": frozenset({"interval16", "every_measure", "always"}),
+}
+
+# The two codes a rejected feature override reports under, declared in the
+# enumerable form (name == value) the i18n scanner reads — the emit site
+# passes them through a variable, which is invisible to the literal scan,
+# so without this declaration the bilingual-entry guard would miss them.
+CONFIG_FEATURE_UNKNOWN_KEY = "CONFIG_FEATURE_UNKNOWN_KEY"
+CONFIG_FEATURE_BAD_VALUE = "CONFIG_FEATURE_BAD_VALUE"
+
+
+def _feature_override_problem(
+    features: dict[str, Any],
+    key: str,
+    value: Any,
+) -> tuple[str, str, bool] | None:
+    """What is questionable about ``value`` as an override for ``key``, as a
+    ``(warning code, reason, reject)`` triple, or ``None`` when it is
+    unremarkable.
+
+    Three verdicts, in order:
+
+    * a key in :data:`_FEATURE_TYPES` must get a value of its declared
+      type (and inside a closed value set, where one is declared) —
+      anything else is ``CONFIG_FEATURE_BAD_VALUE`` **and rejected**;
+    * otherwise the key should be **declared by the profile itself** —
+      resolvable inside ``features`` — and a declared non-null value pins
+      the override to its own type (a plugin flag the profile ships as a
+      bool stays bool-typed; ``None`` pins nothing, being "unset") — a
+      type clash is ``CONFIG_FEATURE_BAD_VALUE`` **and rejected**;
+    * otherwise the key is unknown: no library reader and no profile
+      declaration. That is ``CONFIG_FEATURE_UNKNOWN_KEY``, **warned but
+      still written** — the features table is a documented open extension
+      point (a plugin's own flag is addressed by its bare name), so an
+      unknown key is not refused; what used to be missing was the *hint*,
+      because the classic case is a typo (``"zh.ton"`` for ``"zh.tone"``)
+      that silently did nothing.
+
+    The value itself is never coerced ("false" → False): a silent guess is
+    exactly the failure mode these checks exist to replace.
+    """
+    allowed = _FEATURE_TYPES.get(key)
+    if allowed is not None:
+        if isinstance(value, bool) and bool not in allowed:
+            return (
+                CONFIG_FEATURE_BAD_VALUE,
+                f"flag {key!r} takes "
+                f"{'/'.join(t.__name__ for t in allowed)}, got bool",
+                True,
+            )
+        if not isinstance(value, allowed):
+            return (
+                CONFIG_FEATURE_BAD_VALUE,
+                f"flag {key!r} takes "
+                f"{'/'.join(t.__name__ for t in allowed)}, got "
+                f"{type(value).__name__} {value!r}",
+                True,
+            )
+        enum = _FEATURE_VALUE_ENUMS.get(key)
+        if enum is not None and value not in enum:
+            return (
+                CONFIG_FEATURE_BAD_VALUE,
+                f"flag {key!r} takes one of {sorted(enum)}, got {value!r}",
+                True,
+            )
+        return None
+    sentinel = object()
+    declared = _feature_lookup(features, key, sentinel)
+    if declared is not sentinel:
+        if declared is not None and type(value) is not type(declared):
+            return (
+                CONFIG_FEATURE_BAD_VALUE,
+                f"flag {key!r} is declared as "
+                f"{type(declared).__name__} by this profile, got "
+                f"{type(value).__name__} {value!r}",
+                True,
+            )
+        return None
+    return (
+        CONFIG_FEATURE_UNKNOWN_KEY,
+        f"unknown feature key {key!r}: no library reader knows it and the "
+        f"loaded profile does not declare it (typo in a dotted name?); the "
+        f"value is written but nothing reads it",
+        False,
+    )
+
 
 def _feature_merge(
-    features: dict[str, Any], overrides: Mapping[str, Any]
+    features: dict[str, Any],
+    overrides: Mapping[str, Any],
+    *,
+    warnings: WarningCollector | None = None,
 ) -> dict[str, Any]:
     """Return a deep copy of ``features`` with each override key written in.
 
@@ -249,16 +399,29 @@ def _feature_merge(
     into the profile the override was derived from — which is exactly the
     object a caller may still be compiling with.
 
-    Raises :class:`ConfigurationError` for either malformed override:
+    Raises :class:`ConfigurationError` for a malformed override — an
+    intermediate segment that exists and is not a dict
+    (``"zh.tone.strict"`` where ``zh.tone`` is a bool): silently replacing
+    the scalar with a group would leave the original feature unreadable and
+    the override looking like it took effect; or a value that is not a JSON
+    scalar (see :data:`_FEATURE_VALUE_TYPES`).
 
-    * an intermediate segment that exists and is not a dict
-      (``"zh.tone.strict"`` where ``zh.tone`` is a bool): silently replacing
-      the scalar with a group would leave the original feature unreadable and
-      the override looking like it took effect;
-    * a value that is not a JSON scalar (see :data:`_FEATURE_VALUE_TYPES`).
+    A value the flag's type table rejects (:data:`_FEATURE_TYPES` /
+    :func:`_feature_override_problem`) — ``{"zh.tone": "false"}``, the
+    string a serialized checkbox often carries, where a bool is expected —
+    is **dropped with a warning** rather than applied or raised on: the
+    pipeline this merge feeds must still build over a recoverable mistake,
+    but the mistake must announce itself, and the flag keeps the value the
+    profile's readers actually understand. An override under a key nobody
+    knows is warned (the typo hint) and still written, because the features
+    table is an open extension point. ``warnings`` is the
+    :class:`~brailix.core.errors.WarningCollector` to report to (the
+    Pipeline path passes its construction-time collector, so the
+    diagnostics ride every compile's results); without one the diagnostics
+    are skipped and the semantics alone apply.
 
-    The single write point for feature overrides, which is why both checks
-    live here rather than at one of the two entry points
+    The single write point for feature overrides, which is why all the
+    checks live here rather than at one of the two entry points
     (:meth:`BrailleProfile.with_features` and the ``profile_features``
     pipeline field) — a check on one of those is a check the other is missing.
     """
@@ -272,6 +435,19 @@ def _feature_merge(
                 f"nested flag — write {key + '.<flag>'!r} for each one "
                 f"instead of handing over a container"
             )
+        problem = _feature_override_problem(features, key, value)
+        if problem is not None:
+            code, reason, reject = problem
+            if warnings is not None:
+                verb = "rejected" if reject else "written anyway"
+                warnings.warn(
+                    code=code,
+                    message=f"feature override {verb}: {reason}",
+                    surface=key,
+                    source="config",
+                )
+            if reject:
+                continue
         *parents, leaf = key.split(".")
         node = merged
         for depth, segment in enumerate(parents):

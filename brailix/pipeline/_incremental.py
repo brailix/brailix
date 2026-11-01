@@ -19,6 +19,10 @@ import xml.etree.ElementTree as _ET
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.backend.block import expand_block
+from brailix.backend.tactile._asset_limits import (
+    DEFAULT_GRAPHIC_ASSET_LIMITS,
+    GraphicAssetLimits,
+)
 from brailix.core.errors import WarningCollector
 from brailix.ir.braille import BrailleCell
 from brailix.ir.document import Block, DocumentIR, GraphicBlock
@@ -181,6 +185,7 @@ def rasterize_graphic_block(
     tactile_profile: str | TactileProfile,
     label_translator: Callable[[str], list[BrailleCell]] | None,
     record_provenance: bool = False,
+    limits: GraphicAssetLimits = DEFAULT_GRAPHIC_ASSET_LIMITS,
 ) -> tuple[TactileRaster, _ET.Element]:
     """Rasterise an already-populated :class:`GraphicBlock` into a
     :class:`~brailix.ir.tactile.TactileRaster`.
@@ -192,6 +197,14 @@ def rasterize_graphic_block(
     error-marked SVG on soft-failure, never ``None`` — so a figure always
     rasterises to *something*), loads the tactile profile, and rasterises.
     Returns ``(raster, tree)``.
+
+    ``limits`` is the read budget every ``<image>`` href in the block's tree
+    is resolved under (see
+    :class:`brailix.backend.tactile._asset_limits.GraphicAssetLimits`); a
+    caller compiling a document it was sent — not one its user authored —
+    passes ``allow_filesystem=False`` so a bare-path href inside the tree
+    (which a serialized project or a pass-through ``graphic`` fence can
+    carry) cannot read local files.
     """
     from brailix.backend.tactile import rasterize
     from brailix.backend.tactile.profile import load_tactile_profile
@@ -205,6 +218,11 @@ def rasterize_graphic_block(
         else tactile_profile
     )
     raster = rasterize(
-        tree, prof, warns, label_translator, record_provenance=record_provenance
+        tree,
+        prof,
+        warns,
+        label_translator,
+        record_provenance=record_provenance,
+        limits=limits,
     )
     return raster, tree
