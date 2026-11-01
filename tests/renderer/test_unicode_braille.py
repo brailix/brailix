@@ -153,3 +153,29 @@ class TestRegistry:
     def test_registry_lookup_returns_working_renderer(self):
         r = renderer_registry.get("unicode")
         assert r.render(BrailleSequence(cells=[BrailleCell(dots=(1,))])) == chr(0x2801)
+
+
+class TestPublicApiDotValidation:
+    """``dots_to_char`` is public API — third parties feed it raw tuples
+    the BrailleCell constructor never sees. Out-of-range dots used to
+    crash with an unrelated "negative shift count" (0) or encode a code
+    point PAST the braille block (9 → U+2900); both must be a clear
+    ValueError naming the offending dot (adversarial review F8)."""
+
+    @pytest.mark.parametrize("dots", [(0,), (9,), (-1,), (1, 9), (2, 0, 1)])
+    def test_out_of_range_dots_raise(self, dots):
+        with pytest.raises(ValueError, match="1..8"):
+            dots_to_char(dots)
+
+    @pytest.mark.parametrize("dot", [1.5, "2", True, None])
+    def test_non_int_dot_raises(self, dot):
+        # A float passes the range test and only breaks at the shift; a
+        # bool IS an int and would silently encode dot 1. Both rejected
+        # up front, same message.
+        with pytest.raises(ValueError, match="1..8"):
+            dots_to_char((dot,))
+
+    def test_valid_dots_including_7_and_8_still_encode(self):
+        assert ord(dots_to_char(())) == 0x2800
+        assert ord(dots_to_char((8,))) == 0x2880
+        assert ord(dots_to_char((1, 2, 3, 4, 5, 6, 7, 8))) == 0x28FF

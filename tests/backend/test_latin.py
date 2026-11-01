@@ -331,3 +331,115 @@ class TestLatinHousing:
         # Ensure dispatcher's import path is the new latin module —
         # the symbol it calls must come from backend.latin.
         assert "latin" in dispatch.__dict__.get("latin_backend").__name__
+
+
+class TestProfileWithoutLetterPrefix:
+    """A profile that ships the latin letter table but no ``letter_prefix.*``
+    structures — the shipped case is ``ja_current``, whose romaji
+    entry/exit indicators are a registered debt —
+    renders every letter bare: ``A`` and ``a`` come out identical, and
+    after a digit run the bare a–j cell even reads as another digit
+    (``42ab`` → "421b"). The backend does not invent the missing cells
+    (output is exactly what the table says), but the loss must be LOUD
+    (LATIN_CASE_SIGN_MISSING), not silent — that is this whole regression
+    class (adversarial review F2)."""
+
+    @pytest.fixture(scope="class")
+    def ja(self):
+        return load_profile("ja_current")
+
+    @pytest.fixture
+    def ja_ctx(self):
+        return BackendContext(profile="ja_current")
+
+    def test_bare_output_unchanged_and_warning_emitted(self, ja_ctx, ja):
+        # "hi" renders as its two bare cells — identical to before the
+        # warning existed — plus exactly one LATIN_CASE_SIGN_MISSING.
+        cells = translate_latin(
+            LatinWord(surface="hi", span=Span(0, 2)), ja_ctx, ja
+        )
+        assert [c.dots for c in cells] == [
+            ja.bare_letter("h"),
+            ja.bare_letter("i"),
+        ]
+        assert [w.code for w in ja_ctx.warnings] == ["LATIN_CASE_SIGN_MISSING"]
+
+    def test_upper_and_lower_render_identically_and_both_warn(
+        self, ja, ja_ctx
+    ):
+        # The defect itself, pinned: case collapses on a prefix-less
+        # profile. Both directions warn (upper and lower are different
+        # missing structures).
+        lower = translate_latin(LatinWord(surface="a"), ja_ctx, ja)
+        lower_ctx_codes = [w.code for w in ja_ctx.warnings]
+        upper = translate_latin(LatinWord(surface="A"), BackendContext(profile="ja_current"), ja)
+        assert [c.dots for c in lower] == [c.dots for c in upper]
+        assert "LATIN_CASE_SIGN_MISSING" in lower_ctx_codes
+        assert "LATIN_CASE_SIGN_MISSING" in [w.code for w in ja_ctx.warnings]
+
+    def test_all_caps_word_warns(self, ja):
+        # The doubled ⠠⠠ path composes letter_prefix.latin_upper itself;
+        # with the structure absent the word renders as plain bare letters
+        # and warns once.
+        ctx = BackendContext(profile="ja_current")
+        cells = translate_latin(LatinWord(surface="CPU"), ctx, ja)
+        assert [c.dots for c in cells] == [
+            ja.bare_letter("C"),
+            ja.bare_letter("P"),
+            ja.bare_letter("U"),
+        ]
+        assert [w.code for w in ctx.warnings] == ["LATIN_CASE_SIGN_MISSING"]
+
+    def test_running_english_suppressed_sign_stays_silent(self, ja):
+        # The documented lowercase-sign suppression inside a running
+        # English stretch is a deliberate trade-off, not a profile gap:
+        # no warning for it, before or after this fix.
+        ctx = BackendContext(profile="ja_current")
+        ctx.options["_english_run_active"] = True
+        ctx.options["_english_run_after_digit"] = False
+        translate_latin(LatinWord(surface="word"), ctx, ja)
+        assert [w.code for w in ctx.warnings] == []
+
+    def test_digit_rearm_needs_the_sign_and_warns(self, ja):
+        # "42 ab": a digit run re-arms the lowercase sign because a bare
+        # a–j cell IS a digit cell — on a prefix-less profile the re-arm
+        # is impossible, the word reads as more digits, and the warning
+        # is the only thing that says so.
+        ctx = BackendContext(profile="ja_current")
+        ctx.options["_english_run_active"] = True
+        ctx.options["_english_run_after_digit"] = True
+        cells = translate_latin(LatinWord(surface="ab"), ctx, ja)
+        assert [c.dots for c in cells] == [
+            ja.bare_letter("a"),
+            ja.bare_letter("b"),
+        ]
+        assert "LATIN_CASE_SIGN_MISSING" in [w.code for w in ctx.warnings]
+
+    def test_cn_current_has_prefixes_and_never_warns(self, ctx, profile):
+        # The shipped Chinese profiles define letter_prefix.* — the
+        # warning must stay silent there (golden corpus pins the cells).
+        translate_latin(LatinWord(surface="hi"), ctx, profile)
+        assert "LATIN_CASE_SIGN_MISSING" not in [
+            w.code for w in ctx.warnings
+        ]
+
+    def test_pipeline_42ab_ja_current_output_unchanged_warning_present(self):
+        # The reviewer's minimal input, end to end. The braille string is
+        # the pre-fix output pinned verbatim: this fix adds the warning,
+        # never new cells.
+        from brailix import Pipeline
+
+        ja_pipe = Pipeline(profile="ja_current", analyzer="kana")
+        result = ja_pipe.translate_text("42ab")
+        assert result.render("unicode") == "⠼⠙⠃⠁⠃"
+        assert "LATIN_CASE_SIGN_MISSING" in [w.code for w in result.warnings]
+
+    def test_pipeline_42ab_cn_current_unchanged_no_warning(self):
+        from brailix import Pipeline
+
+        cn_pipe = Pipeline(profile="cn_current", analyzer="char", resolver="null")
+        result = cn_pipe.translate_text("42ab")
+        assert result.render("unicode") == "⠼⠙⠃⠰⠁⠃"
+        assert "LATIN_CASE_SIGN_MISSING" not in [
+            w.code for w in result.warnings
+        ]

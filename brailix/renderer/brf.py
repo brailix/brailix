@@ -55,9 +55,20 @@ def dots_to_brf(dots: tuple[int, ...] | list[int]) -> str:
     """BRF (NABCC) char for a bare dot tuple, without a Cell wrapper.
 
     Dots 7 and 8 are dropped; only dots 1..6 contribute to the mask.
+
+    Raises :class:`ValueError` naming the offending element when any dot
+    is outside 1..8 — the same bound :class:`~brailix.ir.braille.BrailleCell`
+    enforces. Without the check a ``0`` or a ``9`` fell through the
+    ``1 <= d <= 6`` test and silently encoded as the blank cell, so a bad
+    tuple produced output that looked valid.
     """
     mask = 0
     for d in dots:
+        if isinstance(d, bool) or not isinstance(d, int) or not 1 <= d <= 8:
+            raise ValueError(
+                f"invalid dot {d!r} in {dots!r}; dot positions must be "
+                f"integers 1..8"
+            )
         if 1 <= d <= 6:
             mask |= 1 << (d - 1)
     return _NABCC[mask]

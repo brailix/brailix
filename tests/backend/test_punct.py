@@ -318,3 +318,82 @@ class TestCodeInline:
     def test_empty_surface_yields_no_cells(self, ctx, profile):
         # Hits the early `not text` fast path in _char_by_char.
         assert translate_code_inline(CodeInline(surface=""), ctx, profile) == []
+
+
+class TestFullwidthLatinFold:
+    """Prose renders full-width Latin letters through the letter table via
+    their half-width twins (F7: ``ＡＢＣ`` used to be three blank unknown
+    cells in every shipped profile). The fold mirrors the digit run's
+    ``fold_nonascii`` prose policy — routine CJK typography folds, math
+    warns — and keeps the letter's case sign, because ``profile.letter``
+    composes prefix + bare cell."""
+
+    def test_fullwidth_upper_folds_to_letter_with_case_sign(self, ctx, profile):
+        cells = translate_punct(Punct(surface="Ａ", span=Span(0, 1)), ctx, profile)
+        assert [c.dots for c in cells] == list(profile.letter("A"))
+        assert all(c.role == "latin_letter" for c in cells)
+        # Traceability maps the cells to the character the source actually
+        # carries — the full-width one, not the folded twin nobody typed.
+        assert all(c.source_text == "Ａ" for c in cells)
+        assert all(c.source_span == Span(0, 1) for c in cells)
+
+    def test_fullwidth_lower_folds_to_letter_with_case_sign(self, ctx, profile):
+        cells = translate_punct(Punct(surface="ａ", span=Span(0, 1)), ctx, profile)
+        assert [c.dots for c in cells] == list(profile.letter("a"))
+
+    def test_case_survives_the_fold(self, ctx, profile):
+        # The whole point of routing through profile.letter: Ａ and ａ must
+        # not collapse the way bare cells alone would.
+        upper = translate_punct(Punct(surface="Ａ"), ctx, profile)
+        lower = translate_punct(Punct(surface="ａ"), ctx, profile)
+        assert [c.dots for c in upper] != [c.dots for c in lower]
+
+    def test_fold_is_silent_when_the_profile_has_the_sign(self, ctx, profile):
+        # cn_current defines letter_prefix.*: the fold needs no diagnostic.
+        translate_punct(Punct(surface="Ａ"), ctx, profile)
+        assert [w.code for w in ctx.warnings] == []
+
+    def test_fold_warns_when_profile_lacks_the_sign(self):
+        # ja_current ships the letter table but no letter_prefix.* (the
+        # registered romaji debt): the folded letter renders bare — case
+        # lost — and that rides the Latin path's own warning.
+        from brailix.core.config import load_profile
+
+        ja = load_profile("ja_current")
+        ja_ctx = BackendContext(profile="ja_current")
+        cells = translate_punct(Punct(surface="Ａ"), ja_ctx, ja)
+        assert [c.dots for c in cells] == [ja.bare_letter("A")]
+        assert "LATIN_CASE_SIGN_MISSING" in [w.code for w in ja_ctx.warnings]
+
+    def test_fullwidth_non_letter_is_not_folded(self, ctx, profile):
+        # The fold is scoped to LETTERS (the latin table's domain). A
+        # full-width ＆ has no letter twin and keeps its ordinary
+        # unknown-punct diagnostic with the half-width hint.
+        cells = translate_punct(Punct(surface="＆", span=Span(0, 1)), ctx, profile)
+        assert [w.code for w in ctx.warnings] == ["UNKNOWN_PUNCT"]
+        assert cells[0].role == "unknown"
+
+    @pytest.mark.parametrize(
+        ("profile_name", "kwargs"),
+        [
+            ("cn_current", {"analyzer": "char", "resolver": "null"}),
+            ("ja_current", {"analyzer": "kana"}),
+        ],
+    )
+    def test_prose_fullwidth_latin_renders_nonblank(self, profile_name, kwargs):
+        # End-to-end (frontend segmentation + backend): ＡＢＣａｂｃ in
+        # running text must produce letter cells, never blank placeholders.
+        from brailix import Pipeline
+
+        result = Pipeline(profile=profile_name, **kwargs).translate_text(
+            "ＡＢＣａｂｃ"
+        )
+        cells = [c for b in result.braille_ir.blocks for c in b.cells]
+        assert cells, f"{profile_name}: full-width latin probe produced no cells"
+        placeholders = [c for c in cells if not c.dots and c.role != "space"]
+        assert not placeholders, (
+            f"{profile_name}: full-width latin rendered blank placeholder cells"
+        )
+        assert "UNKNOWN_PUNCT" not in [w.code for w in result.warnings]
+        # Five source letters → at least five letter cells (nothing vanished).
+        assert sum(1 for c in cells if c.role == "latin_letter") >= 5

@@ -34,7 +34,11 @@ from dataclasses import replace as _replace
 
 from brailix.backend import number as number_backend
 from brailix.backend.dispatch import translate_embedded, translate_node
-from brailix.backend.latin import english_run_is_digit_run, english_run_role
+from brailix.backend.latin import (
+    english_run_is_digit_run,
+    english_run_role,
+    warn_letter_prefix_missing,
+)
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
@@ -136,7 +140,7 @@ def expand_block(
     # Footnote optionally gets a reference marker prepended.
     cells: list[BrailleCell] = []
     if isinstance(block, Footnote) and block.ref:
-        cells.extend(_footnote_ref_cells(block.ref, profile))
+        cells.extend(_footnote_ref_cells(block.ref, ctx, profile))
     cells.extend(_translate_inlines(block.inlines, ctx, profile))
     return [
         BrailleBlock(
@@ -362,7 +366,9 @@ def _expand_list(
     blocks: list[BrailleBlock] = []
     for i, item in enumerate(block.blocks, start=1):
         cells: list[BrailleCell] = []
-        cells.extend(_list_marker_cells(i, block.ordered, ctx, profile))
+        cells.extend(
+            _list_marker_cells(i, block.ordered, ctx, profile, span=item.span)
+        )
         cells.extend(_translate_inlines(item.inlines, ctx, profile))
         blocks.append(
             BrailleBlock(
@@ -379,6 +385,8 @@ def _list_marker_cells(
     ordered: bool,
     ctx: BackendContext,
     profile: BrailleProfile,
+    *,
+    span: Span | None = None,
 ) -> list[BrailleCell]:
     """Produce the marker cells for a list item.
 
@@ -399,7 +407,10 @@ def _list_marker_cells(
     convention as the number sign. (Deriving them from the item's
     block-level span instead mixes document coordinates into an
     otherwise leaf-local cell sequence, and an ordinal digit then
-    claims item-text characters it never came from.)
+    claims item-text characters it never came from.) The item's own
+    **block** span still goes to the marker-missing warning (see
+    :func:`_marker_punct_cells`), where document coordinates are what
+    a warning wants.
     """
     cells: list[BrailleCell] = []
     if ordered:
@@ -409,20 +420,29 @@ def _list_marker_cells(
             number_backend.translate_number(digits_node, sub_ctx, profile)
         )
         cells.extend(
-            _marker_punct_cells(profile.list_marker_ordered_char(), profile)
+            _marker_punct_cells(
+                profile.list_marker_ordered_char(), ctx, profile, span=span
+            )
         )
     else:
         cells.extend(
-            _marker_punct_cells(profile.list_marker_unordered_char(), profile)
+            _marker_punct_cells(
+                profile.list_marker_unordered_char(), ctx, profile, span=span
+            )
         )
-        # No profile bullet → silently fall through; the layout still
-        # produces a usable line with just the content.
+        # No profile bullet → the marker drops with a warning (see
+        # _marker_punct_cells); the layout still produces a usable line
+        # with just the content.
     edge = Span(0, 0)
     return [_replace(c, source_span=edge) for c in cells]
 
 
 def _marker_punct_cells(
-    ch: str, profile: BrailleProfile
+    ch: str,
+    ctx: BackendContext,
+    profile: BrailleProfile,
+    *,
+    span: Span | None = None,
 ) -> list[BrailleCell]:
     """Render ``ch`` as a list marker with the punct table's own
     cells + spacing flags (role=``list_marker`` instead of ``punct``).
@@ -430,12 +450,31 @@ def _marker_punct_cells(
     Mirrors :func:`brailix.backend.punct.translate_punct` but stamps the
     cells with the marker role so proofread tools can tell a structural
     marker apart from a literal punctuation char in the source.
-    Returns ``[]`` when ``ch`` is not in the table. Cells leave here
-    span-less: the caller (``_list_marker_cells``) re-anchors every
-    marker cell to the leaf-local leading edge.
+
+    Returns ``[]`` — with a ``LIST_MARKER_UNMAPPED`` warning — when
+    ``ch`` is not in the table. A marker that silently vanished turned
+    the list into reflowed prose with no diagnostic (the shipped
+    ``ja_current`` punct table carries neither ``·`` nor ``.``); the
+    drop is loud now, the same treatment an unconverted image gets. The
+    profile gap itself is a registered resource debt (the ja tables
+    grow their own punctuation in a later phase), so the warning marks
+    the loss, it does not fix it. Cells leave here span-less: the
+    caller (``_list_marker_cells``) re-anchors every marker cell to the
+    leaf-local leading edge.
     """
     punct_cells = profile.punctuation.get(ch)
     if not punct_cells:
+        ctx.warnings.warn(
+            code="LIST_MARKER_UNMAPPED",
+            message=(
+                f"list marker {ch!r} has no punctuation mapping in profile "
+                f"{profile.name}; the marker is dropped and the item reads "
+                f"as plain prose"
+            ),
+            surface=ch,
+            span=span,
+            source="backend.block",
+        )
         return []
     out: list[BrailleCell] = [
         BrailleCell(dots=dots, role="list_marker", source_span=None, source_text=ch)
@@ -489,7 +528,9 @@ def _expand_table(
 # ---- Footnote -------------------------------------------------------------
 
 
-def _footnote_ref_cells(ref: str, profile: BrailleProfile) -> list[BrailleCell]:
+def _footnote_ref_cells(
+    ref: str, ctx: BackendContext, profile: BrailleProfile
+) -> list[BrailleCell]:
     """Render a footnote ref (``"1"``, ``"a"``, ``"*"``) as a marker.
 
     V1 just spells the ref characters out via the profile's punct /
@@ -530,6 +571,10 @@ def _footnote_ref_cells(ref: str, profile: BrailleProfile) -> list[BrailleCell]:
             # letter from a digit and breaks the number run. (The prefix
             # repeats per letter here; footnote refs are short — sharing
             # one sign across a multi-letter run is a later refinement.)
+            # On a profile with no letter_prefix.* the ref letters render
+            # bare — the same case/digit-ambiguity loss the Latin-word
+            # path warns about, so it warns here too (output unchanged).
+            warn_letter_prefix_missing(ch, sp(i), ctx, profile)
             cells.extend(
                 BrailleCell(
                     dots=dots, role="footnote_ref", source_span=sp(i), source_text=ch

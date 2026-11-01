@@ -11,13 +11,24 @@ Code-inline rendering is the dumbest possible thing: each character
 is looked up in the punctuation table and falls back to unknown.
 Proper handling is future work.
 
-LatinWord translation lives in :mod:`brailix.backend.latin`, a layer of its
-own rather than a guest here (ARCHITECTURE#arch-layers).
+Full-width Latin letters (``ＡＢＣ`` / ``ａｂｃ``) are the one prose
+character class that folds before lookup: prose renders them through
+the letter table via their half-width twins — the same render-time,
+per-character fold the digit run gives full-width digits
+(:func:`brailix.backend._digits.emit_digit_run` with
+``fold_nonascii=True``), and the deliberate opposite of the math
+domain, which treats a full-width letter inside a formula as the
+writing error it is and warns instead (see
+:func:`brailix.core.chars.fold_fullwidth`). Only this prose punct path
+folds; code-inline stays literal per its minimal contract above.
+
+LatinWord translation lives in :mod:`brailix.backend.latin`, a layer of
+its own rather than a guest here (ARCHITECTURE#arch-layers).
 """
 
 from __future__ import annotations
 
-from brailix.core.chars import is_math_symbol, nonstandard_char_hint
+from brailix.core.chars import fold_fullwidth, is_math_symbol, nonstandard_char_hint
 from brailix.core.config import BrailleProfile
 from brailix.core.context import BackendContext
 from brailix.core.span import Span
@@ -32,6 +43,14 @@ from brailix.ir.inline import (
 
 
 def translate_punct(node: Punct, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:
+    # A full-width Latin letter folds to its half-width twin and renders
+    # through the letter table (see module docstring) — but an explicit
+    # punctuation-table entry for the character, should a profile carry
+    # one, always wins over the fold.
+    if len(node.surface) == 1 and not profile.punctuation.get(node.surface):
+        folded = _folded_fullwidth_latin_cells(node.surface, node.span, ctx, profile)
+        if folded is not None:
+            return folded
     out: list[BrailleCell] = list(lookup_or_unknown(node.surface, node.span, ctx, profile))
     space_before, space_after = profile.punctuation_spaces(node.surface)
     if space_before:
@@ -45,6 +64,49 @@ def translate_punct(node: Punct, ctx: BackendContext, profile: BrailleProfile) -
             blank_cell(Span(node.span.end, node.span.end) if node.span else None)
         )
     return out
+
+
+def _folded_fullwidth_latin_cells(
+    ch: str,
+    span: Span | None,
+    ctx: BackendContext,
+    profile: BrailleProfile,
+) -> list[BrailleCell] | None:
+    """Braille cells for one full-width Latin letter (``Ａ`` / ``ｂ``),
+    rendered through the letter table under its half-width twin — or
+    ``None`` when ``ch`` is not one / the profile has no letter for it.
+
+    The folded letter takes :meth:`BrailleProfile.letter` — prefix plus
+    bare cell — so case survives the fold (``ＡＢＣ`` keeps its capital
+    signs, exactly as typed ``ABC`` would), and a profile without the
+    ``letter_prefix.*`` structures warns through the same
+    :func:`brailix.backend.latin.warn_letter_prefix_missing` the
+    Latin-word path uses (imported locally: latin imports this module at
+    load time, so the dependency can only point one way).
+
+    Cells carry the **original** character as ``source_text`` so
+    traceability maps them back to what the source actually says, not to
+    the folded twin nobody typed.
+    """
+    half = fold_fullwidth(ch)
+    if half is None or not half.isascii() or not half.isalpha():
+        return None
+    if profile.letter_class(half) is None:
+        return None
+    # Local import to keep the punct → latin dependency one-way at module
+    # load (latin.py imports lookup_or_unknown from here; see docstring).
+    from brailix.backend.latin import warn_letter_prefix_missing
+
+    warn_letter_prefix_missing(half, span, ctx, profile)
+    cells_for = profile.letter(half)
+    if cells_for is None:  # unreachable given the letter_class hit; stay total
+        return None
+    return [
+        BrailleCell(
+            dots=dots, role="latin_letter", source_span=span, source_text=ch
+        )
+        for dots in cells_for
+    ]
 
 
 def translate_space(node: Space, ctx: BackendContext, profile: BrailleProfile) -> list[BrailleCell]:

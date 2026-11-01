@@ -37,9 +37,22 @@ BRAILLE_BASE = 0x2800
 
 
 def dots_to_char(dots: tuple[int, ...] | list[int]) -> str:
-    """Encode a bare dot tuple as a single Unicode braille code point."""
+    """Encode a bare dot tuple as a single Unicode braille code point.
+
+    Raises :class:`ValueError` naming the offending element when any dot
+    is outside 1..8 — the same bound :class:`~brailix.ir.braille.BrailleCell`
+    enforces. Without the check a ``0`` surfaced as an unrelated
+    "negative shift count" from the bit arithmetic and a ``9`` encoded a
+    code point *past* the braille block (U+2900), so a bad tuple produced
+    either a cryptic crash or quietly-wrong output.
+    """
     mask = 0
     for d in dots:
+        if isinstance(d, bool) or not isinstance(d, int) or not 1 <= d <= 8:
+            raise ValueError(
+                f"invalid dot {d!r} in {dots!r}; dot positions must be "
+                f"integers 1..8"
+            )
         mask |= 1 << (d - 1)
     return chr(BRAILLE_BASE + mask)
 
