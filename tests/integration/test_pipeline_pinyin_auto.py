@@ -50,7 +50,12 @@ def test_default_pipeline_uses_pypinyin_when_available(monkeypatch):
     assert "\u2800" not in result.render()
 
 
-def test_default_pipeline_uses_g2pw_when_available(monkeypatch):
+def test_default_pipeline_uses_g2pw_when_available(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    # The g2pw loader checks models/g2pw/version before constructing the
+    # converter (check-only model policy), so seed a present model.
+    (tmp_path / "models" / "g2pw").mkdir(parents=True)
+    (tmp_path / "models" / "g2pw" / "version").write_text("v3.0\n")
     fake_g2pw = types.ModuleType("g2pw")
 
     class _FakeConverter:
