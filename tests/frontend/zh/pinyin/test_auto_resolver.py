@@ -45,7 +45,10 @@ def test_auto_uses_pypinyin_when_available(monkeypatch):
     assert [t.pinyin for t in out] == ["wo3", "zai4"]
 
 
-def test_auto_prefers_g2pw_when_available(monkeypatch):
+def test_auto_prefers_g2pw_when_available(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "models" / "g2pw").mkdir(parents=True)
+    (tmp_path / "models" / "g2pw" / "version").write_text("v3.0\n")
     fake_g2pw = types.ModuleType("g2pw")
     fake_pypinyin = types.ModuleType("pypinyin")
 

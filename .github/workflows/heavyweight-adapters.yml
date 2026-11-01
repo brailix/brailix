@@ -1,13 +1,25 @@
 # Scheduled smoke test for the heavy neural Chinese engines (hanlp, g2pw) that
-# the main CI deliberately skips — they pull in PyTorch, download models on
-# first use, and hanlp is currently incompatible with recent transformers.
+# the main CI deliberately skips — they pull in PyTorch, and their weights are
+# hundreds of megabytes.
 #
 # This job does NOT block pull requests: it runs weekly (and on demand),
-# installs each engine independently, loads its model once and runs a minimal
-# inference through the public Pipeline API, and opens an issue if one can no
-# longer load / infer. So a regression (or a fix) is noticed without every
-# ordinary PR paying the multi-gigabyte install. Each engine is a separate
-# matrix leg (fail-fast: false) so one being broken never masks the other.
+# installs each engine independently, installs that engine's model weights,
+# and runs a minimal inference through the public Pipeline API. It opens an
+# issue if one can no longer load / infer. So a regression (or a fix) is
+# noticed without every ordinary PR paying the multi-gigabyte install. Each
+# engine is a separate matrix leg (fail-fast: false) so one being broken
+# never masks the other.
+#
+# The adapters never download models — the check-only policy raises
+# ModelNotInstalledError when the weights are absent — so this job installs
+# them itself, the same way a front-end download manager would:
+#   * hanlp: the pinned catalogue zip (URL + sha256 matching the desktop
+#     model-manager's registry),
+#   * g2pw: the original esun-ai bucket is gone, so the files come from a
+#     Hugging Face mirror of G2PWModel-v2-onnx, digest-pinned per file. The
+#     mirror spells the weights ``g2pW.onnx``; they are saved under the
+#     lowercase name ``g2pw.onnx`` because that is the filename
+#     G2PWConverter itself joins onto model_dir (case matters on Linux).
 name: Heavyweight adapters
 
 on:
@@ -52,6 +64,34 @@ jobs:
 
       - name: Install brailix + ${{ matrix.adapter }}
         run: uv sync --extra ${{ matrix.adapter }} --extra zh
+
+      - name: Install the hanlp model
+        if: matrix.adapter == 'hanlp'
+        run: |
+          mkdir -p models/hanlp/mtl
+          curl -fsSL -o /tmp/hanlp-mtl.zip \
+            "https://file.hankcs.com/hanlp/mtl/close_tok_pos_ner_srl_dep_sdp_con_electra_small_20210111_124159.zip"
+          echo "c3c590748d7f6f40f584ec13b99d4c5c9301b83a8c9898912684109b9aa86584  /tmp/hanlp-mtl.zip" | sha256sum -c -
+          unzip -q /tmp/hanlp-mtl.zip -d models/hanlp/mtl
+
+      - name: Install the g2pw model
+        if: matrix.adapter == 'g2pw'
+        run: |
+          mkdir -p models/g2pw
+          cd models/g2pw
+          base="https://huggingface.co/iqt-voice/G2PWModel/resolve/main"
+          curl -fsSL -o version              "$base/version"
+          curl -fsSL -o g2pw.onnx            "$base/g2pW.onnx"
+          curl -fsSL -o config.py            "$base/config.py"
+          curl -fsSL -o POLYPHONIC_CHARS.txt "$base/POLYPHONIC_CHARS.txt"
+          curl -fsSL -o MONOPHONIC_CHARS.txt "$base/MONOPHONIC_CHARS.txt"
+          sha256sum -c - <<'EOF'
+          bb40c8c7b5baa755b2acd317c6bc5a65e4af7b80c40a569247fbd76989299999  g2pw.onnx
+          517036ffbc4858eba27a01b85badcfd5e5c2a59a3d35d1898ab34567f818e799  version
+          b6154e494355d14a8d2c8a38d07720f77b34479e26aab21a5f63495ae904da76  config.py
+          b63cd02d842dbaea32ca55b3fbbdef986a617854967cc2fb9ec1f2126715b747  POLYPHONIC_CHARS.txt
+          e46c9190330e95757573159eef921a577849426728e72c0e6a427f9e4c00b31e  MONOPHONIC_CHARS.txt
+          EOF
 
       - name: Load model + minimal inference
         env:

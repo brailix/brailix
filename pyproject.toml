@@ -24,7 +24,8 @@ dependencies = []
 # selection prefers the best installed one.
 zh = ["jieba", "pypinyin"]
 # Chinese segmentation engines (alternatives):
-# hanlp: transformer MTL, most accurate (downloads a model on first use).
+# hanlp: transformer MTL, most accurate (model installed by the front-end
+# model manager, never auto-downloaded).
 # ``transformers<4.55``: hanlp (2.1.3) declares no upper bound on its core
 # transformers dependency, but transformers 5.0 removed
 # ``BertTokenizer.encode_plus``, which HanLP still calls at inference time —
@@ -50,7 +51,7 @@ g2pm = ["g2pM", "numpy"]
 # resolving transformers 5.x that fails — at ``import g2pw``, before any of
 # this adapter runs. An undeclared dependency only ever masked by someone
 # else's.
-g2pw = ["g2pw", "torch", "requests"]  # deep polyphone model (downloads on first use)
+g2pw = ["g2pw", "torch", "requests"]  # deep polyphone model (installed by the front-end)
 pypinyin = ["pypinyin"]    # light, offline, dictionary-based
 
 # Math sources:
