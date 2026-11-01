@@ -39,15 +39,32 @@ import — never needs them. A missing Pillow raises the plain
 :class:`ImportError`; a missing resvg raises :class:`SvgRasterizerMissing`;
 a bad / unreadable source raises :class:`TactileImageError`. The backend
 maps each to its own skip warning.
+
+Every byte an href delivers is read under a
+:class:`~brailix.backend.tactile._asset_limits.GraphicAssetLimits` budget
+(byte ceiling on file reads and ``data:`` payloads, pixel ceiling on the
+decoded image, an ``allow_filesystem`` switch for bare paths) — see
+:mod:`brailix.backend.tactile._asset_limits` for why. The exception
+messages below stay specific (they name the file, the size, the decode
+error) because they are diagnostic detail for the caller who has it; what
+must NOT carry them is user-visible warning text, where the difference
+between "cannot read" and "cannot decode" is a file-existence probe. The
+backend's image handler keeps that text to one fixed sentence.
 """
 
 from __future__ import annotations
 
 import base64 as _base64
 import io as _io
+import re as _re
 import urllib.parse as _urllib_parse
 from dataclasses import dataclass as _dataclass
-from pathlib import Path as _Path
+
+from brailix.backend.tactile._asset_limits import (
+    DEFAULT_GRAPHIC_ASSET_LIMITS,
+    GraphicAssetLimits,
+    GraphicAssetTooLargeError,
+)
 
 # Modes the rasterizer accepts on a ``data-bk-mode`` attribute; an
 # unrecognized value falls back to ``threshold``.
@@ -103,26 +120,53 @@ class ImageSampler:
         return self.levels[py * self.width + px]
 
 
-def _resolve_href(href: str) -> bytes:
-    """Read an ``<image>`` ``href`` into raw bytes.
+def _resolve_href(
+    href: str, limits: GraphicAssetLimits = DEFAULT_GRAPHIC_ASSET_LIMITS
+) -> bytes:
+    """Read an ``<image>`` ``href`` into raw bytes, under ``limits``.
 
     Handles both a ``data:`` URI (base64 or percent-encoded inline payload)
-    and a filesystem path. Any read / decode problem becomes a
-    :class:`TactileImageError` so the backend degrades to a warning instead
-    of crashing."""
+    and a filesystem path; a bare path is only read at all when the policy
+    allows touching the filesystem. Every route is bounded: the file read
+    goes through :meth:`GraphicAssetLimits.read_bounded`, the inline payload
+    through a length gate before decoding and a byte gate after. Any read /
+    decode problem becomes a :class:`TactileImageError` so the backend
+    degrades to a warning instead of crashing."""
     if href.startswith("data:"):
         head, sep, payload = href.partition(",")
         if not sep:
             raise TactileImageError("malformed data URI (no comma)")
+        # Refuse-by-arithmetic before the decode materializes the payload:
+        # a payload longer than 4/3 of the byte budget cannot fit under it
+        # in either encoding (base64 inflates by exactly 4/3, percent-
+        # encoding only shrinks).
         try:
+            limits.check_uri_payload(len(payload))
             if ";base64" in head.lower():
                 # b64decode raises binascii.Error, a ValueError subclass.
-                return _base64.b64decode(payload)
-            return _urllib_parse.unquote_to_bytes(payload)
+                data = _base64.b64decode(payload)
+            else:
+                data = _urllib_parse.unquote_to_bytes(payload)
+        except GraphicAssetTooLargeError as exc:
+            raise TactileImageError(str(exc)) from exc
         except ValueError as exc:
             raise TactileImageError(f"bad data URI: {exc}") from exc
+        try:
+            limits.check_bytes(len(data), detail="data URI payload")
+        except GraphicAssetTooLargeError as exc:
+            raise TactileImageError(str(exc)) from exc
+        return data
+    if not limits.allow_filesystem:
+        # Refused before anything is read — a policy outcome, not a load
+        # failure, and one that reveals nothing about the filesystem.
+        raise TactileImageError(
+            f"image href is a filesystem path ({href!r}), but reading "
+            "local files is disabled by the caller's graphic asset limits"
+        )
     try:
-        return _Path(href).read_bytes()
+        return limits.read_bounded(href)
+    except GraphicAssetTooLargeError as exc:
+        raise TactileImageError(str(exc)) from exc
     except OSError as exc:
         raise TactileImageError(f"cannot read {href!r}: {exc}") from exc
 
@@ -132,6 +176,57 @@ def _is_svg(raw: bytes) -> bool:
     ``<svg`` root tag appears within the first bytes of any SVG, after an
     optional ``<?xml …?>`` declaration / comments."""
     return b"<svg" in raw[:2048].lower()
+
+
+# An ``<image`` opening tag (case-insensitive; ``\b`` so ``<imagex>`` doesn't
+# match) whose region we then scan for href attributes.
+_IMAGE_TAG = _re.compile(r"<image\b", _re.IGNORECASE)
+
+# ``href="…"`` / ``xlink:href='…'`` in either quote style — the value is the
+# first quoted string after the ``=``.
+_HREF_ATTR = _re.compile(r"(?:xlink:)?href\s*=\s*([\"'])(.*?)\1", _re.IGNORECASE)
+
+# A bare ``href =`` the value pattern cannot parse out of the region —
+# malformed on its face, which the caller treats as external (refuse).
+_HREF_BARE = _re.compile(r"(?:xlink:)?href\s*=", _re.IGNORECASE)
+
+
+def _external_image_ref(svg: str) -> bool:
+    """Whether the SVG carries an ``<image>`` reference resvg would fetch.
+
+    resvg resolves a **bare absolute filesystem path** in an ``<image href>``
+    and reads the file itself — measured, not assumed: a ``C:\\…`` href
+    renders, while ``file:///`` URIs and bare relative names do not (no
+    ``resources_dir`` is ever passed). That fetch happens in the rasterizer,
+    behind the back of :class:`GraphicAssetLimits`, so it is refused here
+    instead: every ``<image>`` href that is not a ``data:`` URI or a
+    same-document fragment (``#id``) makes the whole render decline.
+
+    The scan is deliberately crude and errs toward refusing. Each
+    ``<image`` match is read to the next ``<`` — a raw ``<`` is illegal
+    inside an attribute value, so that region can hold only the one tag's
+    text — which is what defeats the "hide the href behind a ``>`` inside an
+    earlier attribute" trick (``<image alt=">" href="C:\\secret.png">``).
+    What the region scan can misread, it misreads in the safe direction: a
+    comment mentioning an image href also refuses, an href it cannot parse
+    refuses, and losing a render is the cheap failure — the direct
+    ``<image>`` element (the documented external-asset channel, read under
+    the budget) is how a file-referencing image is spelled.
+    """
+    for m in _IMAGE_TAG.finditer(svg):
+        end = svg.find("<", m.end())
+        region = svg[m.end():] if end < 0 else svg[m.end():end]
+        found_value = False
+        for attr in _HREF_ATTR.finditer(region):
+            found_value = True
+            value = attr.group(2).lstrip().lower()
+            if not value.startswith(("data:", "#")):
+                return True
+        # An href we could not extract a quoted value for: refuse rather
+        # than guess what resvg would make of it.
+        if not found_value and _HREF_BARE.search(region):
+            return True
+    return False
 
 
 def _render_svg(svg_bytes: bytes, target_w: int) -> bytes:
@@ -149,6 +244,15 @@ def _render_svg(svg_bytes: bytes, target_w: int) -> bytes:
             "(resvg-py)"
         ) from exc
     svg_string = svg_bytes.decode("utf-8", errors="replace")
+    if _external_image_ref(svg_string):
+        # Refused before the rasterizer can fetch: resvg reads absolute-path
+        # image hrefs itself, uncapped and outside every policy in
+        # GraphicAssetLimits — the second entry to the hole the budget
+        # closed on the direct path (adversarial review 2026-10-31).
+        raise TactileImageError(
+            "external SVG carries an <image> reference to a file; inline it "
+            "(a data: URI) or reference it with a direct <image> element"
+        )
     width = target_w if target_w and target_w > 0 else None
     try:
         png = resvg_py.svg_to_bytes(svg_string=svg_string, width=width)
@@ -204,6 +308,7 @@ def load_tactile_image(
     invert: bool = False,
     target_w: int = 0,
     target_h: int = 0,
+    limits: GraphicAssetLimits = DEFAULT_GRAPHIC_ASSET_LIMITS,
 ) -> ImageSampler:
     """Decode the image at ``href`` into an :class:`ImageSampler`.
 
@@ -215,17 +320,24 @@ def load_tactile_image(
     downsampled to tactile resolution stays clean and ``edge`` detection
     runs at display scale.
 
+    ``limits`` is the read budget (see
+    :class:`~brailix.backend.tactile._asset_limits.GraphicAssetLimits`):
+    the href's bytes are read under its byte ceiling and its
+    ``allow_filesystem`` switch, and the decoded image under its pixel
+    ceiling — checked from the header, because the decode is the moment the
+    full pixel buffer is allocated.
+
     A source that sniffs as SVG is rendered to a PNG via resvg first (the
     ``graphics-svg-raster`` extra), then decoded like any raster.
 
     Raises :class:`ImportError` when Pillow is not installed,
     :class:`SvgRasterizerMissing` when an SVG source needs resvg (both mapped
     by the backend to skip warnings) and :class:`TactileImageError` for an
-    unreadable / undecodable source.
+    unreadable / undecodable / over-budget source.
     """
     from PIL import Image, ImageFilter  # ImportError → backend warns + skips
 
-    raw = _resolve_href(href)
+    raw = _resolve_href(href, limits)
     if _is_svg(raw):
         # Complex external SVG → resvg → PNG, rendered at the on-page width so
         # the vector is sampled at tactile resolution (no "don't upscale"
@@ -234,9 +346,16 @@ def load_tactile_image(
     resample = getattr(Image, "Resampling", Image).LANCZOS
     try:
         with Image.open(_io.BytesIO(raw)) as im:
+            # The pixel gate reads header dimensions — for the standard
+            # formats that costs no decode — and must run before
+            # _flatten_to_gray touches pixel data, because that is the
+            # moment Pillow allocates the buffer a huge source would cost.
+            limits.check_pixels(im.width, im.height)
             gray = _flatten_to_gray(im)
     except TactileImageError:
         raise
+    except GraphicAssetTooLargeError as exc:
+        raise TactileImageError(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 — Pillow raises many decode types
         raise TactileImageError(f"decode failed: {exc}") from exc
 

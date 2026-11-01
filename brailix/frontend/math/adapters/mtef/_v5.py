@@ -18,6 +18,7 @@ from brailix.frontend.math.adapters.mtef._mathml import (
     _attach_preceding_base,
     _build_tmpl,
     _char_to_mathml,
+    _degraded_merror_math,
     _position_to_mathml,
 )
 from brailix.frontend.math.adapters.mtef._reader import (
@@ -55,6 +56,15 @@ def _convert_v5(data: bytes, env: _FontEnv | None = None) -> str:
     _read_v5_prelude(r)
     children: list[_ET.Element] = []
     _read_object_list_v5(r, children, depth=0, env=env)
+    if not children:
+        # Self-consistent but content-free (prelude + immediate END, or only
+        # definition records). The OLE object claimed a formula lives here,
+        # so it must not become an invisible empty <math/> — see
+        # :func:`.._mathml._degraded_merror_math` for the marker contract.
+        return _degraded_merror_math(
+            "mtef v5 stream decoded but contains no equation content",
+            degradations=env.degradations,
+        )
     math = _ET.Element("math", {"xmlns": _MATHML_NS})
     for c in children:
         math.append(c)

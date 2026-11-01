@@ -159,6 +159,18 @@ class CompilationSession:
         pipeline._frontend.fingerprint = fingerprint
         pipeline._frontend.asset_resolver = pipeline.asset_resolver
         warnings = WarningCollector(mode=pipeline.mode)
+        # Replay the configuration diagnostics collected while this
+        # pipeline was built (a typo'd profile key, a rejected feature
+        # override, a dropped user-dictionary entry — see
+        # ``Pipeline._config_warnings``) into the run's collector, ahead of
+        # anything the run itself emits. A configuration problem is a
+        # property of every compile this pipeline runs, so it belongs on
+        # every result rather than behind a separate polling API; emitting
+        # through the run's collector also means the run's MODE policy
+        # applies — a STRICT pipeline fails its first compile over a
+        # configuration warning instead of compiling past it silently.
+        for config_warning in pipeline._config_warnings.warnings:
+            warnings.emit(config_warning)
         frontend_ctx = FrontendContext(
             profile=pipeline.profile,
             mode=pipeline.mode,

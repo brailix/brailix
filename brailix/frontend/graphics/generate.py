@@ -219,6 +219,20 @@ def _gen_bar(spec: dict[str, _Any]) -> dict[str, _Any]:
         for d in (spec.get("data") or [])
         if isinstance(d, dict)
     ]
+    # A negative value describes no drawable bar — it used to be silently
+    # clamped to a zero-height one, which reads exactly like a value of 0 and
+    # hides a data error (a sign flip, a minus typo). Refused instead, so the
+    # adapter reports it (GRAPHICS_INVALID_SPEC) rather than drawing a wrong
+    # chart; a line chart is the generator for signed data.
+    negatives = [v for _, v in items if v < 0]
+    if negatives:
+        shown = ", ".join(_fmt(v) for v in negatives[:3])
+        if len(negatives) > 3:
+            shown += f", ... ({len(negatives)} negative values in total)"
+        raise FigureSpecError(
+            f"a bar chart needs values >= 0, got {shown} — "
+            f"use a line chart for signed data"
+        )
     shapes: list[dict[str, _Any]] = [
         _line(m, h - m, w - m, h - m),  # x axis
         _line(m, m, m, h - m),  # y axis
@@ -231,7 +245,7 @@ def _gen_bar(spec: dict[str, _Any]) -> dict[str, _Any]:
         bw = slot * 0.6
         for i, (label, value) in enumerate(items):
             cx = m + slot * (i + 0.5)
-            bh = max(0.0, value) / vmax * plot_h
+            bh = value / vmax * plot_h
             shapes.append(_rect(cx - bw / 2, (h - m) - bh, bw, bh))
             shapes.append(_label(cx - bw / 2, h - m + 5, label))
     _title(shapes, spec, m)

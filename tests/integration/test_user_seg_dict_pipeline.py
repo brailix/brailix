@@ -178,6 +178,56 @@ class TestAMalformedEntryDoesNotStopConstruction:
         assert _cells(pipe, "国家") == _cells(Pipeline(**_BASE), "国家")
 
 
+class TestPinyinDictBadEntryIsWarnedAndDropped:
+    """``user_pinyin_dict`` values are readings — strings (review R2-07).
+
+    A hand-edited dictionary can carry a non-string value (a JSON edit that
+    turned ``"重庆": "chong2 qing4"`` into a number or null), and the
+    resolver post-pass silently skipped it: the pipeline built, compiled,
+    and the override simply never happened — "nothing changed" was the only
+    feedback. The entry is now dropped at construction with a
+    ``USER_PINYIN_DICT_BAD_ENTRY`` warning, replayed into every compile's
+    diagnostics, and the pipeline still builds (the seg-dict policy: one
+    bad line must not stop construction).
+    """
+
+    def test_bad_values_are_dropped_with_the_warning(self) -> None:
+        pipe = Pipeline(
+            **_BASE,
+            user_pinyin_dict={"重庆": 123, "银行": None},  # type: ignore[dict-item]
+        )
+        assert not pipe.user_pinyin_dict
+        result = pipe.translate_text("重庆银行")
+        codes = [w.code for w in result.warnings]
+        assert codes.count("USER_PINYIN_DICT_BAD_ENTRY") == 2
+        surfaces = {w.surface for w in result.warnings}
+        assert surfaces == {"重庆", "银行"}
+
+    def test_good_entries_beside_a_bad_one_still_apply(self) -> None:
+        # A reading no resolver would produce (fingerprint tests' ALT_DICT
+        # trick), so the braille output provably reflects WHICH dictionary
+        # ran. The default analyzer (jieba) keeps 重庆 one token — the
+        # multi-char surface the pinyin post-pass matches.
+        pinned = Pipeline(
+            profile="cn_current", resolver="pypinyin",
+            user_pinyin_dict={"重庆": "zhong4 qing4", "银行": 5},  # type: ignore[dict-item]
+        )
+        assert pinned.user_pinyin_dict == {"重庆": "zhong4 qing4"}
+        assert _cells(pinned, "我在重庆。") != _cells(
+            Pipeline(profile="cn_current", resolver="pypinyin"), "我在重庆。"
+        )
+        assert [w.code for w in pinned.translate_text("银行").warnings] == [
+            "USER_PINYIN_DICT_BAD_ENTRY"
+        ]
+
+    def test_dropped_entries_leave_no_fingerprint_trace(self) -> None:
+        # The fingerprint hashes what the pipeline holds; a dropped entry
+        # must not distinguish this pipeline from a clean one.
+        assert Pipeline(
+            **_BASE, user_pinyin_dict={"重庆": None}  # type: ignore[dict-item]
+        ).fingerprint == Pipeline(**_BASE).fingerprint
+
+
 class TestPopulatedIrIsRebuiltForANewDictionary:
     def test_reused_ir_does_not_keep_the_other_divisions(self) -> None:
         # A DocumentIR populated by one pipeline, translated by another: the

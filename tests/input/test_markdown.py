@@ -386,6 +386,47 @@ class TestTable:
         assert [c.text for c in t.blocks[1].blocks] == ["1", "2"]
         assert [c.text for c in t.blocks[2].blocks] == ["-", "-"]
 
+    def test_escaped_pipe_stays_inside_the_cell(self):
+        # GFM table semantics: "\|" inside a row is a literal pipe, not a
+        # column delimiter — the Word importer's _emit_table writes cells
+        # like "P(A|B)" as "P(A\|B)" and expects them back as one cell.
+        src = "| P(A\\|B) | c |\n| - | - |\n| x\\|y | 2 |"
+        doc = parse_markdown(src, profile="cn_current", language="zh-CN")
+        t = doc.blocks[0]
+        assert isinstance(t, Table)
+        assert [c.text for c in t.blocks[0].blocks] == ["P(A|B)", "c"]
+        assert [c.text for c in t.blocks[1].blocks] == ["x|y", "2"]
+
+    def test_trailing_escaped_pipe_is_content_not_wrapper(self):
+        # "| a \||" — the trailing pipe is escaped, so it belongs to the
+        # cell; the row has ONE cell "a |", not an empty dangling one.
+        src = "| a \\||\n| - |\n| b |"
+        doc = parse_markdown(src, profile="cn_current", language="zh-CN")
+        t = doc.blocks[0]
+        assert isinstance(t, Table)
+        assert [c.text for c in t.blocks[0].blocks] == ["a |"]
+        assert [c.text for c in t.blocks[1].blocks] == ["b"]
+
+    def test_escaped_backslash_before_pipe_is_a_delimiter(self):
+        # "\\|" (even backslash run) is an escaped BACKSLASH followed by a
+        # real delimiter — the row splits there, and BOTH backslashes
+        # survive verbatim in the cell text: pipe splitting only owns
+        # "\|"; the inline layer owns every other escape.
+        src = "| a\\\\| b |\n| - | - |"
+        doc = parse_markdown(src, profile="cn_current", language="zh-CN")
+        t = doc.blocks[0]
+        assert isinstance(t, Table)
+        assert [c.text for c in t.blocks[0].blocks] == ["a\\\\", "b"]
+
+    def test_other_escapes_are_not_mangled_by_pipe_splitting(self):
+        # Only "\|" is special in a row; "\*", "\[" etc. reach the inline
+        # layer untouched (still backslash + char in the cell text).
+        src = "| a\\*b \\[c\\] | d |\n| - | - |"
+        doc = parse_markdown(src, profile="cn_current", language="zh-CN")
+        t = doc.blocks[0]
+        assert isinstance(t, Table)
+        assert [c.text for c in t.blocks[0].blocks] == ["a\\*b \\[c\\]", "d"]
+
 
 class TestTableParagraphInteraction:
     def test_table_immediately_after_paragraph_is_absorbed(self):

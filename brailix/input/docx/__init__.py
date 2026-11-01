@@ -103,6 +103,9 @@ from brailix.core.errors import (
     MissingExtraError,
     ParseError,
 )
+from brailix.core.errors import (
+    WarningCollector as _WarningCollector,
+)
 from brailix.input.docx._blocks import _iter_body_blocks
 from brailix.input.docx._footnotes import _build_footnote_map
 from brailix.input.docx._media import _build_image_blob_map
@@ -291,6 +294,7 @@ def parse_docx(
     mathtype_fallback: str = "off",
     chem_detection: bool = False,
     limits: InputLimits = DEFAULT_INPUT_LIMITS,
+    warnings: _WarningCollector | None = None,
 ) -> DocumentIR:
     """Parse a ``.docx`` (or ``.docm``) file into :class:`DocumentIR`.
 
@@ -330,6 +334,13 @@ def parse_docx(
         coincides with an element symbol and can't be told apart from a
         formula by structure alone — the caller (Pipeline) turns it on from
         the ``input.docx.detect_chemistry`` profile feature.
+    warnings
+        Optional parse-level diagnostics collector (the same channel
+        :func:`brailix.input.parse_file` already hands the Markdown
+        route). Today this carries the ``DOCX_FIELD_NO_RESULT``
+        warning — a Word content field (DATE / REF / AUTHOR / …) whose
+        cached result section is empty, whose content therefore can't be
+        read. ``None`` (default) discards the diagnostics.
     limits
         The caller's input budget (see :class:`~brailix.input.InputLimits`).
         The archive is read **once**, bounded on the open descriptor, and both
@@ -372,6 +383,7 @@ def parse_docx(
             profile=profile,
             chem_detection=chem_detection,
             limits=limits,
+            warnings=warnings,
         )
 
     try:
@@ -449,6 +461,7 @@ def parse_docx(
                 chem_detection=chem_detection,
                 image_blobs=image_blobs,
                 footnotes=footnote_map,
+                warnings=warnings,
             )
         )
     except RecursionError as e:
@@ -481,6 +494,7 @@ def parse_docx(
                 return _parse_docx_via_libreoffice(
                     p, language=language, profile=profile,
                     chem_detection=chem_detection, limits=limits,
+                    warnings=warnings,
                 )
             except ParseError:
                 # LibreOffice unavailable or refused — silently keep the
@@ -503,6 +517,7 @@ def _convert_via_libreoffice_and_parse(
     limits: InputLimits,
     timeout_hint: str = "",
     produce_hint: str = "",
+    warnings: _WarningCollector | None = None,
 ) -> DocumentIR:
     """Convert ``p`` to .docx with LibreOffice in a temp dir, then parse it.
 
@@ -566,6 +581,7 @@ def _convert_via_libreoffice_and_parse(
             mathtype_fallback="off",
             chem_detection=chem_detection,
             limits=limits,
+            warnings=warnings,
         )
 
 
@@ -577,6 +593,7 @@ def _parse_docx_via_libreoffice(
     converter: str | None = None,
     chem_detection: bool = False,
     limits: InputLimits,
+    warnings: _WarningCollector | None = None,
 ) -> DocumentIR:
     """Round-trip the document through LibreOffice and re-parse.
 
@@ -599,7 +616,7 @@ def _parse_docx_via_libreoffice(
     return _convert_via_libreoffice_and_parse(
         p, exe, language=language, profile=profile,
         chem_detection=chem_detection, prefix="brailix-mtef-",
-        limits=limits,
+        limits=limits, warnings=warnings,
     )
 
 
@@ -693,6 +710,7 @@ def parse_doc(
     converter: str | None = None,
     chem_detection: bool = False,
     limits: InputLimits = DEFAULT_INPUT_LIMITS,
+    warnings: _WarningCollector | None = None,
 ) -> DocumentIR:
     """Parse a legacy ``.doc`` file by converting to ``.docx`` first.
 
@@ -746,6 +764,7 @@ def parse_doc(
         limits=limits,
         timeout_hint="; the file may be corrupt or password-protected",
         produce_hint="; the file may be unreadable",
+        warnings=warnings,
     )
 
 

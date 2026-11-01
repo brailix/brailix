@@ -163,6 +163,20 @@ class TestSvgSource:
         root = _parse(image_to_svg(path))
         assert root.get("viewBox") == "0 0 80 40"
 
+    def test_single_quoted_attributes_are_sized(self, tmp_path):
+        # XML allows either quote style; a hand-written SVG with single-
+        # quoted viewBox used to be misread as sizeless and soft-failed as
+        # unreadable, even though the file was perfectly valid.
+        path = self._svg(tmp_path, "viewBox='0 0 60 40'")
+        root = _parse(image_to_svg(path))
+        assert root.get("viewBox") == "0 0 60 40"
+        assert root.get("data-bk-error") is None
+
+    def test_single_quoted_width_height_fallback(self, tmp_path):
+        path = self._svg(tmp_path, "width='80px' height='40px'")
+        root = _parse(image_to_svg(path))
+        assert root.get("viewBox") == "0 0 80 40"
+
     def test_sizeless_svg_soft_fails(self, tmp_path):
         path = self._svg(tmp_path, "")  # no viewBox, no width/height
         root = _parse(image_to_svg(path))

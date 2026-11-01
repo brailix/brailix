@@ -118,6 +118,17 @@ class TestUndrawableSpecs:
         assert root.get("data-bk-error") is not None
         assert any(w.code == "GRAPHICS_INVALID_SPEC" for w in warn)
 
+    def test_a_negative_bar_value_soft_fails_with_a_warning(self):
+        """It used to be silently clamped to a zero-height bar — a wrong chart
+        that read exactly like a right one, with no warning at all."""
+        root, warn = self._fail(
+            '{"kind": "bar", "data": [{"label": "A", "value": 3}, '
+            '{"label": "B", "value": -2}]}'
+        )
+        assert root.get("data-bk-error") is not None
+        message = next(w.message for w in warn if w.code == "GRAPHICS_INVALID_SPEC")
+        assert "-2" in message
+
     def test_an_overflowing_range_no_longer_escapes_the_adapter(self):
         """The regression, stated as what a caller sees: this call used to
         raise ``OverflowError`` at the adapter boundary."""

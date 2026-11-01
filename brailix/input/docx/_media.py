@@ -71,62 +71,82 @@ def _build_image_blob_map(document: object) -> dict[str, tuple[str, bytes]]:
 
 def _convert_drawing(
     drawing: Element, image_blobs: dict[str, tuple[str, bytes]]
-) -> ImageAlt | None:
-    """``<w:drawing>`` → :class:`ImageAlt`, or ``None`` when it holds no
-    picture.
+) -> list[ImageAlt]:
+    """``<w:drawing>`` → one :class:`ImageAlt` per referenced raster.
 
-    Only DrawingML that actually references a raster (an ``<a:blip>``
+    Only DrawingML that actually references a raster (an ``<a:blip``
     anywhere under the drawing — Word nests it ``wp:inline|wp:anchor >
     a:graphic > a:graphicData > pic:pic > pic:blipFill``) produces a
     placeholder; charts / SmartArt / shapes / text boxes have no blip
-    and stay out of scope. Alt text comes from ``<wp:docPr>`` — ``descr``
-    is the user-authored alt text, ``title`` the older Word 2010 field,
-    ``name`` Word's automatic "Picture 1" — falling back to the media
-    file's stem so the placeholder is never blank.
+    and stay out of scope. A **grouped** drawing carries several blips
+    (one per member picture) — each becomes its own placeholder, so a
+    composite figure loses no member: dropping all but the first used
+    to make the second and later images, and their alt text, invisible.
+
+    Alt text per image: the member picture's own non-visual properties
+    (the nearest ``cNvPr`` ``descr``/``title`` — where Word stores a
+    grouped picture's authored alt), falling back to the drawing's
+    ``<wp:docPr>`` (``descr`` is the user-authored alt text, ``title``
+    the older Word 2010 field, ``name`` Word's automatic "Picture 1"),
+    falling back to the media file's stem so the placeholder is never
+    blank. ``cNvPr name`` is deliberately not used — it is an automatic
+    label ("Picture 2") that would shadow the docPr fallback.
     """
-    blip_rid: str | None = None
-    doc_pr: Element | None = None
+    out: list[ImageAlt] = []
+    doc_pr_alt = ""
+    member_alt = ""
     for elem in drawing.iter():
         tag = _local(elem.tag)
-        if tag == "blip" and blip_rid is None:
+        if tag == "docPr":
+            if not doc_pr_alt:
+                doc_pr_alt = (
+                    elem.get("descr") or elem.get("title")
+                    or elem.get("name") or ""
+                ).strip()
+        elif tag == "cNvPr":
+            # A member picture's own non-visual props precede its blipFill
+            # in document order. Reset on every cNvPr (also the group's) so
+            # a member never inherits the previous member's alt; the
+            # generated ``name`` stays ignored, see the docstring.
+            member_alt = (elem.get("descr") or elem.get("title") or "").strip()
+        elif tag == "blip":
+            rid = None
             for attr in _BLIP_RID_ATTRS:
                 rid = _ns_attr(elem, _R_PREFIX, attr)
                 if rid:
-                    blip_rid = rid
                     break
-        elif tag == "docPr" and doc_pr is None:
-            doc_pr = elem
-    if blip_rid is None:
-        return None
-    alt = ""
-    if doc_pr is not None:
-        alt = (
-            doc_pr.get("descr") or doc_pr.get("title") or doc_pr.get("name") or ""
-        ).strip()
-    return _image_alt(alt, image_blobs.get(blip_rid))
+            out.append(
+                _image_alt(
+                    member_alt or doc_pr_alt,
+                    image_blobs.get(rid) if rid else None,
+                )
+            )
+    return out
 
 
 def _convert_pict(
     pict: Element, image_blobs: dict[str, tuple[str, bytes]]
-) -> ImageAlt | None:
-    """``<w:pict>`` (legacy VML picture) → :class:`ImageAlt`, or ``None``.
+) -> list[ImageAlt]:
+    """``<w:pict>`` (legacy VML picture) → one :class:`ImageAlt` per
+    referenced raster.
 
-    The raster reference is ``<v:imagedata r:id="...">``; alt text is the
-    enclosing ``<v:shape>``'s ``alt`` attribute. Word still writes this
-    form for pictures pasted into old-format documents, and LibreOffice
-    conversions produce it too.
+    The raster reference is ``<v:imagedata r:id="...">``; alt text is
+    the enclosing ``<v:shape>``'s ``alt`` attribute (a multi-shape pict
+    gets each imagedata's nearest enclosing shape's alt, mirroring the
+    per-member behaviour of :func:`_convert_drawing`). Word still writes
+    this form for pictures pasted into old-format documents, and
+    LibreOffice conversions produce it too.
     """
-    rid: str | None = None
-    alt = ""
+    out: list[ImageAlt] = []
+    shape_alt = ""
     for elem in pict.iter():
         tag = _local(elem.tag)
-        if tag == "imagedata" and rid is None:
+        if tag == "shape":
+            shape_alt = (elem.get("alt") or "").strip()
+        elif tag == "imagedata":
             rid = _ns_attr(elem, _R_PREFIX, "id")
-        elif tag == "shape" and not alt:
-            alt = (elem.get("alt") or "").strip()
-    if rid is None:
-        return None
-    return _image_alt(alt, image_blobs.get(rid))
+            out.append(_image_alt(shape_alt, image_blobs.get(rid) if rid else None))
+    return out
 
 
 def _image_alt(alt: str, asset: tuple[str, bytes] | None) -> ImageAlt:

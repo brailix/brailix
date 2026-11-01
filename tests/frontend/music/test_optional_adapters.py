@@ -92,6 +92,110 @@ class TestMidiAdapter:
         assert "MUSIC_ADAPTER_MISSING" in codes
 
 
+class TestMidiRealBytes:
+    """Real MIDI bytes through the real mido + partitura chain — no
+    registry mock, no monkeypatch (R1-T1).
+
+    Every MIDI test in this repo used to either replace the registry
+    with a recording fake (``tests/input/test_music_xml.py``) or skip
+    when the extra wasn't installed, so the adapter's decode and
+    exception paths had no un-mocked coverage anywhere they could
+    actually run. The hand-assembled bytes below exercise the wire
+    format itself — MThd/MTrk headers, VLQ delta times, running
+    note_on/off events, the end-of-track meta — rather than mido's own
+    serialiser, so a decoder regression fails here instead of in a
+    reader's document."""
+
+    @staticmethod
+    def _ctx() -> MusicContext:
+        return MusicContext(profile="cn_current", source="midi")
+
+    def test_str_input_is_refused_without_any_dependency(self):
+        # MIDI is binary; a str payload is rejected before any import,
+        # so this path needs no extra installed and runs everywhere.
+        from brailix.frontend.music.adapters.midi import MidiSourceAdapter
+
+        out = MidiSourceAdapter().to_musicxml("not bytes", self._ctx())
+        assert "music-error" in out
+        assert "requires bytes input" in out
+
+    def test_empty_payload_is_refused_without_any_dependency(self):
+        from brailix.frontend.music.adapters.midi import MidiSourceAdapter
+
+        out = MidiSourceAdapter().to_musicxml(b"", self._ctx())
+        assert "music-error" in out
+        assert "empty midi payload" in out
+
+    @pytest.mark.skipif(
+        not (_has("partitura") and _has("mido")),
+        reason="partitura/mido not installed — pip install brailix[midi]",
+    )
+    def test_hand_built_midi_bytes_decode_to_notes(self):
+        # A minimal type-0 MIDI file assembled from raw bytes: header
+        # (format 0, one track, 480 ticks per quarter) plus one track
+        # carrying note_on(60) at delta 0, note_off at delta 480
+        # (VLQ 0x83 0x60), and the end-of-track meta. The real decoder
+        # must read the note back out with no diagnostics.
+        events = (
+            b"\x00\x90\x3C\x50"        # delta 0 — note_on 60, velocity 80
+            b"\x83\x60\x80\x3C\x00"    # delta 480 — note_off 60
+            b"\x00\xFF\x2F\x00"        # delta 0 — end_of_track
+        )
+        blob = (
+            b"MThd"
+            + b"\x00\x00\x00\x06"      # header length 6
+            + b"\x00\x00"              # format 0
+            + b"\x00\x01"              # one track
+            + b"\x01\xE0"              # 480 ticks per quarter
+            + b"MTrk"
+            + b"\x00\x00\x00\x0D"      # track length 13
+            + events
+        )
+        tree = parse_music_tree(blob, self._ctx())
+        assert tree is not None
+        assert tree.tag == "score-partwise"
+        assert len(tree.findall(".//note")) == 1
+        assert not any(
+            w.code.startswith("MUSIC_") for w in self._ctx().warnings.warnings
+        )
+
+    @pytest.mark.skipif(
+        not (_has("partitura") and _has("mido")),
+        reason="partitura/mido not installed — pip install brailix[midi]",
+    )
+    def test_bad_magic_soft_fails_as_music_error(self):
+        # A container that isn't MIDI at all: mido raises ("MThd not
+        # found"), the adapter wraps it — a <music-error> doc comes
+        # back, never an exception, never a silent wrong score.
+        blob = b"XXXX" + b"\x00\x00\x00\x06\x00\x00\x00\x01\x01\xE0"
+        tree = parse_music_tree(blob, self._ctx())
+        assert tree is not None
+        err = tree.find(".//music-error")
+        assert err is not None
+        assert "MThd not found" in (err.get("data-reason") or "")
+
+    @pytest.mark.skipif(
+        not (_has("partitura") and _has("mido")),
+        reason="partitura/mido not installed — pip install brailix[midi]",
+    )
+    @pytest.mark.parametrize(
+        "blob",
+        [
+            b"MThd\x00\x00\x00",   # truncated mid-header
+            b"\x00\x01\x02\x03",   # garbage bytes
+            b"MThd\x00\x00\x00\x06\x00\x00",  # header cut past the length
+        ],
+    )
+    def test_malformed_bytes_soft_fail_as_music_error(self, blob):
+        # Any decode exception lands in the adapter's wide except and
+        # surfaces as the standard soft-failure tree.
+        tree = parse_music_tree(blob, self._ctx())
+        assert tree is not None
+        err = tree.find(".//music-error")
+        assert err is not None
+        assert (err.get("data-reason") or "").startswith("partitura error")
+
+
 class TestAbcAdapter:
     @pytest.mark.skipif(
         not _has("abc_xml_converter"),

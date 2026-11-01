@@ -16,6 +16,7 @@ from brailix.frontend.math.adapters.mtef._mathml import (
     _attach_preceding_base,
     _build_tmpl,
     _char_to_mathml,
+    _degraded_merror_math,
     _position_to_mathml,
 )
 from brailix.frontend.math.adapters.mtef._reader import (
@@ -45,6 +46,14 @@ def _convert_v3(data: bytes, env: _FontEnv | None = None) -> str:
     _read_v3_prelude(r)
     children: list[_ET.Element] = []
     _read_object_list_v3(r, children, depth=0, env=env)
+    if not children:
+        # See _convert_v5: a stream that decodes cleanly but carries no
+        # equation records becomes a visible degraded placeholder, never an
+        # invisible empty <math/>.
+        return _degraded_merror_math(
+            "mtef v3 stream decoded but contains no equation content",
+            degradations=env.degradations,
+        )
     math = _ET.Element("math", {"xmlns": _MATHML_NS})
     for c in children:
         math.append(c)

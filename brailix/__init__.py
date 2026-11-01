@@ -150,6 +150,11 @@ if _TYPE_CHECKING:
     # ``_EXPORTS`` is what makes the two spellings one fact.
     from typing import Any
 
+    from brailix.backend.tactile._asset_limits import (
+        DEFAULT_GRAPHIC_ASSET_LIMITS,
+        GraphicAssetLimits,
+        GraphicAssetTooLargeError,
+    )
     from brailix.backend.tactile.profile import (
         TactileProfile,
         list_tactile_profiles,
@@ -181,8 +186,12 @@ if _TYPE_CHECKING:
 # builds one — ran through ``brailix.backend.tactile.profile``, which the
 # policy above calls internal and free to move, so the offer could not be
 # taken from inside the supported surface. The graphics entry point lives
-# here; its configuration belongs beside it. The manifest in the public-API
-# test pins this list, and the generated reference documents it.
+# here; its configuration belongs beside it — the same argument puts the
+# graphic-asset budget (``GraphicAssetLimits``, taken by
+# ``translate_graphic`` / ``Pipeline.translate_graphic`` /
+# ``rasterize_graphic_block``) and its error type beside the input layer's
+# ``InputLimits`` trio. The manifest in the public-API test pins this list,
+# and the generated reference documents it.
 __all__ = [
     "Pipeline",
     "translate_graphic",
@@ -198,6 +207,9 @@ __all__ = [
     "InputLimits",
     "InputTooLargeError",
     "DEFAULT_INPUT_LIMITS",
+    "GraphicAssetLimits",
+    "GraphicAssetTooLargeError",
+    "DEFAULT_GRAPHIC_ASSET_LIMITS",
 ]
 
 # Where each published name really lives. The one table both halves above read
@@ -220,6 +232,9 @@ _EXPORTS: dict[str, str] = {
     "InputLimits": "brailix.input",
     "InputTooLargeError": "brailix.input",
     "DEFAULT_INPUT_LIMITS": "brailix.input",
+    "GraphicAssetLimits": "brailix.backend.tactile._asset_limits",
+    "GraphicAssetTooLargeError": "brailix.backend.tactile._asset_limits",
+    "DEFAULT_GRAPHIC_ASSET_LIMITS": "brailix.backend.tactile._asset_limits",
 }
 
 

@@ -14,6 +14,20 @@ pass adds:
      a dict of group → resource ref, required groups present, and the
      referenced cell tables well-shaped (so a typo'd ref / empty group no
      longer silently misses at first translation)
+  6. music ``_spec`` sections' referential integrity: every
+     ``["entity", name]`` recipe step must name an entity the same
+     topic's cells table actually defines (a hand-edited profile with a
+     typo'd entity name would otherwise emit no cells at that step, with
+     no diagnostic — the harmony handler ignores the lookup miss)
+
+Diagnostics split by severity: a shape the loader cannot resolve at all
+raises :class:`ConfigurationError` (the loud-failure philosophy this module
+has always had); a *recoverable* problem — data that loads, is silently
+ignored by every reader, and would only mislead its author — is reported on
+the optional ``warnings`` collector instead (unknown top-level keys,
+unparseable zh phoneme-table entries, a zh slot declared by a non-zh
+profile), so a profile with one typo still loads while the typo announces
+itself.
 
 We re-read the raw JSON for the relevant files because the in-memory
 profile has already done entity normalisation / ref resolution and we
@@ -31,6 +45,8 @@ from brailix.core.errors import ConfigurationError
 if _TYPE_CHECKING:
     from pathlib import Path
     from typing import Any
+
+    from brailix.core.errors import WarningCollector
 
 _VALID_SYMBOL_ROLES: frozenset[str] = frozenset({
     "op", "rel", "delim", "punct", "shape", "big_op", "accent",
@@ -125,6 +141,8 @@ def validate_profile(
     payload: dict[str, Any],
     base: Path,
     profile_file: str,
+    *,
+    warnings: WarningCollector | None = None,
 ) -> None:
     """Walk the loaded profile + raw JSON and surface any remaining
     schema violations as :class:`ConfigurationError`.
@@ -137,10 +155,21 @@ def validate_profile(
         dict shape, required
         groups present, referenced cell tables well-formed
       * symbols.json roles (must be one of the known set; missing role
-        on a real entry is an error)
+        on a real entry is an error) and cell specs (a role-only entry
+        would load with its braille silently dropped)
       * symbols.json / functions.json ``big_op`` / ``script_prefix``
         types (must be ``bool`` when set)
       * structures.json top-level / second-level shape
+      * music ``_spec`` entity references (must resolve in the same
+        topic's cells table)
+
+    Recoverable oddities — data that loads but no reader will ever touch —
+    go to ``warnings`` instead of raising, when a collector is supplied:
+    unknown top-level keys (a typo'd ``"featuers"``), unparseable zh
+    phoneme-table entries, and a zh slot declared by a non-zh profile.
+    Without a collector those stay unreported (the profile still loads;
+    supplying one is how :class:`~brailix.pipeline.Pipeline` surfaces
+    them on its compile results).
 
     Can also be called directly on a loaded profile to re-validate
     (e.g. after hot-reload). When called externally the top-level
@@ -148,6 +177,9 @@ def validate_profile(
     raw JSON dict the profile was loaded from.
     """
     _validate_profile_shape(payload, profile_file)
+
+    if warnings is not None:
+        _warn_unknown_profile_keys(payload, profile_file, warnings)
 
     tables = payload.get("tables", {})
     math_tables = tables.get("math")
@@ -171,17 +203,24 @@ def validate_profile(
     lang_subtag = str(payload["language"]).split("-")[0]
     if lang_subtag != "zh":
         _validate_lang_tables(base, tables.get(lang_subtag), lang_subtag, profile_file)
-    elif isinstance(zh_tables, dict):
-        # zh keeps welded loaders (exempt from the generic per-language slot
-        # check above), but its hand-authored punctuation table still resolves
-        # through _resolve_table, which SILENTLY drops an entry it can't parse
-        # (e.g. an object with neither 'cells' nor 'dots') — surfacing only as a
-        # missing cell at first translation. Validate it the same way as any
-        # other cell table so an authoring typo fails loud at load. The helper
-        # keys on payload.get("punctuation"), exactly as _load_punct_table does.
-        punct_ref = zh_tables.get("punctuation")
-        if isinstance(punct_ref, str) and punct_ref:
-            _validate_lang_cell_table(base, punct_ref, "punctuation")
+        if warnings is not None:
+            _warn_unreachable_zh_slot(
+                tables, payload["language"], profile_file, warnings
+            )
+    else:
+        if isinstance(zh_tables, dict):
+            # zh keeps welded loaders (exempt from the generic per-language slot
+            # check above), but its hand-authored punctuation table still resolves
+            # through _resolve_table, which SILENTLY drops an entry it can't parse
+            # (e.g. an object with neither 'cells' nor 'dots') — surfacing only as a
+            # missing cell at first translation. Validate it the same way as any
+            # other cell table so an authoring typo fails loud at load. The helper
+            # keys on payload.get("punctuation"), exactly as _load_punct_table does.
+            punct_ref = zh_tables.get("punctuation")
+            if isinstance(punct_ref, str) and punct_ref:
+                _validate_lang_cell_table(base, punct_ref, "punctuation")
+        if warnings is not None:
+            _warn_zh_cell_table_entries(base, tables, profile_file, warnings)
 
     # Sub-table content validation. Each helper re-reads the relevant
     # file so error messages can point at the offending raw entry.
@@ -191,6 +230,63 @@ def validate_profile(
         )
         _validate_math_functions(base, math_tables.get("functions"))
         _validate_math_structures(base, math_tables.get("structures"))
+
+    # Music spec integrity works from the in-memory profile (both sides
+    # of the reference are already loaded there), so it re-reads nothing.
+    _validate_music_spec_entities(profile)
+
+
+def _validate_music_spec_entities(profile: BrailleProfile) -> None:
+    """Every ``["entity", name]`` step in a music ``_spec`` recipe must
+    name an entity the **same topic's** cells table defines.
+
+    The spec sections (``chord_symbols.json``'s ``_kind_spec`` is the
+    shipped one) drive backend emission from data: an ``entity`` step
+    routes through :meth:`BrailleProfile.music_cell`, and the harmony
+    handler ignores the miss — a typo'd entity name in a hand-edited
+    profile therefore emitted no cells for that step, silently (the
+    shipped tables are consistent; this guards the custom-profile case).
+    The check mirrors the ``accent_mark`` / ``indicator`` cross-checks in
+    :func:`_validate_math_symbols`: a reference the data cannot resolve
+    is a load-time error, not a translation-time blank.
+
+    The walk is deliberately shape-tolerant: a spec section is a dict of
+    recipes, a recipe is a list of steps, and only a step that *is* a
+    two-element list headed ``"entity"`` is a reference. Anything else
+    (``["letters", "m7"]``, a future step kind, a non-list value) is
+    rule data the backend owns, not a cell-table reference, and is left
+    alone.
+    """
+    for topic, sections in profile.music_specs.items():
+        known_entities = profile.music.get(topic, {})
+        for section, spec in sections.items():
+            if not isinstance(spec, dict):
+                continue
+            for key, recipe in spec.items():
+                if not isinstance(recipe, list):
+                    continue
+                for step in recipe:
+                    if (
+                        not isinstance(step, list)
+                        or len(step) != 2
+                        or step[0] != "entity"
+                        or not isinstance(step[1], str)
+                    ):
+                        continue
+                    if step[1] not in known_entities:
+                        raise ConfigurationError(
+                            f"music spec {topic}.{section} key {key!r} "
+                            f"references entity {step[1]!r}, which the "
+                            f"{topic} cells table does not define; the "
+                            f"backend would emit no cells for that step "
+                            f"(known entities: "
+                            + (
+                                ", ".join(sorted(known_entities))
+                                if known_entities
+                                else "(none)"
+                            )
+                            + ")"
+                        )
 
 
 def _validate_lang_tables(
@@ -294,16 +390,154 @@ def _is_valid_cell_spec(spec: Any) -> bool:
     """Whether ``spec`` is a shape :func:`_resolve_table` can resolve.
 
     Mirrors the spec shapes documented on ``_resolve_table``: a non-empty
-    string ref, a non-empty list of refs, or an object with ``cells`` /
-    ``dots``. Used to reject entries the loader would otherwise drop.
+    string ref, a list of refs (an **empty list included** — it resolves to
+    the documented empty cell sequence, the neutral tone's "emit nothing"),
+    or an object with ``cells`` / ``dots``. Used to reject entries the
+    loader would otherwise drop.
     """
     if isinstance(spec, str):
         return bool(spec)
     if isinstance(spec, list):
-        return bool(spec)
+        return True
     if isinstance(spec, dict):
         return "cells" in spec or "dots" in spec
     return False
+
+
+# Top-level profile keys this release understands, beyond the metadata a
+# table file may carry. Mirrors the ``properties`` of
+# ``tests/schemas/profile.schema.json`` (required ``name`` / ``language`` /
+# ``tables``, optional ``cell`` / ``features``, plus metadata like
+# ``reference`` and any ``_*`` note) — a key outside this set is unknown,
+# which a typo'd ``"featuers"`` used to be silently.
+_KNOWN_PROFILE_KEYS: frozenset[str] = frozenset(
+    set(_REQUIRED_PROFILE_KEYS) | set(_TYPED_OPTIONAL_KEYS)
+)
+
+# zh's welded phoneme tables — the per-language groups whose unparseable
+# entries are warned (with a count) rather than raised on, see
+# :func:`_warn_zh_cell_table_entries`.
+_ZH_CELL_TABLE_GROUPS: tuple[str, ...] = ("initials", "finals", "tones")
+
+
+def _table_ref_or_flat(tables: dict[str, Any], key: str) -> Any:
+    """Resolve a zh table ref the way the loader does: nested
+    ``tables.zh.<key>`` first, flat ``tables.<key>`` as the fallback."""
+    zh_section = tables.get("zh")
+    if isinstance(zh_section, dict) and key in zh_section:
+        return zh_section[key]
+    return tables.get(key)
+
+
+def _warn_unknown_profile_keys(
+    payload: dict[str, Any],
+    profile_file: str,
+    warnings: WarningCollector,
+) -> None:
+    """Report top-level profile keys nothing reads (a typo'd key used to
+    be silently ignored, so ``feature()`` fell back to its default and the
+    flag the author meant to set never moved).
+
+    A warning, not an error: the key may be a forward declaration a newer
+    release reads (the schema grows), and a profile that merely carries an
+    unknown key is otherwise perfectly loadable.
+    """
+    unknown = [
+        key
+        for key in payload
+        if key not in _KNOWN_PROFILE_KEYS and not _is_metadata_key(key)
+    ]
+    if not unknown:
+        return
+    warnings.warn(
+        code="CONFIG_PROFILE_UNKNOWN_KEY",
+        message=(
+            f"{profile_file}: unknown top-level key(s) {', '.join(repr(k) for k in sorted(unknown))};"
+            f" this release reads {sorted(_KNOWN_PROFILE_KEYS)} plus"
+            f" metadata (``_*`` / reference) — a typo here used to be"
+            f" silently ignored"
+        ),
+        source="config",
+    )
+
+
+def _warn_zh_cell_table_entries(
+    base: Path,
+    tables: dict[str, Any],
+    profile_file: str,
+    warnings: WarningCollector,
+) -> None:
+    """Count and report zh phoneme-table entries the loader cannot parse.
+
+    zh's initials / finals / tones resolve through ``_resolve_dots_table``,
+    which silently skips an entry that isn't a cell spec — a hand-edit that
+    breaks a real initial then surfaces only as a blank cell or a
+    translation-time warning, never at load. The punctuation table's
+    sibling check raises (:func:`_validate_lang_cell_table`); the phoneme
+    tables warn instead, with the count and the offending keys, because one
+    bad entry in a 21-initial table should not make the whole profile
+    unloadable.
+    """
+    for group in _ZH_CELL_TABLE_GROUPS:
+        ref = _table_ref_or_flat(tables, group)
+        if not isinstance(ref, str) or not ref:
+            continue
+        payload = _read_json(base / ref)
+        section = payload.get(group)
+        src = section if isinstance(section, dict) else payload
+        bad = [
+            key
+            for key, spec in src.items()
+            if not _is_metadata_key(key) and not _is_valid_cell_spec(spec)
+        ]
+        if not bad:
+            continue
+        warnings.warn(
+            code="CONFIG_ZH_TABLE_BAD_ENTRIES",
+            message=(
+                f"{ref}: {len(bad)} entry(ies) in group {group!r} are not"
+                f" valid cell specs and were dropped at load (a cell ref"
+                f" string, a non-empty list of refs, or an object with"
+                f" 'cells' / 'dots'): {sorted(bad)}"
+            ),
+            source="config",
+        )
+
+
+def _warn_unreachable_zh_slot(
+    tables: dict[str, Any],
+    language: Any,
+    profile_file: str,
+    warnings: WarningCollector,
+) -> None:
+    """Report a ``tables.zh`` slot declared by a profile whose language is
+    not Chinese.
+
+    ``tables.zh.exceptions`` / ``compounds`` (nested or flat) load into the
+    per-language ``lang_specs["zh"]`` slot, and :meth:`BrailleProfile.lang_spec`
+    only ever reads the profile's OWN language subtag — so on a ``ja`` (or
+    any non-zh) profile the resource is loaded into a slot no code path
+    reaches, with no diagnostic. Almost always a zh profile copied as a
+    starting point with the language changed; the warning says so instead
+    of policing the shape (the data itself is valid zh data).
+    """
+    declared = sorted(
+        key
+        for key in ("exceptions", "compounds")
+        if isinstance(_table_ref_or_flat(tables, key), str)
+    )
+    if not declared:
+        return
+    warnings.warn(
+        code="CONFIG_UNREACHABLE_LANG_SLOT",
+        message=(
+            f"{profile_file}: tables.zh declares {', '.join(repr(k) for k in declared)},"
+            f" but this profile's language is {language!r} — the zh data"
+            f" loads into a slot no code path reads. Move it under"
+            f" tables.{str(language).split('-')[0]!r} or drop it"
+        ),
+        source="config",
+    )
 
 
 def _accent_mark_kinds(base: Path, structures_relative: str | None) -> set[str]:
@@ -347,7 +581,8 @@ def _indicator_kinds(base: Path, structures_relative: str | None) -> set[str]:
 def _validate_math_symbols(
     base: Path, relative: str | None, structures_relative: str | None = None
 ) -> None:
-    """Check every symbols.json entry has a valid role and well-typed flags."""
+    """Check every symbols.json entry has a valid role, a resolvable cell
+    spec, and well-typed flags."""
     if not relative:
         return
     payload = _read_json(base / relative)
@@ -382,6 +617,20 @@ def _validate_math_symbols(
                 f"{relative}: entry {raw_key!r} has invalid role {role!r}; "
                 f"expected one of "
                 + "/".join(sorted(_VALID_SYMBOL_ROLES))
+            )
+        # The same cell-spec check functions.json gets: a role-only entry
+        # (``{"role": "rel"}`` with no cells / dots) passes every check
+        # above while the loader's resolver silently drops its braille —
+        # the symbol keeps its role in ``math_symbol_roles`` but never
+        # appears in ``math_symbols``, surfacing only as
+        # MATH_UNKNOWN_SYMBOL at translation time.
+        if not _is_valid_cell_spec(spec):
+            raise ConfigurationError(
+                f"{relative}: entry {raw_key!r} carries no braille — "
+                f"expected a cell ref string, a non-empty list of refs, or "
+                f"an object with 'cells' or 'dots' alongside 'role' "
+                f"(a role-only entry loads, but its cells are silently "
+                f"dropped and the symbol translates to nothing)"
             )
         _check_bool_flag(spec, "big_op", raw_key, relative)
         _check_bool_flag(spec, "script_prefix", raw_key, relative)

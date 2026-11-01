@@ -146,3 +146,28 @@ class TestRegistration:
         r = renderer_registry.get("brf")
         out = r.render(BrailleSequence(cells=[BrailleCell(dots=(1,))]))
         assert out == b"A"
+
+
+class TestPublicApiDotValidation:
+    """``dots_to_brf`` shares the raw-tuple public surface with
+    ``dots_to_char``. Out-of-range dots used to fall through the
+    ``1 <= d <= 6`` test and silently encode as the blank cell — output
+    that looked valid; now a clear ValueError names the offending dot
+    (adversarial review F8). Dots 7/8 keep their documented silent strip
+    for 8-dot input."""
+
+    @pytest.mark.parametrize("dots", [(0,), (9,), (-3,), (1, 0), (6, 9)])
+    def test_out_of_range_dots_raise(self, dots):
+        with pytest.raises(ValueError, match="1..8"):
+            dots_to_brf(dots)
+
+    def test_non_int_dot_raises(self):
+        with pytest.raises(ValueError, match="1..8"):
+            dots_to_brf((7.5,))
+
+    def test_dots_7_8_still_strip_silently(self):
+        # Documented best-effort downgrade for embossing, unchanged.
+        assert dots_to_brf((1,)) == "A"
+        assert dots_to_brf((1, 7)) == "A"
+        assert dots_to_brf((1, 7, 8)) == "A"
+        assert dots_to_brf((7,)) == " "

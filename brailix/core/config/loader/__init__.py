@@ -62,6 +62,8 @@ if _TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Any
 
+    from brailix.core.errors import WarningCollector
+
 PACKAGE_ROOT: _Path = _Path(__file__).resolve().parents[3]
 
 
@@ -75,8 +77,9 @@ def load_profile(
     root: _Path | None = None,
     *,
     extra_search_paths: list[_Path] | tuple[_Path, ...] | None = None,
+    warnings: WarningCollector | None = None,
 ) -> BrailleProfile:
-    """Load a profile by name from ``brailix/profiles/<name>.json``.
+    """Load a profile by name from ``brailix/profiles/<name>.json`.
 
     ``root`` overrides the package root (useful for tests).
 
@@ -88,6 +91,13 @@ def load_profile(
     touching the package.  Tables (``resources/...``) referenced from a
     user-folder profile still resolve against ``root`` — only the top-
     level ``<name>.json`` file is looked up in the extra paths.
+
+    ``warnings``, when supplied, receives the **recoverable** configuration
+    diagnostics — problems that load cleanly but that no reader will ever
+    act on (an unknown top-level key, unparseable zh phoneme-table
+    entries, a zh slot on a non-zh profile). Without it those are
+    unreported; :class:`~brailix.pipeline.Pipeline` always supplies one and
+    replays it onto its compile results.
 
     Raises :class:`FileNotFoundError` if the profile is missing from
     every candidate path; the message lists the union of profile names
@@ -165,8 +175,9 @@ def load_profile(
     # rules go in under its own language subtag rather than onto a field of
     # the shared profile type. Keyed by the literal "zh" whenever
     # ``tables.zh.exceptions`` loads — a non-zh profile declaring that key
-    # would load the resource into an unreachable slot (a mis-declared
-    # profile, tolerated rather than policed here).
+    # loads the resource into an unreachable slot; the validator reports it
+    # (CONFIG_UNREACHABLE_LANG_SLOT) when a warnings collector is supplied,
+    # and the load stays tolerant rather than fatal.
     lang_specs: dict[str, dict[str, Any]] = {}
     if zh_exceptions is not None:
         lang_specs.setdefault("zh", {})["ncb_exceptions"] = zh_exceptions
@@ -209,7 +220,9 @@ def load_profile(
         lang_tables=lang_tables,
         lang_specs=lang_specs,
     )
-    validate_profile(profile, payload, base, str(profile_path))
+    validate_profile(
+        profile, payload, base, str(profile_path), warnings=warnings
+    )
     return profile
 
 

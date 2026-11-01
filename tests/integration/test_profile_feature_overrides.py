@@ -225,3 +225,80 @@ class TestTheKeySpace:
         it was aimed at is the worst outcome available."""
         with pytest.raises(ConfigurationError, match="not a group of features"):
             Pipeline(**_BASE, profile_features={"zh.tone.strict": True})
+
+
+class TestValueTyping:
+    """A flag's value is checked against a per-key type table (review
+    R2-06).
+
+    ``{"zh.tone": "false"}`` — the string a serialized checkbox often
+    carries — used to be silently accepted while the reader's truthiness
+    kept the flag ON: the override looked like it worked and did the
+    opposite. A wrong-typed value for a known flag is now dropped with a
+    ``CONFIG_FEATURE_BAD_VALUE`` warning (the profile's own value stands);
+    an unknown key is warned (``CONFIG_FEATURE_UNKNOWN_KEY``, the typo
+    hint) and still written, because the features table is a documented
+    open extension point. Both diagnostics ride every compile's warnings.
+    """
+
+    def test_stringified_boolean_is_rejected_with_a_warning(self) -> None:
+        pipe = Pipeline(**_BASE, profile_features={"zh.tone": "false"})
+        # The value was dropped, not coerced: the profile's own setting
+        # (tone on) stands, and the braille is the marked one.
+        assert pipe._profile.feature("zh.tone") is True
+        assert len(_cells(pipe)) == len(_cells(Pipeline(**_BASE)))
+        codes = [w.code for w in pipe.translate_text(TEXT).warnings]
+        assert codes == ["CONFIG_FEATURE_BAD_VALUE"]
+
+    @pytest.mark.parametrize("value", ["false", "off", "False", 1])
+    def test_truthy_non_bool_values_are_all_rejected(self, value: object) -> None:
+        pipe = Pipeline(**_BASE, profile_features={"zh.tone": value})
+        assert pipe._profile.feature("zh.tone") is True
+        assert any(
+            w.code == "CONFIG_FEATURE_BAD_VALUE"
+            for w in pipe.translate_text(TEXT).warnings
+        )
+
+    def test_a_valid_typed_override_applies_and_stays_quiet(self) -> None:
+        pipe = Pipeline(**_BASE, profile_features={"zh.tone": False})
+        assert pipe._profile.feature("zh.tone") is False
+        assert not list(pipe.translate_text(TEXT).warnings)
+
+    def test_enum_valued_flag_rejects_out_of_set_values(self) -> None:
+        # music.octave_rule's reader enumerates its strategies; the merge
+        # knows the set and rejects anything else instead of letting the
+        # reader silently fall back to its default.
+        pipe = Pipeline(
+            **_BASE, profile_features={"music.octave_rule": "every_other"}
+        )
+        assert pipe._profile.feature("music.octave_rule") == "interval16"
+        assert any(
+            w.code == "CONFIG_FEATURE_BAD_VALUE"
+            for w in pipe.translate_text(TEXT).warnings
+        )
+        ok = Pipeline(**_BASE, profile_features={"music.octave_rule": "always"})
+        assert ok._profile.feature("music.octave_rule") == "always"
+
+    def test_unknown_key_warns_but_is_still_written(self) -> None:
+        # The typo case: "zh.ton" for "zh.tone". The warning names the key
+        # so the typo is discoverable; the write still happens because a
+        # plugin's own flag legitimately arrives this way.
+        pipe = Pipeline(**_BASE, profile_features={"zh.ton": False})
+        assert pipe._profile.features["zh"]["ton"] is False
+        assert pipe._profile.feature("zh.tone") is True  # untouched address
+        warnings = list(pipe.translate_text(TEXT).warnings)
+        assert [w.code for w in warnings] == ["CONFIG_FEATURE_UNKNOWN_KEY"]
+        assert "zh.ton" in warnings[0].message
+
+    def test_declared_plugin_flag_pins_its_declared_type(self) -> None:
+        # A flag the profile itself declares (the documented plugin path)
+        # takes its type from the declaration: a str-declared flag accepts
+        # any str but not a bool, without the library knowing the plugin.
+        base = load_profile("cn_current")
+        declared = base.with_features({"plugin.style": "compact"})
+        assert declared.feature("plugin.style") == "compact"
+        clashed = declared.with_features({"plugin.style": True})
+        # Type clash → dropped (silently here: no collector on this path).
+        assert clashed.feature("plugin.style") == "compact"
+        kept = declared.with_features({"plugin.style": "wide"})
+        assert kept.feature("plugin.style") == "wide"

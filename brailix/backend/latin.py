@@ -52,6 +52,18 @@ Examples (cn_current):
 This is **not** a UEB / Nemeth implementation — no italic / bold
 indicators, no contraction engine. Those land when a real
 English-braille profile is added.
+
+**A profile without ``letter_prefix.*`` renders both cases alike —
+and says so.** The case / script information of a letter lives
+entirely in its prefix cell (the bare cell is case-neutral), so a
+profile that ships the latin letter table but no
+``letter_prefix.{class}`` structure turns ``A`` and ``a`` into the
+same braille. That is the registered-pending state of ``ja_current``
+(romaji entry/exit indicators are explicitly not done), and inventing the missing cells is not the backend's call
+— the letters keep rendering exactly as before, but every word whose
+sign the profile cannot supply warns
+:func:`warn_letter_prefix_missing` so the gap stays visible instead
+of silently erasing case.
 """
 
 from __future__ import annotations
@@ -104,7 +116,7 @@ def translate_latin(
         and surface.isalpha()
         and surface.isupper()
     ):
-        _emit_all_caps_word(out, surface, base, node.span is not None, profile)
+        _emit_all_caps_word(out, surface, base, node.span is not None, ctx, profile)
         return out
     prefix_emitted = False
     for i, ch in enumerate(surface):
@@ -133,6 +145,10 @@ def translate_latin(
             # itself carries the case info — latin_lower vs latin_upper.
             cells_for = profile.letter(ch)
             if cells_for is not None:
+                # The prefix this path promises is the only carrier of the
+                # letter's case / script; warn (output unchanged) when the
+                # profile defines none — see warn_letter_prefix_missing.
+                warn_letter_prefix_missing(ch, sp, ctx, profile)
                 out.extend(
                     BrailleCell(
                         dots=dots,
@@ -169,11 +185,54 @@ def translate_latin(
     return out
 
 
+def warn_letter_prefix_missing(
+    ch: str,
+    span: Span | None,
+    ctx: BackendContext,
+    profile: BrailleProfile,
+) -> None:
+    """Warn — without changing any output — when ``ch`` is a letter whose
+    script-class sign (``letter_prefix.{class}``) the profile does not
+    define.
+
+    The bare letter cell is case-neutral: everything that distinguishes
+    ``A`` from ``a`` (and a Latin letter from a Greek one) rides on the
+    prefix cell. A profile with the letter table but without the prefix
+    structure — the registered-pending state of ``ja_current``'s romaji —
+    therefore renders both cases identically, and after a digit run the
+    bare a–j cell even reads as another digit (``42ab`` → "421b"). The
+    backend does not invent cells, so the letters render exactly as the
+    table says; this warning keeps that loss visible instead of silent.
+
+    No-op when the prefix exists, when ``ch`` is not in any letter table
+    (that miss is the punct path's to report), and for the *deliberately*
+    suppressed lowercase sign of a running English stretch — that
+    suppression is the documented trade-off, not a profile gap.
+    """
+    letter_class = profile.letter_class(ch)
+    if letter_class is None:
+        return
+    if profile.math_structure(f"letter_prefix.{letter_class}"):
+        return
+    ctx.warnings.warn(
+        code="LATIN_CASE_SIGN_MISSING",
+        message=(
+            f"profile {profile.name} defines no letter_prefix.{letter_class} "
+            f"structure; the letter {ch!r} renders as a bare cell, so its "
+            f"case / script information is lost"
+        ),
+        surface=ch,
+        span=span,
+        source="backend.latin",
+    )
+
+
 def _emit_all_caps_word(
     out: list[BrailleCell],
     surface: str,
     base: int,
     has_span: bool,
+    ctx: BackendContext,
     profile: BrailleProfile,
 ) -> None:
     """Whole-word capitals: doubled ⠠ + every letter bare.
@@ -193,6 +252,12 @@ def _emit_all_caps_word(
     """
     first_sp = Span(base, base + 1) if has_span else None
     prefix = profile.math_structure("letter_prefix.latin_upper")
+    if not prefix:
+        # The doubled ⠠⠠ is the *only* thing marking the word as
+        # all-capitals; without the structure the word renders as plain
+        # lowercase letters. Warn (output unchanged), same as the
+        # ordinary first-letter path.
+        warn_letter_prefix_missing(surface[0], first_sp, ctx, profile)
     for _ in range(2):
         out.extend(
             BrailleCell(
@@ -261,4 +326,9 @@ def english_run_is_digit_run(node: InlineNode) -> bool:
     return isinstance(node, Number)
 
 
-__all__ = ("english_run_is_digit_run", "english_run_role", "translate_latin")
+__all__ = (
+    "english_run_is_digit_run",
+    "english_run_role",
+    "translate_latin",
+    "warn_letter_prefix_missing",
+)

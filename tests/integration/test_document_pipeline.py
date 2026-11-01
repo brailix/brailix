@@ -603,10 +603,14 @@ class TestPopulateBlockRecursion:
         # Frontend populated each cell's inlines.
         table = result.ir.blocks[0]
         assert all(cell.inlines for row in table.blocks for cell in row.blocks)
-        # Result text is a "cell1 | cell2" reconstruction (see
-        # _block_surface for Tables).
+        # Result text reconstructs the row with the same two-space cell
+        # separator the row-local span coordinate contract uses (§4.4), so
+        # every span in the proofread payload slices its surface out of
+        # this text. It used to join with " | ", a display separator no
+        # span could be sliced against — consistency now wins over the
+        # old display choice.
         assert "甲" in result.text and "乙" in result.text
-        assert " | " in result.text
+        assert "甲  乙" in result.text
 
     def test_mathblock_without_span_gets_synthesized_span(self, pipe):
         # When a caller hands the pipeline a MathBlock with no span,
@@ -832,3 +836,242 @@ class TestPipelineTranslateFile:
         path.write_text("hi", encoding="utf-8")
         result = pipe.translate_file(path)
         assert result.ir.metadata["profile"] == pipe.profile
+
+
+# ---------------------------------------------------------------------------
+# Surface-reconstruction fidelity — the authoritative measure the stale-heal
+# and the cache key both lean on (``_block_surface``).  A populated block
+# must reconstruct the text it was populated from EXACTLY, including
+# characters no inline node carries (a phonetic region's ``/.../``
+# delimiters); a lossy reconstruction made "delete the delimiters" edits
+# invisible, so the block kept compiling its old phonetic braille under a
+# cache key equal to the clean compile's (review R2-01).
+# ---------------------------------------------------------------------------
+
+
+class TestSurfaceReconstructionFidelity:
+    @pytest.fixture(scope="class")
+    def phonetic_pipe(self) -> Pipeline:
+        return Pipeline(profile="cn_current")
+
+    def test_populated_surface_carries_the_delimiters(self, phonetic_pipe):
+        from brailix.ir.document import Paragraph
+        from brailix.pipeline._helpers import _block_surface
+
+        block = Paragraph(text="读 [həˈləʊ] 难")
+        phonetic_pipe.translate_block(block)
+        # The PhoneticInline itself stores the bare phoneme run (its span
+        # narrows to the content); the reconstructed surface must still
+        # round-trip the author's delimiters.
+        assert any(
+            n.type == "phonetic_inline" and n.surface == "həˈləʊ"
+            for n in block.inlines
+        )
+        assert _block_surface(block) == "读 [həˈləʊ] 难"
+
+    def test_deleting_delimiters_recompiles_as_plain_text(self, phonetic_pipe):
+        """The R2-01 minimal repro: after the user removes the delimiters,
+        the reused content used to keep emitting the phonetic-region
+        braille, which differs from a fresh compile of the same text."""
+        from brailix.ir.document import DocumentIR, Paragraph
+
+        block = Paragraph(text="[həˈləʊ]")
+        phonetic_pipe.translate_block(block)
+        block.text = "həˈləʊ"  # user deletes [ and ]
+        stale = phonetic_pipe.translate_document(
+            DocumentIR(blocks=[block])
+        ).render()
+        fresh = phonetic_pipe.translate_text("həˈləʊ").render()
+        assert stale == fresh
+
+    def test_adding_delimiters_still_heals(self, phonetic_pipe):
+        # The reverse direction already healed (the reconstruction grew);
+        # pinned so the lossless fix cannot trade one direction for the
+        # other.
+        from brailix.ir.document import DocumentIR, Paragraph
+
+        block = Paragraph(text="həˈləʊ")
+        phonetic_pipe.translate_block(block)
+        block.text = "/həˈləʊ/"
+        healed = phonetic_pipe.translate_document(
+            DocumentIR(blocks=[block])
+        ).render()
+        assert healed == phonetic_pipe.translate_text("/həˈləʊ/").render()
+
+    def test_phonetic_cache_key_separates_from_bare_text(self, phonetic_pipe):
+        from brailix.ir.document import Paragraph
+
+        # The phonetic compile used to share the bare-text compile's
+        # source_hash (both hashed the bare phoneme join), so a polluted
+        # cache entry was indistinguishable from a clean one.
+        phonetic = phonetic_pipe.translate_block(
+            Paragraph(text="[həˈləʊ] 块")
+        ).source_hash
+        bare = phonetic_pipe.translate_block(
+            Paragraph(text="həˈləʊ 块")
+        ).source_hash
+        assert phonetic != bare
+        # A re-compile of the same phonetic block is stable — the
+        # lossless surface no longer looks like an edit, so reuse (not
+        # rebuild) is the steady state again.
+        again = phonetic_pipe.translate_block(
+            Paragraph(text="[həˈləʊ] 块")
+        ).source_hash
+        assert phonetic == again
+
+    def test_populated_blocks_reconstruct_their_text_exactly(self, pipe):
+        """The invariant the whole heal rests on: for every text block
+        this pipeline populated, ``_populated_from(block) == block.text``
+        — the exact comparison the stale-heal makes, exercised across the
+        inline-node zoo (words, phonetic region, date, latin run, table
+        cells)."""
+        from brailix.ir.document import Table
+        from brailix.pipeline.frontend_driver import _populated_from
+
+        doc = parse_markdown(
+            "读 /həˈləʊ/ 于2026年5月17日去ABC银行\n\n"
+            "| 甲 | [həˈləʊ] |\n| --- | --- |\n",
+            profile="cn_current",
+            language="zh-CN",
+        )
+        pipe.translate_document(doc)
+
+        checked = 0
+
+        def walk(block) -> None:
+            nonlocal checked
+            if block.blocks:
+                for child in block.blocks:
+                    walk(child)
+                return
+            if block.text and block.inlines:
+                assert _populated_from(block) == block.text, (
+                    f"{type(block).__name__} reconstructs "
+                    f"{_populated_from(block)!r} from {block.text!r}"
+                )
+                checked += 1
+
+        for block in doc.blocks:
+            walk(block)
+        # The paragraph (words + phonetic + date + latin) plus the two
+        # populated table cells.
+        assert checked >= 3
+        assert any(isinstance(b, Table) for b in doc.blocks)
+
+
+# ---------------------------------------------------------------------------
+# Frontend-stage warnings in table cells are row-local (review R2-03).  The
+# row rebase moved the nodes but left the warnings emitted during a cell's
+# populate cell-local, so one warnings list carried two coordinate systems
+# and only the backend half satisfied the documented contract.
+# ---------------------------------------------------------------------------
+
+
+class TestFrontendWarningSpansAreRowLocal:
+    @pytest.fixture(scope="class")
+    def ko_pipe(self, tmp_path_factory) -> Pipeline:
+        """A cn_current-shaped profile whose language has no registered
+        frontend: every hanzi run reports NO_LANGUAGE_FRONTEND with its
+        segment span — a deterministic frontend-stage warning source."""
+        import json
+        from pathlib import Path
+
+        import brailix
+
+        src = (
+            Path(brailix.__file__).parent / "profiles" / "cn_current.json"
+        ).read_text(encoding="utf-8")
+        payload = json.loads(src)
+        payload["language"] = "ko-KR"
+        drop = tmp_path_factory.mktemp("ko_profile")
+        (drop / "ko_probe.json").write_text(
+            json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+        )
+        return Pipeline(profile="ko_probe", extra_profile_paths=[str(drop)])
+
+    @staticmethod
+    def _table():
+        from brailix.ir.document import Table, TableCell, TableRow
+
+        return Table(
+            blocks=[
+                TableRow(
+                    blocks=[
+                        TableCell(text="重庆银行重庆银行"),
+                        TableCell(text="好彁吗"),
+                    ]
+                )
+            ]
+        )
+
+    def test_every_spanned_warning_slices_its_surface_from_the_row(
+        self, ko_pipe
+    ):
+        """The row-local contract for WARNINGS: ``row_text[w.span]`` must
+        slice out ``w.surface`` — the same invariant the inline nodes and
+        braille cells already answer to (§4.4). Backend-stage warnings
+        (UNKNOWN_PUNCT …) ride the same list, so the loop covers both
+        stages and would catch either drifting."""
+        from brailix.ir.document import DocumentIR
+
+        table = self._table()
+        result = ko_pipe.translate_document(DocumentIR(blocks=[table]))
+        row_text = "  ".join(c.text for c in table.blocks[0].blocks)
+        spanned = [w for w in result.warnings if w.span is not None]
+        assert spanned, "expected NO_LANGUAGE_FRONTEND warnings"
+        for warning in spanned:
+            assert warning.surface is not None
+            assert (
+                row_text[warning.span.start : warning.span.end]
+                == warning.surface
+            ), f"{warning.code} at {warning.span} misses its own surface"
+
+    def test_second_column_frontend_warning_is_not_cell_local(self, ko_pipe):
+        from brailix.ir.document import DocumentIR
+
+        table = self._table()
+        result = ko_pipe.translate_document(DocumentIR(blocks=[table]))
+        cell1_offset = len("重庆银行重庆银行") + 2
+        frontend = [
+            w
+            for w in result.warnings
+            if w.code == "NO_LANGUAGE_FRONTEND" and w.surface == "好彁吗"
+        ]
+        assert frontend, "expected a frontend warning for the second cell"
+        for warning in frontend:
+            # Cell-local would be (0, 3); row-local is (10, 13).
+            assert (warning.span.start, warning.span.end) == (
+                cell1_offset,
+                cell1_offset + len("好彁吗"),
+            )
+
+
+# ---------------------------------------------------------------------------
+# A TableCell holding nested blocks with no child_type is illegal IR: the
+# serializer refuses it in both directions, and the compile boundary used
+# to be the one that silently swallowed it (review R2-08).
+# ---------------------------------------------------------------------------
+
+
+class TestTableCellNestedBlocks:
+    def test_compile_warns_where_serde_refuses(self, pipe):
+        from brailix.ir.document import (
+            DocumentIR,
+            MathBlock,
+            Table,
+            TableCell,
+            TableRow,
+        )
+
+        cell = TableCell(blocks=[MathBlock(text="x+y", source="latex")])
+        table = Table(blocks=[TableRow(blocks=[cell])])
+        result = pipe.translate_document(DocumentIR(blocks=[table]))
+        assert "BLOCK_UNDECLARED_NESTED_BLOCKS" in [
+            w.code for w in result.warnings
+        ]
+        # Soft failure, not a crash: the cell simply has no content.
+        assert cell.inlines == []
+        # The same shape is refused loudly by the serializer — the compile
+        # boundary now agrees with it (warns instead of saying nothing).
+        with pytest.raises(TypeError, match="child_type"):
+            table.to_dict()

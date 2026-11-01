@@ -677,14 +677,16 @@ def _consume_table(cur: _LineCursor) -> Table | None:
     # (No empty-run check: the caller only enters after _TABLE_RE matched
     # the current line, so the loop always collects at least one.)
     for idx, line in enumerate(consumed):
-        # Inside vertical bars: split on |, strip each. Trailing /
-        # leading empties from the wrapping pipes are dropped.
+        # Inside vertical bars: split on unescaped pipes, strip each.
+        # Trailing / leading empties from the wrapping pipes are dropped —
+        # but only when the wrapping pipe is NOT itself escaped
+        # (``| a \||`` keeps its trailing ``\|`` as cell content).
         inner = line.strip()
         if inner.startswith("|"):
             inner = inner[1:]
-        if inner.endswith("|"):
+        if inner.endswith("|") and not _pipe_is_escaped(inner, len(inner) - 1):
             inner = inner[:-1]
-        parts = [p.strip() for p in inner.split("|")]
+        parts = [p.strip() for p in _split_table_cells(inner)]
         # A GFM separator only sits at the header/body boundary (row 1) or
         # as a leading row 0; drop an all-sep row only there, so a later
         # all-dashes body row (placeholder ``-`` cells) survives as data.
@@ -696,6 +698,59 @@ def _consume_table(cur: _LineCursor) -> Table | None:
         return None
     cur.i = end  # commit the consumption now that it is a real table
     return Table(blocks=rows, span=cur.span_of(start, cur.i))
+
+
+def _split_table_cells(inner: str) -> list[str]:
+    """Split a row's inner text on unescaped pipes, unescaping ``\\|``.
+
+    GFM table semantics: a backslash-escaped pipe is a literal pipe inside
+    its cell (``P(A\\|B)`` stays ONE cell), while a bare pipe delimits
+    cells — the Word importer's :func:`_emit_table` relies on this to
+    round-trip cell content that contains pipes.  A backslash before any
+    OTHER character is consumed as a pair and kept verbatim, so ``\\\\``
+    (escaped backslash) doesn't hide the pipe that follows it, and
+    non-pipe escapes reach the inline layer untouched.
+    """
+    cells: list[str] = []
+    buf: list[str] = []
+    i = 0
+    n = len(inner)
+    while i < n:
+        ch = inner[i]
+        if ch == "\\" and i + 1 < n:
+            if inner[i + 1] == "|":
+                buf.append("|")
+            else:
+                # Keep the backslash + its neighbour verbatim; the pair
+                # consumption is what stops ``\\|`` from reading as an
+                # escaped pipe (it's an escaped BACKSLASH, then a delimiter).
+                buf.append(ch)
+                buf.append(inner[i + 1])
+            i += 2
+        elif ch == "|":
+            cells.append("".join(buf))
+            buf = []
+            i += 1
+        else:
+            buf.append(ch)
+            i += 1
+    cells.append("".join(buf))
+    return cells
+
+
+def _pipe_is_escaped(text: str, pos: int) -> bool:
+    """Whether the pipe at ``pos`` is preceded by an odd run of backslashes.
+
+    Used so the wrapping-pipe strip doesn't eat a pipe that is part of the
+    cell's content (``| a \\|`` keeps its escaped trailing pipe).  Even
+    runs (``\\\\|``) mean the pipe itself is a real delimiter.
+    """
+    back = 0
+    j = pos - 1
+    while j >= 0 and text[j] == "\\":
+        back += 1
+        j -= 1
+    return back % 2 == 1
 
 
 def _starts_block(line: str, stripped: str) -> bool:

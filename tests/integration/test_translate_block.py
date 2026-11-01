@@ -301,6 +301,38 @@ class TestIrTransformer:
         b_cells = [c.dots for c in b.braille_blocks[0].cells]
         assert a_cells == b_cells
 
+    def test_in_place_mutation_persists_past_the_transformer(self, pipe):
+        """The documented sharp edge (review R2-04), pinned as the
+        contract it is: an ``ir_transformer`` runs on the caller's own
+        Block, and the guarded reuse compares only the recorded source
+        and the fingerprint — a reading edit moves neither. Recompiling
+        the same Block WITHOUT the transformer (the "user undid the
+        override" move) therefore reuses the mutated content and returns
+        the mutated braille under a ``source_hash`` equal to the clean
+        compile's. Callers that need undoability hand each compile a
+        fresh (or deep-copied) block; the docstring says so.
+        """
+        from brailix.ir.inline import Word
+
+        def override_reading(doc: DocumentIR) -> None:
+            for node in doc.blocks[0].inlines:
+                if isinstance(node, Word) and node.surface == "一":
+                    node.reading = "yi2"  # the wrong reading
+
+        block = Paragraph(text="一")
+        dirty = pipe.translate_block(block, ir_transformer=override_reading)
+        clean_hash = pipe.translate_block(
+            Paragraph(text="一")
+        ).source_hash
+        # The mutation changed the braille but not the cache key...
+        assert dirty.source_hash == clean_hash
+
+        after_undo = pipe.translate_block(block)  # no transformer this time
+        assert [c.dots for c in after_undo.braille_blocks[0].cells] == [
+            c.dots for c in dirty.braille_blocks[0].cells
+        ]
+        assert after_undo.ir.inlines[0].reading == "yi2"
+
 
 # ---------------------------------------------------------------------------
 # tree_subcache reuse — math

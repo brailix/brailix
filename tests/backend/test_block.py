@@ -377,21 +377,21 @@ class TestMathBlock:
 
 
 class TestFootnoteRefEdges:
-    def test_empty_ref_emits_no_marker_cells(self, profile):
+    def test_empty_ref_emits_no_marker_cells(self, ctx, profile):
         # Call the helper directly: the public expander short-circuits
         # before reaching it for empty refs, but the helper is defensive
         # so we lock that behaviour too.
         from brailix.backend.block import _footnote_ref_cells
 
-        assert _footnote_ref_cells("", profile) == []
+        assert _footnote_ref_cells("", ctx, profile) == []
 
-    def test_digit_after_letter_re_emits_number_sign(self, profile):
+    def test_digit_after_letter_re_emits_number_sign(self, ctx, profile):
         # A ref like ``1a2`` must re-emit the number sign before the
         # trailing ``2`` so it isn't read as a letter; deduping on "any
         # number_sign already present" dropped it.
         from brailix.backend.block import _footnote_ref_cells
 
-        cells = _footnote_ref_cells("1a2", profile)
+        cells = _footnote_ref_cells("1a2", ctx, profile)
         roles = [c.role for c in cells]
         assert roles.count("number_sign") == 2  # two separate digit runs
         twos = [i for i, c in enumerate(cells) if c.source_text == "2"]
@@ -401,7 +401,7 @@ class TestFootnoteRefEdges:
         # trailing blank — traces back to source (P1 contract).
         assert all(c.source_span is not None for c in cells)
 
-    def test_letter_after_digit_carries_letter_sign(self, profile):
+    def test_letter_after_digit_carries_letter_sign(self, ctx, profile):
         # bare_letter("a") == the digit "1" cell in cn_current, so a ref
         # like "1a" used to read "a" as a second "1" ("11"): the number
         # sign latched and the bare letter cell was digit-shaped. The
@@ -409,7 +409,7 @@ class TestFootnoteRefEdges:
         # a letter (and the digit run is broken).
         from brailix.backend.block import _footnote_ref_cells
 
-        cells = _footnote_ref_cells("1a", profile)
+        cells = _footnote_ref_cells("1a", ctx, profile)
         a_cells = [c for c in cells if c.source_text == "a"]
         assert len(a_cells) == 2  # letter-sign prefix + the bare letter
         assert a_cells[-1].dots == profile.bare_letter("a")
@@ -432,3 +432,124 @@ class TestFootnoteRefEdges:
         out = expand_block(f, ctx, profile)
         roles = [c.role for c in out[0].cells]
         assert "unknown" in roles
+
+
+class TestListMarkerWithoutPunctMapping:
+    """ja_current's punct table carries neither ``·`` nor ``.`` — the
+    list marker used to vanish with no diagnostic, reflowing the list
+    into prose (adversarial review F3). The marker still drops (the
+    backend does not invent a bullet for a table that lacks one), but
+    the drop is loud now: LIST_MARKER_UNMAPPED, once per item."""
+
+    @pytest.fixture(scope="class")
+    def ja(self):
+        return load_profile("ja_current")
+
+    @pytest.fixture
+    def ja_ctx(self):
+        return BackendContext(
+            profile="ja_current", mode=RunMode.NORMAL, warnings=WarningCollector()
+        )
+
+    @staticmethod
+    def _latin_item():
+        from brailix.ir.inline import LatinWord
+
+        return ListItem(inlines=[LatinWord(surface="one", span=Span(0, 3))])
+
+    def test_unordered_marker_drop_warns(self, ja_ctx, ja):
+        from brailix.ir.inline import LatinWord
+
+        lst = List(
+            ordered=False,
+            blocks=[ListItem(inlines=[LatinWord(surface="one", span=Span(0, 3))])],
+        )
+        out = expand_block(lst, ja_ctx, ja)
+        roles = [c.role for c in out[0].cells]
+        # No marker cells (the table has none to give)...
+        assert "list_marker" not in roles
+        assert "latin_letter" in roles  # ...but the content still translates
+        assert "LIST_MARKER_UNMAPPED" in [w.code for w in ja_ctx.warnings]
+
+    def test_ordered_marker_drop_warns_digits_survive(self, ja_ctx, ja):
+        from brailix.ir.inline import LatinWord
+
+        lst = List(
+            ordered=True,
+            blocks=[ListItem(inlines=[LatinWord(surface="one", span=Span(0, 3))])],
+        )
+        out = expand_block(lst, ja_ctx, ja)
+        roles = [c.role for c in out[0].cells]
+        # The ordinal "1" renders; the "." after it is the dropped part.
+        assert "digit" in roles
+        assert "list_marker" not in roles
+        assert "LIST_MARKER_UNMAPPED" in [w.code for w in ja_ctx.warnings]
+
+    def test_warning_anchors_to_item_span(self, ja_ctx, ja):
+        # The warning carries the item's block span so a proofreading
+        # front-end can point at the affected list item.
+        from brailix.ir.inline import LatinWord
+
+        item = ListItem(
+            inlines=[LatinWord(surface="one", span=Span(0, 3))], span=Span(10, 13)
+        )
+        expand_block(List(ordered=False, blocks=[item]), ja_ctx, ja)
+        warn = ja_ctx.warnings.by_code("LIST_MARKER_UNMAPPED")[0]
+        assert warn.span == Span(10, 13)
+
+    def test_cn_current_marker_present_never_warns(self, ctx, profile):
+        # The shipped Chinese tables map both markers — the warning is a
+        # prefix-less-table diagnostic only.
+        lst = List(
+            ordered=True,
+            blocks=[ListItem(inlines=[Word(surface="项", reading="xiang4")])],
+        )
+        expand_block(lst, ctx, profile)
+        assert "LIST_MARKER_UNMAPPED" not in [w.code for w in ctx.warnings]
+
+    def test_pipeline_markdown_list_ja_current_warns(self):
+        # The reviewer's case, end to end: "1. one" through the markdown
+        # frontend under ja_current must announce the dropped marker.
+        from brailix import Pipeline
+        from brailix.input import parse_markdown
+
+        ja_pipe = Pipeline(profile="ja_current", analyzer="kana")
+        doc = parse_markdown(
+            "1. one\n", language="ja-JP", profile="ja_current"
+        )
+        result = ja_pipe.translate_document(doc)
+        codes = [w.code for w in result.warnings]
+        assert "LIST_MARKER_UNMAPPED" in codes
+        # And the braille is unchanged from before the warning existed:
+        # digits + bare letters, no marker cells.
+        assert result.render("unicode") == "⠼⠁⠕⠝⠑"
+
+
+class TestFootnoteRefWithoutLetterPrefix:
+    """The footnote-ref marker composes ``profile.letter`` for its letters
+    — on a prefix-less profile (ja_current) the ref letters render bare
+    and a ref like ``1a`` reads as ``11``, the same case/digit-ambiguity
+    loss as the Latin-word path (F2 class). Output unchanged, warning
+    added."""
+
+    def test_letter_ref_warns_on_prefixless_profile(self):
+        from brailix.ir.inline import LatinWord
+
+        ja = load_profile("ja_current")
+        ctx = BackendContext(
+            profile="ja_current", mode=RunMode.NORMAL, warnings=WarningCollector()
+        )
+        fn = Footnote(
+            ref="1a",
+            inlines=[LatinWord(surface="note", span=Span(0, 4))],
+        )
+        out = expand_block(fn, ctx, ja)
+        assert "footnote_ref" in [c.role for c in out[0].cells]
+        assert "LATIN_CASE_SIGN_MISSING" in [w.code for w in ctx.warnings]
+
+    def test_letter_ref_silent_on_cn_current(self, ctx, profile):
+        fn = Footnote(ref="1a", inlines=[Word(surface="注", reading="zhu4")])
+        expand_block(fn, ctx, profile)
+        assert "LATIN_CASE_SIGN_MISSING" not in [
+            w.code for w in ctx.warnings
+        ]

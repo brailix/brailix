@@ -36,11 +36,21 @@ type _BlockClass = type[Block]
 #
 # * ``id`` / ``text`` / ``inlines`` / ``span`` / ``blocks`` — each has its own
 #   pass, in a fixed order the payload's readability depends on;
-# * ``frontend_fingerprint`` / ``tree_text`` — populate provenance rather than
-#   document content: which configuration built the inlines, and which text
-#   the parsed tree came from. Both are in-memory only.
+# * ``frontend_fingerprint`` / ``tree_text`` / ``populated_text`` — populate
+#   provenance rather than document content: which configuration built the
+#   inlines, which text the parsed tree came from, and which text the
+#   inlines were built from. All in-memory only.
 _PAYLOAD_EXCLUDED = frozenset(
-    {"id", "inlines", "blocks", "text", "span", "frontend_fingerprint", "tree_text"}
+    {
+        "id",
+        "inlines",
+        "blocks",
+        "text",
+        "span",
+        "frontend_fingerprint",
+        "tree_text",
+        "populated_text",
+    }
 )
 
 
@@ -136,6 +146,21 @@ class Block:
     # equality, ``to_dict`` and ``structure_key`` (it is cache provenance,
     # not document content or structural identity).
     frontend_fingerprint: str | None = _field(
+        default=None, compare=False, repr=False
+    )
+    # The raw ``text`` a populate built this block's ``inlines`` from — the
+    # staleness record for a populated text block, the text-block sibling
+    # of ``tree_text``. Inline surfaces can be a *lossy* view of the
+    # source (a :class:`~brailix.ir.inline.PhoneticInline` carries the bare
+    # phoneme run, without the ``/.../`` delimiters the author wrote), so
+    # reconstructing from them cannot tell "characters the frontend
+    # deliberately dropped" from "characters a later edit added or
+    # removed". The verbatim record can: the stale-heal compares it to the
+    # current ``block.text`` and any edit — either direction — shows up as
+    # the mismatch it is. ``None`` means "not populated by a pipeline";
+    # hand-built content keeps the "used as-is" contract. In-memory only,
+    # like ``frontend_fingerprint``.
+    populated_text: str | None = _field(
         default=None, compare=False, repr=False
     )
 
