@@ -195,6 +195,26 @@ class TestBar:
         t = _types(_gen("bar", {"kind": "bar", "data": []}))
         assert t == ["line", "line"]
 
+    def test_negative_value_is_refused_not_clamped(self):
+        # ``max(0.0, value)`` used to clamp a negative datum to a zero-height
+        # bar — invisible, indistinguishable from a true 0, and a wrong chart
+        # that read exactly like a right one. The generator refuses, and the
+        # figure adapter turns the refusal into a GRAPHICS_INVALID_SPEC
+        # warning (see test_figure_adapter) so it is never silent.
+        spec = {"kind": "bar", "data": [
+            {"label": "A", "value": 3}, {"label": "B", "value": -2}]}
+        with pytest.raises(FigureSpecError) as excinfo:
+            _gen("bar", spec)
+        assert "-2" in str(excinfo.value)
+
+    def test_many_negative_values_are_summarised(self):
+        spec = {"kind": "bar", "data": [
+            {"label": f"L{i}", "value": -i} for i in range(1, 6)]}
+        with pytest.raises(FigureSpecError) as excinfo:
+            _gen("bar", spec)
+        message = str(excinfo.value)
+        assert "5 negative values" in message
+
 
 class TestLine:
     def test_polyline_and_points(self):

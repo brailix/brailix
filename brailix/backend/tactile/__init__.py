@@ -42,6 +42,10 @@ from dataclasses import dataclass as _dataclass
 from dataclasses import field as _field
 from dataclasses import replace as _replace
 
+from brailix.backend.tactile._asset_limits import (
+    DEFAULT_GRAPHIC_ASSET_LIMITS,
+    GraphicAssetLimits,
+)
 from brailix.backend.tactile._draw import (
     draw_circle,
     draw_ellipse,
@@ -316,6 +320,10 @@ class _State:
         default_factory=list
     )
     ctm: Affine = IDENTITY
+    # The read budget every <image> href is resolved under (see
+    # :mod:`._asset_limits`); threaded here so the handler deep in the walk
+    # sees the same policy the caller handed ``rasterize``.
+    asset_limits: GraphicAssetLimits = DEFAULT_GRAPHIC_ASSET_LIMITS
 
     def dev(self, x: float, y: float) -> tuple[int, int]:
         """Map a user-space point through the current transform, then the
@@ -493,6 +501,20 @@ def _h_image(
             message="<image> has no positive width/height; skipped",
         )
         return
+    if not href.startswith("data:") and not st.asset_limits.allow_filesystem:
+        # The caller's asset policy forbids touching the filesystem. Refuse
+        # before any read attempt: this is a policy outcome, not a load
+        # failure, and — no path having been probed — it reveals nothing
+        # about the filesystem, so it may carry its own code and message.
+        # A locked-down deployment then gets an actionable "switched off"
+        # diagnostic instead of a bare "could not load".
+        st.warn_once(
+            key="image-fs-blocked",
+            code="GRAPHICS_IMAGE_PATH_BLOCKED",
+            message="the image references a file path, but reading local "
+            "files is disabled for this compile; skipped",
+        )
+        return
     # Affine mapping the image's normalized (u, v) ∈ [0, 1]² space onto
     # device pixels: place into the [x, x+w]×[y, y+h] box, through the
     # current transform, through the viewBox→device mapping. Invert it to
@@ -525,6 +547,7 @@ def _h_image(
             invert=invert,
             target_w=hi_x - lo_x + 1,
             target_h=hi_y - lo_y + 1,
+            limits=st.asset_limits,
         )
     except SvgRasterizerMissing:
         st.warn_once(
@@ -542,11 +565,19 @@ def _h_image(
             "(Pillow); <image> skipped",
         )
         return
-    except TactileImageError as exc:
+    except TactileImageError:
+        # One fixed sentence for every failure the load can report — a
+        # missing path, an unreadable one, a non-image one, an over-budget
+        # one. The exception's detail says which of those it was, and that
+        # difference is a file-existence probe to anyone who can read the
+        # warning back (adversarial review 2026-10-31, blue-2 F1: the
+        # OSError text used to ride straight into this message), so none of
+        # it — not the href, not the exception — enters user-visible text.
         st.warn_once(
             key=f"image:{href}",
             code="GRAPHICS_IMAGE_LOAD_FAILED",
-            message=f"could not load image {href!r}: {exc}",
+            message="the referenced image could not be read or decoded; "
+            "skipped",
         )
         return
     # Row-level affine sampling. ``u``/``v`` are affine in ``(dx, dy)``, so
@@ -986,6 +1017,7 @@ def rasterize(
     warnings: WarningCollector | None = None,
     label_translator: LabelTranslator | None = None,
     record_provenance: bool = False,
+    limits: GraphicAssetLimits = DEFAULT_GRAPHIC_ASSET_LIMITS,
 ) -> TactileRaster:
     """Rasterize a normalized SVG tree into a :class:`TactileRaster`.
 
@@ -1000,6 +1032,13 @@ def rasterize(
     from a serialized payload rather than produced by the normalizer can carry
     past :data:`_MAX_TREE_DEPTH`: the drawing degrades to a blank page of the
     right physical size.
+
+    ``limits`` is the read budget every ``<image>`` href in the tree is
+    resolved under (see :mod:`._asset_limits`); the standalone
+    :func:`brailix.translate_graphic` entry and the block-level
+    ``rasterize_graphic_block`` tail thread their caller's policy through
+    here, so a document compiled with ``allow_filesystem=False`` cannot read
+    local files through any route into this function.
     """
     if svg_root.get("data-bk-error") is not None and warnings is not None:
         warnings.error(
@@ -1086,6 +1125,7 @@ def rasterize(
         fill_map={},
         labels=[],
         boxes=[],
+        asset_limits=limits,
     )
     if not too_deep:
         _walk(svg_root, raster, state, min_radius, None)

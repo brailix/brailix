@@ -66,6 +66,11 @@ _FACADE: dict[str, list[str]] = {
         "InputLimits",
         "InputTooLargeError",
         "DEFAULT_INPUT_LIMITS",
+        # The graphics entry point's asset-read budget (its own argument),
+        # beside the input layer's trio for the same reason.
+        "GraphicAssetLimits",
+        "GraphicAssetTooLargeError",
+        "DEFAULT_GRAPHIC_ASSET_LIMITS",
     ],
     "brailix.ir": [
         # braille (the layout control sentinels are backend↔renderer wire

@@ -129,7 +129,12 @@ def _svg_dimensions_from_text(text: str) -> tuple[int, int]:
 
 
 def _svg_attr(tag: str, name: str) -> str | None:
+    # XML allows either quote style around an attribute value, so both are
+    # accepted: a hand-written SVG with single-quoted viewBox / width /
+    # height used to be misread as sizeless and soft-failed as unreadable.
     m = _re.search(rf'\b{name}\s*=\s*"([^"]*)"', tag, _re.IGNORECASE)
+    if m is None:
+        m = _re.search(rf"\b{name}\s*=\s*'([^']*)'", tag, _re.IGNORECASE)
     return m.group(1) if m else None
 
 

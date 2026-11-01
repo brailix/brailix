@@ -22,6 +22,9 @@ from PIL import Image  # noqa: E402
 
 import brailix.backend.tactile as tactile  # noqa: E402
 from brailix.backend.tactile import rasterize  # noqa: E402
+from brailix.backend.tactile._asset_limits import (  # noqa: E402
+    GraphicAssetLimits,
+)
 from brailix.backend.tactile._image import (  # noqa: E402
     ImageSampler,
     TactileImageError,
@@ -158,10 +161,77 @@ class TestLoad:
         with pytest.raises(TactileImageError):
             _resolve_href("data:image/png;base64,@@@not-base64@@@")
 
-    def test_resolve_href_reads_file(self, tmp_path):
+    def test_resolve_href_reads_file_within_a_budget(self, tmp_path):
+        # The successor of the old test_resolve_href_reads_file, which
+        # asserted a bare absolute path read with no policy attached — the
+        # exact behaviour the adversarial review (2026-10-31, red-3 F1)
+        # confirmed as P0. Reading the author's own file beside the source
+        # is still the documented use of the filesystem fallback; what the
+        # read now carries is a budget.
         p = tmp_path / "x.png"
         p.write_bytes(_png_bytes(_solid(0, size=4)))
-        assert _resolve_href(str(p)) == p.read_bytes()
+        limits = GraphicAssetLimits(max_asset_bytes=1_000_000)
+        assert _resolve_href(str(p), limits) == p.read_bytes()
+
+
+class TestAssetLimits:
+    """The href read budget: caps always on, filesystem behind a switch
+    (adversarial review 2026-10-31, red-3 F1 / blue-2 CONFIRMED P0)."""
+
+    def test_file_past_the_byte_cap_is_refused(self, tmp_path):
+        p = tmp_path / "big.bin"
+        p.write_bytes(b"x" * 64)
+        with pytest.raises(TactileImageError):
+            _resolve_href(str(p), GraphicAssetLimits(max_asset_bytes=32))
+
+    def test_byte_cap_boundary_reads_exactly_the_budget(self, tmp_path):
+        p = tmp_path / "exact.bin"
+        p.write_bytes(b"x" * 32)
+        assert _resolve_href(str(p), GraphicAssetLimits(max_asset_bytes=32)) == b"x" * 32
+
+    def test_data_uri_past_the_byte_cap_is_refused(self):
+        payload = base64.b64encode(b"x" * 64).decode("ascii")
+        with pytest.raises(TactileImageError):
+            _resolve_href(
+                f"data:image/png;base64,{payload}",
+                GraphicAssetLimits(max_asset_bytes=32),
+            )
+
+    def test_decoded_image_past_the_pixel_cap_is_refused(self):
+        # 16x16 = 256 px over a 100 px budget; the PNG itself is tiny, so
+        # only the pixel gate refuses it.
+        with pytest.raises(TactileImageError):
+            load_tactile_image(
+                _data_uri(_solid(0)), limits=GraphicAssetLimits(max_asset_pixels=100)
+            )
+
+    def test_pixel_cap_boundary_allows_exactly_the_budget(self):
+        s = load_tactile_image(
+            _data_uri(_solid(0)), limits=GraphicAssetLimits(max_asset_pixels=256)
+        )
+        assert (s.width, s.height) == (16, 16)
+
+    def test_filesystem_off_refuses_a_bare_path_that_exists(self, tmp_path):
+        # The refusal must come from the switch, not from a missing file:
+        # the path here is real and, under the default policy, readable.
+        p = tmp_path / "x.png"
+        p.write_bytes(_png_bytes(_solid(0, size=4)))
+        limits = GraphicAssetLimits(allow_filesystem=False)
+        with pytest.raises(TactileImageError):
+            _resolve_href(str(p), limits)
+
+    def test_filesystem_off_still_reads_data_uris(self):
+        # In-document assets (a docx picture the resolver inlined) must keep
+        # working when the filesystem is switched off.
+        s = load_tactile_image(
+            _data_uri(_solid(0)), limits=GraphicAssetLimits(allow_filesystem=False)
+        )
+        assert all(v == 255 for v in s.levels)
+
+    def test_unlimited_restores_the_raw_behaviour(self, tmp_path):
+        p = tmp_path / "big.bin"
+        p.write_bytes(b"x" * 64)
+        assert _resolve_href(str(p), GraphicAssetLimits.unlimited()) == b"x" * 64
 
 
 class TestSampler:
@@ -261,6 +331,93 @@ class TestRasterize:
         r = rasterize(svg, _profile(), record_provenance=True)
         assert r.provenance is not None
         assert r.provenance.get("img1")  # the image element touched pixels
+
+
+class TestAssetPolicyWarnings:
+    """What the warnings pane may and may not say about a refused href.
+
+    A missing path, an unreadable one and a non-image one used to produce
+    three distinguishable messages — a file-existence oracle for anyone who
+    can read the warning back (blue-2 F1: the OSError text rode straight
+    into the message)."""
+
+    def test_three_failure_kinds_share_one_message(self, tmp_path):
+        not_an_image = tmp_path / "secret.txt"
+        not_an_image.write_text("definitely not an image", encoding="utf-8")
+        cases = {
+            "missing": str(tmp_path / "no-such-file.png"),
+            "unreadable": str(tmp_path),  # a directory: the open itself fails
+            "not-an-image": str(not_an_image),
+        }
+        messages = {}
+        for kind, href in cases.items():
+            warn = WarningCollector()
+            r = rasterize(_svg_image(href), _profile(), warn)
+            assert r.raised_count() == 0, kind
+            load_failed = [
+                w for w in warn if w.code == "GRAPHICS_IMAGE_LOAD_FAILED"
+            ]
+            assert len(load_failed) == 1, kind
+            messages[kind] = load_failed[0].message
+        # One fixed sentence — and it names neither the path nor the error.
+        assert len(set(messages.values())) == 1
+        message = next(iter(messages.values()))
+        for href in cases.values():
+            assert href not in message
+        assert "identify image file" not in message
+        assert "cannot read" not in message
+
+    def test_over_budget_size_stays_out_of_the_message(self, tmp_path):
+        p = tmp_path / "big.bin"
+        p.write_bytes(b"x" * 64)
+        warn = WarningCollector()
+        r = rasterize(
+            _svg_image(str(p)),
+            _profile(),
+            warn,
+            limits=GraphicAssetLimits(max_asset_bytes=32),
+        )
+        assert r.raised_count() == 0
+        load_failed = [w for w in warn if w.code == "GRAPHICS_IMAGE_LOAD_FAILED"]
+        assert len(load_failed) == 1
+        # "64 bytes > 32 bytes" would answer "a file that big exists here".
+        assert "64" not in load_failed[0].message
+
+    def test_filesystem_off_warns_path_blocked_and_skips(self, tmp_path):
+        p = tmp_path / "x.png"
+        p.write_bytes(_png_bytes(_solid(0, size=4)))
+        warn = WarningCollector()
+        r = rasterize(
+            _svg_image(str(p)),
+            _profile(),
+            warn,
+            limits=GraphicAssetLimits(allow_filesystem=False),
+        )
+        assert r.raised_count() == 0
+        assert any(w.code == "GRAPHICS_IMAGE_PATH_BLOCKED" for w in warn)
+        assert not any(w.code == "GRAPHICS_IMAGE_LOAD_FAILED" for w in warn)
+
+    def test_translate_graphic_threads_limits_to_the_read(self, tmp_path):
+        # The public entry, not the backend function: the caller's policy
+        # must survive the whole chain (translate_graphic → rasterize →
+        # _resolve_href), for both the refusal and the permission.
+        from brailix.pipeline import translate_graphic
+
+        p = tmp_path / "x.png"
+        p.write_bytes(_png_bytes(_solid(0, size=4)))
+        svg = ET.tostring(_svg_image(str(p)), encoding="unicode")
+
+        blocked = WarningCollector()
+        result = translate_graphic(
+            svg,
+            warnings=blocked,
+            limits=GraphicAssetLimits(allow_filesystem=False),
+        )
+        assert result.raster.raised_count() == 0
+        assert any(w.code == "GRAPHICS_IMAGE_PATH_BLOCKED" for w in blocked)
+
+        allowed = translate_graphic(svg, warnings=WarningCollector())
+        assert allowed.raster.raised_count() > 0
 
 
 class TestSamplingSnapshot:
