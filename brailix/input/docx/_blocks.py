@@ -21,6 +21,7 @@ from __future__ import annotations
 import re as _re
 
 from brailix.core import inline_math
+from brailix.core.errors import WarningCollector
 from brailix.input.docx._media import _convert_drawing, _convert_pict
 from brailix.input.docx._ole import _ole_object_to_inline_math
 from brailix.input.docx._props import (
@@ -96,6 +97,7 @@ def _iter_body_blocks(
     chem_detection: bool = False,
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
     footnotes: dict[str, Element] | None = None,
+    warnings: WarningCollector | None = None,
 ):
     """Yield IR blocks from ``w:body`` in document order.
 
@@ -122,6 +124,12 @@ def _iter_body_blocks(
     surfaces a :class:`Footnote` block at the reference position. An
     empty / absent map means no footnotes part, and a reference then
     yields nothing — the pre-footnote behaviour for such a document.
+
+    ``warnings`` (optional) receives parse-level diagnostics from the
+    walk (a Word field with no cached result text — see
+    :func:`_field_result_text`); ``None`` discards them. The same
+    channel :func:`brailix.input.parse_file` already hands the Markdown
+    route.
     """
     if ole_blobs is None:
         ole_blobs = {}
@@ -151,6 +159,7 @@ def _iter_body_blocks(
                 chem_detection=chem_detection,
                 image_blobs=image_blobs,
                 footnotes=footnotes,
+                warnings=warnings,
             )
             for blk in blocks:
                 if isinstance(blk, ListItem):
@@ -174,6 +183,7 @@ def _iter_body_blocks(
                 chem_detection=chem_detection,
                 image_blobs=image_blobs,
                 footnotes=footnotes,
+                warnings=warnings,
             )
         elif tag == "oMathPara":
             yield from flush_list()
@@ -197,6 +207,7 @@ def _convert_paragraph(
     chem_detection: bool = False,
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
     footnotes: dict[str, Element] | None = None,
+    warnings: WarningCollector | None = None,
 ) -> list[Block]:
     """Convert a single ``<w:p>`` into one or more IR blocks.
 
@@ -243,6 +254,7 @@ def _convert_paragraph(
         chem_detection=chem_detection,
         image_blobs=image_blobs,
         footnotes=footnotes,
+        warnings=warnings,
     ):
         if block_out is not None:
             flush_text()
@@ -312,6 +324,7 @@ def _walk_paragraph_content(
     chem_detection: bool = False,
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
     footnotes: dict[str, Element] | None = None,
+    warnings: WarningCollector | None = None,
 ):
     """Yield ``(text_piece, block | None)`` for each content unit.
 
@@ -353,6 +366,7 @@ def _walk_paragraph_content(
         image_blobs=image_blobs,
         footnotes=footnotes,
         chem_detection=chem_detection,
+        warnings=warnings,
     )
     yield from _coalesce_script_clusters(tokens, chem_detection=chem_detection)
 
@@ -364,6 +378,7 @@ def _iter_paragraph_tokens(
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
     footnotes: dict[str, Element] | None = None,
     chem_detection: bool = False,
+    warnings: WarningCollector | None = None,
 ):
     """Lower a ``<w:p>`` into a flat token stream for the coalescer.
 
@@ -396,6 +411,7 @@ def _iter_paragraph_tokens(
             image_blobs=image_blobs,
             footnotes=footnotes,
             chem_detection=chem_detection,
+            warnings=warnings,
         )
     # A field still open at paragraph end never reached its `end`: its
     # instruction was never assembled and its visible-fallback text was held
@@ -424,6 +440,7 @@ def _emit_child_tokens(
     image_blobs=None,
     footnotes=None,
     chem_detection: bool = False,
+    warnings: WarningCollector | None = None,
 ):
     """Yield paragraph tokens for one direct child of a ``<w:p>`` (or of a
     transparent run-container wrapper).
@@ -431,12 +448,15 @@ def _emit_child_tokens(
     Factored out of :func:`_iter_paragraph_tokens` so revision-tracking
     (``<w:ins>`` / ``<w:del>`` / ``<w:moveFrom>`` / ``<w:moveTo>``),
     content-control (``<w:sdt>``), smart-tag and custom-XML wrappers can
-    recurse through the *same* dispatch. Word emits ordinary runs — including
-    inline ``<m:oMath>`` islands, ``<w:object>`` OLE math, footnote
-    references and run ``<w:vertAlign>`` scripts — inside these wrappers, so
-    scraping a wrapper for its text alone destroys all of it: a
-    tracked-changes insertion of a formula comes out as bare literal text, an
-    OLE equation vanishes.
+    recurse through the *same* dispatch — passing ``chem_detection``
+    (and every other walk setting) down, so a footnote reference under a
+    wrapper reads its script clusters exactly as the same reference
+    would bare. Word emits ordinary runs — including inline ``<m:oMath>``
+    islands, ``<w:object>`` OLE math, footnote references and run
+    ``<w:vertAlign>`` scripts — inside these wrappers, so scraping a
+    wrapper for its text alone destroys all of it: a tracked-changes
+    insertion of a formula comes out as bare literal text, an OLE
+    equation vanishes.
     """
     tag = _local(child.tag)
     if tag == "oMathPara":
@@ -452,6 +472,7 @@ def _emit_child_tokens(
             image_blobs=image_blobs,
             footnotes=footnotes,
             chem_detection=chem_detection,
+            warnings=warnings,
         ):
             if isinstance(piece, ImageAlt):
                 # An embedded picture: surface as a block token so the
@@ -474,6 +495,8 @@ def _emit_child_tokens(
                 field_state,
                 image_blobs=image_blobs,
                 footnotes=footnotes,
+                chem_detection=chem_detection,
+                warnings=warnings,
             )
     elif tag == "object":
         text = _ole_object_to_inline_math(child, ole_blobs)
@@ -481,18 +504,40 @@ def _emit_child_tokens(
             yield ("math", text)
     elif tag == "fldSimple":
         # Word's simple-field form: instruction in ``w:instr`` attribute,
-        # cached result text as children. Skip the result (visual rendering).
+        # cached result text as children. An EQ instruction becomes the
+        # deferred equation island (its cached children are the visual
+        # fallback and stay skipped); any other field's cached result is
+        # what Word displays — the document's only copy of that text —
+        # so it is emitted as ordinary text (HYPERLINK's display text
+        # stays dropped by design, like the complex-field form).
         instr = _ns_attr(child, _W_PREFIX, "instr") or ""
         piece = _eq_field_to_inline_math(instr)
         if piece is not None:
             yield ("math", piece)
+        else:
+            text = _field_result_text(
+                instr, _fld_simple_cached_text(child), warnings
+            )
+            if text:
+                yield ("text", text, None)
     elif tag == "AlternateContent":
         # Word wraps OLE objects in <mc:AlternateContent> when both a modern
         # (Choice) and legacy (Fallback) representation exist. Prefer Fallback
         # for OLE math — Choice is usually the picture preview we can't read.
-        for piece, math in _walk_alternate_content(child, ole_blobs):
+        for piece, math in _walk_alternate_content(
+            child,
+            ole_blobs,
+            image_blobs=image_blobs,
+            footnotes=footnotes,
+            chem_detection=chem_detection,
+            warnings=warnings,
+        ):
             if math is not None:
                 yield ("block", math)
+            elif isinstance(piece, (ImageAlt, Footnote)):
+                # A picture / footnote reference inside the branch lifts to
+                # a block token, classified exactly like the plain-run path.
+                yield ("block", piece)
             elif piece:
                 # Classify like the plain-run path does: only a formed
                 # inline-math island is math; Fallback runs also carry plain
@@ -512,6 +557,8 @@ def _emit_child_tokens(
                 field_state,
                 image_blobs=image_blobs,
                 footnotes=footnotes,
+                chem_detection=chem_detection,
+                warnings=warnings,
             )
     elif tag == "sdt":
         # Structured-document tag (content control): inline content lives under
@@ -525,6 +572,8 @@ def _emit_child_tokens(
                     field_state,
                     image_blobs=image_blobs,
                     footnotes=footnotes,
+                    chem_detection=chem_detection,
+                    warnings=warnings,
                 )
     elif tag == "pPr":
         # Paragraph properties — already consumed by style / list detection.
@@ -545,6 +594,8 @@ def _emit_child_tokens(
                 field_state,
                 image_blobs=image_blobs,
                 footnotes=footnotes,
+                chem_detection=chem_detection,
+                warnings=warnings,
             )
 
 
@@ -758,14 +809,15 @@ class _FieldState:
         <w:r><w:fldChar w:fldCharType="begin"/></w:r>
         <w:r><w:instrText>eq \\f(1,2)</w:instrText></w:r>
         <w:r><w:fldChar w:fldCharType="separate"/></w:r>   ← optional
-        <w:r><w:t>cached visible result</w:t></w:r>        ← skipped
+        <w:r><w:t>cached visible result</w:t></w:r>        ← buffered
         <w:r><w:fldChar w:fldCharType="end"/></w:r>
 
-    The instruction text accumulates between ``begin`` and
-    ``separate`` (or ``end`` if no separate). After ``separate`` we're
-    in the cached-result section, which we discard because the
-    authoritative content is the instruction itself. Nested fields are
-    supported via ``depth``; only depth-1 EQ instructions are
+    The instruction text accumulates between ``begin`` and ``separate``
+    (or ``end`` if no separate). The cached-result section (after
+    ``separate``) is the text Word *displays* for the field, so it is
+    buffered and handed back at ``end`` — the caller decides per field
+    type which part is the content (:func:`_field_result_text`). Nested
+    fields are supported via ``depth``; only depth-1 EQ instructions are
     converted (nested ones are part of the outer instruction text).
     """
 
@@ -776,8 +828,9 @@ class _FieldState:
         self.after_separate: bool = False
         self.instr_buf: list[str] = []
         # Visible-fallback text buffered while in the cached-result section.
-        # Discarded on a normal `end` (so it never doubles converted math),
-        # but flushed by the paragraph walker if the field is left unclosed.
+        # Returned on a normal `end` (the caller decides which field types
+        # display it), and flushed by the paragraph walker if the field is
+        # left unclosed.
         self.result_buf: list[str] = []
 
     @property
@@ -806,20 +859,21 @@ class _FieldState:
         if self.depth > 0:
             self.after_separate = True
 
-    def end(self) -> str | None:
-        """Close one field level. Returns the assembled instruction
-        text if a top-level field just closed, else None."""
+    def end(self) -> tuple[str, str] | None:
+        """Close one field level. Returns ``(instruction, cached_result)``
+        if a top-level field just closed, else ``None``. What (if
+        anything) each part contributes to the paragraph is the caller's
+        per-field-type decision (:func:`_field_result_text`)."""
         if self.depth == 0:
             return None
         self.depth -= 1
         if self.depth == 0:
             instr = "".join(self.instr_buf)
+            result = "".join(self.result_buf)
             self.instr_buf = []
-            # A normally-closed field's visible fallback is discarded — the
-            # instruction (e.g. converted EQ math) is the authoritative form.
             self.result_buf = []
             self.after_separate = False
-            return instr
+            return instr, result
         return None
 
     def add_instr(self, text: str) -> None:
@@ -842,8 +896,9 @@ class _FieldState:
 def _eq_field_to_inline_math(instr: str) -> str | None:
     """Encode an EQ field ``instr`` as a deferred ``eq_field`` island.
 
-    Returns ``None`` for non-EQ fields (HYPERLINK, PAGE, TOC, …) so the
-    caller can skip them silently. The "is this an EQ field?" gate stays
+    Returns ``None`` for non-EQ fields so the caller falls through to the
+    per-field-type content decision (:func:`_field_result_text`). The
+    "is this an EQ field?" gate stays
     here (input-side), but the EQ→MathML conversion is *deferred*: the
     raw instruction is wrapped as a source-tagged island
     (:func:`brailix.core.inline_math.wrap`) for the frontend's math pass
@@ -861,6 +916,68 @@ def _eq_field_to_inline_math(instr: str) -> str | None:
     return inline_math.wrap("eq_field", text)
 
 
+# Fields whose cached result must NOT be re-emitted as text. ``eq`` keeps
+# its specialised handling (the converted equation island is the
+# authoritative form; the cached visual fallback would duplicate it) and
+# ``hyperlink`` display text stays dropped by design (a link's label is a
+# navigation affordance, not document content — pinned by test). Every
+# other field type's cached result — DATE / REF / AUTHOR / SAVEDATE /
+# MERGEFIELD / INCLUDETEXT / PAGE / TOC / … — is exactly what Word
+# displays, i.e. the document's only copy of that text.
+_FIELDS_WITHOUT_VISIBLE_RESULT = frozenset({"eq", "hyperlink"})
+
+
+def _field_result_text(
+    instr: str,
+    cached: str,
+    warnings: WarningCollector | None,
+) -> str | None:
+    """What a normally-closed non-EQ field contributes as visible text.
+
+    Returns the cached result for content fields (it is what Word
+    displays — a fidelity fix, not a degradation), ``None`` for the
+    specialised field types above, and ``None`` plus a warning when a
+    content field carries **no** cached text at all: Word would
+    recalculate such a field on open, but a static parse can't, so the
+    field's content is unreadable and the loss must be visible instead
+    of silent.
+    """
+    text = instr.strip()
+    head = text.split(None, 1)[0].lower() if text else ""
+    if not head or head in _FIELDS_WITHOUT_VISIBLE_RESULT:
+        return None
+    if cached:
+        return cached
+    if warnings is not None:
+        warnings.warn(
+            code="DOCX_FIELD_NO_RESULT",
+            message=(
+                f"Word field {head.upper()} has no cached result text; "
+                "the field's content could not be read"
+            ),
+            surface=head.upper(),
+            source="input.docx",
+        )
+    return None
+
+
+def _fld_simple_cached_text(fld: Element) -> str:
+    """The cached visible result of a ``<w:fldSimple>`` — the text of its
+    child runs, which is what Word displays for the field. ``w:br`` /
+    ``w:tab`` fold to their text contribution, matching how the run
+    walker renders them."""
+    parts: list[str] = []
+    for elem in fld.iter():
+        tag = _local(elem.tag)
+        if tag == "t":
+            parts.append(elem.text or "")
+        elif tag == "br":
+            parts.append("\n")
+        elif tag == "tab":
+            parts.append(" ")
+    return "".join(parts)
+
+
 def _walk_run(
     r: Element,
     ole_blobs: dict[str, bytes],
@@ -869,28 +986,34 @@ def _walk_run(
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
     footnotes: dict[str, Element] | None = None,
     chem_detection: bool = False,
+    warnings: WarningCollector | None = None,
 ):
-    """Yield the pieces inside a ``<w:r>``: text strings, an
-    :class:`ImageAlt` for each embedded picture, a :class:`Footnote` for
-    each footnote reference.
+    """Yield the pieces inside a ``<w:r>``: text strings, one
+    :class:`ImageAlt` per embedded picture (a grouped drawing yields one
+    per member image), a :class:`Footnote` for each footnote reference.
 
     Word commonly nests ``<w:object>`` inside a run when the equation
     is inline with text; every math piece stays a string appended to
     the surrounding paragraph text. A ``<w:drawing>`` / ``<w:pict>``
-    picture yields an :class:`ImageAlt` object instead, and a
+    picture yields :class:`ImageAlt` objects instead, and a
     ``<w:footnoteReference>`` a :class:`Footnote` — callers that can
-    only carry text (:func:`_walk_alt_subtree`) filter both out, the
-    paragraph token walker lifts each to a block token.
+    only carry text (:func:`_walk_alt_subtree` pre-fix used to) filter
+    them out; the paragraph token walker lifts each to a block token.
 
     ``field_state`` (when provided) tracks ``w:fldChar`` boundaries
     across runs so EQ fields whose instruction spans multiple runs
     still parse correctly. Content inside the field's cached-result
-    section (between ``separate`` and ``end``) is silently dropped so
-    Word's visible-text fallback doesn't end up duplicated alongside
-    the converted math (a cached-result picture — e.g. INCLUDEPICTURE —
-    is deliberately suppressed with it).
+    section (between ``separate`` and ``end``) is buffered and, on
+    ``end``, routed through :func:`_field_result_text`: an EQ field
+    drops it (the converted equation is the content — the cached visual
+    fallback would duplicate it, and a cached-result picture — e.g.
+    INCLUDEPICTURE — is deliberately suppressed with it), while a
+    content field (DATE / REF / …) emits it as ordinary text, because
+    it is the text Word displays. A field with no cached text at all
+    warns instead of vanishing silently (``warnings`` is the parse-level
+    collector; ``None`` discards).
 
-    ``chem_detection`` only reaches the footnote branch (a note's own
+    ``chem_detection`` reaches the footnote branch (a note's own
     paragraphs are converted with it, so a chemical cluster inside a
     footnote reads like the same cluster in the body); the run's own
     script clusters are linearised later, by the paragraph coalescer.
@@ -907,11 +1030,16 @@ def _walk_run(
             elif ftype == "separate":
                 field_state.separate()
             elif ftype == "end":
-                instr = field_state.end()
-                if instr is not None:
+                closed = field_state.end()
+                if closed is not None:
+                    instr, cached = closed
                     piece = _eq_field_to_inline_math(instr)
                     if piece is not None:
                         parts.append(piece)
+                    else:
+                        text = _field_result_text(instr, cached, warnings)
+                        if text:
+                            parts.append(text)
             continue
         if tag == "instrText":
             if field_state is not None and field_state.collecting_instr:
@@ -920,10 +1048,11 @@ def _walk_run(
         if field_state is not None and field_state.in_cached_result:
             # Inside the field's cached-result (visible-fallback) section.
             # Buffer it rather than dropping outright: a normally-closing
-            # field discards this on `end` (so it never doubles the converted
-            # math), but an unclosed field — no `end`, or an `end` in a later
-            # paragraph — flushes it back at paragraph end instead of
-            # silently eating the rest of the paragraph.
+            # field hands it to `_field_result_text` at `end` (kept as text
+            # for content fields, dropped for EQ where the converted equation
+            # is the content), and an unclosed field — no `end`, or an `end`
+            # in a later paragraph — flushes it back at paragraph end instead
+            # of silently eating the rest of the paragraph.
             if tag == "t":
                 field_state.add_result(child.text or "")
             elif tag == "br":
@@ -949,23 +1078,27 @@ def _walk_run(
                 ole_blobs=ole_blobs,
                 chem_detection=chem_detection,
                 image_blobs=image_blobs,
+                warnings=warnings,
             )
             if footnote is not None:
                 parts.append(footnote)
         elif tag == "drawing":
-            image = _convert_drawing(child, image_blobs or {})
-            if image is not None:
-                parts.append(image)
+            parts.extend(_convert_drawing(child, image_blobs or {}))
         elif tag == "pict":
-            image = _convert_pict(child, image_blobs or {})
-            if image is not None:
-                parts.append(image)
+            parts.extend(_convert_pict(child, image_blobs or {}))
         elif tag == "object":
             text = _ole_object_to_inline_math(child, ole_blobs)
             if text:
                 parts.append(text)
         elif tag == "AlternateContent":
-            for piece, math in _walk_alternate_content(child, ole_blobs):
+            for piece, math in _walk_alternate_content(
+                child,
+                ole_blobs,
+                image_blobs=image_blobs,
+                footnotes=footnotes,
+                chem_detection=chem_detection,
+                warnings=warnings,
+            ):
                 if math is not None:
                     # A display equation (oMathPara) in a run-nested
                     # AlternateContent comes back as ("", MathBlock). _walk_run
@@ -974,6 +1107,9 @@ def _walk_run(
                     # than discard the _math slot and silently lose the formula.
                     parts.append(inline_math.wrap(math.source, math.text or ""))
                 elif piece:
+                    # Text, or a picture / footnote reference lifted from the
+                    # branch — the paragraph walker classifies each like the
+                    # plain-run path does.
                     parts.append(piece)
     yield from parts
 
@@ -985,6 +1121,7 @@ def _footnote_block(
     ole_blobs: dict[str, bytes],
     chem_detection: bool,
     image_blobs: dict[str, tuple[str, bytes]] | None,
+    warnings: WarningCollector | None = None,
 ) -> Footnote | None:
     """Resolve a ``<w:footnoteReference>`` to a :class:`Footnote` block.
 
@@ -1021,6 +1158,7 @@ def _footnote_block(
             chem_detection=chem_detection,
             image_blobs=image_blobs,
             footnotes={},
+            warnings=warnings,
         ):
             if blk.text:
                 texts.append(blk.text)
@@ -1028,17 +1166,34 @@ def _footnote_block(
 
 
 def _walk_alternate_content(
-    alt: Element, ole_blobs: dict[str, bytes]
+    alt: Element,
+    ole_blobs: dict[str, bytes],
+    *,
+    image_blobs: dict[str, tuple[str, bytes]] | None = None,
+    footnotes: dict[str, Element] | None = None,
+    chem_detection: bool = False,
+    warnings: WarningCollector | None = None,
 ):
     """Walk an ``<mc:AlternateContent>`` for math content.
 
     Strategy: try Fallback first — that's where Word stores the legacy
     ``<w:object>`` form when also offering a modern drawing in Choice.
-    Choice is descended only if Fallback yields nothing.
+    Choice is descended only if Fallback yields nothing. This mirrors
+    Word's own AlternateContent semantics: a consumer that doesn't
+    understand the Choice branch reads the Fallback instead.
     """
     fallback = _first_local(alt, "Fallback")
     if fallback is not None:
-        pieces = list(_walk_alt_subtree(fallback, ole_blobs))
+        pieces = list(
+            _walk_alt_subtree(
+                fallback,
+                ole_blobs,
+                image_blobs=image_blobs,
+                footnotes=footnotes,
+                chem_detection=chem_detection,
+                warnings=warnings,
+            )
+        )
         # Short-circuit Choice only when Fallback yielded *real* content. An
         # empty placeholder run yields ("", None); counting that as produced
         # suppresses Choice and silently drops a formula that lives only
@@ -1049,13 +1204,25 @@ def _walk_alternate_content(
             return
     for choice in alt:
         if _local(choice.tag) == "Choice":
-            yield from _walk_alt_subtree(choice, ole_blobs)
+            yield from _walk_alt_subtree(
+                choice,
+                ole_blobs,
+                image_blobs=image_blobs,
+                footnotes=footnotes,
+                chem_detection=chem_detection,
+                warnings=warnings,
+            )
 
 
 def _walk_alt_subtree(
     node: Element,
     ole_blobs: dict[str, bytes],
     field_state: _FieldState | None = None,
+    *,
+    image_blobs: dict[str, tuple[str, bytes]] | None = None,
+    footnotes: dict[str, Element] | None = None,
+    chem_detection: bool = False,
+    warnings: WarningCollector | None = None,
 ):
     """Descend into an AlternateContent branch, surfacing math content.
 
@@ -1069,6 +1236,13 @@ def _walk_alt_subtree(
     — ``(piece, math)`` here vs. tokens there). A new inline-math source
     added to that walker must be mirrored here, or AlternateContent branches
     will silently drop it.
+
+    A ``piece`` is a text string, a formed inline-math island, or —
+    lifted from the branch's runs like the paragraph walker does — an
+    :class:`ImageAlt` / :class:`Footnote` (a legacy ``w:pict`` shape
+    fill or a footnote reference in a Fallback branch is content the
+    reader would otherwise lose whole; the callers classify it into a
+    block token).
 
     A single ``_FieldState`` is threaded through the whole branch (created at
     the top-level call, passed down through recursion) so a cross-run EQ field
@@ -1093,26 +1267,45 @@ def _walk_alt_subtree(
         elif tag == "oMathPara":
             yield "", _math_block_from_omath_para(child)
         elif tag == "r":
-            for piece in _walk_run(child, ole_blobs, field_state):
-                # The (piece, math) contract carries text only; a picture or
-                # a footnote reference inside an AlternateContent branch
-                # (shape / canvas fill, legacy fallback) is out of scope
-                # here — drop its placeholder, keep text.
-                if isinstance(piece, str):
-                    yield piece, None
+            for piece in _walk_run(
+                child,
+                ole_blobs,
+                field_state,
+                image_blobs=image_blobs,
+                footnotes=footnotes,
+                chem_detection=chem_detection,
+                warnings=warnings,
+            ):
+                yield piece, None
         elif tag == "fldSimple":
             # Word's simple-field form: the EQ instruction lives in the
             # w:instr attribute, not the (cached visual result) children.
             # Mirror _emit_child_tokens — falling into the else branch would
             # recurse into the rendered runs and silently drop the equation.
+            # A non-EQ field's cached result is emitted as text, same as the
+            # paragraph path.
             instr = _ns_attr(child, _W_PREFIX, "instr") or ""
             piece = _eq_field_to_inline_math(instr)
             if piece is not None:
                 yield piece, None
+            else:
+                text = _field_result_text(
+                    instr, _fld_simple_cached_text(child), warnings
+                )
+                if text:
+                    yield text, None
         else:
             # Recurse — the OLE might be wrapped in another shape /
             # drawing element we don't directly handle.
-            yield from _walk_alt_subtree(child, ole_blobs, field_state)
+            yield from _walk_alt_subtree(
+                child,
+                ole_blobs,
+                field_state,
+                image_blobs=image_blobs,
+                footnotes=footnotes,
+                chem_detection=chem_detection,
+                warnings=warnings,
+            )
     if own_state and field_state.in_field:
         leftover = field_state.take_unclosed_result()
         if leftover:
@@ -1143,6 +1336,7 @@ def _convert_table(
     chem_detection: bool = False,
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
     footnotes: dict[str, Element] | None = None,
+    warnings: WarningCollector | None = None,
 ) -> Table:
     rows: list[Block] = []  # TableRows; typed as the field is
     # Descend transparently through revision-tracking / content-control
@@ -1164,6 +1358,7 @@ def _convert_table(
                     chem_detection=chem_detection,
                     image_blobs=image_blobs,
                     footnotes=footnotes,
+                    warnings=warnings,
                 )
             )
         if cells:
@@ -1178,6 +1373,7 @@ def _convert_table_cell(
     chem_detection: bool = False,
     image_blobs: dict[str, tuple[str, bytes]] | None = None,
     footnotes: dict[str, Element] | None = None,
+    warnings: WarningCollector | None = None,
 ) -> TableCell:
     """Flatten a cell's paragraphs into one TableCell text.
 
@@ -1202,6 +1398,7 @@ def _convert_table_cell(
                 chem_detection=chem_detection,
                 image_blobs=image_blobs,
                 footnotes=footnotes,
+                warnings=warnings,
             )
             for blk in paragraph_blocks:
                 if isinstance(blk, MathBlock):
@@ -1229,6 +1426,7 @@ def _convert_table_cell(
                 chem_detection=chem_detection,
                 image_blobs=image_blobs,
                 footnotes=footnotes,
+                warnings=warnings,
             )
             for row in nested.blocks:
                 for inner_cell in row.blocks:

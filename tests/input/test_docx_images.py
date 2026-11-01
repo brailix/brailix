@@ -241,3 +241,137 @@ class TestEdgeCases:
         assert image.text == "丢失的图"
         assert image.target is None
         assert ir.assets == {}
+
+
+class TestGroupedPictures:
+    """R1-08: one ``<w:drawing>`` can reference SEVERAL rasters — a
+    grouped (composite) figure holds one ``a:blip`` per member picture,
+    and a multi-shape ``<w:pict`` holds one ``v:imagedata`` each. Every
+    member used to be dropped except the first; each must surface as its
+    own placeholder, with its own alt text."""
+
+    # Hand-built group XML: wp:inline > a:graphic > a:graphicData >
+    # wpg:wgp with two pic:pic members, each with its own cNvPr descr
+    # (where Word stores a grouped picture's authored alt text) and blip.
+    _WPG_NS = "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
+    _PIC_NS = "http://schemas.openxmlformats.org/drawingml/2006/picture"
+    _A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+    def _group_drawing_xml(self, rid1: str, rid2: str) -> str:
+        return (
+            f'<w:r xmlns:w="{_W_NS}" xmlns:wp="{_WP_NS}" xmlns:a="{self._A_NS}" '
+            f'xmlns:pic="{self._PIC_NS}" xmlns:wpg="{self._WPG_NS}" '
+            f'xmlns:r="{_R_NS}">'
+            f"<w:drawing><wp:inline>"
+            f'<wp:docPr id="1" name="Group 1"/>'
+            f"<a:graphic><a:graphicData>"
+            f"<wpg:wgp>"
+            f"<wpg:cNvGrpSpPr/>"
+            f"<pic:pic><pic:nvPicPr>"
+            f'<pic:cNvPr id="2" name="Picture 2" descr="地图部分"/>'
+            f"</pic:nvPicPr><pic:blipFill>"
+            f'<a:blip r:embed="{rid1}"/>'
+            f"</pic:blipFill></pic:pic>"
+            f"<pic:pic><pic:nvPicPr>"
+            f'<pic:cNvPr id="3" name="Picture 3" descr="图例部分"/>'
+            f"</pic:nvPicPr><pic:blipFill>"
+            f'<a:blip r:embed="{rid2}"/>'
+            f"</pic:blipFill></pic:pic>"
+            f"</wpg:wgp></a:graphicData></a:graphic>"
+            f"</wp:inline></w:drawing>"
+            f"</w:r>"
+        )
+
+    def test_grouped_drawing_yields_every_member_image(self, tmp_path: Path) -> None:
+        doc = Document()
+        rid1 = _relate_image(doc, _FAKE_IMG + b"1")
+        rid2 = _relate_image(doc, _FAKE_IMG + b"2")
+        para = doc.add_paragraph("组合图：")
+        para._p.append(etree.fromstring(self._group_drawing_xml(rid1, rid2)))
+        para.add_run(" 完")
+
+        ir = _parse(doc, tmp_path)
+
+        images = [b for b in ir.blocks if isinstance(b, ImageAlt)]
+        assert len(images) == 2
+        # Each member keeps its own alt and target; both assets ride out.
+        assert [i.text for i in images] == ["地图部分", "图例部分"]
+        assert {i.target for i in images} == {
+            "media/image1.png",
+            "media/image2.png",
+        }
+        assert ir.assets["media/image1.png"] == _FAKE_IMG + b"1"
+        assert ir.assets["media/image2.png"] == _FAKE_IMG + b"2"
+
+    def test_member_without_cnvpr_alt_falls_back_to_docpr(self, tmp_path: Path) -> None:
+        # Members whose cNvPr carries no descr fall back to the drawing's
+        # docPr alt (the single-picture behaviour), never to a blank.
+        doc = Document()
+        rid1 = _relate_image(doc, _FAKE_IMG + b"1")
+        rid2 = _relate_image(doc, _FAKE_IMG + b"2")
+        xml = self._group_drawing_xml(rid1, rid2).replace(
+            'name="Group 1"', 'name="Group 1" descr="整组图的说明"'
+        )
+        xml = xml.replace(' descr="地图部分"', "").replace(' descr="图例部分"', "")
+        para = doc.add_paragraph()
+        para._p.append(etree.fromstring(xml))
+
+        ir = _parse(doc, tmp_path)
+        images = [b for b in ir.blocks if isinstance(b, ImageAlt)]
+        assert len(images) == 2
+        assert [i.text for i in images] == ["整组图的说明", "整组图的说明"]
+
+    def test_multi_imagedata_pict_yields_all(self, tmp_path: Path) -> None:
+        # Legacy VML: two v:shape each with its own v:imagedata under one
+        # w:pict — the second raster used to vanish with its alt.
+        doc = Document()
+        rid1 = _relate_image(doc, _FAKE_IMG + b"1")
+        rid2 = _relate_image(doc, _FAKE_IMG + b"2")
+        para = doc.add_paragraph()
+        pict_xml = (
+            f'<w:r xmlns:w="{_W_NS}" xmlns:r="{_R_NS}" xmlns:v="{_V_NS}">'
+            f"<w:pict>"
+            f'<v:shape id="s1" alt="第一张" type="#_x0000_t75">'
+            f'<v:imagedata r:id="{rid1}"/></v:shape>'
+            f'<v:shape id="s2" alt="第二张" type="#_x0000_t75">'
+            f'<v:imagedata r:id="{rid2}"/></v:shape>'
+            f"</w:pict>"
+            f"</w:r>"
+        )
+        para._p.append(etree.fromstring(pict_xml))
+
+        ir = _parse(doc, tmp_path)
+        images = [b for b in ir.blocks if isinstance(b, ImageAlt)]
+        assert len(images) == 2
+        assert [i.text for i in images] == ["第一张", "第二张"]
+        assert {i.target for i in images} == {
+            "media/image1.png",
+            "media/image2.png",
+        }
+
+    def test_fallback_pict_inside_alternate_content_surfaces(self, tmp_path: Path) -> None:
+        # R1-10 (image half): a legacy w:pict inside an AlternateContent
+        # Fallback branch (Word's downgrade path for a modern drawing we
+        # can't read) used to be dropped whole. It must surface like any
+        # other picture.
+        doc = Document()
+        rid = _relate_image(doc, _FAKE_IMG)
+        para = doc.add_paragraph("回退图 ")
+        alt_xml = (
+            f'<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/'
+            f'markup-compatibility/2006" xmlns:w="{_W_NS}" '
+            f'xmlns:r="{_R_NS}" xmlns:v="{_V_NS}">'
+            f'<mc:Choice Requires="wps"><w:r><w:t> </w:t></w:r></mc:Choice>'
+            f"<mc:Fallback><w:r><w:pict>"
+            f'<v:shape id="s1" alt="回退的图" type="#_x0000_t75">'
+            f'<v:imagedata r:id="{rid}"/>'
+            f"</v:shape></w:pict></w:r></mc:Fallback>"
+            f"</mc:AlternateContent>"
+        )
+        para._p.append(etree.fromstring(alt_xml))
+
+        ir = _parse(doc, tmp_path)
+        (image,) = [b for b in ir.blocks if isinstance(b, ImageAlt)]
+        assert image.text == "回退的图"
+        assert image.target == "media/image1.png"
+        assert ir.assets["media/image1.png"] == _FAKE_IMG

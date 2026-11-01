@@ -230,6 +230,7 @@ def _route_docx(ctx: _FileCtx) -> _DocumentIR:
         mathtype_fallback=ctx.mathtype_fallback,
         chem_detection=ctx.chem_detection,
         limits=ctx.limits,
+        warnings=ctx.warnings,
     )
 
 
@@ -240,6 +241,7 @@ def _route_doc(ctx: _FileCtx) -> _DocumentIR:
         profile=ctx.profile,
         chem_detection=ctx.chem_detection,
         limits=ctx.limits,
+        warnings=ctx.warnings,
     )
 
 
@@ -444,7 +446,8 @@ def parse_file(
 
     ``warnings`` (optional) receives parse-level diagnostics from the
     routes that degrade instead of raising (today Markdown's unclosed
-    ``$$`` math fence); None discards them.
+    ``$$`` math fence and the docx routes' empty-result Word fields);
+    None discards them.
 
     Errors propagate as-is: :class:`FileNotFoundError` when ``path``
     doesn't exist, :class:`InputTooLargeError` when its bytes or its decoded

@@ -975,6 +975,52 @@ class TestMathTypeOLE:
         assert "$<math" in joined
         assert "merror" in joined
 
+    def test_empty_mtef_payload_is_visible_and_triggers_auto_recovery(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # R1-04 regression: a self-consistent but content-free MTEF
+        # stream (v5 prelude + immediate END, hand-laid bytes — see
+        # TestEmptyContentStreams in the adapter tests for the layout)
+        # used to decode to an EMPTY <math/> island: no merror, no
+        # degraded marker, and the mathtype_fallback="auto" gate (which
+        # keys on island count / hard merrors) never fired — the formula
+        # vanished without a trace. It must yield a visible degraded
+        # merror placeholder and count as a hard failure for the
+        # LibreOffice retry decision.
+        from brailix.input.docx import _mtef_recovery_needed
+
+        empty_mtef = b"\x05\x00\x00\x01\x00K\x00\x00\x00"
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("公式 ")
+        _embed_ole_equation(doc, para, _eqnolehdr_wrapped(empty_mtef))
+        doc.save(path)
+
+        result = parse_docx(
+            path,
+            profile="cn_current",
+            language="zh-CN",
+            mathtype_fallback="off",
+        )
+        joined = _para_text(result)
+        assert "$<math" in joined and "</math>$" in joined
+        assert "<merror" in joined
+        assert "no equation content" in joined
+        # The recovery gate now sees the hard failure.
+        assert _mtef_recovery_needed(result, 1) is True
+
+        # Under "auto", the retry fires; with LibreOffice unavailable the
+        # native (placeholder) result is kept — still visible, still loud.
+        monkeypatch.setattr(
+            docx_adapter, "_resolve_doc_converter", lambda _override=None: None
+        )
+        auto = parse_docx(
+            path,
+            profile="cn_current",
+            language="zh-CN",
+            mathtype_fallback="auto",
+        )
+        assert "<merror" in _para_text(auto)
+
     def test_oversized_ole_blob_is_skipped(self, monkeypatch) -> None:
         # docx-mtef: an oversized untrusted embed is skipped (treated as
         # non-math) rather than handed to the OLE / MTEF parsers, so a hostile
@@ -1193,6 +1239,52 @@ class TestAlternateContent:
         assert len(islands) == 1  # the EQ instruction parsed, not dropped
         assert "<mfrac" in _island_mathml(islands[0])
         assert "cached" not in text  # the cached visual run is not surfaced
+
+    def test_fallback_footnote_reference_surfaces(self, tmp_path: Path) -> None:
+        # R1-10 regression: a footnote reference inside an
+        # AlternateContent branch (a shape / text box in the Fallback
+        # representation) used to be dropped whole — the note's content
+        # never reached the reader. It must surface as a Footnote block
+        # like a bare reference does.
+        footnotes = _footnotes_xml([("1", "fallback note")])
+        body = (
+            f'<w:document xmlns:w="{_W_NS}" xmlns:r="{_R_NS}" '
+            f'xmlns:mc="{_MC_NS}"><w:body>'
+            f"<w:p><w:r><w:t>前</w:t></w:r>"
+            f"<mc:AlternateContent>"
+            f'<mc:Choice Requires="wps"><w:r><w:t> </w:t></w:r></mc:Choice>'
+            f"<mc:Fallback><w:r>"
+            f'<w:footnoteReference w:id="1"/>'
+            f"</w:r></mc:Fallback>"
+            f"</mc:AlternateContent>"
+            f"<w:r><w:t>后</w:t></w:r></w:p>"
+            f"<w:sectPr/></w:body></w:document>"
+        )
+        path = _write_minimal_ooxml(
+            tmp_path / "alt-footnote.docx",
+            body.encode(),
+            extra_members={"word/footnotes.xml": footnotes},
+            doc_rel_rows=(
+                f'<Relationship Id="rId9" Type="{_FOOTNOTES_RELTYPE}" '
+                f'Target="footnotes.xml"/>'
+            ),
+            content_type_overrides=(
+                '<Override PartName="/word/footnotes.xml" '
+                'ContentType="application/vnd.openxmlformats-officedocument.'
+                'wordprocessingml.footnotes+xml"/>'
+            ),
+        )
+
+        result = parse_docx(path, language="zh-CN", profile="cn_current")
+        notes = [b for b in result.blocks if isinstance(b, Footnote)]
+        assert len(notes) == 1
+        assert notes[0].ref == "1"
+        assert notes[0].text == "fallback note"
+        # The paragraph still splits around the note, in document order.
+        kinds = [type(b).__name__ for b in result.blocks]
+        assert kinds == ["Paragraph", "Footnote", "Paragraph"]
+        assert result.blocks[0].text == "前"
+        assert result.blocks[2].text == "后"
 
     def test_recursion_error_in_body_walk_becomes_parse_error(
         self, tmp_path: Path, monkeypatch
@@ -1438,6 +1530,169 @@ class TestEqField:
         islands = _inline_math_islands(joined)
         assert len(islands) == 1 and inline_math.unwrap(islands[0])[0] == "eq_field"
         assert "<mfrac>" in _island_mathml(islands[0])
+
+
+def _embed_field_without_result(paragraph, instr: str) -> None:
+    """A complex Word field with NO cached-result section: begin →
+    instrText → end, no ``separate`` marker, no result runs. Word
+    writes this for a field whose result was never calculated / saved."""
+    runs_xml = (
+        f'<w:r xmlns:w="{_W_NS}">'
+        f'<w:fldChar w:fldCharType="begin"/>'
+        f'</w:r>'
+        f'<w:r xmlns:w="{_W_NS}">'
+        f'<w:instrText xml:space="preserve">{instr}</w:instrText>'
+        f'</w:r>'
+        f'<w:r xmlns:w="{_W_NS}">'
+        f'<w:fldChar w:fldCharType="end"/>'
+        f'</w:r>'
+    )
+    wrapper = etree.fromstring(f'<root xmlns:w="{_W_NS}">{runs_xml}</root>')
+    for run in list(wrapper):
+        paragraph._p.append(run)
+
+
+class TestContentFields:
+    """Word *content* fields (DATE / REF / AUTHOR / MERGEFIELD / …): the
+    cached result section is what Word displays — the document's only
+    copy of that text — so it must survive as ordinary text. Regression
+    (R1-02): every non-EQ field's cached result used to be dropped
+    wholesale, leaving e.g. 「签署日期：，生效。」 with the date gone."""
+
+    def test_date_field_cached_result_survives(self, tmp_path: Path) -> None:
+        # The exact red-team reproduction: 签署日期： + DATE field with a
+        # cached "2024年3月1日" + ，生效。
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("签署日期：")
+        _embed_eq_field_with_result(
+            para, r"DATE \@ \"yyyy年M月d日\"", "2024年3月1日"
+        )
+        para.add_run("，生效。")
+        doc.save(path)
+
+        result = parse_docx(path, profile="cn_current", language="zh-CN")
+        paragraphs = [b for b in result.blocks if isinstance(b, Paragraph)]
+        joined = "\n".join(p.text or "" for p in paragraphs)
+        assert "签署日期：2024年3月1日，生效。" in joined
+        # A content field is prose, not a formula — no math island either.
+        assert not _inline_math_islands(joined)
+
+    @pytest.mark.parametrize(
+        ("instr", "cached", "expected"),
+        [
+            (r"REF _Ref12345 \\h", "3.2", "3.2"),
+            (r"AUTHOR", "张三", "张三"),
+            (r"MERGEFIELD 客户", "重庆出版社", "重庆出版社"),
+            (r"SAVEDATE \@ \"yyyy-MM-dd\"", "2024-03-01", "2024-03-01"),
+        ],
+    )
+    def test_content_field_cached_result_survives(
+        self, tmp_path: Path, instr: str, cached: str, expected: str
+    ) -> None:
+        # Cross references, author metadata, mail-merge values: whatever
+        # Word shows between the field markers is the visible content.
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("见第")
+        _embed_eq_field_with_result(para, instr, cached)
+        para.add_run("节。")
+        doc.save(path)
+
+        text = _para_text(parse_docx(path, profile="cn_current", language="zh-CN"))
+        assert f"见第{expected}节。" in text
+
+    def test_fld_simple_date_emits_cached_result(self, tmp_path: Path) -> None:
+        # The simple-field form: instruction in the w:instr attribute,
+        # cached result as child runs. It must surface like the complex
+        # form does (the children used to be walked by nobody).
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("日期：")
+        fld_xml = (
+            f'<w:fldSimple xmlns:w="{_W_NS}" w:instr="DATE">'
+            f'<w:r><w:t>2024年3月1日</w:t></w:r>'
+            f"</w:fldSimple>"
+        )
+        para._p.append(etree.fromstring(fld_xml))
+        doc.save(path)
+
+        text = _para_text(parse_docx(path, profile="cn_current", language="zh-CN"))
+        assert "日期：2024年3月1日" in text
+
+    def test_field_without_cached_result_warns(self, tmp_path: Path) -> None:
+        # A content field with NO cached result: its content can't be
+        # read (Word would recalculate on open; a static parse can't),
+        # so the loss warns through the parse-level channel instead of
+        # staying silent.
+        from brailix.core.errors import WarningCollector
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph("签署日期：")
+        _embed_field_without_result(para, r"DATE \@ \"yyyy年M月d日\"")
+        para.add_run("，生效。")
+        doc.save(path)
+
+        collector = WarningCollector()
+        parse_docx(
+            path, profile="cn_current", language="zh-CN", warnings=collector
+        )
+        hits = collector.by_code("DOCX_FIELD_NO_RESULT")
+        assert len(hits) == 1
+        assert hits[0].surface == "DATE"
+        assert "DATE" in hits[0].message
+
+    def test_field_without_result_warning_reaches_parse_file_channel(
+        self, tmp_path: Path
+    ) -> None:
+        # The same warning through the public facade route — the channel
+        # Pipeline.translate_file already collects for Markdown.
+        from brailix.core.errors import WarningCollector
+        from brailix.input import parse_file
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        _embed_field_without_result(para, "MERGEFIELD 客户")
+        doc.save(path)
+
+        collector = WarningCollector()
+        parse_file(
+            path, profile="cn_current", language="zh-CN", warnings=collector
+        )
+        hits = collector.by_code("DOCX_FIELD_NO_RESULT")
+        assert len(hits) == 1
+        assert hits[0].surface == "MERGEFIELD"
+
+    def test_eq_and_hyperlink_behaviour_unchanged(self, tmp_path: Path) -> None:
+        # The specialised field types keep their documented handling: EQ
+        # drops its cached visual fallback (the converted equation is
+        # the content) and HYPERLINK's display text stays dropped —
+        # both pinned by TestEqField.test_cached_result_is_dropped and
+        # test_non_eq_field_is_skipped_silently; this asserts the two
+        # policies side by side so a future refactor can't quietly
+        # merge them.
+        from brailix.core.errors import WarningCollector
+
+        path, doc = _make_docx(tmp_path)
+        para = doc.add_paragraph()
+        _embed_eq_field_with_result(para, r"eq \f(1,2)", "EQFALLBACK")
+        _embed_eq_field_with_result(
+            para, r"HYPERLINK \"http://example.com\"", "click here"
+        )
+        doc.save(path)
+
+        collector = WarningCollector()
+        result = parse_docx(
+            path,
+            profile="cn_current",
+            language="zh-CN",
+            warnings=collector,
+        )
+        text = "\n".join(
+            p.text or "" for p in result.blocks if isinstance(p, Paragraph)
+        )
+        assert "EQFALLBACK" not in text
+        assert "click here" not in text
+        # Neither specialised drop is a "missing content" case — no
+        # warning fires for them.
+        assert not collector.by_code("DOCX_FIELD_NO_RESULT")
 
 
 # ---------------------------------------------------------------------------
@@ -2128,6 +2383,80 @@ class TestVertAlignChemistry:
         doc.save(path)
         result = Pipeline(profile="cn_current").translate_file(path)
         assert "⠸⠓⠆⠕" in result.render("unicode")
+
+    def _chem_footnoted_docx(
+        self, tmp_path: Path, wrapper: str
+    ) -> Footnote:
+        """A docx whose footnote 1 is an H₂O script cluster, referenced
+        from a body paragraph where the reference run is optionally
+        wrapped (``wrapper`` = ``"hyperlink"`` / ``"sdt"`` / ``"none"``)."""
+        note_para = (
+            '<w:p><w:r><w:footnoteRef/></w:r>'
+            + _vert_run_xml("H", None)
+            + _vert_run_xml("2", "subscript")
+            + _vert_run_xml("O", None)
+            + "</w:p>"
+        )
+        footnotes = (
+            '<w:footnotes xmlns:w="' + _W_NS + '">'
+            '<w:footnote w:type="separator" w:id="-1">'
+            "<w:p><w:r><w:separator/></w:r></w:p></w:footnote>"
+            '<w:footnote w:type="continuationSeparator" w:id="0">'
+            "<w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>"
+            '<w:footnote w:id="1">' + note_para + "</w:footnote>"
+            "</w:footnotes>"
+        )
+        ref_run = '<w:r><w:footnoteReference w:id="1"/></w:r>'
+        if wrapper == "hyperlink":
+            wrapped = (
+                f'<w:hyperlink r:id="rId1" xmlns:r="{_R_NS}">' + ref_run +
+                "</w:hyperlink>"
+            )
+        elif wrapper == "sdt":
+            wrapped = (
+                "<w:sdt><w:sdtContent>" + ref_run + "</w:sdtContent></w:sdt>"
+            )
+        else:
+            wrapped = ref_run
+        body = (
+            f'<w:document xmlns:w="{_W_NS}" xmlns:r="{_R_NS}"><w:body>'
+            f"<w:p><w:r><w:t>note:</w:t></w:r>{wrapped}</w:p>"
+            f"<w:sectPr/></w:body></w:document>"
+        )
+        path = _write_minimal_ooxml(
+            tmp_path / f"chem-note-{wrapper}.docx",
+            body.encode(),
+            extra_members={"word/footnotes.xml": footnotes.encode()},
+            doc_rel_rows=(
+                f'<Relationship Id="rId9" Type="{_FOOTNOTES_RELTYPE}" '
+                f'Target="footnotes.xml"/>'
+            ),
+            content_type_overrides=(
+                '<Override PartName="/word/footnotes.xml" '
+                'ContentType="application/vnd.openxmlformats-officedocument.'
+                'wordprocessingml.footnotes+xml"/>'
+            ),
+        )
+        result = parse_docx(
+            path, chem_detection=True, profile="cn_current", language="zh-CN"
+        )
+        return next(b for b in result.blocks if isinstance(b, Footnote))
+
+    @pytest.mark.parametrize("wrapper", ["none", "hyperlink", "sdt"])
+    def test_footnote_chem_reading_invariant_under_wrappers(
+        self, tmp_path: Path, wrapper: str
+    ) -> None:
+        # R1-03 regression: the same H₂O footnote must read the same
+        # whether its reference run is bare or wrapped in a hyperlink /
+        # content control. The wrapper recursions used to drop
+        # ``chem_detection``, silently switching the cluster from the
+        # chemical to the plain-math reading.
+        footnote = self._chem_footnoted_docx(tmp_path, wrapper)
+        islands = _inline_math_islands(footnote.text or "")
+        assert len(islands) == 1
+        source, _payload = inline_math.unwrap(islands[0])
+        assert source == "script_cluster_chem"
+        assert 'data-bk-chem="1"' in _island_mathml(islands[0])
 
 
 # ---------------------------------------------------------------------------
