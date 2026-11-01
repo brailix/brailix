@@ -88,11 +88,11 @@ def _fake_g2pw(boom: BaseException) -> types.ModuleType:
     mod = types.ModuleType("g2pw")
 
     class _Converter:
-        # ``**_`` because the adapter constructs this with ``style="pinyin"``.
-        # A signature that refuses it raises TypeError *first*, which is not a
-        # PROGRAMMING_ERROR — so the wide ``except`` below would convert it to
-        # a candidate-unavailable signal and this test would watch the wrong
-        # exception be swallowed, reporting nothing.
+        # ``**_`` because the adapter constructs this with ``model_dir=`` /
+        # ``style=`` keywords. A signature that refuses them raises TypeError
+        # *first*, which is not a PROGRAMMING_ERROR — so the wide ``except``
+        # below would convert it to a candidate-unavailable signal and this
+        # test would watch the wrong exception be swallowed, reporting nothing.
         def __init__(self, **_: object) -> None:
             raise boom
 
@@ -168,8 +168,8 @@ _LOADERS = (
         registry=resolver_registry,
         module="g2pw",
         fake=_fake_g2pw,
-        reclassified=MissingExtraError,
-        env_error=OSError("model download failed"),
+        reclassified=ModelNotInstalledError,
+        env_error=RuntimeError("corrupt onnx weights"),
         auto=lambda: AutoPinyinResolver(preferred=("g2pw", "null")),
         drive=_drive_resolver,
         degraded=lambda out: all(t.pinyin is None for t in out),
@@ -213,6 +213,11 @@ def _isolated_loaders(
     install = tmp_path / "models" / "hanlp" / _MTL_DIR
     install.mkdir(parents=True)
     (install / "config.json").write_text("{}", encoding="utf-8")
+    # Same for g2pw: its loader checks models/g2pw/version (the marker
+    # G2PWConverter itself looks for) before constructing the converter.
+    g2pw_install = tmp_path / "models" / "g2pw"
+    g2pw_install.mkdir(parents=True)
+    (g2pw_install / "version").write_text("v3.0\n", encoding="utf-8")
     analyzer_registry.clear_cache()
     resolver_registry.clear_cache()
     yield

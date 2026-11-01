@@ -6,16 +6,33 @@ injected predictor for testability.
 
 Low-confidence readings emit a ``LOW_CONFIDENCE_PINYIN`` warning so
 human proofreaders can review them.
+
+Model policy — same rule every adapter shares: check, never fetch. The
+model lives in ``models/g2pw/`` (the G2PWModel-v2-onnx files; the
+``version`` marker file is what ``G2PWConverter`` itself looks for).
+``_load`` resolves and verifies that directory *before* constructing
+the converter, because the constructor's own fallback is a first-use
+download from a URL that no longer exists (the esun-ai bucket is gone;
+it now fetches an error page and dies as ``zipfile.BadZipFile``). A
+missing model therefore raises
+:class:`~brailix.core.errors.ModelNotInstalledError` — the ``auto``
+chain degrades — and the doomed network round-trip never runs. One
+upstream behaviour we do not intercept: on first construction the
+converter calls ``BertTokenizer.from_pretrained('bert-base-chinese')``,
+which fetches the (small) tokenizer files from Hugging Face once and
+caches them.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass as _dataclass
 from dataclasses import field as _field
+from pathlib import Path as _Path
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from brailix.core.context import FrontendContext
-from brailix.core.errors import PROGRAMMING_ERRORS, MissingExtraError
+from brailix.core.errors import PROGRAMMING_ERRORS, ModelNotInstalledError
+from brailix.core.models.paths import get_model_dir
 from brailix.frontend.zh.pinyin.adapters._align import resolve_by_char_alignment
 from brailix.frontend.zh.tokens import ChineseToken
 
@@ -107,9 +124,20 @@ def _one_sentence(batched: Any) -> Any:
     return list(first)
 
 
+# Names the model in ModelNotInstalledError and (once a downloadable zip
+# source is curated for the model manager's catalogue) the asset registry.
+_MODEL_ID = "g2pw_polyphone_v2"
+
+
 def _load() -> G2pwPinyinResolver:
+    # Import first, check the model second — the same order the hanlp
+    # analyzer uses — so a missing g2pw package still surfaces as
+    # MissingExtraError (the registry rewrites the ImportError below)
+    # before any model check has a say.
     import g2pw  # noqa: WPS433 — lazy by design
 
+    model_dir = get_model_dir("g2pw")
+    _ensure_model_installed(model_dir)
     try:
         # ``style="pinyin"`` is not the default — ``G2PWConverter`` defaults to
         # ``"bopomofo"`` and returns 注音 (``ㄨㄛ3``), which is a perfectly good
@@ -119,7 +147,10 @@ def _load() -> G2pwPinyinResolver:
         # for it explicitly is one word; converting 注音 afterwards would be a
         # second transcription table to keep correct.
         #
-        predictor = g2pw.G2PWConverter(style="pinyin")
+        # ``model_dir`` is passed explicitly so the constructor's own
+        # first-use download branch (its MODEL_URL is dead — see the module
+        # docstring) can never run from here.
+        predictor = g2pw.G2PWConverter(model_dir=str(model_dir), style="pinyin")
     except PROGRAMMING_ERRORS:
         # Ahead of the broad catch below: that catch raises a
         # candidate-unavailable signal, which ``auto`` answers by silently
@@ -130,20 +161,14 @@ def _load() -> G2pwPinyinResolver:
         # (brailix.core.errors.PROGRAMMING_ERRORS).
         raise
     except Exception as e:  # noqa: BLE001
-        # G2PWConverter downloads its model on first construction; a network /
-        # IO failure raises URLError / OSError / BadZipFile / RuntimeError, none
-        # of them the ImportError the registry maps to MissingExtraError. Raise
-        # MissingExtraError (the same convention thulac uses for a missing
-        # model) so the ``auto`` chain catches it and degrades to
+        # The pre-check passed, so a failure here means a *present* model is
+        # not usable — corrupt weights, an unreadable onnx, the one-shot
+        # bert-base-chinese tokenizer fetch failing offline. Re-raise as
+        # ModelNotInstalledError (the hanlp analyzer's convention for exactly
+        # this) so the ``auto`` chain catches it and degrades to
         # pypinyin / null instead of crashing the whole translation.
-        raise MissingExtraError(
-            adapter="g2pw",
-            extra="g2pw",
-            hint=(
-                "the g2pW model could not be loaded (download / IO failure); "
-                "install with pip install brailix[g2pw] and ensure the model "
-                "can be fetched on first use."
-            ),
+        raise ModelNotInstalledError(
+            model_id=_MODEL_ID, install_dir=model_dir
         ) from e
     # Run inference in-process. ``num_workers`` on the converter is a torch
     # ``DataLoader`` worker *process* count, and the model config ships ``2``:
@@ -161,3 +186,15 @@ def _load() -> G2pwPinyinResolver:
     # when it builds the DataLoader.
     predictor.num_workers = 0
     return G2pwPinyinResolver(predictor=predictor)
+
+
+def _ensure_model_installed(model_dir: _Path) -> None:
+    """Raise :class:`ModelNotInstalledError` unless the g2pW model is present.
+
+    ``version`` is the exact file ``G2PWConverter.__init__`` checks to decide
+    whether to download — requiring *that* marker (not just a non-empty
+    directory) is what guarantees the constructor's dead-URL download branch
+    can never run from this adapter.
+    """
+    if not (model_dir / "version").is_file():
+        raise ModelNotInstalledError(model_id=_MODEL_ID, install_dir=model_dir)

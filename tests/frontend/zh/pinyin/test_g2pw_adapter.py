@@ -8,7 +8,7 @@ import types
 import pytest
 
 from brailix.core.context import FrontendContext
-from brailix.core.errors import MissingExtraError, RunMode
+from brailix.core.errors import MissingExtraError, ModelNotInstalledError, RunMode
 from brailix.core.span import Span
 from brailix.frontend.zh.pinyin.adapters.g2pw import (
     G2pwPinyinResolver,
@@ -196,14 +196,20 @@ class TestProtocolConformance:
 
 
 class TestLoaderWithFakeModule:
-    def test_load_wraps_g2pwconverter(self, monkeypatch):
-        """When ``g2pw`` is importable, ``_load`` builds the resolver
-        around a fresh :class:`G2PWConverter` instance."""
+    def test_load_wraps_g2pwconverter(self, tmp_path, monkeypatch):
+        """When ``g2pw`` is importable and the model is present, ``_load``
+        builds the resolver around a fresh :class:`G2PWConverter` instance."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "models" / "g2pw").mkdir(parents=True)
+        (tmp_path / "models" / "g2pw" / "version").write_text("v3.0\n")
         fake_module = types.ModuleType("g2pw")
         asked = {}
 
         class _FakeConverter:
-            def __init__(self, *, style: str = "bopomofo", **_: object) -> None:
+            def __init__(
+                self, *, model_dir: str = "", style: str = "bopomofo", **_: object
+            ) -> None:
+                asked["model_dir"] = model_dir
                 asked["style"] = style
 
             def __call__(self, sentences):
@@ -220,27 +226,58 @@ class TestLoaderWithFakeModule:
         # The converter's own default is bopomofo (``ㄨㄛ3``), which no reader
         # of ``ChineseToken.pinyin`` understands, so the adapter has to ask.
         assert asked["style"] == "pinyin"
+        # The model dir is passed explicitly: the constructor's own
+        # missing-model branch downloads from a URL that no longer exists,
+        # so the adapter must always hand it the verified directory.
+        assert asked["model_dir"] == str(tmp_path / "models" / "g2pw")
         py, conf = _normalize_predictor_output(adapter.predictor(["我"]))
         assert py == ["wo3"]
         assert conf is None
 
-    def test_load_wraps_model_download_failure_as_missing_extra(
-        self, monkeypatch
+    def test_load_checks_the_model_before_the_converter_runs(
+        self, tmp_path, monkeypatch
     ):
-        # g2pw IS importable, but G2PWConverter fails to download / load its
-        # model on construction (network / IO error). _load must translate
-        # that into MissingExtraError so the ``auto`` chain degrades instead of
-        # crashing — not let the raw RuntimeError / URLError escape.
+        # A missing model must raise ModelNotInstalledError from the
+        # availability pre-check — BEFORE the converter is constructed, so
+        # its dead-URL download branch is never reached (the old failure
+        # mode was zipfile.BadZipFile off a fetched error page, wrapped as
+        # MissingExtraError with a "pip install" hint that solved nothing).
+        monkeypatch.chdir(tmp_path)
+        fake_module = types.ModuleType("g2pw")
+
+        class _MustNotRun:
+            def __init__(self, **_: object) -> None:
+                raise AssertionError("converter constructed without a model")
+
+        fake_module.G2PWConverter = _MustNotRun
+        monkeypatch.setitem(sys.modules, "g2pw", fake_module)
+        resolver_registry.clear_cache()
+
+        with pytest.raises(ModelNotInstalledError) as ei:
+            resolver_registry.get("g2pw")
+        assert ei.value.model_id == "g2pw_polyphone_v2"
+        assert str(tmp_path / "models" / "g2pw") in str(ei.value)
+
+    def test_load_wraps_model_failure_as_not_installed(
+        self, tmp_path, monkeypatch
+    ):
+        # g2pw IS importable and the model dir passes the pre-check, but the
+        # converter still fails on construction (corrupt weights, offline
+        # tokenizer fetch). _load must translate that into
+        # ModelNotInstalledError so the ``auto`` chain degrades instead of
+        # crashing — not let the raw RuntimeError escape.
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "models" / "g2pw").mkdir(parents=True)
+        (tmp_path / "models" / "g2pw" / "version").write_text("v3.0\n")
         fake_module = types.ModuleType("g2pw")
 
         class _BoomConverter:
-            def __init__(self) -> None:
-                raise RuntimeError("model download failed")
+            def __init__(self, **_: object) -> None:
+                raise RuntimeError("corrupt onnx weights")
 
         fake_module.G2PWConverter = _BoomConverter
         monkeypatch.setitem(sys.modules, "g2pw", fake_module)
         resolver_registry.clear_cache()
 
-        with pytest.raises(MissingExtraError) as ei:
+        with pytest.raises(ModelNotInstalledError):
             resolver_registry.get("g2pw")
-        assert ei.value.extra == "g2pw"
