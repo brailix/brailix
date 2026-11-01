@@ -195,13 +195,34 @@ class TestProtocolConformance:
         assert isinstance(adapter, PinyinResolver)
 
 
+def _seed_model_dir(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, *, marker: bool = True
+):
+    """Point the adapter's ``get_model_dir`` at a tmp dir (seeded on request).
+
+    Patched, never chdir'd: under the weekly mutation audit, mutmut's
+    trampoline resolves its relative ``source_paths`` against the cwd on
+    every hit, so a test that chdir's into tmp_path dies with
+    FileNotFoundError the moment a trampolined loader runs. Pointing the
+    adapter module's ``get_model_dir`` reference at a tmp directory keeps
+    the cwd — and the audit — intact.
+    """
+    monkeypatch.setattr(
+        "brailix.frontend.zh.pinyin.adapters.g2pw.get_model_dir",
+        lambda name: tmp_path / "models" / name,
+    )
+    model_dir = tmp_path / "models" / "g2pw"
+    if marker:
+        model_dir.mkdir(parents=True)
+        (model_dir / "version").write_text("v3.0\n")
+    return model_dir
+
+
 class TestLoaderWithFakeModule:
     def test_load_wraps_g2pwconverter(self, tmp_path, monkeypatch):
         """When ``g2pw`` is importable and the model is present, ``_load``
         builds the resolver around a fresh :class:`G2PWConverter` instance."""
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "models" / "g2pw").mkdir(parents=True)
-        (tmp_path / "models" / "g2pw" / "version").write_text("v3.0\n")
+        _seed_model_dir(tmp_path, monkeypatch)
         fake_module = types.ModuleType("g2pw")
         asked = {}
 
@@ -242,7 +263,7 @@ class TestLoaderWithFakeModule:
         # its dead-URL download branch is never reached (the old failure
         # mode was zipfile.BadZipFile off a fetched error page, wrapped as
         # MissingExtraError with a "pip install" hint that solved nothing).
-        monkeypatch.chdir(tmp_path)
+        _seed_model_dir(tmp_path, monkeypatch, marker=False)
         fake_module = types.ModuleType("g2pw")
 
         class _MustNotRun:
@@ -266,9 +287,7 @@ class TestLoaderWithFakeModule:
         # tokenizer fetch). _load must translate that into
         # ModelNotInstalledError so the ``auto`` chain degrades instead of
         # crashing — not let the raw RuntimeError escape.
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "models" / "g2pw").mkdir(parents=True)
-        (tmp_path / "models" / "g2pw" / "version").write_text("v3.0\n")
+        _seed_model_dir(tmp_path, monkeypatch)
         fake_module = types.ModuleType("g2pw")
 
         class _BoomConverter:

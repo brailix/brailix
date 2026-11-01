@@ -192,29 +192,42 @@ def _isolated_loaders(
 ) -> Any:
     """Make every loader's non-injected side effects harmless and repeatable.
 
-    ``hanlp._load`` creates ``models/hanlp/`` under the cwd and exports
-    ``HANLP_HOME`` before importing anything, and its transformers guard reads
-    installed package metadata — none of which is what these tests are about,
-    and all of which would otherwise leak across tests or vary by machine.
+    The loaders resolve their model directories through ``get_model_dir``
+    (which, in dev mode, reads the cwd and creates directories there) and
+    the hanlp one exports ``HANLP_HOME`` + reads installed package metadata —
+    none of which is what these tests are about, and all of which would
+    otherwise leak across tests or vary by machine.
+
+    The model dirs are redirected by patching each adapter module's
+    ``get_model_dir`` reference — pointed at tmp, **not** chdir'd. Under the
+    weekly mutation audit, mutmut's trampoline resolves its relative
+    source_paths against the cwd on every hit, so a chdir'ing test dies with
+    FileNotFoundError the moment a trampolined loader runs; a patched
+    resolver keeps the cwd — and the audit — intact.
     """
-    monkeypatch.chdir(tmp_path)
+    for module in (
+        "brailix.frontend.zh.analyzer.adapters.hanlp",
+        "brailix.frontend.zh.pinyin.adapters.g2pw",
+    ):
+        monkeypatch.setattr(
+            f"{module}.get_model_dir",
+            lambda name, _root=tmp_path: _root / "models" / name,
+        )
     monkeypatch.setenv("HANLP_HOME", "")
     monkeypatch.setattr(
         "brailix.frontend.zh.analyzer.adapters.hanlp."
         "_check_transformers_compatibility",
         lambda: None,
     )
-    # Seed a "present" hanlp model dir so the availability pre-check passes
-    # and the INJECTED hanlp.load failure is what these tests exercise —
-    # the adapter checks availability first now (the auto-download path is
-    # gone), so an absent model would raise before the injected boom.
+    # Seed "present" model dirs so the availability pre-checks pass and the
+    # INJECTED failures are what these tests exercise — the adapters check
+    # availability first now (the auto-download path is gone), so an absent
+    # model would raise before the injected boom.
     from brailix.frontend.zh.analyzer.adapters.hanlp import _MTL_DIR
 
-    install = tmp_path / "models" / "hanlp" / _MTL_DIR
-    install.mkdir(parents=True)
-    (install / "config.json").write_text("{}", encoding="utf-8")
-    # Same for g2pw: its loader checks models/g2pw/version (the marker
-    # G2PWConverter itself looks for) before constructing the converter.
+    hanlp_install = tmp_path / "models" / "hanlp" / _MTL_DIR
+    hanlp_install.mkdir(parents=True)
+    (hanlp_install / "config.json").write_text("{}", encoding="utf-8")
     g2pw_install = tmp_path / "models" / "g2pw"
     g2pw_install.mkdir(parents=True)
     (g2pw_install / "version").write_text("v3.0\n", encoding="utf-8")

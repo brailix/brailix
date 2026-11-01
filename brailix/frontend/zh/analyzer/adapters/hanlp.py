@@ -45,9 +45,15 @@ from brailix.frontend.zh.tokens import ChineseToken
 if _TYPE_CHECKING:
     from typing import Any
 
-# Pinned MTL model id. Update _MTL_DIR in lockstep when bumping the
-# constant to a newer HanLP release — the directory name is the URL's
-# zip stem and changes with each model revision (see HanLP's
+# Pinned MTL model id. The download URL is keyed by the 20210111 revision,
+# but upstream has since rebuilt the zip in place with a NEWER inner
+# directory name (20210304) — verified 2026-11-01: the pinned sha256 still
+# matches the zip, its inner dir no longer matches the URL stem. The
+# directory below keeps the URL stem because that is the path
+# ``hanlp.load`` resolves for this pretrained id; the model manager's
+# installer flattens the single wrapper dir so the files land directly
+# here. Update _MTL_DIR in lockstep when bumping to a HanLP release whose
+# id changes (see HanLP's
 # ``hanlp.pretrained.mtl.CLOSE_TOK_POS_NER_SRL_DEP_SDP_CON_ELECTRA_SMALL_ZH``).
 _MTL_DIR = _Path("mtl") / "close_tok_pos_ner_srl_dep_sdp_con_electra_small_20210111_124159"
 _MODEL_ID = "hanlp_mtl_electra_small_zh"

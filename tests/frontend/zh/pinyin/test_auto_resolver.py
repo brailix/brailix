@@ -46,7 +46,13 @@ def test_auto_uses_pypinyin_when_available(monkeypatch):
 
 
 def test_auto_prefers_g2pw_when_available(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+    # Point the loader's model-dir resolver at tmp (patched, never chdir'd —
+    # a chdir would break the weekly mutation audit's cwd-relative
+    # trampoline) and seed a present model so the check-only pre-check passes.
+    monkeypatch.setattr(
+        "brailix.frontend.zh.pinyin.adapters.g2pw.get_model_dir",
+        lambda name: tmp_path / "models" / name,
+    )
     (tmp_path / "models" / "g2pw").mkdir(parents=True)
     (tmp_path / "models" / "g2pw" / "version").write_text("v3.0\n")
     fake_g2pw = types.ModuleType("g2pw")
