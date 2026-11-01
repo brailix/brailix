@@ -1157,11 +1157,18 @@ class TestV5StylingRecordSkips:
 
     def test_eqn_prefs_truncated_styles_section(self):
         # The styles count claims one entry but the stream ends — the
-        # skipper must bail out instead of reading past the buffer.
+        # skipper must bail out instead of reading past the buffer (no
+        # read-past-the-end *parse* failure). The tolerant skip leaves
+        # the stream with no equation content, which since the
+        # empty-payload fix surfaces as the visible degraded placeholder
+        # rather than an invisible empty <math/> — so assert the
+        # placeholder's content-free reason, and that no parse error
+        # fired.
         prefs = bytes([0x12, 0x00, 0x00, 0x00, 0x01])
         payload = B.v5_prelude() + prefs
         out = _to_mathml(payload)
-        assert "merror" not in out
+        assert "no equation content" in out
+        assert "parse error" not in out
 
 
 class TestV5Nudges:
@@ -2114,3 +2121,73 @@ class TestTemplateDegradationMarker:
         out = _to_mathml(B.v5_prelude() + B.v5_line(body))
         assert "(more degradations not recorded)" in out
         assert out.count("mtef template not recognised") == 10
+
+
+class TestEmptyContentStreams:
+    """A stream that parses cleanly but carries no equation records
+    (prelude + immediate END — e.g. a truncated-then-zeroed payload)
+    must become a *visible* degraded placeholder, never an invisible
+    empty ``<math/>``. The bytes below are laid out by hand from the
+    MTEF wire format (not the builder), so the test proves the real
+    byte layout decodes to the placeholder:
+
+    * v5: ``05`` version, ``00 00 01 00`` platform / product / product
+      version / subversion, ``4B 00`` null-terminated app key "K",
+      ``00`` equation options, ``00`` END record.
+    * v3: ``03`` version, ``00 00 01 00`` the four platform/product
+      bytes, ``00`` END record.
+    """
+
+    V5_EMPTY = b"\x05\x00\x00\x01\x00K\x00\x00\x00"
+    V3_EMPTY = b"\x03\x00\x00\x01\x00\x00"
+
+    def test_v5_empty_stream_is_visible_degraded_placeholder(self):
+        out = _to_mathml(self.V5_EMPTY)
+        # Not the old silent empty <math .../>: a hard <merror> renders
+        # one unknown cell (MATH_ERROR) and counts as a hard failure for
+        # the mathtype_fallback="auto" LibreOffice retry ...
+        assert "<merror" in out
+        assert "no equation content" in out
+        # ... and the degraded attribute carries the reason through the
+        # parse seam as MATH_SOURCE_DEGRADED.
+        assert "data-bk-degraded" in out
+
+    def test_v3_empty_stream_is_visible_degraded_placeholder(self):
+        out = _to_mathml(self.V3_EMPTY)
+        assert "<merror" in out
+        assert "no equation content" in out
+        assert "data-bk-degraded" in out
+
+    def test_empty_stream_warns_at_parse_seam(self):
+        from brailix.core.context import MathContext
+        from brailix.core.errors import WarningCollector
+        from brailix.frontend.math import parse_math_tree
+
+        wc = WarningCollector()
+        tree = parse_math_tree(
+            self.V5_EMPTY,
+            MathContext(source="mtef", profile="cn_current", warnings=wc),
+        )
+        assert tree is not None
+        # The merror child renders; the degraded attribute warns.
+        assert _find_first(tree, "merror") is not None
+        hits = wc.by_code("MATH_SOURCE_DEGRADED")
+        assert len(hits) == 1
+        assert "no equation content" in hits[0].message
+
+    def test_definition_records_only_stream_is_placeholder_too(self):
+        # A stream whose records are all definition/styling records (a
+        # FONT_DEF plus END) also yields no equation content — same
+        # placeholder, per-version reason. FONT_DEF layout: enc_def_index
+        # (extended uint, one byte here) + null-terminated font name.
+        from brailix.frontend.math.adapters.mtef._reader import _REC_FONT_DEF
+
+        payload = (
+            B.v5_prelude()
+            + bytes([_REC_FONT_DEF, 0x01])
+            + b"Times\x00"
+            + b"\x00"
+        )
+        out = _to_mathml(payload)
+        assert "<merror" in out
+        assert "no equation content" in out

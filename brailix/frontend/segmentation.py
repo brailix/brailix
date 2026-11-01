@@ -121,6 +121,33 @@ def _opens_island(text: str, j: int) -> bool:
         text[j] == _ISLAND_TAG or text.startswith(_MATH_OPEN, j)
     )
 
+
+def _reads_as_island_close(text: str, j: int) -> bool:
+    """Whether the ``$`` at ``j`` reads as an island *close*.
+
+    Positional, like every rule in this scanner, and deliberately
+    content-blind: a ``$`` is a close when what follows it is prose —
+    whitespace, hanzi, punctuation other than the LaTeX escape ``\\``,
+    an unclassifiable char, or the end of the text. A ``$`` followed by
+    anything that can start an island payload — a digit (a currency
+    amount ``$5``), an ASCII or Greek letter, a bare math operator, a
+    backslash macro, or a machine island's marker — reads as an
+    *opener* or a price tag, never as a close. This is the distinction
+    the currency pairing was missing: in ``价格 $5 和 $6，公式 $x+y$``
+    the ``$`` before ``x`` is the real formula's opener, and reading it
+    as a close manufactured the bogus island ``$6，公式 $`` that ate the
+    prose and shredded the formula. ``j == -1`` (no such ``$``) answers
+    False so callers can pass a search result straight in.
+    """
+    if j == -1:
+        return False
+    if j + 1 >= len(text):
+        return True  # end of text: nothing can follow this close
+    ch = text[j + 1]
+    if _is_digit(ch) or ch == "\\" or _opens_island(text, j + 1):
+        return False
+    return char_category(ch) in ("space", "punct", "hanzi_text", "unknown")
+
 # Half-width characters that are universally math operators / delimiters
 # in modern technical writing — semantically "half-width = math" per the
 # project's profile design (vs. full-width forms, which route through
@@ -341,14 +368,23 @@ def _iter_inline_math_spans(text: str) -> Iterator[tuple[int, int, str]]:
       immediately followed by a digit — ``苹果$5,梨$6。``: a ``$`` glued
       to a digit is a currency amount, so the greedy pair ``$5,梨$`` is
       really two amounts and the prose between them survives. In that
-      case the pair's *own* next ``$`` decides: when that reads as a
-      clean island close (``价格 $5 和 $1+1=2$ 知道``), the candidate was
+      case the pair's *own* next ``$`` decides: when that ``$`` reads
+      as an island close (:func:`_reads_as_island_close` — prose
+      follows it, as in ``价格 $5 和 $1+1=2$ 知道``), the candidate was
       a formula opener, not a price tag, and the scan abandons the
       first ``$`` so the formula pairs when the scan reaches it;
-      otherwise both ``$`` stay prose. The digit lookahead only looks
-      *after* the candidate close, never at the content — a golden
-      ``$\text{速度}$`` keeps its hanzi, and ``我 $1+1=2$ 知道`` still
-      pairs because its closer is followed by a space, not a digit.
+      otherwise both ``$`` stay prose. The mirror rule covers an
+      amount *before* a formula: when the opener ``$`` itself is glued
+      to a digit, the candidate close reads as an opener too (a
+      letter, a macro — ``价格 $5，公式 $x+y$ 对``), and the ``$`` after
+      *that* reads as a close, the opener was a price tag, so the scan
+      abandons it and the formula pairs at the candidate. Without
+      those two shape checks the greedy pair manufactured a bogus
+      island out of the prose between an amount and a real formula
+      (``$6，公式 $``) and shredded the formula's own delimiters. Every
+      decision stays positional — a golden ``$\text{速度}$`` keeps its
+      hanzi, and ``我 $1+1=2$ 知道`` still pairs because its closer is
+      followed by a space, not a digit.
     * **No eligible close** on the same line — the ``$`` is prose; the
       scan advances one so a later genuine island still pairs.
 
@@ -401,24 +437,38 @@ def _iter_inline_math_spans(text: str) -> Iterator[tuple[int, int, str]]:
         if close + 1 < n and _is_digit(text[close + 1]):
             # Candidate close glued to a digit: currency shape. It might
             # still be a *formula opener* (``$5 和 $1+1=2$``) — decide by
-            # whether the candidate's own next ``$`` reads as a clean close.
+            # whether the candidate's own next ``$`` reads as a close.
+            # Prose must follow that ``$``: a ``$`` glued to a letter or
+            # a macro (``$6，公式 $x+y$``) is the *next* formula's opener,
+            # and pairing the candidate across it is exactly how the
+            # bogus ``$6，公式 $`` island used to be manufactured.
             nxt = text.find("$", close + 1)
             clean_close = (
                 nxt != -1
                 and text.find("\n", close + 1, nxt) == -1
-                and (
-                    nxt + 1 >= n
-                    or (
-                        not _opens_island(text, nxt + 1)
-                        and not _is_digit(text[nxt + 1])
-                    )
-                )
+                and _reads_as_island_close(text, nxt)
             )
             if clean_close:
                 i += 1  # the candidate pairs as an island when reached
             else:
                 i = close + 1  # both ``$`` are currency: prose
             continue
+        if _is_digit(text[i + 1]) and not _reads_as_island_close(text, close):
+            # Mirror shape — an amount *before* a formula
+            # (``价格 $5，公式 $x+y$ 对``): the opener is glued to a digit
+            # and the candidate close is itself opener-shaped (a letter,
+            # a macro follows it), so the greedy pair would swallow the
+            # prose between them. When the ``$`` after the candidate
+            # reads as a close, the candidate opens the real formula and
+            # the amount's ``$`` is prose.
+            nxt = text.find("$", close + 1)
+            if (
+                nxt != -1
+                and text.find("\n", close + 1, nxt) == -1
+                and _reads_as_island_close(text, nxt)
+            ):
+                i += 1  # currency amount; the formula pairs at `close`
+                continue
         yield (i, close + 1, "math_inline")
         i = close + 1
 

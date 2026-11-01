@@ -631,6 +631,152 @@ class TestCurrencyDollar:
         assert [seg.surface for seg in s if seg.type == "math_inline"] == []
         assert [seg.surface for seg in s if seg.type == "punct"] == ["$", "，", "$", "。"]
 
+
+class TestAmountAndFormulaOnOneLine:
+    """A currency amount and a real ``$...$`` formula sharing one line —
+    the shape the original currency heuristic could not see. Its close
+    test asked only "is a digit glued to the candidate close's *next*
+    ``$``", so the ``$`` opening a letter-led formula answered "clean
+    close" and the scan manufactured a bogus island out of the prose
+    between an amount and the formula (``价格 $5 和 $6，公式 $x+y$ 对``
+    became the island ``$6，公式 $`` plus a shredded ``x+y``), and a lone
+    amount before a formula was greedily paired the same way
+    (``价格 $5，公式 $x+y$ 对`` → ``$5，公式 $``). The disambiguation is
+    now shape-based on both sides: a ``$`` followed by prose reads as a
+    close, a ``$`` followed by payload material (letter, macro, digit)
+    reads as an opener or a price tag."""
+
+    def test_lone_amount_with_no_other_dollar_is_literal(self):
+        # Invariant 1: one amount, no other ``$`` on the line — no island.
+        s = _segs("价格 $5，便宜。")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("hanzi_text", "价格"),
+            ("space", " "),
+            ("punct", "$"),
+            ("digit_run", "5"),
+            ("punct", "，"),
+            ("hanzi_text", "便宜"),
+            ("punct", "。"),
+        ]
+
+    def test_two_amounts_both_literal_prose_between_survives(self):
+        # Invariant 2: two amounts, no formula — both ``$`` literal and
+        # the prose between them stays prose (the R1-01 baseline shape).
+        s = _segs("价格 $5 和 $6，")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("hanzi_text", "价格"),
+            ("space", " "),
+            ("punct", "$"),
+            ("digit_run", "5"),
+            ("space", " "),
+            ("hanzi_text", "和"),
+            ("space", " "),
+            ("punct", "$"),
+            ("digit_run", "6"),
+            ("punct", "，"),
+        ]
+
+    def test_two_amounts_then_formula_all_resolve(self):
+        # Invariant 3a (the original report): both currency ``$`` stay
+        # literal AND the real formula keeps its own delimiters as an
+        # island — the prose 「，公式」 is no longer swallowed.
+        s = _segs("价格 $5 和 $6，公式 $x+y$ 对")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("hanzi_text", "价格"),
+            ("space", " "),
+            ("punct", "$"),
+            ("digit_run", "5"),
+            ("space", " "),
+            ("hanzi_text", "和"),
+            ("space", " "),
+            ("punct", "$"),
+            ("digit_run", "6"),
+            ("punct", "，"),
+            ("hanzi_text", "公式"),
+            ("space", " "),
+            ("math_inline", "$x+y$"),
+            ("space", " "),
+            ("hanzi_text", "对"),
+        ]
+
+    def test_one_amount_then_formula_all_resolve(self):
+        # Invariant 3b (the wider trigger): a single amount before a
+        # non-digit-led formula. The greedy pair ``$5，公式 $`` must not
+        # form; the formula pairs at its own opener.
+        s = _segs("价格 $5，公式 $x+y$ 对")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("hanzi_text", "价格"),
+            ("space", " "),
+            ("punct", "$"),
+            ("digit_run", "5"),
+            ("punct", "，"),
+            ("hanzi_text", "公式"),
+            ("space", " "),
+            ("math_inline", "$x+y$"),
+            ("space", " "),
+            ("hanzi_text", "对"),
+        ]
+
+    def test_pure_formula_on_a_line_is_unchanged(self):
+        # Invariant 4: with no amount in sight, pairing is untouched.
+        s = _segs("公式 $x+y$ 对")
+        assert [(seg.type, seg.surface) for seg in s] == [
+            ("hanzi_text", "公式"),
+            ("space", " "),
+            ("math_inline", "$x+y$"),
+            ("space", " "),
+            ("hanzi_text", "对"),
+        ]
+
+    @pytest.mark.parametrize(
+        "text,island",
+        [
+            # The report's variants: amounts glued to hanzi, no spaces.
+            ("他花了$5，她有$3，公式是$x+y$正确", "$x+y$"),
+            ("成本$10与收益$20，净利$x-y$多少", "$x-y$"),
+            # All-ASCII prose (no hanzi to stop the bogus island).
+            ("cost $5 and $6 2x, total $x+y$ ok", "$x+y$"),
+            ("cost $5, total $x+y$ ok", "$x+y$"),
+            # Macro-led formula after an amount — the opener ``$`` is
+            # followed by a backslash, an opener shape, not a close.
+            ("价格 $5，公式 $\\alpha+\\beta$ 对", "$\\alpha+\\beta$"),
+            # Amount + digit-led formula + another amount, one line:
+            # every amount literal, the formula still an island.
+            ("价格 $5，公式 $1+1=2$，共 $7 元", "$1+1=2$"),
+            # Paren-led formula after an amount.
+            ("价格 $5，公式 $(a+b)$ 对", "$(a+b)$"),
+        ],
+    )
+    def test_amounts_never_eat_the_formula(self, text, island):
+        s = _segs(text)
+        assert _surfaces([seg for seg in s if seg.type == "math_inline"]) == [
+            island
+        ]
+        # No bogus island: everything that is not the formula is prose
+        # categories, and the segments still tile the source exactly.
+        assert "".join(_surfaces(s)) == text
+        assert all(
+            seg.type in ("punct", "digit_run", "hanzi_text", "latin_text", "space")
+            for seg in s
+            if seg.type != "math_inline"
+        )
+
+    def test_currency_dollar_emits_no_math_warnings_downstream(self):
+        # The misattribution tail of R1-01: the bogus island used to
+        # reach latex2mathml, which *accepted* ``6，公式 `` and emitted
+        # MATH_UNKNOWN_IDENTIFIER warnings for 公/式/， — diagnostics
+        # blaming the math identifier tables for what was a pairing
+        # error. With the pseudo island gone, no MATH_* warning fires
+        # for this line at all (the literal ``$`` keeps its baseline
+        # UNKNOWN_PUNCT, which every currency ``$`` already produced).
+        from brailix import Pipeline
+
+        result = Pipeline(profile="cn_current").translate_text(
+            "价格 $5 和 $6，公式 $x+y$ 对"
+        )
+        codes = [w.code for w in result.warnings]
+        assert not any(c.startswith("MATH_") for c in codes)
+
 class TestRoundTripText:
     @pytest.mark.parametrize(
         "text",

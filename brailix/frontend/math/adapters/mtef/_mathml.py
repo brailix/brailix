@@ -22,7 +22,7 @@ from brailix.frontend.math.adapters.mtef._fonts import (
     translate_font_position,
 )
 from brailix.frontend.math.adapters.mtef._reader import _MtefParseError
-from brailix.frontend.math.utils import mrow_wrap, mtext
+from brailix.frontend.math.utils import _MATHML_NS, mrow_wrap, mtext
 
 if _TYPE_CHECKING:
     from collections.abc import Callable
@@ -49,6 +49,39 @@ def _classify_token(text: str) -> str:
     (see :func:`brailix.frontend.math.adapters._atoms.classify_math_token`).
     """
     return classify_math_token(text)
+
+
+def _degraded_merror_math(
+    reason: str, *, degradations: list[str] | None = None
+) -> str:
+    """A ``<math>`` root carrying one hard ``<merror>`` plus the
+    ``data-bk-degraded`` marker, for a stream that parses cleanly but
+    yields no equation content (prelude + immediate END, or only
+    definition records).
+
+    Same contract as any other unreadable formula (the OLE extraction
+    path's ``merror_wrap`` placeholders): the ``<merror>`` renders one
+    unknown cell with a ``MATH_ERROR`` warning and counts as a hard
+    failure for the ``mathtype_fallback="auto"`` LibreOffice retry, and
+    the degraded attribute surfaces a ``MATH_SOURCE_DEGRADED`` warning
+    at parse time. An *empty* ``<math/>`` would give the reader nothing
+    at all — the formula would vanish without a trace.
+
+    ``degradations`` (walk-level reasons the walk already recorded —
+    unknown templates that emitted nothing) ride along in the attribute
+    so the bounded trace survives; the ``<merror>``'s own reason stays
+    the short form, because the backend echoes ``data-reason`` into its
+    warning message and the trace is already on the root.
+    """
+    math = _ET.Element("math", {"xmlns": _MATHML_NS})
+    if degradations:
+        math.set("data-bk-degraded", "; ".join([reason, *degradations]))
+    else:
+        math.set("data-bk-degraded", reason)
+    err = _ET.Element("merror", {"data-reason": reason})
+    err.append(mtext(""))
+    math.append(err)
+    return _ET.tostring(math, encoding="unicode")
 
 
 # Script templates whose first child is the *nucleus* (base) slot.

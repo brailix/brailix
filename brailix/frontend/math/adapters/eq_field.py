@@ -186,6 +186,23 @@ class EqFieldMathSourceAdapter:
             return merror_wrap(text, reason=f"eq parse error: {e}")
         except Exception as e:  # noqa: BLE001 — keep adapter soft-failing
             return merror_wrap(text, reason=f"eq convert error: {e}")
+        # Extra switch arguments are dropped at build time (each handler
+        # takes the leading N it consumes). Word's equation editor never
+        # writes them, but hand-edited field codes do — a dropped
+        # argument is lost content, so it warns instead of vanishing
+        # silently. Emitted through the standard ``ctx.warnings`` channel
+        # every adapter shares.
+        if ctx is not None:
+            for switch, used, total in parser.extra_arg_drops:
+                ctx.warnings.warn(
+                    code="EQ_FIELD_EXTRA_ARGS_DROPPED",
+                    message=(
+                        f"eq field switch \\{switch} takes at most {used} "
+                        f"argument(s), got {total}; extras dropped"
+                    ),
+                    surface=f"\\{switch}",
+                    source="frontend.math.eq_field",
+                )
         math = _ET.Element("math", {"xmlns": _MATHML_NS})
         try:
             children = _emit_sequence(nodes)
@@ -284,6 +301,18 @@ class _Parser:
         self.toks = tokens
         self.pos = 0
         self._depth = 0
+        # Switches that received more arguments than they consume
+        # ``(switch, used, total)`` — reported by ``to_mathml`` as an
+        # ``EQ_FIELD_EXTRA_ARGS_DROPPED`` warning. Word's own equation
+        # editor never writes extra arguments, but hand-edited field
+        # codes (Alt+F9) do; the drop must be visible, not silent.
+        self.extra_arg_drops: list[tuple[str, int, int]] = []
+
+    def note_extra_args(self, switch: str, used: int, total: int) -> None:
+        """Record that ``switch`` got ``total`` arguments but consumes at
+        most ``used`` — the excess is dropped at build time."""
+        if total > used:
+            self.extra_arg_drops.append((switch, used, total))
 
     # --- low-level helpers --------------------------------------------------
 
@@ -492,6 +521,7 @@ class _Parser:
 def _handle_frac(p: _Parser) -> Node:
     """``\\f(num,den)`` — fraction."""
     args = p._parse_arg_list()
+    p.note_extra_args("f", 2, len(args))
     num = args[0] if len(args) > 0 else []
     den = args[1] if len(args) > 1 else []
     return _Frac(num=num, den=den)
@@ -500,6 +530,7 @@ def _handle_frac(p: _Parser) -> Node:
 def _handle_radical(p: _Parser) -> Node:
     """``\\r(rad)`` = √rad ; ``\\r(n, rad)`` = ⁿ√rad."""
     args = p._parse_arg_list()
+    p.note_extra_args("r", 2, len(args))
     if len(args) == 0:
         return _Radical(index=None, radicand=[])
     if len(args) == 1:
@@ -540,6 +571,7 @@ def _handle_brackets(p: _Parser) -> Node:
     if not has_lc and not has_rc:
         left, right = "(", ")"
     args = p._parse_arg_list()
+    p.note_extra_args("b", 1, len(args))
     content = args[0] if args else []
     return _Brackets(left=left, right=right, content=content)
 
@@ -613,6 +645,7 @@ def _handle_integral(p: _Parser) -> Node:
         else:
             break
     args = p._parse_arg_list()
+    p.note_extra_args("i", 3, len(args))
     lower = args[0] if len(args) > 0 else []
     upper = args[1] if len(args) > 1 else []
     integrand = args[2] if len(args) > 2 else []
@@ -645,6 +678,7 @@ def _handle_script(p: _Parser) -> Node:
         else:
             break
     args = p._parse_arg_list()
+    p.note_extra_args("s", 1, len(args))
     content = args[0] if args else []
     return _Script(kind=kind, content=content)
 
@@ -672,6 +706,7 @@ def _handle_box(p: _Parser) -> Node:
         else:
             break
     args = p._parse_arg_list()
+    p.note_extra_args("x", 1, len(args))
     content = args[0] if args else []
     return _Box(sides=frozenset(sides), content=content)
 

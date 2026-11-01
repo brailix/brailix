@@ -3,7 +3,12 @@
 The adapter calls :func:`latex2mathml.converter.convert` and returns
 the resulting MathML string. Errors from the converter are reported
 as a soft failure (``<merror>`` wrapped MathML) rather than re-raising,
-so a malformed snippet never breaks a whole document.
+so a malformed snippet never breaks a whole document. The same
+soft-failure answer is given *before* the converter for an island whose
+braces / delimiters don't balance (:func:`_groups_balanced`): real
+latex2mathml 3.x silently "converts" unbalanced input — a missing ``}``
+after ``\\ce{`` reads as ordinary maths with a stray ``<mi>\\ce</mi>``
+— so the adapter refuses the island rather than let it be misread.
 
 **Embedded mhchem**: a formula may mix maths and ``\\ce{...}`` segments
 (``$\\ce{H2O} + x$``). latex2mathml has no mhchem support — it would
@@ -69,6 +74,15 @@ class LatexMathSourceAdapter:
         # ``$...$`` / ``\(...\)` wrappers leak into segment surfaces;
         # strip them so latex2mathml sees just the inner expression.
         text = _strip_math_delimiters(text)
+        # An island whose groups don't balance never reaches the
+        # converter. latex2mathml 3.x does NOT fail on unbalanced
+        # input — ``x + \ce{H2O`` "converts" into ``<mi>\ce</mi>`` plus
+        # H2O as ordinary maths — so a missing brace used to produce
+        # confident but wrong braille with no diagnostic. Refusing the
+        # island here degrades to the standard merror path (source
+        # preserved in the mtext, MATH_ERROR downstream) instead.
+        if not _groups_balanced(text):
+            return merror_wrap(text, reason="unbalanced braces or delimiters")
         # mhchem ``\ce{...}`` is LaTeX syntax latex2mathml can't parse.
         # Split the formula into alternating maths / chemistry segments
         # so EVERY ``\ce{...}`` in it goes through the chemistry
@@ -103,6 +117,40 @@ def _strip_math_delimiters(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 _CE_TOKEN = "\\ce"
+
+# Group / delimiter pairs the balance gate recognises. LaTeX groups are
+# ``{...}``; parens and brackets are ordinary symbols in maths but pair
+# the same way in every well-formed formula, and latex2mathml's silent
+# acceptance of *un*paired ones is exactly what the gate exists to catch.
+_GROUP_OPENERS: dict[str, str] = {"{": "}", "(": ")", "[": "]"}
+
+
+def _groups_balanced(text: str) -> bool:
+    """Whether every group / delimiter in ``text`` is paired and nested.
+
+    One pass with a backslash escape: ``\\{`` / ``\\}`` / ``\\(`` are
+    literal symbols, not delimiters, and a control sequence's name
+    (``\\frac``) never opens anything, so a backslash and the one
+    character after it are skipped together. A mismatched close
+    (``(a]``), an unmatched one (``x}``), or a group left open
+    (``\\ce{H2O``) all answer False — shapes the author almost certainly
+    did not intend, and which the converter would otherwise misread
+    silently (see :meth:`LatexMathSourceAdapter.to_mathml`).
+    """
+    stack: list[str] = []
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\":
+            i += 2  # control sequence / escaped delimiter — not a group
+            continue
+        if ch in _GROUP_OPENERS:
+            stack.append(_GROUP_OPENERS[ch])
+        elif ch in "})]":
+            if not stack or stack.pop() != ch:
+                return False
+        i += 1
+    return not stack
 
 
 def _find_ce_start(text: str, start: int) -> int:
@@ -154,9 +202,10 @@ def _split_ce_segments(
 
     Returns ``None`` when the formula contains no ``\\ce{...}`` at all
     (the overwhelmingly common case — the caller then keeps its plain
-    latex2mathml path). A ``\\ce`` whose braces never close (or never
-    open) is left in the maths text for latex2mathml to fail on, matching
-    how a stray ``\\ce`` behaved before segmentation existed."""
+    latex2mathml path). A ``\\ce`` whose braces never close makes the
+    island fail the adapter's balance gate before this split runs (and
+    before the converter could silently accept it); one whose braces
+    never open has nothing to extract and stays in the maths text."""
     segments: list[tuple[bool, str]] = []
     plain_start = 0
     i = _find_ce_start(text, 0)

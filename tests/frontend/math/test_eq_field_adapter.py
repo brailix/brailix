@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
+import pytest
+
 from brailix.frontend.math.adapters.eq_field import EqFieldMathSourceAdapter
 
 
@@ -647,4 +649,54 @@ class TestRecursionBackstop:
         eq = "eq " + "\\f(" * n + "x" + ",1)" * n
         out = _mathml(eq)
         assert "merror" not in out
+        assert "<mfrac>" in out
+
+
+class TestExtraArgumentsWarn:
+    """A switch given more arguments than it consumes drops the extras
+    (each handler takes its leading N). Word's equation editor never
+    writes such a field, but hand-edited field codes (Alt+F9) do — and a
+    dropped argument is lost content, so the drop warns through the
+    adapter's ``ctx.warnings`` instead of vanishing silently (R1-05)."""
+
+    def _warns(self, formula: str):
+        from brailix.core.context import MathContext
+
+        ctx = MathContext(source="eq_field", profile="cn_current")
+        out = EqFieldMathSourceAdapter().to_mathml(formula, ctx)
+        return out, ctx.warnings.by_code("EQ_FIELD_EXTRA_ARGS_DROPPED")
+
+    @pytest.mark.parametrize(
+        ("formula", "switch", "used", "total", "shape"),
+        [
+            # \f(num, den) — the 3rd argument used to vanish.
+            (r"eq \f(1,2,3)", "f", 2, 3, "<mfrac>"),
+            # \r(deg, rad) — the 3rd argument used to vanish.
+            (r"eq \r(3,x,y)", "r", 2, 3, "<mroot>"),
+            # \s\up N (expr) — the 2nd argument used to vanish.
+            (r"eq \s\up2(a,b)", "s", 1, 2, "<msup>"),
+            # \i(lo, hi, body) — the 4th argument used to vanish.
+            (r"eq \i(0,1,x,y)", "i", 3, 4, "<msubsup>"),
+        ],
+    )
+    def test_extra_args_drop_warns(self, formula, switch, used, total, shape):
+        out, hits = self._warns(formula)
+        # The MathML still converts from the leading arguments ...
+        assert shape in out
+        # ... and exactly one warning reports the drop with its shape.
+        assert len(hits) == 1
+        assert hits[0].surface == rf"\{switch}"
+        assert f"at most {used}" in hits[0].message
+        assert f"got {total}" in hits[0].message
+
+    def test_no_warning_for_exact_argument_counts(self):
+        for formula in (r"eq \f(1,2)", r"eq \r(3,x)", r"eq \s\up2(a)"):
+            _out, hits = self._warns(formula)
+            assert hits == [], formula
+
+    def test_no_warning_without_context(self):
+        # Direct adapter calls with no ctx (the docstring-documented
+        # convenience form) must not crash — the drop just goes
+        # unreported, same as every other ctx-less diagnostic.
+        out = EqFieldMathSourceAdapter().to_mathml(r"eq \f(1,2,3)")
         assert "<mfrac>" in out

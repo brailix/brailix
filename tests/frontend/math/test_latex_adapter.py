@@ -199,12 +199,25 @@ class TestEmbeddedCe:
         out = adapter.to_mathml(r"\centering")
         assert "<mtext>\\centering</mtext>" in out
 
-    def test_unbalanced_ce_falls_back_to_converter(self):
-        # \ce{H2O (unclosed) — not a usable mhchem argument; the whole
-        # text goes to latex2mathml like before segmentation existed.
-        adapter = LatexMathSourceAdapter(converter=_fake_converter)
-        out = adapter.to_mathml(r"\ce{H2O")
-        assert "<mtext>\\ce{H2O</mtext>" in out
+    @pytest.mark.requires("latex2mathml")
+    def test_unbalanced_ce_refused_before_the_real_converter(self):
+        # \ce{H2O (unclosed) — R1-06. The design assumption this file
+        # used to pin was "latex2mathml will fail on it"; the real 3.x
+        # converter instead *succeeds*, emitting a stray <mi>\ce</mi>
+        # plus H2O as ordinary maths, and the old test — a fake
+        # converter asserting only that the raw text reached it —
+        # certified that silent misread. The adapter now refuses an
+        # unbalanced island before the converter: merror with the
+        # source verbatim, the standard soft-failure path downstream.
+        from latex2mathml.converter import convert
+
+        adapter = LatexMathSourceAdapter(converter=convert)
+        out = adapter.to_mathml(r"x + \ce{H2O")
+        root = ET.fromstring(out)
+        err = root.find(f".//{_MML_NS}merror")
+        assert err is not None
+        assert err.get("data-reason") == "unbalanced braces or delimiters"
+        assert err.find(f".//{_MML_NS}mtext").text == "x + \\ce{H2O"
 
     def test_failing_math_segment_degrades_alone(self):
         # One broken maths segment becomes its own <merror>; the chem
@@ -222,6 +235,83 @@ class TestEmbeddedCe:
             m.get("data-bk-chem") == "1"
             for m in root.iter(f"{_MML_NS}mrow")
         )
+
+
+class TestRealConverterMalformedInput:
+    """Un-mocked assertions against the REAL latex2mathml.
+
+    The coverage gap behind R1-01 and R1-06: 17 of this module's 19
+    tests injected ``_fake_converter``, so nothing here ever asserted
+    what the real converter does to malformed input — which is
+    "succeed, with confident nonsense MathML" (verified by hand on
+    3.81: unclosed parens/brackets/braces, a lone ``}``, ``\\frac{1}{2``,
+    mismatched ``(a]`` all convert). These tests pin that such islands
+    are refused before the converter and that the refusal is the
+    standard soft-failure path — no crash, source preserved."""
+
+    @pytest.fixture
+    def real_adapter(self):
+        pytest.importorskip("latex2mathml")
+        from latex2mathml.converter import convert
+
+        return LatexMathSourceAdapter(converter=convert)
+
+    @pytest.mark.requires("latex2mathml")
+    def test_unclosed_delimiters_are_refused_not_misread(self, real_adapter):
+        for formula in ["x + (y", "x + [y", "x + {y", r"\frac{1}{2", "x}", "(a]"]:
+            out = real_adapter.to_mathml(formula)
+            root = ET.fromstring(out)
+            err = root.find(f".//{_MML_NS}merror")
+            assert err is not None, formula
+            assert err.get("data-reason") == "unbalanced braces or delimiters"
+            assert err.find(f".//{_MML_NS}mtext").text == formula
+
+    @pytest.mark.requires("latex2mathml")
+    def test_unbalanced_ce_yields_no_ordinary_maths_reading(self, real_adapter):
+        # The exact misread R1-06 replaced: <mi>\ce</mi> followed by
+        # H2O as ordinary maths (an msub subscript, no chem ABI). The
+        # merror path carries the source verbatim instead.
+        out = real_adapter.to_mathml(r"\ce{H2O")
+        tags = _local_tags(ET.fromstring(out))
+        assert "merror" in tags
+        assert "msub" not in tags
+        assert "mi" not in tags
+
+    @pytest.mark.requires("latex2mathml")
+    def test_empty_island_soft_fails_before_the_converter(self, real_adapter):
+        out = real_adapter.to_mathml("")
+        root = ET.fromstring(out)
+        err = root.find(f".//{_MML_NS}merror")
+        assert err is not None
+        assert err.get("data-reason") == "empty input"
+
+    @pytest.mark.requires("latex2mathml")
+    def test_whitespace_island_soft_fails_before_the_converter(self, real_adapter):
+        out = real_adapter.to_mathml("   ")
+        root = ET.fromstring(out)
+        err = root.find(f".//{_MML_NS}merror")
+        assert err is not None
+        assert err.get("data-reason") == "empty input"
+
+    @pytest.mark.requires("latex2mathml")
+    def test_balanced_formulas_still_reach_the_real_converter(self, real_adapter):
+        # The gate must not over-fire: well-formed input — including
+        # escaped literal braces, \left/\right, an optional argument and
+        # a balanced \ce mix — still converts through latex2mathml.
+        out = real_adapter.to_mathml(r"\frac{1}{2}")
+        assert _local_tags(ET.fromstring(out)) and "mfrac" in _local_tags(
+            ET.fromstring(out)
+        )
+        out = real_adapter.to_mathml(r"\{x\}")
+        assert "merror" not in out
+        out = real_adapter.to_mathml(r"\sqrt[3]{x}")
+        assert "merror" not in out
+        out = real_adapter.to_mathml(r"\ce{H2O} + x")
+        root = ET.fromstring(out)
+        assert any(
+            m.get("data-bk-chem") == "1" for m in root.iter(f"{_MML_NS}mrow")
+        )
+        assert "merror" not in out
 
 
 class TestDelimiterHelper:
