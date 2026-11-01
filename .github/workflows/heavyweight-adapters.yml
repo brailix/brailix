@@ -69,10 +69,19 @@ jobs:
         if: matrix.adapter == 'hanlp'
         run: |
           mkdir -p models/hanlp/mtl
-          curl -fsSL -o /tmp/hanlp-mtl.zip \
+          curl -fsSL --retry 4 --retry-all-errors --retry-delay 5 -o /tmp/hanlp-mtl.zip \
             "https://file.hankcs.com/hanlp/mtl/close_tok_pos_ner_srl_dep_sdp_con_electra_small_20210111_124159.zip"
           echo "c3c590748d7f6f40f584ec13b99d4c5c9301b83a8c9898912684109b9aa86584  /tmp/hanlp-mtl.zip" | sha256sum -c -
-          unzip -q /tmp/hanlp-mtl.zip -d models/hanlp/mtl
+          # Extract, then install the single wrapper dir under the pinned
+          # install name (the desktop manager's flatten-and-swap semantics).
+          # The zip's inner dir names a NEWER revision than the URL — files
+          # must sit directly under the install dir, where hanlp resolves
+          # meta.json — so the wrapper collapses rather than nests.
+          staging=$(mktemp -d)
+          unzip -q /tmp/hanlp-mtl.zip -d "$staging"
+          inner=$(find "$staging" -mindepth 1 -maxdepth 1 -type d)
+          test "$(printf '%s\n' "$inner" | grep -c .)" -eq 1
+          mv "$inner" "models/hanlp/mtl/close_tok_pos_ner_srl_dep_sdp_con_electra_small_20210111_124159"
 
       - name: Install the g2pw model
         if: matrix.adapter == 'g2pw'
@@ -80,11 +89,14 @@ jobs:
           mkdir -p models/g2pw
           cd models/g2pw
           base="https://huggingface.co/iqt-voice/G2PWModel/resolve/main"
-          curl -fsSL -o version              "$base/version"
-          curl -fsSL -o g2pw.onnx            "$base/g2pW.onnx"
-          curl -fsSL -o config.py            "$base/config.py"
-          curl -fsSL -o POLYPHONIC_CHARS.txt "$base/POLYPHONIC_CHARS.txt"
-          curl -fsSL -o MONOPHONIC_CHARS.txt "$base/MONOPHONIC_CHARS.txt"
+          # --retry-all-errors: HF rate-limits anonymous bursts (429); the
+          # retry ladder absorbs it instead of failing the leg.
+          fetch() { curl -fsSL --retry 6 --retry-all-errors --retry-delay 10 -o "$1" "$base/$2"; }
+          fetch version              version
+          fetch g2pw.onnx            g2pW.onnx
+          fetch config.py            config.py
+          fetch POLYPHONIC_CHARS.txt POLYPHONIC_CHARS.txt
+          fetch MONOPHONIC_CHARS.txt MONOPHONIC_CHARS.txt
           sha256sum -c - <<'EOF'
           bb40c8c7b5baa755b2acd317c6bc5a65e4af7b80c40a569247fbd76989299999  g2pw.onnx
           517036ffbc4858eba27a01b85badcfd5e5c2a59a3d35d1898ab34567f818e799  version
