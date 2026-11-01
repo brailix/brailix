@@ -135,11 +135,18 @@ def test_a_drive_relative_name_really_would_have_escaped() -> None:
 def test_the_accepted_names_are_the_ones_actually_shipped() -> None:
     """The rule has to keep the real resources loadable — a validator that
     refuses ``cn_current`` passes every test above and breaks the product."""
-    # The autouse _no_stray_directories fixture chdirs to tmp_path; restoring
-    # cwd here is required because mutmut's trampoline resolves source_paths
-    # (relative to cwd) against a directory that no longer exists there.
+    # The autouse _no_stray_directories fixture chdirs to tmp_path (the
+    # refusal tests need stray directories to land there). This test only
+    # *loads* real resources, and under a mutation audit mutmut's
+    # trampoline resolves its relative source_paths strictly against the
+    # cwd — a hit with cwd=tmp_path dies hunting for ``<tmp>/brailix``.
+    # So run from the imported package's parent, which is the checkout
+    # root in a normal run and the ``mutants/`` copy under mutmut alike.
+    import brailix
+
     _saved_cwd = _os.getcwd()
     try:
+        _os.chdir(Path(brailix.__file__).resolve().parents[1])
         assert load_profile("cn_current").name == "cn_current"
         assert load_tactile_profile("generic") is not None
     finally:
